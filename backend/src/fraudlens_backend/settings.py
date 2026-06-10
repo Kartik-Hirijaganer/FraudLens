@@ -2,7 +2,7 @@
 pydantic-settings. Configuration is layered (lowest to highest precedence):
 config/default.yaml -> config/<environment>.yaml -> FRAUDLENS_* environment
 variables -> explicit constructor args. Only NON-secret config lives in these
-sources; secrets are fetched from Akeyless at runtime (Golden Rule 2). The model
+sources; secrets are fetched from Infisical at runtime (Golden Rule 2). The model
 uses extra="forbid" so an unknown key fails fast rather than being ignored.
 
 Key classes:

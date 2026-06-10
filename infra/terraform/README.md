@@ -58,13 +58,13 @@ secret in GitHub):
    `client-id` / `tenant-id` / `subscription-id` (non-secret ids) — Terraform's
    `provider "azurerm" { use_oidc = true }` then needs no secret.
 
-## Akeyless → `TF_VAR_*` mapping
+## Infisical and `TF_VAR_*` mapping
 
 - **Account identifiers** (subscription/tenant/client id) are **non-secret** and are
   supplied as `TF_VAR_subscription_id`, `TF_VAR_tenant_id`, `TF_VAR_client_id` at
   plan/apply time (from the OIDC login step / repo variables).
 - **Application secrets** (DB passwords, JWT keys, third-party API keys) are **never**
-  Terraform inputs. They are fetched at **runtime from Akeyless** by the app and injected
+  Terraform inputs. They are fetched at **runtime from Infisical** by the app and injected
   as Container App env/secret refs — keeping secrets out of Terraform state entirely.
 
 ## Apply order (once live)

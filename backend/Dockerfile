@@ -5,7 +5,7 @@
 # with the runtime stage. Members are installed as non-editable wheels, so the
 # runtime image carries only the venv + non-secret config (no source tree). The
 # container runs uvicorn as a NON-ROOT user. Secrets are never baked in — they are
-# injected at runtime from Akeyless. Platform probes hit /healthz and /readyz.
+# injected at runtime from Infisical. Platform probes hit /healthz and /readyz.
 
 FROM python:3.11-slim-bookworm AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/

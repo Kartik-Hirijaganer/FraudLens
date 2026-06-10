@@ -4,7 +4,7 @@
 #   ->  FRAUDLENS_* environment variables. See config/README.md.
 #
 # SECRETS NEVER LIVE HERE. Credentials (DB passwords, API keys, JWT signing keys)
-# are fetched at runtime from Akeyless — never committed to YAML, .env, or source.
+# are fetched at runtime from Infisical — never committed to YAML, .env, or source.
 app_name: FraudLens
 environment: dev
 log_level: INFO

@@ -23,7 +23,7 @@ Plan: `plans/YYYY-MM-DD-<title>.md` (phase N)
 - [ ] Every tenant-scoped query/job is scoped by `agency_id`; JWT `agency_id` validated (fails closed)
 - [ ] Error responses use the `{code, message, details, requestId}` envelope (no stack traces)
 - [ ] Business APIs under `/api/v1/`; ops probes `/healthz`/`/readyz` unprefixed; camelCase API surface
-- [ ] **No secrets** committed — credentials come from Akeyless at runtime
+- [ ] **No secrets** committed — credentials come from Infisical at runtime
 - [ ] UI changes follow the `wise` design system ([`DESIGN.md`](../DESIGN.md)) — tokens only
 
 ## Drift-check
