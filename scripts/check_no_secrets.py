@@ -2,8 +2,8 @@
 primary repo-wide scanner; this adds a targeted assertion that the layered config
 files (config/*.yaml) carry NO inline secrets. Secret-named keys (password, secret,
 token, api_key, private_key, access_key, client_secret) must be absent or hold only
-an empty/placeholder/Akeyless-reference value — real credentials are fetched from
-Akeyless at runtime and never committed.
+an empty/placeholder/Infisical-reference value — real credentials are fetched from
+Infisical at runtime and never committed.
 
 Key classes:
 - (none)
@@ -25,7 +25,7 @@ _SECRET_KEY_RE = re.compile(
     r"access[_-]?key|client[_-]?secret|credential)\b"
 )
 _PLACEHOLDER_RE = re.compile(
-    r"^(|null|~|''|\"\"|<.*>|\$\{.*\}|changeme|example.*|akeyless.*)$", re.IGNORECASE
+    r"^(|null|~|''|\"\"|<.*>|\$\{.*\}|changeme|example.*|infisical.*)$", re.IGNORECASE
 )
 
 

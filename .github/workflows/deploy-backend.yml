@@ -3,7 +3,7 @@
 # `verify` runs (re-running the SAME gate at the deployed SHA — deploy parity).
 #
 # Secrets posture: Azure auth is GitHub→Azure OIDC (id-token: write; no stored client
-# secret). App secrets are fetched at runtime from Akeyless by the Container App,
+# secret). App secrets are fetched at runtime from Infisical by the Container App,
 # never injected here. Flow: verify → build-push → terraform apply (staged revision
 # at 0%) → smoke (/healthz,/readyz + pytest -m smoke) → promote 100% traffic.
 name: deploy-backend

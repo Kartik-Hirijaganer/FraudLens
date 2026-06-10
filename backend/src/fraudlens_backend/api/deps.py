@@ -2,7 +2,7 @@
 must present a verifiable bearer token whose agency_id claim matches the requested
 tenant; anything else is rejected (401 for missing/invalid credentials, 403 for a
 tenant mismatch). Token verification is pluggable via the TokenVerifier dependency;
-the default is intentionally unconfigured (no Akeyless-provided signing key is
+the default is intentionally unconfigured (no Infisical-provided signing key is
 wired yet) and therefore rejects every token — so the surface is locked by default
 and real verification is added later without touching call sites. The dev bypass is
 honored ONLY when settings.is_dev_bypass_enabled, which is False in prod regardless
@@ -69,7 +69,7 @@ class _UnconfiguredTokenVerifier:
     """Fail-closed default: no signing key is wired yet, so reject every token."""
 
     def __call__(self, token: str) -> AccessClaims:
-        """Always raise — real verification (Akeyless key) is added later."""
+        """Always raise — real verification (Infisical key) is added later."""
         raise CredentialsError("token verification is not configured")
 
 

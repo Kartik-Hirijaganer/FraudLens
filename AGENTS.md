@@ -19,7 +19,7 @@ personal repo. Handoff/context lives in
 
 1. **Never `git commit` or `git push` without explicit human permission.** Make and
    describe changes; wait for an explicit go-ahead before writing history or pushing.
-2. **No secrets in `.env` or source.** All credentials come from **Akeyless** (see
+2. **No secrets in `.env` or source.** All credentials come from **Infisical** (see
    [Secrets](#secrets)). `.env` is for non-secret local config only and stays gitignored.
 3. **Plans live in [`plans/`](plans/)**, named `YYYY-MM-DD-<short-title>.md` — see
    [`plans/README.md`](plans/README.md).
@@ -43,8 +43,16 @@ The `drift-check` skill audits implementations against these rules (see below).
 
 ## Secrets
 
-- **Source of truth: Akeyless.** Fetch at runtime via the Akeyless CLI/SDK
-  (e.g. `akeyless get-secret-value --name <path>`); never hardcode or commit secrets.
+- **Source of truth: Infisical Cloud** (`https://app.infisical.com`). Fetch secrets at
+  runtime via the Infisical CLI/SDK/agent (e.g.
+  `infisical run --env=prod --path=/backend -- <command>`) or through GitHub Actions OIDC
+  machine identities; never hardcode or commit secrets.
+- **Infisical has exactly one environment: `prod`.** Do not create or rely on any other
+  Infisical environment. Local development may use non-secret local config, but any secret
+  read must resolve from Infisical `prod`.
+- **Do not use AWS SSM or Azure Key Vault as FraudLens app secret stores** unless a
+  future plan explicitly changes the architecture. Azure OIDC is still used for Azure
+  deploy authentication; it is not the app secrets source of truth.
 - Do **not** put credentials in `.env`, code, config, or fixtures.
 - `.env` (gitignored) may hold **non-secret** local config only.
 - Reads of `.env*`, `*.pem`, `*.key`, and `secrets/` are denied to Claude Code via
@@ -57,9 +65,9 @@ The `drift-check` skill audits implementations against these rules (see below).
 
 - The AWS **`personal-admin`** profile is **local-only** (CLI experiments, scratch
   storage) and is **NOT a project deploy target**. Nothing in FraudLens deploys to AWS.
-- **Secrets** for deploy come from **Akeyless** (short-lived, fetched at job runtime) and
-  **GitHub→Azure OIDC** (federated, no stored client secret) — never long-lived cloud
-  credentials in GitHub or the repo. See [Secrets](#secrets).
+- **Secrets** for deploy come from **Infisical** (short-lived, fetched at job/runtime via
+  OIDC machine identities) and **GitHub→Azure OIDC** (federated, no stored client secret)
+  — never long-lived cloud credentials in GitHub or the repo. See [Secrets](#secrets).
 - Azure/Vercel/Supabase accounts **do not exist yet**: IaC and deploy workflows are
   **scaffolded and CI-validated but inert** (no `terraform apply`, no push) until the
   accounts and the Terraform state backend exist.
@@ -130,9 +138,9 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 3. **≥90% coverage**, both stacks (branch coverage on Python); **new/changed functionality
    requires behavioral tests**. A changed-file coverage gate catches untested new files.
 4. **No hardcoded values / no committed secrets.** Non-secret config → `config/*.yaml` + env
-   (`pydantic-settings`, `FRAUDLENS_*`); **secrets → Akeyless at runtime**, never
+   (`pydantic-settings`, `FRAUDLENS_*`); **secrets → Infisical at runtime**, never
    `.env`/source/config/fixtures. Enforcement: repo-wide **`gitleaks`** (primary) + ruff
-   `PLR2004` + `scripts/check_no_secrets.py` (Akeyless/config guard).
+   `PLR2004` + `scripts/check_no_secrets.py` (Infisical/config guard).
 5. **No duplication.** Reuse shared logic from `fraudlens-core`; APIs use query/path params
    instead of near-duplicate endpoints; no duplicate tables — extend/reuse. **Banned names:**
    `v2`, `new_`, `temp_`, `tmp_`, `old_`, `legacy_`, `copy_`, `_refactored`. Tooling:
@@ -149,14 +157,14 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 9. **Release:** SemVer + Conventional Commits + tag-driven releases + auto CHANGELOG
    (`git-cliff`); a tag only ships from a CI-green commit.
 10. **Cloud = Azure** (replaces the AWS-as-cloud assumption); the AWS personal profile is
-    local-only, not a deploy target; secrets via Akeyless; Aegis governance unchanged.
+    local-only, not a deploy target; secrets via Infisical; Aegis governance unchanged.
 11. **Frontend follows the `wise` design system** ([`DESIGN.md`](DESIGN.md)) — see
     [Frontend design system](#frontend-design-system) above.
 
 ### Endpoint & API contract (Aegis)
 
 - **Ops/infra endpoints are unprefixed:** `GET /healthz` (liveness) and `GET /readyz`
-  (readiness: DB/ChromaDB/Akeyless reachability). Smoke tests and platform probes use these.
+  (readiness: DB/ChromaDB/Infisical reachability). Smoke tests and platform probes use these.
 - **Only business APIs carry `/api/v1/`** (e.g. `/api/v1/health` as the API-surface heartbeat).
 - **Casing:** camelCase on the API surface, snake_case in Python internals (Pydantic alias
   generator bridges them).
@@ -176,7 +184,7 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 | `backend/` | FastAPI service (`src/fraudlens_backend/`) + `Dockerfile` |
 | `packages/fraudlens-core` / `packages/fraudlens-ml` | Shared domain/tenancy + isolated ML deps |
 | `frontend/` | React + TS + Vite + Tailwind (`wise` design system), Vercel root |
-| `config/` | Layered **non-secret** config (`default/dev/prod.yaml`); secrets → Akeyless |
+| `config/` | Layered **non-secret** config (`default/dev/prod.yaml`); secrets → Infisical |
 | `infra/terraform/` | Azure IaC (modules + dev/prod envs); scaffolded, CI-validated, not applied |
 | `scripts/` | Checkers (`check_headers`, `check_no_secrets`), `update_docs`, `coverage`/`deadcode` |
 | `tests/` | Backend tests (`unit/`, `integration/`, `smoke/`, `fixtures/`) — synthetic data only |

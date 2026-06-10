@@ -77,7 +77,7 @@ fmt: backend-fmt frontend-fmt ## Auto-format + autofix (WRITES; dev only).
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 	$(UV) run python scripts/check_headers.py
-secrets-scan: ## gitleaks (whole repo) + Akeyless/config guard (rule 4).
+secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
 dup-check: ## Copy/paste detection (jscpd).

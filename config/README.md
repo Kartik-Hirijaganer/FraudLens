@@ -15,14 +15,14 @@ A later layer overrides the same key in an earlier layer. `AppSettings` uses
 `extra="forbid"`, so an unknown key in YAML or env fails fast rather than being
 silently ignored.
 
-## The Akeyless boundary (Golden Rule 2)
+## The Infisical boundary (Golden Rule 2)
 
 These files hold **only non-secret config** — names, log levels, the API prefix,
 feature flags. **Secrets never live here.** Credentials (database URLs with
 passwords, JWT signing keys, third-party API keys) are fetched **at runtime from
-Akeyless** and injected as process environment by the deploy platform, never
-written to a YAML file, `.env`, fixture, or source. `gitleaks` scans the whole
-repo (including this directory) to enforce that.
+Infisical** and injected as process environment by the local command, CI job, or
+deploy platform, never written to a YAML file, `.env`, fixture, or source.
+`gitleaks` scans the whole repo (including this directory) to enforce that.
 
 ## Keys
 

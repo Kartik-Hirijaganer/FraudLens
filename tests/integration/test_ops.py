@@ -23,7 +23,7 @@ def test_readyz_is_ready_with_skipped_dependencies(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert {check["name"] for check in body["checks"]} == {"database", "chromadb", "akeyless"}
+    assert {check["name"] for check in body["checks"]} == {"database", "chromadb", "infisical"}
     assert all(check["status"] == "skipped" for check in body["checks"])
 
 

@@ -1,6 +1,6 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / Akeyless) and returns 200 only
+set of dependency probes (database / ChromaDB / Infisical) and returns 200 only
 when none report "down", else 503. Both are UNPREFIXED (no /api/v1) per the
 endpoint contract. The probes are pluggable via a dependency so real reachability
 checks can be wired in later (and so tests can simulate a degraded dependency);
@@ -64,11 +64,11 @@ def _skipped(name: str) -> DependencyCheck:
 
 
 def default_readiness_probes() -> list[ReadinessProbe]:
-    """Return the skeleton's dependency probes (database, ChromaDB, Akeyless)."""
+    """Return the skeleton's dependency probes (database, ChromaDB, Infisical)."""
     return [
         lambda: _skipped("database"),
         lambda: _skipped("chromadb"),
-        lambda: _skipped("akeyless"),
+        lambda: _skipped("infisical"),
     ]
 
 

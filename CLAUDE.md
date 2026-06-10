@@ -24,6 +24,9 @@ Project guidance for Claude Code. The canonical rules live in **[AGENTS.md](AGEN
   [`scripts/run-code-review-graph-mcp.sh`](scripts/run-code-review-graph-mcp.sh); needs a
   one-time `uv tool install code-review-graph`) and `context7` (live library docs). Restart
   Claude Code to load them; approve the project servers when prompted.
-- **Local overrides:** machine-specific settings live in `.claude/settings.local.json`
-  (gitignored) — sets `AWS_PROFILE=personal-admin`. Put **`CONTEXT7_API_KEY`** here (in the
-  `env` block) or export it from Akeyless; never commit it (Golden Rule 2).
+- **Local overrides:** machine-specific non-secret settings live in
+  `.claude/settings.local.json` (gitignored) — sets `AWS_PROFILE=personal-admin`. Do not
+  put **`CONTEXT7_API_KEY`** or other credentials here; inject them with `infisical run`
+  or a one-command shell export instead (Golden Rule 2).
+- **Infisical environment:** use only `prod` for secret reads and writes; do not create or
+  rely on any other Infisical environment for this personal repo.

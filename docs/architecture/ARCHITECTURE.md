@@ -17,11 +17,11 @@ C4Context
     title System Context — FraudLens
     Person(analyst, "AML Analyst", "Reviews flagged activity, edits & files SARs")
     System(fraudlens, "FraudLens", "Risk scoring, regulatory RAG, SAR drafting (multi-tenant)")
-    System_Ext(akeyless, "Akeyless", "Runtime secrets (no secrets in repo)")
+    System_Ext(infisical, "Infisical", "Runtime secrets (no secrets in repo)")
     System_Ext(supabase, "Supabase", "Postgres (tenant-scoped data)")
     System_Ext(llm, "LLM provider", "SAR drafting (primary + fallback)")
     Rel(analyst, fraudlens, "Investigates, reviews drafts", "HTTPS")
-    Rel(fraudlens, akeyless, "Fetches secrets at runtime")
+    Rel(fraudlens, infisical, "Fetches secrets at runtime")
     Rel(fraudlens, supabase, "Reads/writes tenant data", "TLS")
     Rel(fraudlens, llm, "Drafts SAR narratives", "HTTPS")
 ```
@@ -36,12 +36,12 @@ C4Container
     Container(api, "Backend API", "FastAPI on Azure Container Apps", "/api/v1 + /healthz,/readyz")
     ContainerDb(db, "Postgres", "Supabase", "agency_id-scoped tables")
     Container(vector, "Vector store", "ChromaDB", "FinCEN/BSA embeddings")
-    System_Ext(akeyless, "Akeyless")
+    System_Ext(infisical, "Infisical")
     Rel(analyst, spa, "Uses", "HTTPS")
     Rel(spa, api, "Calls", "HTTPS/JSON (camelCase)")
     Rel(api, db, "Queries (scoped by agency_id)")
     Rel(api, vector, "Retrieves regulatory context")
-    Rel(api, akeyless, "Fetches secrets at runtime")
+    Rel(api, infisical, "Fetches secrets at runtime")
 ```
 
 ## C4 — Components (Backend)
@@ -98,19 +98,19 @@ graph TD
     end
     vercel["Vercel<br/>(frontend)"]
     supabase["Supabase<br/>(Postgres)"]
-    akeyless["Akeyless<br/>(secrets)"]
+    infisical["Infisical<br/>(secrets)"]
     ci -->|OIDC, no stored secret| acr
     ci -->|terraform apply| aca
     acr --> aca
     aca --> blob
     aca -->|TLS| supabase
-    aca -->|runtime fetch| akeyless
+    aca -->|runtime fetch| infisical
     ci -->|vercel --prod| vercel
     vercel -->|/api/v1| aca
 ```
 
 - **Azure via GitHub→Azure OIDC** (federated; no long-lived client secret in GitHub).
-- **Vercel/Supabase credentials** are fetched **short-lived from Akeyless at job runtime**,
+- **Vercel/Supabase credentials** are fetched **short-lived from Infisical at job/runtime**,
   masked, never persisted. Deploy is **inert** until the accounts + Terraform state exist.
 
 ## LLM routing (primary / fallback)
@@ -135,7 +135,7 @@ before they reach any provider.
 | Tenant isolation (`agency_id` on every scoped op) | `fraudlens_core.require_agency_id`; `api/deps.py` (`enforce_tenant`) |
 | AuthZ validates JWT `agency_id` vs resource | `api/deps.py` (`authenticate` fails closed; dev bypass inert in prod) |
 | Aegis error envelope | `api/errors.py` → `{code, message, details, requestId}` |
-| Secrets via Akeyless, never repo | `config/*.yaml` (non-secret only); `gitleaks` + `scripts/check_no_secrets.py` |
+| Secrets via Infisical, never repo | `config/*.yaml` (non-secret only); `gitleaks` + `scripts/check_no_secrets.py` |
 | Generated docs stay in sync | `make docs` / `make docs-check` (this file's AUTOGEN regions, OpenAPI, ERD) |
 
 ## Module map
@@ -170,7 +170,7 @@ Ops probes (`/healthz`, `/readyz`) are **unprefixed**; business APIs carry **`/a
 
 ## Configuration keys
 
-Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets come from Akeyless.
+Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets come from Infisical.
 
 <!-- AUTOGEN:config-keys -->
 | Key | Type | Default | Description |
