@@ -27,11 +27,13 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Lint latest PR commit message (Conventional Commits)
-        uses: wagoid/commitlint-github-action@v6
-        with:
-          configFile: ./.commitlintrc.yaml
-          commitDepth: 1
+      - name: Lint PR title (Conventional Commits)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9._/-]+\))?!?: .+$'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "::error::PR title must follow Conventional Commits, for example: feat: add health check"
+            echo "::error::Actual PR title: $PR_TITLE"
+            exit 1
+          fi
