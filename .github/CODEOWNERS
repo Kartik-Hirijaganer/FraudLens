@@ -1,0 +1,9 @@
+# Default owner for everything in the repo (personal project).
+* @Kartik-Hirijaganer
+
+# Governance & security-sensitive areas — keep the owner explicit.
+/AGENTS.md @Kartik-Hirijaganer
+/CLAUDE.md @Kartik-Hirijaganer
+/.github/ @Kartik-Hirijaganer
+/infra/ @Kartik-Hirijaganer
+/.gitleaks.toml @Kartik-Hirijaganer

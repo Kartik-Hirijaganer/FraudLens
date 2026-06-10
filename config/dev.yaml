@@ -1,0 +1,7 @@
+# Development overlay (non-secret). Applied on top of default.yaml.
+environment: dev
+log_level: DEBUG
+
+# Convenience for local development only. This flag is INERT in prod mode
+# regardless of value (proven by tests in backend), so it is safe to enable here.
+auth_dev_bypass: true

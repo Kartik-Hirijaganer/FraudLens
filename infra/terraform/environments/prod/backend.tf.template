@@ -1,0 +1,15 @@
+# Remote-state backend (azurerm) for the prod environment.
+#
+# DO NOT rename to backend.tf until the Terraform state storage account exists
+# (see ../../README.md). As a .template, Terraform ignores it, so
+# `terraform init -backend=false && terraform validate` works with no backend.
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "fraudlens-tfstate-rg"
+    storage_account_name = "fraudlenstfstate"
+    container_name       = "tfstate"
+    key                  = "prod.terraform.tfstate"
+    use_oidc             = true
+  }
+}

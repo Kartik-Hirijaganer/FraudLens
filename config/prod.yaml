@@ -1,0 +1,5 @@
+# Production overlay (non-secret). Applied on top of default.yaml.
+# Secrets still come from Infisical at runtime — nothing sensitive here.
+environment: prod
+log_level: INFO
+auth_dev_bypass: false

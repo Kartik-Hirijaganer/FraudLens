@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drift Check"
+  short_description: "Audit implemented code against a plan"
+  default_prompt: "Use $drift-check to audit .agents/plans/<plan>.md phase=<N>."

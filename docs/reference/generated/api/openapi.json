@@ -1,0 +1,311 @@
+{
+  "components": {
+    "schemas": {
+      "ApiHealthResponse": {
+        "additionalProperties": false,
+        "description": "Heartbeat payload for the versioned API surface.",
+        "properties": {
+          "environment": {
+            "description": "Active environment (dev/prod).",
+            "title": "Environment",
+            "type": "string"
+          },
+          "service": {
+            "description": "Service name from settings.",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "description": "'ok' when the API surface is serving.",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "description": "Running service version.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version",
+          "environment"
+        ],
+        "title": "ApiHealthResponse",
+        "type": "object"
+      },
+      "DependencyCheck": {
+        "additionalProperties": false,
+        "description": "Readiness result for a single downstream dependency.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional, PHI-free detail.",
+            "title": "Detail"
+          },
+          "name": {
+            "description": "Dependency name, e.g. 'database'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "One of 'ok', 'down', or 'skipped'.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "DependencyCheck",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LivenessResponse": {
+        "additionalProperties": false,
+        "description": "Liveness payload \u2014 the process is running and serving.",
+        "properties": {
+          "status": {
+            "default": "ok",
+            "description": "Always 'ok' when the process serves.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "LivenessResponse",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "additionalProperties": false,
+        "description": "Aggregate readiness \u2014 overall status plus each dependency's check.",
+        "properties": {
+          "checks": {
+            "description": "Per-dependency results.",
+            "items": {
+              "$ref": "#/components/schemas/DependencyCheck"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "status": {
+            "description": "'ready' when no dependency is 'down'.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "TenantContext": {
+        "additionalProperties": false,
+        "description": "Authenticated tenant identity resolved from the verified agency_id claim.",
+        "properties": {
+          "agencyId": {
+            "description": "Active tenant (agency) id from the verified JWT claim.",
+            "minLength": 1,
+            "title": "Agencyid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agencyId"
+        ],
+        "title": "TenantContext",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "summary": "FraudLens AML fraud investigation API (walking skeleton).",
+    "title": "FraudLens",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/agencies/{agency_id}": {
+      "get": {
+        "description": "Return the validated TenantContext for the requested agency (tenant-scoped).",
+        "operationId": "read_agency_api_v1_agencies__agency_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agency_id",
+            "required": true,
+            "schema": {
+              "title": "Agency Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantContext"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Agency",
+        "tags": [
+          "tenancy"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Return the API-surface heartbeat (status, service, version, environment).",
+        "operationId": "api_health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Api Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "Liveness probe \u2014 200 while the process is serving.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Readiness probe \u2014 200 when every dependency check is non-'down', else 503.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz",
+        "tags": [
+          "ops"
+        ]
+      }
+    }
+  }
+}

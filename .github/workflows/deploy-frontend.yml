@@ -1,0 +1,55 @@
+# Frontend deploy — WIRED BUT INERT until Vercel exists (gated on VERCEL_DEPLOY_ENABLED).
+# The Vercel token is fetched from Infisical with GitHub Actions OIDC, masked, and never
+# persisted — no long-lived secret is stored in GitHub. Flow: verify → deploy → smoke.
+name: deploy-frontend
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/_ci-reusable.yml
+
+  deploy:
+    needs: verify
+    if: ${{ vars.VERCEL_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Fetch Vercel token from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/vercel
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Deploy to Vercel (prod)
+        working-directory: frontend
+        run: |
+          npm i -g vercel
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Smoke-test the deployed site
+        run: curl -fsS "${{ vars.FRONTEND_URL }}" > /dev/null

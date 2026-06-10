@@ -1,0 +1,23 @@
+# Fast, read-only pre-commit hooks (opt-in: `uv run pre-commit install`).
+# These mirror a subset of `make ci`; the full gate still runs in `make pre-pr`/CI.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff
+        name: ruff (lint, no autofix)
+        args: ["--no-fix"]
+      - id: ruff-format
+        name: ruff (format check)
+        args: ["--check"]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: docs-check
+        name: docs-check (headers + generated docs in sync)
+        entry: make docs-check
+        language: system
+        pass_filenames: false

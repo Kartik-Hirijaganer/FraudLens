@@ -1,0 +1,15 @@
+# Paths code-review-graph should not index (gitignore syntax).
+.git/
+.venv/
+node_modules/
+.code-review-graph/
+frontend/dist/
+build/
+dist/
+coverage/
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.terraform/
+docs/reference/generated/
