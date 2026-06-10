@@ -1,0 +1,44 @@
+# Release — on a `v*` tag: re-verify the gate (a tag only ships from CI-green code,
+# rule 9), generate the CHANGELOG with git-cliff, and publish a GitHub release. The
+# SemVer from the tag stamps the backend image tag and VITE_APP_VERSION for builds.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    uses: ./.github/workflows/_ci-reusable.yml
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Derive version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Generate changelog (git-cliff)
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+      - name: Version stamps (for downstream build/deploy)
+        run: |
+          echo "Backend image tag : ${{ steps.version.outputs.version }}"
+          echo "VITE_APP_VERSION  : ${{ steps.version.outputs.version }}"
+          # Consumed by deploy-backend (image SemVer tag) and the frontend build
+          # (VITE_APP_VERSION) once deploy is enabled.

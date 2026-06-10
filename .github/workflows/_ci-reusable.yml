@@ -1,0 +1,57 @@
+# Reusable CI workflow — the SINGLE definition of the gate, invoked by ci.yml,
+# dependency-update.yml, and the deploy workflows. It runs the SAME `make` targets
+# as the local pre-PR gate, so "if CI passes, deploy won't fail" is structural.
+name: _ci-reusable
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.stack }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for changed-file (diff) coverage
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies (uv workspace + npm ci)
+        run: make install
+      - name: Run ${{ matrix.stack }} CI gate
+        run: make ${{ matrix.stack }}-ci
+      - name: Upload coverage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.stack }}
+          path: |
+            htmlcov/
+            frontend/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build backend image (no push)
+        run: make docker-build

@@ -1,0 +1,21 @@
+# gitleaks config — primary repo-wide secret scanner (rule 4 / Golden Rule 2).
+# Extends the bundled ruleset and allowlists known non-secrets (lockfile hashes,
+# the personal GitHub noreply email, and synthetic test/agency placeholders).
+title = "FraudLens gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Repo-wide allowlist for lockfiles and synthetic values"
+paths = [
+  '''package-lock\.json''',
+  '''uv\.lock''',
+  '''.*\.terraform\.lock\.hcl''',
+]
+regexes = [
+  # Personal GitHub noreply email used for commits (documented in AGENTS.md).
+  '''65550498\+Kartik-Hirijaganer@users\.noreply\.github\.com''',
+  # Obvious synthetic placeholders used in docs/tests/config.
+  '''(?i)(changeme|example\.com|dev-agency|acme|<[^>]+>|\$\{[^}]+\})''',
+]

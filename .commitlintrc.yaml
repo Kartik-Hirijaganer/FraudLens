@@ -1,0 +1,4 @@
+# Conventional Commits policy for local tooling and release metadata.
+# CI enforces the same allowed types on PR titles in ci.yml.
+extends:
+  - "@commitlint/config-conventional"
