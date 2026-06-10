@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schemas/jscpd.json",
+  "threshold": 3,
+  "minTokens": 60,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/.venv/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/htmlcov/**",
+    "**/tests/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "docs/reference/generated/**",
+    "**/package-lock.json",
+    "**/uv.lock"
+  ]
+}

@@ -1,0 +1,41 @@
+# The backend image build context is the repo root (build run as:
+#   docker build -f backend/Dockerfile .). Keep the context lean and never ship
+# source-control, virtualenvs, caches, secrets, or unrelated stacks.
+.git
+.github
+.gitignore
+**/.venv
+.venv
+**/__pycache__
+**/*.pyc
+.ruff_cache
+.mypy_cache
+.pytest_cache
+htmlcov
+coverage
+.coverage*
+
+# Other stacks / artifacts not needed by the backend image
+frontend
+infra
+docs
+plans
+node_modules
+**/dist
+
+# Tests & fixtures (the runtime image does not run tests)
+tests
+**/tests
+
+# Local tooling / secrets (defense in depth — these are gitignored too)
+.env
+.env.*
+*.pem
+*.key
+secrets
+.akeyless
+.claude
+.codex
+.code-review-graph
+.agents
+.vercel

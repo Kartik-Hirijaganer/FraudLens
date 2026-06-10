@@ -1,0 +1,123 @@
+# Backend deploy — WIRED BUT INERT until the Azure account exists. The cloud jobs
+# run only when the repo variable AZURE_DEPLOY_ENABLED == 'true'; until then only
+# `verify` runs (re-running the SAME gate at the deployed SHA — deploy parity).
+#
+# Secrets posture: Azure auth is GitHub→Azure OIDC (id-token: write; no stored client
+# secret). App secrets are fetched at runtime from Akeyless by the Container App,
+# never injected here. Flow: verify → build-push → terraform apply (staged revision
+# at 0%) → smoke (/healthz,/readyz + pytest -m smoke) → promote 100% traffic.
+name: deploy-backend
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false # never cancel an in-flight deploy
+
+jobs:
+  verify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/_ci-reusable.yml
+
+  build-push:
+    needs: verify
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Compute image reference (SHA tag)
+        id: meta
+        run: |
+          echo "image=${{ vars.AZURE_ACR_NAME }}.azurecr.io/fraudlens-backend:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+      - name: Build & push to ACR
+        run: |
+          az acr login --name "${{ vars.AZURE_ACR_NAME }}"
+          docker build -f backend/Dockerfile -t "${{ steps.meta.outputs.image }}" .
+          docker push "${{ steps.meta.outputs.image }}"
+
+  deploy:
+    needs: build-push
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform apply (new revision, staged at 0% traffic)
+        working-directory: infra/terraform/environments/prod
+        env:
+          ARM_USE_OIDC: "true"
+          TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_tenant_id: ${{ vars.AZURE_TENANT_ID }}
+          TF_VAR_client_id: ${{ vars.AZURE_CLIENT_ID }}
+        run: |
+          cp backend.tf.template backend.tf
+          terraform init
+          terraform apply -auto-approve -var-file=prod.tfvars \
+            -var="container_image=${{ needs.build-push.outputs.image }}"
+
+  smoke:
+    needs: deploy
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Smoke-test the staged revision
+        env:
+          SMOKE_BASE_URL: ${{ vars.BACKEND_STAGING_URL }}
+        run: |
+          curl -fsS "$SMOKE_BASE_URL/healthz"
+          curl -fsS "$SMOKE_BASE_URL/readyz"
+          uv sync --all-packages
+          uv run pytest -m smoke
+
+  promote:
+    needs: smoke
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Shift 100% traffic to the new revision
+        run: |
+          az containerapp ingress traffic set \
+            --name fraudlens-prod-api \
+            --resource-group fraudlens-prod-rg \
+            --revision-weight latest=100

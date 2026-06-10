@@ -1,0 +1,34 @@
+# CI — runs on every human PR and on pushes to main. Renovate PRs are handled by
+# dependency-update.yml, which calls the SAME reusable workflow with the SAME
+# caller job id (`ci`), so the required status-check names match either way:
+#   ci / backend   ·   ci / frontend   ·   ci / docker-build
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    # Skip Renovate branches here; dependency-update.yml runs the identical gate for them.
+    if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+    uses: ./.github/workflows/_ci-reusable.yml
+
+  commitlint:
+    name: commitlint
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lint PR commit messages (Conventional Commits)
+        uses: wagoid/commitlint-github-action@v6

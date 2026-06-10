@@ -1,0 +1,4 @@
+# Conventional Commits, enforced on PR commit messages by ci.yml (commitlint job).
+# Compatible with Renovate's :semanticCommits (chore(deps): ...) and git-cliff.
+extends:
+  - "@commitlint/config-conventional"
