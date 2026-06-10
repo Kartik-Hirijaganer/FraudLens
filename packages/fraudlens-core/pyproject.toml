@@ -1,0 +1,30 @@
+# fraudlens-core — shared domain types + multi-tenancy (agency_id) helpers.
+# Layering: depends on NOTHING internal. The ruff banned-api block below makes
+# that structural — importing fraudlens-backend or fraudlens-ml fails lint.
+
+[project]
+name = "fraudlens-core"
+version = "0.1.0"
+description = "FraudLens shared domain types and multi-tenancy (agency_id) helpers."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Kartik Hirijaganer" }]
+dependencies = ["pydantic>=2.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fraudlens_core"]
+
+# Inherit the workspace-root ruff config, then add this package's layering bans.
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fraudlens_backend" = { msg = "Layering: fraudlens-core must not import fraudlens-backend." }
+"fraudlens_ml" = { msg = "Layering: fraudlens-core must not import fraudlens-ml." }

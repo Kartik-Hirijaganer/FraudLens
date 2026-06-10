@@ -1,0 +1,24 @@
+# Renovate-PR gate. Renovate opens dependency PRs (renovate/* branches); this runs
+# the SAME reusable gate (make ci + docker-build) on them, via the SAME caller job
+# id (`ci`) as ci.yml so the required check names match (ci / backend, …).
+#
+# Policy (Golden Rule 1 / rule 8): NO autonomous code commits. If checks fail, the
+# PR is left RED for a human (or human-invoked agent) to fix. Patch/minor PRs may
+# automerge ONLY when fully green (configured in renovate.json); majors always need
+# human review.
+name: dependency-update
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: depup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    if: ${{ startsWith(github.head_ref, 'renovate/') }}
+    uses: ./.github/workflows/_ci-reusable.yml

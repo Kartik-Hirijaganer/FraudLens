@@ -1,0 +1,15 @@
+# Let git detect text vs binary and normalize line endings for text files
+* text=auto eol=lf
+
+# Office / PDF documents — store as-is, no text diff or merge
+*.docx binary
+*.doc  binary
+*.xlsx binary
+*.xls  binary
+*.pptx binary
+*.ppt  binary
+*.pdf  binary
+
+# Archives
+*.tar.gz binary
+*.zip    binary

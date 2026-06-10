@@ -216,3 +216,62 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Agent tooling & secrets (FraudLens)
+#   Shared agent config stays tracked: .claude/settings.json, .claude/skills/,
+#   AGENTS.md, CLAUDE.md. Only machine-specific and sensitive material is ignored.
+# ---------------------------------------------------------------------------
+
+# Claude Code per-developer overrides
+.claude/settings.local.json
+
+# Codex project-local state (global config lives in ~/.codex)
+.codex/
+
+# code-review-graph MCP graph cache (repo-local; rebuilt on demand)
+.code-review-graph/
+
+# Skill bundles are redundant once unpacked into .claude/skills/
+*-skill.tar.gz
+
+# Secret material — credentials come from Akeyless, never the repo
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.akeyless/
+akeyless-token*
+credentials.json
+service-account*.json
+
+# macOS
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# Foundation build outputs & caches (FraudLens monorepo)
+#   Python caches (.ruff_cache, .mypy_cache, .pytest_cache, htmlcov) are covered
+#   above. Below: Node/frontend, JS coverage, Terraform state, and Vercel.
+# ---------------------------------------------------------------------------
+
+# Node / frontend
+node_modules/
+frontend/dist/
+coverage/
+
+# Terraform — state is never committed; provider lock IS (see keep-tracked below)
+*.tfstate*
+.terraform/
+*.auto.tfvars
+crash.log
+crash.*.log
+
+# Vercel
+.vercel/
+
+# Keep-tracked (Golden: reproducible builds). Negations document intent even
+# though nothing above currently ignores these.
+!uv.lock
+!frontend/package-lock.json
+!**/.terraform.lock.hcl

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/main.tsx"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["src/vite-env.d.ts"],
+  "ignoreDependencies": [
+    "autoprefixer",
+    "@vitest/coverage-v8",
+    "@fontsource/inter",
+    "@fontsource/manrope"
+  ]
+}

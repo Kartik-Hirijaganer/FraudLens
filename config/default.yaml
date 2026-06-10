@@ -1,0 +1,20 @@
+# FraudLens — NON-SECRET configuration defaults.
+#
+# Precedence (lowest to highest): config/default.yaml  ->  config/<environment>.yaml
+#   ->  FRAUDLENS_* environment variables. See config/README.md.
+#
+# SECRETS NEVER LIVE HERE. Credentials (DB passwords, API keys, JWT signing keys)
+# are fetched at runtime from Akeyless — never committed to YAML, .env, or source.
+app_name: FraudLens
+environment: dev
+log_level: INFO
+
+# Business-API surface prefix. Ops endpoints (/healthz, /readyz) are unprefixed.
+api_v1_prefix: /api/v1
+
+# Header used to surface the per-request correlation id (also in the error envelope).
+request_id_header: X-Request-Id
+
+# Auth dev-bypass: honored ONLY when environment != "prod" AND this is true.
+# Inert in prod by construction (see backend api/deps.py and its tests).
+auth_dev_bypass: false
