@@ -1,4 +1,4 @@
-"""Summary: Multi-tenancy helpers enforcing Aegis tenant isolation. Every
+"""Summary: Multi-tenancy helpers enforcing FraudLens tenant isolation. Every
 tenant-scoped operation validates the caller's JWT agency_id claim against the
 agency_id of the resource being accessed; a client-supplied tenant id is never
 trusted. This module is framework-agnostic (no FastAPI) so it can be reused by

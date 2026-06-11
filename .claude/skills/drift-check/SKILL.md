@@ -1,6 +1,6 @@
 ---
 name: drift-check
-description: Run strict read-only Aegis drift audits against a plan and phase. Use for drift-check, phase audit, gap analysis, redundancy, and implementation validation.
+description: Run strict read-only FraudLens drift audits against a plan and phase. Use for drift-check, phase audit, gap analysis, redundancy, and implementation validation.
 ---
 
 # Drift Check
@@ -30,7 +30,7 @@ If the user typed an old slash form such as `/drift-check <plan-path> phase=3`, 
 - Evidence required. Every claim must cite a file path, line number, symbol, API route, schema field, test name, or captured command output.
 - The plan is the contract. Do not grade whether the plan was wise; grade implementation against it.
 - No vague language. Drop unverifiable claims.
-- Follow Aegis governance: no PHI in logs, URLs, errors, or query params; every tenant-scoped database query and background job must be scoped by `agency_id`; JWT `agency_id` claims must be validated against requested resources.
+- Follow FraudLens governance: no PHI in logs, URLs, errors, or query params; every tenant-scoped database query and background job must be scoped by `agency_id`; JWT `agency_id` claims must be validated against requested resources.
 - Use code-review-graph MCP tools before grep/read where available. Fall back to ripgrep and file reads for markdown, fixtures, generated docs, configs, or artifacts the graph does not cover.
 
 ## Workflow
@@ -56,7 +56,7 @@ If the user typed an old slash form such as `/drift-check <plan-path> phase=3`, 
    - Static gates: run relevant lint, typecheck, and test targets read-only, no autofix.
    - Release/hygiene gates: if release metadata changed, inspect Makefile/package scripts and run read-only checks when safe.
 
-4. Apply Aegis governance gates.
+4. Apply FraudLens governance gates.
    - HIPAA/PHI: no patient names, SSNs, diagnoses, DOB, zip codes, or similar PHI in logs, diagnostics, URLs, query params, or raw errors; PHI-touching endpoints must audit log.
    - Multi-tenant isolation: every database query and background job in scope filters by `agency_id`; resource access validates requested agency against token claims.
    - Banned names: flag merged symbols or files containing `v2`, `new_`, `temp_`, `tmp_`, `old_`, `legacy_`, `copy_`, or `_refactored`.
@@ -115,10 +115,10 @@ For each deviation:
 ### 6. API Contract Validation
 
 - Path and method under the correct `/api/v1/` prefix unless the plan explicitly requires otherwise.
-- Request/response schemas match the plan and Aegis casing convention: camelCase API surface, snake_case Python internals.
+- Request/response schemas match the plan and FraudLens casing convention: camelCase API surface, snake_case Python internals.
 - Pydantic validation, auth/scope checks, and `agency_id` claim validation are present.
 - Idempotency keys are present on critical operations where required.
-- Errors follow the Aegis envelope: `code`, `message`, `details`, `requestId`; no stack traces or raw exception names leak.
+- Errors follow the FraudLens envelope: `code`, `message`, `details`, `requestId`; no stack traces or raw exception names leak.
 - OpenAPI in `docs/reference/generated/api/` is regenerated and committed.
 - Public library re-exports did not introduce breaking drift.
 

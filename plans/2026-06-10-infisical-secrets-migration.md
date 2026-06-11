@@ -5,7 +5,7 @@
 FraudLens currently names Akeyless as the required secrets manager, but the project is a
 personal repository and Akeyless is not the practical fit. Infisical should become the
 project-standard secrets manager for local development, CI/CD, and runtime secret delivery
-while preserving the existing Aegis invariants: no committed secrets, no long-lived cloud
+while preserving the existing FraudLens invariants: no committed secrets, no long-lived cloud
 credentials in GitHub, no secrets in Terraform state, and PHI-safe operational behavior.
 
 Official Infisical docs support this posture through local `infisical run` and GitHub

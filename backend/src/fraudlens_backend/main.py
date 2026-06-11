@@ -1,6 +1,6 @@
 """Summary: FastAPI application factory for the FraudLens backend. create_app
 wires settings into the app instance, installs structured logging + the request-id
-middleware, registers the Aegis error-envelope handlers, and mounts the routers:
+middleware, registers the FraudLens error-envelope handlers, and mounts the routers:
 the unprefixed ops probes (/healthz, /readyz) and the versioned business surface
 under settings.api_v1_prefix (/api/v1/*). A module-level `app` is created for
 uvicorn; tests call create_app(settings=...) to run with explicit configuration.

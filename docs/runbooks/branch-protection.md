@@ -5,14 +5,21 @@ automation writes repo config). This documents the intended configuration for `m
 
 ## Required status checks
 
-Require these checks to pass before merge (they come from `ci.yml` for human PRs and
-from `dependency-update.yml` for Renovate PRs — both call the same reusable workflow
-with caller job id `ci`, so the names match either way):
+Require these checks to pass before merge. The `ci / *` checks come from `ci.yml` for
+human PRs and from `dependency-update.yml` for Renovate PRs — both call the same reusable
+workflow with caller job id `ci`, so the names match either way. `changed` and `commitlint`
+are defined directly in `ci.yml` and run on every PR:
 
-- `ci / backend`
-- `ci / frontend`
-- `ci / docker-build`
-- `commitlint` (PR commit-message lint)
+- `ci / backend` — backend lint, format, type-check, coverage (repo-wide)
+- `ci / frontend` — frontend lint, format, type-check, coverage (repo-wide)
+- `ci / quality` — SUMMARY headers, secret scan, doc freshness, duplication, LLM catalog
+- `ci / docker-build` — backend image builds
+- `changed` — per-file lint/format + **diff-coverage** scoped to the PR's changed files
+- `commitlint` — PR title follows Conventional Commits
+
+Type-check and the full test suite stay in the repo-wide `ci / *` jobs (not `changed`):
+scoping them to changed files would miss breakage in files that import a changed file.
+`changed` adds the changed-line coverage gate and fast per-file lint/format on top.
 
 Enable **"Require branches to be up to date before merging"** so checks run against the
 merge result.
@@ -34,6 +41,36 @@ cannot merge a red PR. **Major** updates always require human review (label `maj
 
 ## How to apply
 
-GitHub → repo **Settings → Branches → Add branch ruleset** (or classic branch
-protection) for `main`; add the required checks above. Re-check the names after the first
-CI run on a PR, since GitHub registers check contexts only once they have run.
+GitHub registers a check context only after it has run once, so **open one PR and let CI
+finish first**, then apply protection (the context names must already exist).
+
+### Option A — GitHub UI
+
+Repo **Settings → Branches → Add branch ruleset** (or classic branch protection) for
+`main`; add the required checks listed above and the recommended settings.
+
+### Option B — `gh` API (one command)
+
+> **Account:** this is the personal repo `Kartik-Hirijaganer/FraudLens`. The `gh` active
+> account is often the **work** account — switch first and never apply this with the work
+> account: `gh auth switch --user Kartik-Hirijaganer`.
+
+```bash
+gh api -X PUT repos/Kartik-Hirijaganer/FraudLens/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["ci / backend", "ci / frontend", "ci / quality", "ci / docker-build", "changed", "commitlint"]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": { "required_approving_review_count": 1, "require_code_owner_reviews": true },
+  "required_linear_history": true,
+  "required_conversation_resolution": true,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
+
+Verify with `gh api repos/Kartik-Hirijaganer/FraudLens/branches/main/protection`.

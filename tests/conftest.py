@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +12,12 @@ from fastapi.testclient import TestClient
 
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
+
+# Put scripts/ on the path so tests can spec-load the maintenance scripts
+# (changed_files, next_version) and let them import their `lib.*` helpers.
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 
 # Test templates are examples to copy, not live tests.
 collect_ignore_glob = ["**/_template_test.py"]

@@ -1,6 +1,6 @@
 /**
  * Summary: Typed client for the FraudLens backend. The API surface is camelCase
- * (Aegis casing), so the response interfaces use camelCase fields directly. fetch
+ * (FraudLens casing), so the response interfaces use camelCase fields directly. fetch
  * is injectable so tests don't touch the network; the base URL comes from config
  * (VITE_*), never a hardcoded host.
  *

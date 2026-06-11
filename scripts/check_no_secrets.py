@@ -27,6 +27,7 @@ _SECRET_KEY_RE = re.compile(
 _PLACEHOLDER_RE = re.compile(
     r"^(|null|~|''|\"\"|<.*>|\$\{.*\}|changeme|example.*|infisical.*)$", re.IGNORECASE
 )
+_ENV_REFERENCE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def _scan_yaml(path: Path) -> list[str]:
@@ -39,9 +40,12 @@ def _scan_yaml(path: Path) -> list[str]:
         key, _, value = line.partition(":")
         if _SECRET_KEY_RE.search(key):
             cleaned = value.strip().strip("\"'")
-            if not _PLACEHOLDER_RE.match(cleaned):
-                name = key.strip()
-                findings.append(f"{path}:{lineno}: inline value for secret-like key '{name}'")
+            key_name = key.strip()
+            is_env_reference = key_name.lower().endswith("_env") and bool(
+                _ENV_REFERENCE_RE.fullmatch(cleaned)
+            )
+            if not is_env_reference and not _PLACEHOLDER_RE.match(cleaned):
+                findings.append(f"{path}:{lineno}: inline value for secret-like key '{key_name}'")
     return findings
 
 

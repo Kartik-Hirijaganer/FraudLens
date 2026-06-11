@@ -1,0 +1,28 @@
+# Validate the PR title follows Conventional Commits (the source for git-cliff + the
+# SemVer bump). Kept separate from ci.yml so it ALSO re-runs on `edited` — renaming the
+# title re-validates immediately, without needing a new push. ci.yml's heavy jobs
+# intentionally do not run on edits. Check context stays `commitlint`.
+name: commitlint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    name: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lint PR title (Conventional Commits)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9._/-]+\))?!?: .+$'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "::error::PR title must follow Conventional Commits, for example: feat: add health check"
+            echo "::error::Actual PR title: $PR_TITLE"
+            exit 1
+          fi
