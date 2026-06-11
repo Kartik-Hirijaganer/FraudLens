@@ -1,5 +1,11 @@
 <!-- Keep changes scoped to one plan/phase where practical. -->
 
+## Summary
+
+<!-- PR-SUMMARY:auto -->
+_Auto-filled when the PR opens with the areas this change touches (backend, frontend, LLM, libraries, …). Add context under “What & why”._
+<!-- /PR-SUMMARY:auto -->
+
 ## What & why
 
 <!-- Summary of the change and the motivation. Link the plan/phase. -->
