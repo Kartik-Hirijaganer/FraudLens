@@ -38,6 +38,9 @@ dev = [
     "interrogate>=1.7",
     "vulture>=2.13",
     "types-pyyaml>=6.0",
+    # diff-cover gates changed-line coverage in the PR `changed` job (Cobertura XML
+    # for the backend, lcov for the frontend); see the Makefile `*-coverage-diff` targets.
+    "diff-cover>=9.2",
 ]
 
 # ---------------------------------------------------------------------------

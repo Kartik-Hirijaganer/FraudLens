@@ -16,7 +16,10 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
-        header-check llm-catalog-check secrets-scan dup-check deadcode docs docs-check openapi test-coverage-diff \
+        lint-changed format-check-changed ci-changed \
+        header-check llm-catalog-check secrets-scan dup-check deadcode docs docs-check openapi \
+        backend-coverage-diff frontend-coverage-diff test-coverage-diff \
+        version-next changelog-unreleased \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -73,6 +76,34 @@ coverage: backend-coverage frontend-coverage ## Run tests with ≥90% coverage g
 fmt: backend-fmt frontend-fmt ## Auto-format + autofix (WRITES; dev only).
 
 # ---------------------------------------------------------------------------
+# Changed-files gate — scopes per-file checks (ruff/eslint/prettier) to a PR's
+# diff vs BASE_REF. Type-check + the full test suite intentionally stay repo-wide
+# (see `ci`): scoping them to changed files would miss breakage in dependents that
+# import a changed file. Coverage IS changed-file-aware via `test-coverage-diff`.
+# ---------------------------------------------------------------------------
+BASE_REF ?= origin/main
+CHANGED_PY = $(UV) run python scripts/changed_files.py --category py --base $(BASE_REF)
+CHANGED_TS = $(UV) run python scripts/changed_files.py --category ts --base $(BASE_REF) --relative-to $(FRONTEND)
+
+lint-changed: ## Lint only files changed vs BASE_REF (ruff + eslint).
+	@set -e; pyfiles="$$($(CHANGED_PY))"; \
+	if [ -n "$$pyfiles" ]; then echo ">> ruff check (changed):"; $(UV) run ruff check $$pyfiles; \
+	else echo ">> ruff check: no changed Python files"; fi
+	@set -e; tsfiles="$$($(CHANGED_TS))"; \
+	if [ -n "$$tsfiles" ]; then echo ">> eslint (changed):"; cd $(FRONTEND) && npx eslint $$tsfiles; \
+	else echo ">> eslint: no changed TS files"; fi
+
+format-check-changed: ## Check formatting on only files changed vs BASE_REF (ruff + prettier).
+	@set -e; pyfiles="$$($(CHANGED_PY))"; \
+	if [ -n "$$pyfiles" ]; then echo ">> ruff format --check (changed):"; $(UV) run ruff format --check $$pyfiles; \
+	else echo ">> ruff format: no changed Python files"; fi
+	@set -e; tsfiles="$$($(CHANGED_TS))"; \
+	if [ -n "$$tsfiles" ]; then echo ">> prettier --check (changed):"; cd $(FRONTEND) && npx prettier --check $$tsfiles; \
+	else echo ">> prettier: no changed TS files"; fi
+
+ci-changed: lint-changed format-check-changed test-coverage-diff ## Changed-files PR gate (scoped to BASE_REF diff).
+
+# ---------------------------------------------------------------------------
 # Cross-cutting checks
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
@@ -92,8 +123,28 @@ docs: ## Regenerate header inventories + OpenAPI + ERD + architecture AUTOGEN (W
 	$(UV) run python scripts/update_docs.py
 docs-check: ## Fail if any generated doc / header inventory is stale.
 	$(UV) run python scripts/update_docs.py --check
-test-coverage-diff: ## (CI) Coverage with the ≥90% gate (changed-file aware in CI).
-	bash scripts/coverage.sh -q
+backend-coverage-diff: ## Backend: ≥90% coverage on CHANGED lines (diff-cover, Cobertura).
+	$(UV) run pytest -q --cov-report=xml --cov-fail-under=0
+	$(UV) run diff-cover coverage.xml --compare-branch=$(BASE_REF) --fail-under=90
+# frontend-coverage-diff: vitest writes frontend-relative SF: paths; we rewrite them to
+# repo-relative (prepend frontend/) so diff-cover, run at the repo root, matches them
+# against git's repo-relative diff paths.
+frontend-coverage-diff: ## Frontend: ≥90% coverage on CHANGED lines (diff-cover, lcov).
+	cd $(FRONTEND) && $(NPM) run coverage -- --coverage.reporter=lcov --coverage.reporter=text
+	sed 's|^SF:|SF:$(FRONTEND)/|' $(FRONTEND)/coverage/lcov.info > $(FRONTEND)/coverage/lcov.repo.info
+	$(UV) run diff-cover $(FRONTEND)/coverage/lcov.repo.info --compare-branch=$(BASE_REF) --fail-under=90
+test-coverage-diff: backend-coverage-diff frontend-coverage-diff ## Changed-line coverage gate, both stacks (vs BASE_REF).
+
+# ---------------------------------------------------------------------------
+# Release helpers (propose-only — never tag/commit/push; Golden Rule 1). The
+# `maintain` skill uses these to propose the SemVer bump + pending changelog.
+# ---------------------------------------------------------------------------
+version-next: ## Propose the next SemVer from Conventional Commits since the last tag (JSON).
+	$(UV) run python scripts/next_version.py
+changelog-unreleased: ## Render the pending changelog for the proposed version (git-cliff; stdout only).
+	@set -e; tag="$$($(UV) run python scripts/next_version.py --format tag)"; \
+	echo ">> pending changelog for $$tag:"; \
+	uvx git-cliff --config cliff.toml --unreleased --tag "$$tag"
 
 # ---------------------------------------------------------------------------
 # Image build (separate required check; proves the deploy image in CI)
