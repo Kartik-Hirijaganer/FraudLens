@@ -134,3 +134,17 @@ rule-2 SUMMARY header and rule-3 behavioral tests (≥90% branch coverage).
       (rule 6: docs stay fresh).
 - [ ] Run `make pre-pr` and `drift-check plans/2026-06-11-pr-gate-and-maintenance-workflow.md all`;
       resolve drift. **No commit/push without explicit permission (Golden Rule 1).**
+
+## Phase 7 — Auto-filled PR description (minimal area summary)
+
+- [x] `scripts/pr_summary.py` (+ tests): categorize the changed paths into client-style
+      areas (Backend, Frontend, LLM, Libraries, Infra, Config, CI/CD, Tooling, Tests, Docs,
+      Plans, Agent skills, Build/config) and render a minimal `**Changed areas:** …` summary.
+      Splicing only touches the `<!-- PR-SUMMARY:auto -->` region (human prose preserved;
+      idempotent). Reuses `scripts/lib/gitio`.
+- [x] `.github/workflows/pr-autofill.yml`: on `pull_request` opened/synchronize/reopened,
+      build the summary vs the base SHA and `gh pr edit` the body. Same-repo PRs only (fork
+      tokens are read-only); `pull-requests: write`; **not** a required check (never blocks).
+- [x] `.github/pull_request_template.md`: add the auto-managed `## Summary` region so a
+      manually-created PR shows the area summary on open.
+- [x] `make pr-summary` previews the summary locally; uses the shared `BASE_REF`.
