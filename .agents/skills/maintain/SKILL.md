@@ -28,7 +28,7 @@ OpenAPI, update the README, or decide the next release version (feature vs bug �
 - **You own the prose.** The `Summary` / `Notes` sections of headers, function/class
   docstrings, the hand-authored narrative of `ARCHITECTURE.md` (outside AUTOGEN), and
   `README.md` are human-authored — that is what this skill rewrites with judgment.
-- **Aegis governance holds.** No PHI in any text or example; every tenant-scoped operation
+- **FraudLens governance holds.** No PHI in any text or example; every tenant-scoped operation
   is described as scoped by `agency_id`; JWT `agency_id` is validated against the resource.
   Diagrams are Mermaid only (no binary images) — rule 6.
 - **Version bumping is propose-only and conventional:** `feat` → minor, `fix`/`perf` →
@@ -60,7 +60,7 @@ Parse the user's request after the skill name:
 4. **Maintain the architecture doc.** If the change altered components, flows, boundaries,
    layering, or governance mapping, update the matching **hand-authored** prose/diagrams of
    `docs/architecture/ARCHITECTURE.md` (C4 context/containers/components, the pipeline
-   sequence, the Aegis mapping table). Leave AUTOGEN regions to `make docs`.
+   sequence, the FraudLens mapping table). Leave AUTOGEN regions to `make docs`.
 
 5. **OpenAPI.** Already regenerated in step 2. Confirm `docs/reference/generated/api/`
    reflects the current routes; call out any new/changed/removed endpoint.

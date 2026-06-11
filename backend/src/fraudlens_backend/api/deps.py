@@ -23,7 +23,7 @@ Key functions:
 Notes:
 - enforce_tenant delegates to fraudlens_core.require_agency_id and maps its
   TenantIsolationError to 401 (missing claim) or 403 (mismatch) — no agency id
-  value ever appears in the raised message (Aegis tenant/PHI hygiene).
+  value ever appears in the raised message (FraudLens tenant/PHI hygiene).
 """
 
 from __future__ import annotations

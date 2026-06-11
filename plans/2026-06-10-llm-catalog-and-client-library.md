@@ -5,7 +5,7 @@
 FraudLens — and the additional backend services planned later — need to call LLMs,
 but model choice, versioning, tuning, and **model selection** must stay
 **configurable, not coded**. Because this is a healthcare-adjacent AML system under
-the **Aegis** governance rules (no PHI in logs/errors, tenant isolation, least
+the **FraudLens** governance rules (no PHI in logs/errors, tenant isolation, least
 privilege), **security guardrails and compliance-aware routing are part of v1**.
 
 **Goal.** A pip-installable, **catalog-driven, standalone** async library so that:

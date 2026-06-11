@@ -1,0 +1,43 @@
+# Runs when a PR is opened/updated and: (1) auto-fills the description with a minimal
+# "which areas changed" summary (touches only the PR-SUMMARY:auto region — author prose is
+# preserved), and (2) assigns the PR to the maintainer. Convenience only — never a required
+# check, so it cannot block a merge.
+name: pr-on-open
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # edit the body + manage assignees
+  issues: write # assignees are managed via the issues endpoint
+
+concurrency:
+  group: pr-on-open-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    # Same-repo PRs only — PRs from forks get a read-only token and cannot be edited.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit present for the diff
+      - name: Auto-fill the description (areas changed vs base)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > .pr_body_current.md
+          python3 scripts/pr_summary.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --body-file .pr_body_current.md > .pr_body_new.md
+          gh pr edit "$PR" --body-file .pr_body_new.md
+      - name: Assign the PR to the maintainer
+        if: ${{ github.event.action == 'opened' }}
+        run: gh pr edit "$PR" --add-assignee Kartik-Hirijaganer

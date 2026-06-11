@@ -16,7 +16,7 @@ Key functions:
 
 Notes:
 - The access log records request.url.path (route path only) — never the full URL
-  with query parameters — to keep PHI out of logs (Aegis).
+  with query parameters — to keep PHI out of logs (FraudLens governance).
 """
 
 from __future__ import annotations

@@ -43,7 +43,7 @@ Two asks from the maintainer:
   ([`cliff.toml`](../cliff.toml)) already renders the CHANGELOG. The version step builds on
   these, not beside them.
 
-### Aegis invariants preserved
+### FraudLens invariants preserved
 
 No PHI anywhere; nothing here touches tenant queries or auth. New scripts emit only file
 paths / version strings / commit subjects (no secrets, no PHI). All new Python carries the
@@ -135,16 +135,18 @@ rule-2 SUMMARY header and rule-3 behavioral tests (≥90% branch coverage).
 - [ ] Run `make pre-pr` and `drift-check plans/2026-06-11-pr-gate-and-maintenance-workflow.md all`;
       resolve drift. **No commit/push without explicit permission (Golden Rule 1).**
 
-## Phase 7 — Auto-filled PR description (minimal area summary)
+## Phase 7 — PR-on-open automation (summary auto-fill + assignment)
 
 - [x] `scripts/pr_summary.py` (+ tests): categorize the changed paths into client-style
       areas (Backend, Frontend, LLM, Libraries, Infra, Config, CI/CD, Tooling, Tests, Docs,
       Plans, Agent skills, Build/config) and render a minimal `**Changed areas:** …` summary.
       Splicing only touches the `<!-- PR-SUMMARY:auto -->` region (human prose preserved;
       idempotent). Reuses `scripts/lib/gitio`.
-- [x] `.github/workflows/pr-autofill.yml`: on `pull_request` opened/synchronize/reopened,
-      build the summary vs the base SHA and `gh pr edit` the body. Same-repo PRs only (fork
-      tokens are read-only); `pull-requests: write`; **not** a required check (never blocks).
-- [x] `.github/pull_request_template.md`: add the auto-managed `## Summary` region so a
-      manually-created PR shows the area summary on open.
+- [x] `.github/workflows/pr-on-open.yml`: on `pull_request` opened/synchronize/reopened,
+      (1) auto-fill the description with the area summary (vs the base SHA) and (2) assign
+      the PR to `Kartik-Hirijaganer` (on `opened`). Same-repo PRs only (fork tokens are
+      read-only); `pull-requests`/`issues: write`; **not** a required check (never blocks).
+- [x] `.github/pull_request_template.md`: trimmed to the auto-managed `## Summary` region,
+      a one-line "What & why", and a single FraudLens security check (CI enforces the mechanical
+      gate, so the redundant pre-PR/governance checklists were removed).
 - [x] `make pr-summary` previews the summary locally; uses the shared `BASE_REF`.

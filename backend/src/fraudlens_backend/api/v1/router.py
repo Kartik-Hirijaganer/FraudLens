@@ -1,6 +1,6 @@
 """Summary: Aggregates the versioned /api/v1 business surface. It mounts the
 health sub-router and defines the tenant-scoped demonstrator
-GET /api/v1/agencies/{agency_id}, which exercises the full Aegis access path:
+GET /api/v1/agencies/{agency_id}, which exercises the full FraudLens access path:
 fail-closed authentication plus agency_id claim validation (401 when
 unauthenticated, 403 on a tenant mismatch, 200 when the claim matches the path).
 The prefix itself is applied by the app factory from settings.api_v1_prefix, so
