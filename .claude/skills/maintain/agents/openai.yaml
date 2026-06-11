@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain"
+  short_description: "Refresh docs/architecture/OpenAPI/README and propose the next release version"
+  default_prompt: "Use $maintain to refresh docs and propose the next release version (propose-only; never tag/commit)."

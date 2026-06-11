@@ -46,6 +46,36 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  quality:
+    # Cross-cutting checks that `make ci` includes but the per-stack jobs above do not:
+    # SUMMARY headers, secret scan, generated-doc freshness, duplication, LLM catalog.
+    # Lives here so every caller (PR, Renovate, release, deploy) enforces them.
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks + git-aware checks want history
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python deps (uv workspace)
+        run: uv sync --all-packages
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog)
+        run: make header-check secrets-scan dup-check docs-check llm-catalog-check
+
   docker-build:
     name: docker-build
     runs-on: ubuntu-latest
