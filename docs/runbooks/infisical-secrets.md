@@ -22,7 +22,7 @@ cloud deploy authentication mechanism; it is separate from application secret st
 - Keeps secrets out of git, `.env`, Docker images, Terraform state, and GitHub Secrets.
 - Uses short-lived workload identity instead of long-lived deploy credentials.
 - Works for a personal project without requiring Akeyless enterprise features.
-- Preserves Aegis controls: least privilege, auditability, and no PHI/secrets in logs.
+- Preserves FraudLens controls: least privilege, auditability, and no PHI/secrets in logs.
 
 ## Infisical Project
 

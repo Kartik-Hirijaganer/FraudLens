@@ -11,7 +11,7 @@ Key functions:
 
 Notes:
 - Every field carries Field(..., description=...) per the Pydantic-boundary rule.
-- agency_id is present so the type is tenant-scoped from day one (Aegis).
+- agency_id is present so the type is tenant-scoped from day one (FraudLens governance).
 """
 
 from __future__ import annotations

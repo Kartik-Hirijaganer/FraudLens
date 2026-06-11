@@ -11,7 +11,7 @@ Key functions:
 - api_health: handler returning the API-surface heartbeat.
 
 Notes:
-- Response is a CamelModel, so fields serialize as camelCase per the Aegis casing rule.
+- Response is a CamelModel, so fields serialize as camelCase per the FraudLens casing rule.
 """
 
 from __future__ import annotations
