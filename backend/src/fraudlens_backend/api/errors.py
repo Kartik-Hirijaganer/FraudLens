@@ -1,4 +1,4 @@
-"""Summary: Exception handlers that render every error as the Aegis envelope
+"""Summary: Exception handlers that render every error as the FraudLens envelope
 {code, message, details, requestId} — never a raw stack trace, exception class
 name, or framework default body. Three handlers cover the surface: HTTP errors
 (from raised HTTPException, including auth 401/403), request-validation errors
@@ -13,7 +13,7 @@ Key functions:
 
 Notes:
 - details carries only {field, message} — raw request values are never reflected
-  back, so PHI cannot leak through validation errors (Aegis).
+  back, so PHI cannot leak through validation errors (FraudLens governance).
 - The requestId is read from request.state (set by RequestContextMiddleware).
 """
 
@@ -61,7 +61,7 @@ def _envelope(
     request: Request,
     details: list[dict[str, str]] | None = None,
 ) -> JSONResponse:
-    """Build a JSONResponse carrying the Aegis error envelope."""
+    """Build a JSONResponse carrying the FraudLens error envelope."""
     body = ErrorResponse(
         code=code,
         message=message,
@@ -72,7 +72,7 @@ def _envelope(
 
 
 async def _http_exception_handler(request: Request, exc: Exception) -> Response:
-    """Render a raised HTTPException as the Aegis envelope."""
+    """Render a raised HTTPException as the FraudLens envelope."""
     http_exc = cast(StarletteHTTPException, exc)
     code = _STATUS_CODES.get(http_exc.status_code, "http_error")
     message = http_exc.detail if isinstance(http_exc.detail, str) else code.replace("_", " ")

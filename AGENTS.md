@@ -27,7 +27,7 @@ personal repo. Handoff/context lives in
    drop deliverables in the repo root.
 5. **Hold the security governance below** on every change.
 
-## Security & Governance (Aegis)
+## Security & Governance (FraudLens)
 
 Production-grade guardrails, applied even though this is a personal repo. Use **no real
 PHI**; every change must preserve these invariants:
@@ -71,7 +71,7 @@ The `drift-check` skill audits implementations against these rules (see below).
 - Azure/Vercel/Supabase accounts **do not exist yet**: IaC and deploy workflows are
   **scaffolded and CI-validated but inert** (no `terraform apply`, no push) until the
   accounts and the Terraform state backend exist.
-- Aegis governance (above) is **unchanged** by the cloud choice.
+- FraudLens governance (above) is **unchanged** by the cloud choice.
 
 ## Accounts & Identity
 
@@ -157,11 +157,11 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 9. **Release:** SemVer + Conventional Commits + tag-driven releases + auto CHANGELOG
    (`git-cliff`); a tag only ships from a CI-green commit.
 10. **Cloud = Azure** (replaces the AWS-as-cloud assumption); the AWS personal profile is
-    local-only, not a deploy target; secrets via Infisical; Aegis governance unchanged.
+    local-only, not a deploy target; secrets via Infisical; FraudLens governance unchanged.
 11. **Frontend follows the `wise` design system** ([`DESIGN.md`](DESIGN.md)) — see
     [Frontend design system](#frontend-design-system) above.
 
-### Endpoint & API contract (Aegis)
+### Endpoint & API contract (FraudLens)
 
 - **Ops/infra endpoints are unprefixed:** `GET /healthz` (liveness) and `GET /readyz`
   (readiness: DB/ChromaDB/Infisical reachability). Smoke tests and platform probes use these.

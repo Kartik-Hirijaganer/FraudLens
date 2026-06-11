@@ -1,0 +1,428 @@
+# =====================================================================
+# FraudLens LLM Catalog - model CAPABILITY + TRUST registry (NON-SECRET).
+# =====================================================================
+#
+# Structure:
+#   - Top-level keys are providers (openai, anthropic, gemini, openrouter, ...).
+#   - Second-level keys are model ids sent verbatim to that provider's API.
+#   - Each model card is used for discovery, selection, fallback, and cost estimate:
+#       kind, context_window, modality, default_params, pricing, speed,
+#       reasoning_capable, intelligence, source_url, verified_at, lifecycle,
+#       callable, and pricing_basis.
+#
+# A model is referenced as "<provider>/<model-id>", e.g. "openai/gpt-5-mini" or
+# "openrouter/anthropic/claude-sonnet-4.6". The model id may contain slashes.
+#
+# CONNECTION + SECRETS LIVE ELSEWHERE:
+#   - Endpoints, timeouts, retries, headers .... config/llm/providers.yml
+#   - API keys ................................. Infisical /llm env vars named
+#                                                in providers.yml; never here.
+# =====================================================================
+
+openai:
+  gpt-5.4:
+    kind: chat
+    context_window: 1050000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-12-10
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 2.50
+    output_price_per_million: 15.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  gpt-5.3-codex:
+    kind: chat
+    context_window: 400000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-12-10
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 1.75
+    output_price_per_million: 14.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  gpt-5-mini:
+    kind: chat
+    context_window: 400000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-09-30
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 0.25
+    output_price_per_million: 2.00
+    speed: fast
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  gpt-5-nano:
+    kind: chat
+    context_window: 400000
+    max_token_output: 64000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-09-30
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 0.05
+    output_price_per_million: 0.40
+    speed: fast
+    reasoning_capable: true
+    intelligence: low
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  text-embedding-3-large:
+    kind: embed
+    context_window: 8192
+    modality: [text]
+    default_params: { dimensions: 3072 }
+    input_price_per_million: 0.13
+    output_price_per_million: 0.13
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  text-embedding-3-small:
+    kind: embed
+    context_window: 8192
+    modality: [text]
+    default_params: { dimensions: 1536 }
+    input_price_per_million: 0.02
+    output_price_per_million: 0.02
+    speed: fast
+    reasoning_capable: false
+    intelligence: low
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  whisper-large-v3:
+    kind: chat
+    context_window: 0
+    max_audio_duration: 3600
+    modality: [audio]
+    default_params: { response_format: verbose_json }
+    input_price_per_minute: 0.006
+    output_price_per_million: 0.0
+    speed: fast
+    reasoning_capable: false
+    intelligence: low
+    supported_languages: "100+"
+    features: [diarization, timestamps, word_level]
+    source_url: https://platform.openai.com/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: reference
+    callable: false
+    pricing_basis: per_minute
+
+anthropic:
+  claude-opus-4-5:
+    kind: chat
+    context_window: 200000
+    max_token_output: 64000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-03-01
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 15.00
+    output_price_per_million: 75.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://docs.anthropic.com/en/docs/about-claude/models/overview
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  claude-opus-4-6:
+    kind: chat
+    context_window: 1000000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2026-02-05
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 5.00
+    output_price_per_million: 25.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://docs.anthropic.com/en/docs/about-claude/models/overview
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  claude-sonnet-4-6:
+    kind: chat
+    context_window: 1000000
+    max_token_output: 64000
+    modality: [text, vision]
+    knowledge_cutoff: 2026-01-01
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 3.00
+    output_price_per_million: 15.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://docs.anthropic.com/en/docs/about-claude/models/overview
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  claude-haiku-4-5:
+    kind: chat
+    context_window: 200000
+    max_token_output: 16000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-03-01
+    default_params: { temperature: 0.05, max_tokens: 1024 }
+    input_price_per_million: 1.00
+    output_price_per_million: 5.00
+    speed: fast
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://docs.anthropic.com/en/docs/about-claude/models/overview
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+gemini:
+  gemini-3.1-pro-preview:
+    kind: chat
+    context_window: 1048576
+    max_token_output: 65536
+    modality: [text, vision, audio]
+    knowledge_cutoff: 2026-02-19
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 2.00
+    output_price_per_million: 12.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: preview
+    callable: true
+    pricing_basis: per_million_tokens
+
+  gemini-3.1-flash-lite-preview:
+    kind: chat
+    context_window: 1048576
+    max_token_output: 65536
+    modality: [text, vision, audio]
+    knowledge_cutoff: 2025-12-17
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 0.50
+    output_price_per_million: 3.00
+    speed: fast
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: preview
+    callable: true
+    pricing_basis: per_million_tokens
+
+  text-embedding-005:
+    kind: embed
+    context_window: 2048
+    modality: [text]
+    default_params: { dimensions: 768 }
+    input_price_per_million: 0.025
+    output_price_per_million: 0.025
+    speed: fast
+    reasoning_capable: false
+    intelligence: low
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  gemini-embedding-001:
+    kind: embed
+    context_window: 2048
+    modality: [text]
+    default_params: { dimensions: 3072 }
+    input_price_per_million: 0.025
+    output_price_per_million: 0.025
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+openrouter:
+  google/gemini-2.0-flash-001:
+    kind: chat
+    context_window: 1048576
+    max_token_output: 8192
+    modality: [text, vision]
+    default_params: { temperature: 0.05, max_tokens: 4096 }
+    input_price_per_million: 0.10
+    output_price_per_million: 0.40
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://openrouter.ai/google/gemini-2.0-flash-001/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  openai/gpt-5-mini:
+    kind: chat
+    context_window: 400000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2025-09-30
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 0.25
+    output_price_per_million: 2.00
+    speed: fast
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://openrouter.ai/openai/gpt-5-mini/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  anthropic/claude-opus-4.6:
+    kind: chat
+    context_window: 1000000
+    max_token_output: 128000
+    modality: [text, vision]
+    knowledge_cutoff: 2026-02-05
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 5.00
+    output_price_per_million: 25.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://openrouter.ai/anthropic/claude-opus-4.6/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  anthropic/claude-sonnet-4.6:
+    kind: chat
+    context_window: 1000000
+    max_token_output: 64000
+    modality: [text, vision]
+    knowledge_cutoff: 2026-01-01
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 3.00
+    output_price_per_million: 15.00
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://openrouter.ai/anthropic/claude-sonnet-4.6/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  x-ai/grok-4.1-fast:
+    kind: chat
+    context_window: 131072
+    max_token_output: 32768
+    modality: [text]
+    knowledge_cutoff: 2024-12-01
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 0.20
+    output_price_per_million: 0.50
+    speed: very_fast
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://openrouter.ai/x-ai/grok-4.1-fast/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  deepseek/deepseek-v3.2:
+    kind: chat
+    context_window: 163840
+    modality: [text]
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 0.25
+    output_price_per_million: 0.38
+    speed: slow
+    reasoning_capable: true
+    intelligence: medium
+    source_url: https://openrouter.ai/deepseek/deepseek-v3.2/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+  qwen/qwen3.5-plus-02-15:
+    kind: chat
+    context_window: 262144
+    max_token_output: 32768
+    modality: [text, vision]
+    knowledge_cutoff: 2026-02-09
+    default_params: { temperature: 0.05 }
+    input_price_per_million: 0.26
+    output_price_per_million: 1.56
+    speed: medium
+    reasoning_capable: true
+    intelligence: high
+    source_url: https://openrouter.ai/qwen/qwen3.5-plus-02-15/api
+    verified_at: 2026-06-10
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
+ollama:
+  llama3.1:
+    kind: chat
+    context_window: 128000
+    max_token_output: 4096
+    modality: [text]
+    default_params: { temperature: 0.1, max_tokens: 4000 }
+    input_price_per_million: 0
+    output_price_per_million: 0
+    speed: medium
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://ollama.com/library/llama3.1
+    verified_at: 2026-06-10
+    lifecycle: reference
+    callable: false
+    pricing_basis: per_million_tokens

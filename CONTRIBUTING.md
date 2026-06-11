@@ -24,6 +24,12 @@ make pre-pr           # fmt → docs → ci  (the ONLY writer; leaves git clean 
 (`make ci`). CI mirrors `make ci` exactly, and deploy re-runs it at the deployed SHA — so
 **if CI passes, deploy won't fail** (parity). After a non-trivial phase, run `drift-check`.
 
+On a PR, CI also runs a **`changed`** gate that scopes lint, format, and **diff-coverage**
+(≥90% on changed lines) to just the files you touched — run it locally with
+`make ci-changed` (compares against `origin/main`; override with `BASE_REF=<ref>`).
+Type-check and the full test suite stay repo-wide in the `ci / *` jobs, since a change can
+break a file that imports it.
+
 ## Conventions (enforced)
 
 - **Pydantic at every boundary**; `Field(..., description=...)` on every field.
@@ -31,7 +37,7 @@ make pre-pr           # fmt → docs → ci  (the ONLY writer; leaves git clean 
   Key classes/functions inventory is auto-synced by `make docs`).
 - **≥90% coverage**, both stacks; new/changed behavior needs tests.
 - **No hardcoded values / no secrets** — non-secret config in `config/*.yaml`/env;
-  secrets from Akeyless at runtime.
+  secrets from Infisical at runtime.
 - **No duplication / banned names** (`v2`, `new_`, `temp_`, `tmp_`, `old_`, `legacy_`,
   `copy_`, `_refactored`).
 - **Layering**: `fraudlens-core` → nothing internal; `fraudlens-ml` → `core` only;
@@ -56,4 +62,10 @@ Smoke tests (live-URL, deploy gate) live in `tests/smoke/` and are marked `smoke
   this includes bot/Renovate branches.
 - **Conventional Commits** (enforced by commitlint on PRs); releases are tag-driven
   (`v*`) with a `git-cliff` CHANGELOG and ship only from CI-green commits.
+- Run the **`maintain`** skill (Claude Code / Codex) to refresh code-file docs,
+  `ARCHITECTURE.md`, OpenAPI, and the README, and to propose the next SemVer + changelog
+  from your commits (`make version-next` / `make changelog-unreleased`). It is
+  **propose-only** — it never tags, commits, or pushes; you cut the tag.
+- Required PR checks (branch protection) are listed in
+  [`docs/runbooks/branch-protection.md`](docs/runbooks/branch-protection.md).
 - Open a PR with the template; ensure the checklist + `drift-check` pass.

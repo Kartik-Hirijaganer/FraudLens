@@ -1,0 +1,67 @@
+# =====================================================================
+# FraudLens LLM Providers - CONNECTION + GOVERNANCE registry (NON-SECRET).
+# =====================================================================
+#
+# Keyed by the same provider names used in catalog.yml. This file holds how to
+# reach a provider and what governance posture it advertises. catalog.yml holds
+# model capability and trust metadata.
+#
+# API keys are env-var references resolved at runtime from Infisical /llm:
+#   infisical run --env=prod --path=/llm -- <command>
+#
+# A catalog provider with no entry here is discoverable but not callable.
+# =====================================================================
+
+openrouter:
+  protocol: openai_compatible
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  timeout_s: 60
+  max_retries: 2
+  headers:
+    HTTP-Referer: https://fraudlens.local
+    X-Title: FraudLens
+  region: global
+  data_retention: provider-default
+  zdr_supported: false
+  training_opt_out: false
+  baa_required: false
+  allowed_data_classes: [synthetic, deidentified]
+
+openai:
+  protocol: openai_compatible
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  timeout_s: 45
+  max_retries: 3
+  region: us
+  data_retention: 30d
+  zdr_supported: true
+  training_opt_out: true
+  baa_required: true
+  allowed_data_classes: [synthetic, deidentified, internal, restricted]
+
+anthropic:
+  protocol: anthropic
+  api_key_env: ANTHROPIC_API_KEY
+  timeout_s: 60
+  max_retries: 2
+  region: us
+  data_retention: 30d
+  zdr_supported: false
+  training_opt_out: true
+  baa_required: true
+  allowed_data_classes: [synthetic, deidentified, internal]
+
+gemini:
+  protocol: openai_compatible
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  api_key_env: GEMINI_API_KEY
+  timeout_s: 45
+  max_retries: 3
+  region: global
+  data_retention: provider-default
+  zdr_supported: false
+  training_opt_out: false
+  baa_required: false
+  allowed_data_classes: [synthetic, deidentified]

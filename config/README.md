@@ -34,3 +34,23 @@ deploy platform, never written to a YAML file, `.env`, fixture, or source.
 | `api_v1_prefix` | str | Business-API prefix (`/api/v1`). Ops endpoints stay unprefixed. |
 | `request_id_header` | str | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | bool | Dev-only auth bypass. Honored **only** when `environment != "prod"`; inert in prod. |
+
+## LLM registry files
+
+`config/llm/catalog.yml` and `config/llm/providers.yml` are non-secret registries for
+the standalone `fraudlens-llm` package:
+
+| File | Purpose | Secret policy |
+|------|---------|---------------|
+| `config/llm/catalog.yml` | Capability and trust registry keyed `provider -> model-id`. Contains `kind`, `context_window`, `modality`, `default_params`, pricing, `speed`, `reasoning_capable`, `intelligence`, `source_url`, `verified_at`, `lifecycle`, `callable`, and `pricing_basis`. | No endpoints or API keys. |
+| `config/llm/providers.yml` | Connection and governance registry keyed by provider. Contains `protocol`, `base_url`, `api_key_env`, `timeout_s`, `max_retries`, non-secret `headers`, `region`, `data_retention`, `zdr_supported`, `training_opt_out`, `baa_required`, and `allowed_data_classes`. | `api_key_env` is an env-var name only; values come from Infisical `/llm`. |
+
+Model references split on the first slash: `openai/gpt-5-mini` and
+`openrouter/anthropic/claude-sonnet-4.6` both resolve cleanly. A provider present in
+the catalog but absent from `providers.yml` is discoverable but not callable.
+
+Validate the registries with:
+
+```bash
+make llm-catalog-check
+```

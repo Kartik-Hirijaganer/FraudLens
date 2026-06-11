@@ -1,12 +1,12 @@
 """Summary: Shared Pydantic models for the API surface. CamelModel is the base
-for every request/response model: it emits camelCase JSON (Aegis casing rule)
-while keeping snake_case Python attributes, and forbids unknown fields. The Aegis
+for every request/response model: it emits camelCase JSON (FraudLens casing rule)
+while keeping snake_case Python attributes, and forbids unknown fields. The FraudLens
 error envelope (ErrorResponse) and the tenant context (TenantContext) live here so
 every handler and exception handler shares one definition (no duplication, rule 5).
 
 Key classes:
 - CamelModel: base model with a camelCase alias generator and extra="forbid".
-- ErrorResponse: the Aegis error envelope {code, message, details, requestId}.
+- ErrorResponse: the FraudLens error envelope {code, message, details, requestId}.
 - TenantContext: API-surface tenant identity (agencyId) for authenticated callers.
 
 Key functions:
@@ -14,7 +14,7 @@ Key functions:
 
 Notes:
 - ErrorResponse.details carries only {field, message} pairs — never raw input
-  values — so PHI is not echoed back through error bodies (Aegis).
+  values — so PHI is not echoed back through error bodies (FraudLens governance).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class CamelModel(BaseModel):
 
 
 class ErrorResponse(CamelModel):
-    """The Aegis error envelope returned by every error path."""
+    """The FraudLens error envelope returned by every error path."""
 
     code: str = Field(..., description="Stable machine-readable error code.")
     message: str = Field(..., description="Human-readable, PHI-free summary.")

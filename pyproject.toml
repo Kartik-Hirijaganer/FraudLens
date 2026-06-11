@@ -7,6 +7,7 @@
 #
 # Layering (ruff-enforced per-package, see packages/*/pyproject.toml):
 #   fraudlens-core -> (nothing internal)
+#   fraudlens-llm  -> (nothing internal; standalone provider client)
 #   fraudlens-ml   -> may import fraudlens-core, never fraudlens-backend
 #   fraudlens-backend -> may import both
 
@@ -37,6 +38,9 @@ dev = [
     "interrogate>=1.7",
     "vulture>=2.13",
     "types-pyyaml>=6.0",
+    # diff-cover gates changed-line coverage in the PR `changed` job (Cobertura XML
+    # for the backend, lcov for the frontend); see the Makefile `*-coverage-diff` targets.
+    "diff-cover>=9.2",
 ]
 
 # ---------------------------------------------------------------------------
@@ -48,6 +52,7 @@ line-length = 100
 src = [
     "backend/src",
     "packages/fraudlens-core/src",
+    "packages/fraudlens-llm/src",
     "packages/fraudlens-ml/src",
     "scripts",
     "tests",
@@ -63,7 +68,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TID", "PL", "RU
 ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
-known-first-party = ["fraudlens_backend", "fraudlens_core", "fraudlens_ml"]
+known-first-party = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fraudlens_ml"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]            # re-exports are intentional
@@ -84,6 +89,7 @@ warn_unused_configs = true
 mypy_path = [
     "backend/src",
     "packages/fraudlens-core/src",
+    "packages/fraudlens-llm/src",
     "packages/fraudlens-ml/src",
     "scripts",
 ]
@@ -107,7 +113,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["fraudlens_backend", "fraudlens_core", "fraudlens_ml"]
+source = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fraudlens_ml"]
 omit = ["*/tests/*", "*/__main__.py"]
 
 [tool.coverage.report]

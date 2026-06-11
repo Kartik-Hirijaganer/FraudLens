@@ -1,1 +1,1 @@
-"""Pydantic models for the API surface (camelCase aliases, Aegis envelope)."""
+"""Pydantic models for the API surface (camelCase aliases, FraudLens envelope)."""
