@@ -44,7 +44,7 @@ Use these paths:
 | `/ci/supabase` | `prod` | Future Supabase automation | Add only when a workflow consumes it |
 | `/mcp/context7` | `prod` | Local agent/CLI workflows that need Context7 docs access | `CONTEXT7_API_KEY` |
 | `/mcp/statsig` | `prod` | Local agent/CLI workflows that need Statsig credentials | Add only if a local Statsig API key is required outside the installed connector |
-| `/llm` | `prod` | Future LLM provider credentials | Add only when LLM integration lands |
+| `/llm` | `prod` | LLM provider credentials | `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
 
 Do not store frontend runtime secrets. Any `VITE_*` value bundled into the SPA is public.
 
@@ -75,9 +75,27 @@ infisical run --env=prod --path=/mcp/context7 -- \
 
 infisical run --env=prod --path=/mcp/statsig -- \
   <statsig-related-command>
+
+infisical run --env=prod --path=/llm -- \
+  uv run python -c "import asyncio, fraudlens_llm as f; c=f.LlmClient.from_settings(); print(asyncio.run(c.generate(messages=[f.LlmMessage(role='user', content='ping')])).safe_text)"
 ```
 
 If a command does not need secrets, run it normally. Keep `.env` non-secret/local-only.
+
+## LLM Provider Secrets
+
+`fraudlens-llm` reads provider keys lazily from env-var references in
+`config/llm/providers.yml`. Store the actual values only in Infisical `prod` at `/llm`:
+
+| Key | Used by provider |
+| --- | --- |
+| `OPENROUTER_API_KEY` | `openrouter` |
+| `OPENAI_API_KEY` | `openai` |
+| `ANTHROPIC_API_KEY` | `anthropic` |
+| `GEMINI_API_KEY` | `gemini` |
+
+Run LLM commands through `infisical run --env=prod --path=/llm -- <command>`. Do not copy
+provider keys into `.env`, YAML, fixtures, test output, logs, or GitHub Secrets.
 
 ## GitHub Actions OIDC
 

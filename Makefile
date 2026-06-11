@@ -10,13 +10,13 @@ SHELL := bash
 UV ?= uv
 NPM ?= npm
 FRONTEND := frontend
-PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-ml/src scripts
+PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src packages/fraudlens-ml/src scripts
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
-        header-check secrets-scan dup-check deadcode docs docs-check openapi test-coverage-diff \
+        header-check llm-catalog-check secrets-scan dup-check deadcode docs docs-check openapi test-coverage-diff \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -80,6 +80,8 @@ header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
+llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
+	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
 	npx --yes jscpd@4 backend/src packages frontend/src --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
@@ -102,7 +104,7 @@ docker-build: ## Build the backend image (no push).
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check secrets-scan dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan dup-check docs-check ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).

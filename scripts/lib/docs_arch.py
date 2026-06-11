@@ -67,11 +67,14 @@ def render_module_map() -> str:
             "```mermaid",
             "graph TD",
             '    core["fraudlens-core<br/>(domain types, tenancy)"]',
+            '    llm["fraudlens-llm<br/>(catalog client, guardrails)"]',
             '    ml["fraudlens-ml<br/>(scoring/RAG; placeholder)"]',
             '    backend["fraudlens-backend<br/>(FastAPI service)"]',
             "    ml --> core",
             "    backend --> core",
+            "    backend -.may use.-> llm",
             "    backend -.may use.-> ml",
+            "    ml -.may use.-> llm",
             "```",
         ]
     )

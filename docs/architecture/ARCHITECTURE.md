@@ -113,19 +113,39 @@ graph TD
 - **Vercel/Supabase credentials** are fetched **short-lived from Infisical at job/runtime**,
   masked, never persisted. Deploy is **inert** until the accounts + Terraform state exist.
 
-## LLM routing (primary / fallback)
+## LLM catalog, routing, and guardrails
 
 ```mermaid
 graph LR
-    req["SAR draft request"] --> primary["Primary LLM"]
-    primary -->|ok| out["Draft + citations"]
-    primary -->|error / rate-limit / timeout| fallback["Fallback LLM"]
-    fallback --> out
+    req["LLM request"] --> catalog["config/llm/catalog.yml<br/>capability + trust"]
+    req --> providers["config/llm/providers.yml<br/>connection + governance"]
+    catalog --> select["model selection<br/>kind/modality/intelligence/cost"]
+    providers --> policy["data-class policy<br/>region/retention/ZDR/training"]
+    select --> guardrails["input guardrails<br/>PHI masking + prompt-risk scan"]
+    policy --> guardrails
+    guardrails --> primary["primary provider adapter"]
+    primary -->|retryable error| fallback["eligible fallback<br/>equal-or-stricter posture"]
+    primary -->|ok| output["raw output scan<br/>phishing/policy"]
+    fallback --> output
+    output --> sanitize["safe_text sanitization<br/>raw output locked down"]
 ```
 
-The SAR-drafting step routes to a **primary** model and degrades to a **fallback** on error,
-rate-limit, or timeout. Prompts and logs carry **no PHI** (Aegis); inputs are de-identified
-before they reach any provider.
+`fraudlens-llm` is a standalone async package. Model capability, pricing, and trust
+metadata live in `config/llm/catalog.yml`; provider connection and governance posture
+live in `config/llm/providers.yml`. API keys are env-var references only and resolve at
+runtime from Infisical `/llm`.
+
+Public calls enter through `LlmClient.generate()` or `LlmClient.embed()`. The client checks
+provider data-class policy before any SDK call, masks PHI-like input locally, scans prompt
+risk, prepends a fixed system policy, calls a private provider adapter, scans raw output
+before sanitization, and returns only `safe_text` by default. Embeddings run policy and
+masking before the provider call; vector storage and `agency_id` scoping remain backend
+responsibilities.
+
+Fallback is allowed only after retryable provider failures and only to providers that allow
+the call's `DataClass` and maintain an equal-or-stricter governance posture. Fallback never
+weakens region, retention, ZDR, or training-opt-out posture unless an explicit non-prod
+override is set.
 
 ## Aegis governance mapping
 
@@ -144,11 +164,14 @@ before they reach any provider.
 ```mermaid
 graph TD
     core["fraudlens-core<br/>(domain types, tenancy)"]
+    llm["fraudlens-llm<br/>(catalog client, guardrails)"]
     ml["fraudlens-ml<br/>(scoring/RAG; placeholder)"]
     backend["fraudlens-backend<br/>(FastAPI service)"]
     ml --> core
     backend --> core
+    backend -.may use.-> llm
     backend -.may use.-> ml
+    ml -.may use.-> llm
 ```
 <!-- /AUTOGEN:module-map -->
 
