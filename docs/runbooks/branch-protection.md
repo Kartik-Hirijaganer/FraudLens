@@ -6,11 +6,11 @@ branches: `main`, `dev`, and `release/*`.
 
 ## Branch policy
 
-| Branch pattern | Purpose | Direct pushes | Deploys |
-| --- | --- | --- | --- |
-| `main` | Stable integration / source of truth | Blocked; PR required | No |
-| `dev` | Deployment-capable development branch | Blocked; PR required | Yes |
-| `release/*` | Deployment-capable release branches | Blocked; PR required | Yes |
+| Branch pattern | Purpose | Direct pushes | Deletion | Deploys |
+| --- | --- | --- | --- | --- |
+| `main` | Stable integration / source of truth | Blocked; PR required | Blocked | No |
+| `dev` | Deployment-capable development branch | Blocked; PR required | Blocked | Yes |
+| `release/*` | Deployment-capable release branches | Blocked; PR required | Blocked | Yes |
 
 Backend and frontend deploy workflows are allowlisted to post-merge `push` CI runs on
 `dev` and `release/*` only:
@@ -58,9 +58,9 @@ merge result.
 Same-repo PR branches are deleted after merge by
 [`delete-merged-branch.yml`](../../.github/workflows/delete-merged-branch.yml). The workflow
 runs only on merged PRs, skips fork branches, refuses to delete the default branch / `main` /
-`master`, and verifies the branch still points at the merged PR head SHA before deleting it.
-If GitHub's native **Automatically delete head branches** setting already removed the branch,
-the workflow exits successfully.
+`master` / `dev` / `release/*`, and verifies the branch still points at the merged PR head
+SHA before deleting it. If GitHub's native **Automatically delete head branches** setting
+already removed the branch, the workflow exits successfully.
 
 Enable the native setting in **Settings → General → Pull Requests → Automatically delete
 head branches**. If using `gh` intentionally for repo settings, the equivalent is:

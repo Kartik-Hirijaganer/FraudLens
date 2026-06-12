@@ -34,10 +34,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$BRANCH" == "$DEFAULT_BRANCH" || "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
-            echo "::notice::Skipping protected branch '$BRANCH'."
-            exit 0
-          fi
+          case "$BRANCH" in
+            "$DEFAULT_BRANCH"|main|master|dev|release/*)
+              echo "::notice::Skipping protected branch '$BRANCH'."
+              exit 0
+              ;;
+          esac
 
           current_sha="$(
             gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH}" --jq '.object.sha' 2>/tmp/branch-ref.err || true
