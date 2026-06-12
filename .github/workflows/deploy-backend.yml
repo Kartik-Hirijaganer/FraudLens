@@ -1,6 +1,7 @@
-# Backend deploy — WIRED BUT INERT until the Azure account exists. The cloud jobs
-# run only when the repo variable AZURE_DEPLOY_ENABLED == 'true'; until then only
-# `verify` runs (re-running the SAME gate at the deployed SHA — deploy parity).
+# Backend deploy — WIRED BUT INERT until the Azure account exists. Deploys are allowed
+# only from `dev` and `release/*` after CI succeeds. The cloud jobs run only when the repo
+# variable AZURE_DEPLOY_ENABLED == 'true'; until then only `verify` runs (re-running the
+# SAME gate at the deployed SHA — deploy parity).
 #
 # Secrets posture: Azure auth is GitHub→Azure OIDC (id-token: write; no stored client
 # secret). App secrets are fetched at runtime from Infisical by the Container App,
@@ -12,7 +13,9 @@ on:
   workflow_run:
     workflows: ["ci"]
     types: [completed]
-    branches: [main]
+    branches:
+      - dev
+      - "release/*"
 
 permissions:
   contents: read
@@ -24,7 +27,7 @@ concurrency:
 
 jobs:
   verify:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     uses: ./.github/workflows/_ci-reusable.yml
 
   build-push:
