@@ -1,13 +1,16 @@
-# CI — runs on every human PR and on pushes to main. Renovate PRs are handled by
-# dependency-update.yml, which calls the SAME reusable workflow with the SAME
-# caller job id (`ci`), so the required status-check names match either way:
+# CI — runs on every human PR and on pushes to protected long-lived branches. Renovate
+# PRs are handled by dependency-update.yml, which calls the SAME reusable workflow with the
+# SAME caller job id (`ci`), so the required status-check names match either way:
 #   ci / backend   ·   ci / frontend   ·   ci / docker-build
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - dev
+      - "release/*"
 
 permissions:
   contents: read
