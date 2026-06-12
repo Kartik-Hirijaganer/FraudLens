@@ -18,3 +18,18 @@ request_id_header: X-Request-Id
 # Auth dev-bypass: honored ONLY when environment != "prod" AND this is true.
 # Inert in prod by construction (see backend api/deps.py and its tests).
 auth_dev_bypass: false
+
+# --- Gateway edge — BOOT-CRITICAL config (loaded at startup, never DB-dependent) ---
+# The security posture (CORS, rate limits, headers) is fully determined here before
+# DB readiness. Exact CORS origins are set in the per-environment overlay, never in
+# source (no-hardcoding, plan §12.1/§12.3). Empty = deny all cross-origin by default.
+cors_allow_origins: []
+cors_allow_credentials: false
+rate_limit_enabled: true
+rate_limit_requests: 120
+rate_limit_window_seconds: 60
+
+# --- Config-driven backends — local for `make local-demo`; cloud selected per-env ---
+storage_backend: local
+queue_backend: local
+llm_mode: mock

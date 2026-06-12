@@ -54,7 +54,14 @@ def render_config_keys(settings_cls: type[BaseSettings]) -> str:
     for name, field in settings_cls.model_fields.items():
         annotation = field.annotation
         type_name = getattr(annotation, "__name__", str(annotation)).replace("typing.", "")
-        default = "_required_" if field.is_required() else f"`{field.default!r}`"
+        if field.is_required():
+            default = "_required_"
+        elif field.default_factory is not None:
+            # Resolve default_factory (list/dict defaults) so the table shows the real
+            # value (e.g. `[]`) instead of pydantic's internal sentinel.
+            default = f"`{field.get_default(call_default_factory=True)!r}`"
+        else:
+            default = f"`{field.default!r}`"
         description = field.description or ""
         lines.append(f"| `{name}` | `{type_name}` | {default} | {description} |")
     return "\n".join(lines)
@@ -74,7 +81,7 @@ def render_module_map() -> str:
             "    backend --> core",
             "    backend -.may use.-> llm",
             "    backend -.may use.-> ml",
-            "    ml -.may use.-> llm",
+            "    ml -. never imports .-x llm",
             "```",
         ]
     )

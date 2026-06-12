@@ -50,8 +50,8 @@ C4Container
 C4Component
     title Components — Backend API
     Container_Boundary(api, "FastAPI service") {
-        Component(mw, "RequestContextMiddleware", "ASGI", "request id + PHI-safe structured logs")
-        Component(ops, "Ops router", "/healthz, /readyz", "liveness + readiness probes")
+        Component(gw, "Gateway edge", "ASGI middleware", "request-id, rate-limit, CORS, security headers, access log")
+        Component(ops, "Ops router", "/healthz, /readyz", "liveness + readiness (DB ping) probes")
         Component(v1, "API v1 router", "/api/v1/*", "business surface (camelCase)")
         Component(deps, "Auth deps", "fail-closed JWT", "agency_id claim validation")
         Component(errors, "Error handlers", "FraudLens envelope", "{code,message,details,requestId}")
@@ -151,7 +151,7 @@ override is set.
 
 | FraudLens invariant | Enforced by |
 | --- | --- |
-| No PHI in logs/URLs/errors/query params | `middleware/logging.py` (PHI scrub, path-only logs); `api/errors.py` (no raw input/stack) |
+| No PHI in logs/URLs/errors/query params | `middleware/logging.py` (structlog redaction processor + key denylist, path-only access logs); `middleware/gateway.py` (request-id, security headers); `api/errors.py` (no raw input/stack) |
 | Tenant isolation (`agency_id` on every scoped op) | `fraudlens_core.require_agency_id`; `api/deps.py` (`enforce_tenant`) |
 | AuthZ validates JWT `agency_id` vs resource | `api/deps.py` (`authenticate` fails closed; dev bypass inert in prod) |
 | FraudLens error envelope | `api/errors.py` → `{code, message, details, requestId}` |
@@ -171,12 +171,14 @@ graph TD
     backend --> core
     backend -.may use.-> llm
     backend -.may use.-> ml
-    ml -.may use.-> llm
+    ml -. never imports .-x llm
 ```
 <!-- /AUTOGEN:module-map -->
 
 **Layering rule (ruff-enforced):** `fraudlens-core` imports nothing internal; `fraudlens-ml`
-may import `core` but never `backend`; `backend` may import both.
+may import `core` but never `backend` **or `fraudlens-llm`** — SAR drafting reaches `ml` only
+through an injected `SarDrafter` protocol, so the heavy ML package never depends on the LLM
+client; `backend` may import `core`, `llm`, and `ml`.
 
 ## API endpoints
 
@@ -204,6 +206,21 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `api_v1_prefix` | `str` | `'/api/v1'` | Prefix for business APIs; ops endpoints stay unprefixed. |
 | `request_id_header` | `str` | `'X-Request-Id'` | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | `bool` | `False` | Dev-only auth bypass; honored only when environment != 'prod'. |
+| `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
+| `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
+| `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
+| `cors_allow_credentials` | `bool` | `False` | Whether the gateway allows credentialed CORS requests. |
+| `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
+| `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
+| `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
+| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Security response headers applied to every gateway response. |
+| `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
+| `storage_backend` | `Literal` | `'local'` | Artifact/PDF storage backend selector (local-FS vs Azure Blob). |
+| `storage_local_dir` | `str` | `'.local/artifacts'` | Root directory for the local-FS storage backend (gitignored). |
+| `queue_backend` | `Literal` | `'local'` | Background-job backend selector (local runner vs Container Apps Jobs). |
+| `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
+| `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
+| `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
 <!-- /AUTOGEN:config-keys -->
 
 ## Data model (ERD)

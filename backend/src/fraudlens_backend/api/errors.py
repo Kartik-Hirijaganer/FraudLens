@@ -14,12 +14,11 @@ Key functions:
 Notes:
 - details carries only {field, message} — raw request values are never reflected
   back, so PHI cannot leak through validation errors (FraudLens governance).
-- The requestId is read from request.state (set by RequestContextMiddleware).
+- The requestId is read from request.state (set by the gateway middleware).
 """
 
 from __future__ import annotations
 
-import logging
 from typing import cast
 
 from fastapi import FastAPI
@@ -29,7 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 
-from fraudlens_backend.middleware.logging import APP_LOGGER_NAME
+from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
 from fraudlens_backend.models.common import ErrorResponse
 
 _GENERIC_500_MESSAGE = "An internal error occurred."
@@ -105,10 +104,10 @@ async def _validation_exception_handler(request: Request, exc: Exception) -> Res
 
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> Response:
     """Log the failure server-side and return a generic 500 with no internals leaked."""
-    logging.getLogger(APP_LOGGER_NAME).error(
+    get_logger(APP_LOGGER_NAME).error(
         "unhandled exception",
+        request_id=_request_id(request),
         exc_info=exc,
-        extra={"request_id": _request_id(request)},
     )
     return _envelope(
         code="internal_error",

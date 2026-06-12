@@ -9,6 +9,7 @@ Key classes:
 - AppSettings: the validated, frozen settings model for the service.
 
 Key functions:
+- find_config_dir: locate the config/ directory (env override, else walk up).
 - get_settings: process-wide cached accessor used as a FastAPI dependency.
 
 Notes:
@@ -17,6 +18,12 @@ Notes:
 - The config directory is discovered via FRAUDLENS_CONFIG_DIR, then by walking up
   from the CWD / this file looking for config/default.yaml (works in src layout,
   editable installs, and the Docker image where FRAUDLENS_CONFIG_DIR=/app/config).
+- Boot-critical edge config (CORS allowlist, rate limits, security headers, backend
+  selectors, LLM mode) lives HERE — typed YAML/env loaded at startup, never the DB —
+  so the gateway/security posture is fully determined before DB readiness (plan §12.3).
+- `database_url` is read from the unprefixed DATABASE_URL env (Infisical-injected in
+  prod, a local docker URL in dev) as well as FRAUDLENS_DATABASE_URL; it never lives
+  in committed YAML.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -34,10 +41,22 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-Environment = Literal["dev", "prod"]
+Environment = Literal["dev", "prod", "staging"]
+StorageBackend = Literal["local", "azure_blob"]
+QueueBackend = Literal["local", "container_apps_jobs"]
+LlmMode = Literal["mock", "live"]
+
+# Safe defaults for the always-on security headers (no CSP — Phase 13 adds CSP, which
+# needs care around the Swagger UI CDN). These are overridable via config (plan §12.3).
+_DEFAULT_SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
 
 
-def _find_config_dir() -> Path:
+def find_config_dir() -> Path:
     """Locate the config/ directory containing default.yaml; fail soft if absent."""
     override = os.environ.get("FRAUDLENS_CONFIG_DIR")
     if override:
@@ -63,6 +82,7 @@ class AppSettings(BaseSettings):
         extra="forbid",
         frozen=True,
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     app_name: str = Field(default="FraudLens", description="Human-readable service name.")
@@ -84,6 +104,80 @@ class AppSettings(BaseSettings):
         description="Dev-only auth bypass; honored only when environment != 'prod'.",
     )
 
+    # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
+    cors_allow_origins: list[str] = Field(
+        default_factory=list,
+        description="Exact allowed CORS origins; set per-env in config (never hardcoded).",
+    )
+    cors_allow_methods: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed CORS methods for the gateway edge.",
+    )
+    cors_allow_headers: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed CORS request headers for the gateway edge.",
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        description="Whether the gateway allows credentialed CORS requests.",
+    )
+
+    # --- Gateway edge: rate limiting (fixed-window, per client) ---
+    rate_limit_enabled: bool = Field(
+        default=True,
+        description="Enable the gateway fixed-window rate limiter.",
+    )
+    rate_limit_requests: int = Field(
+        default=120,
+        gt=0,
+        description="Max requests per client within the window before 429.",
+    )
+    rate_limit_window_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Length of the rate-limit fixed window, in seconds.",
+    )
+
+    # --- Gateway edge: security response headers (config-overridable safe defaults) ---
+    security_headers: dict[str, str] = Field(
+        default_factory=lambda: dict(_DEFAULT_SECURITY_HEADERS),
+        description="Security response headers applied to every gateway response.",
+    )
+    gateway_routes_file: str | None = Field(
+        default=None,
+        description="Override path to the gateway routing table; else discovered under config/.",
+    )
+
+    # --- Config-driven backends (plan §12.3): local for the one-command demo, cloud later ---
+    storage_backend: StorageBackend = Field(
+        default="local",
+        description="Artifact/PDF storage backend selector (local-FS vs Azure Blob).",
+    )
+    storage_local_dir: str = Field(
+        default=".local/artifacts",
+        description="Root directory for the local-FS storage backend (gitignored).",
+    )
+    queue_backend: QueueBackend = Field(
+        default="local",
+        description="Background-job backend selector (local runner vs Container Apps Jobs).",
+    )
+    llm_mode: LlmMode = Field(
+        default="mock",
+        description="SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider.",
+    )
+
+    # --- Database (secret value via env; non-secret local docker URL in dev) ---
+    database_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("database_url", "DATABASE_URL", "FRAUDLENS_DATABASE_URL"),
+        description="Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML.",
+    )
+    db_connect_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        description="Timeout for the /readyz database connectivity probe, in seconds.",
+    )
+
     @property
     def is_dev_bypass_enabled(self) -> bool:
         """True only when NOT in prod and the bypass flag is set (fails closed in prod)."""
@@ -99,7 +193,7 @@ class AppSettings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Layer YAML config under env vars and constructor args (highest priority first)."""
-        config_dir = _find_config_dir()
+        config_dir = find_config_dir()
         sources: list[PydanticBaseSettingsSource] = [init_settings, env_settings]
         env_yaml = config_dir / f"{_active_environment()}.yaml"
         if env_yaml.is_file():

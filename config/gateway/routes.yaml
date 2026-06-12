@@ -1,0 +1,38 @@
+# Gateway routing table — BOOT-CRITICAL, config-driven (plan §4.3). Loaded at startup,
+# never DB-dependent. In v1 every route is served in-process by the named `service`
+# module; `required_role` + `rate_limit_per_minute` are the edge policy that activates
+# unchanged when the services split to internal ingress (ADR-004). The gateway logs the
+# matched `service` for end-to-end correlation. Longest matching path_prefix wins.
+routes:
+  - path_prefix: /api/v1/transactions
+    service: ingestion
+    required_role: analyst
+    rate_limit_per_minute: 120
+  - path_prefix: /api/v1/investigations
+    service: investigation
+    required_role: analyst
+    rate_limit_per_minute: 60
+  - path_prefix: /api/v1/alerts
+    service: alerts
+    required_role: analyst
+  - path_prefix: /api/v1/rules
+    service: rules
+    required_role: analyst
+  - path_prefix: /api/v1/dashboard
+    service: dashboard
+    required_role: analyst
+  - path_prefix: /api/v1/agencies
+    service: tenancy
+    required_role: analyst
+  - path_prefix: /api/v1/telemetry
+    service: telemetry
+    required_role: analyst
+  - path_prefix: /api/v1/config
+    service: admin
+    required_role: admin
+  - path_prefix: /api/v1/training-runs
+    service: model-lifecycle
+    required_role: admin
+  - path_prefix: /api/v1/model-versions
+    service: model-lifecycle
+    required_role: admin
