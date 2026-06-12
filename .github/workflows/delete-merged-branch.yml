@@ -1,0 +1,57 @@
+# Delete same-repo PR branches after merge. GitHub's native "Automatically delete head
+# branches" setting should also be enabled, but this workflow keeps the policy visible in
+# code and exits cleanly if the branch was already removed.
+name: delete-merged-branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: delete-merged-branch-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    name: delete branch
+    if: >-
+      ${{
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete merged head branch
+        run: |
+          set -euo pipefail
+
+          if [[ "$BRANCH" == "$DEFAULT_BRANCH" || "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            echo "::notice::Skipping protected branch '$BRANCH'."
+            exit 0
+          fi
+
+          current_sha="$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH}" --jq '.object.sha' 2>/tmp/branch-ref.err || true
+          )"
+
+          if [[ -z "$current_sha" ]]; then
+            echo "::notice::Branch '$BRANCH' is already deleted."
+            exit 0
+          fi
+
+          if [[ "$current_sha" != "$HEAD_SHA" ]]; then
+            echo "::warning::Skipping '$BRANCH' because it moved from $HEAD_SHA to $current_sha after PR #$PR_NUMBER merged."
+            exit 0
+          fi
+
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}"
+          echo "Deleted branch '$BRANCH' after merged PR #$PR_NUMBER."
