@@ -1,19 +1,30 @@
-# fraudlens-ml — heavy ML dependencies are isolated to THIS member.
-# Placeholder for now (XGBoost/SHAP/RAG features land in later plans). Layering:
-# may import fraudlens-core, never fraudlens-backend (ruff banned-api below).
-#
-# When ML features land, heavy deps (xgboost, shap, scikit-learn, langchain,
-# chromadb, ...) are added to [project.dependencies] HERE — never in backend or
-# core — so the backend image stays lean unless it explicitly opts in.
+# fraudlens-ml — heavy ML/RAG dependencies are isolated to THIS member (plan §16 Phase 1).
+# The deps are declared here now; the feature CODE (XGBoost scoring, SHAP, ChromaDB RAG)
+# lands in Phases 5–6. Keeping them out of `backend`/`core` is what lets the backend image
+# stay lean (multi-stage + prebuilt base in Phase 14). Layering: may import fraudlens-core,
+# never fraudlens-backend OR fraudlens-llm (ruff banned-api below) — SAR drafting reaches ml
+# only via an injected `SarDrafter` protocol, so ml never imports fraudlens-llm.
 
 [project]
 name = "fraudlens-ml"
 version = "0.1.0"
-description = "FraudLens ML scoring + RAG (placeholder; heavy deps isolated here)."
+description = "FraudLens ML scoring + RAG (heavy ML/RAG deps isolated here)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Kartik Hirijaganer" }]
-dependencies = ["fraudlens-core"]
+dependencies = [
+    "fraudlens-core",
+    # Scoring + explainability (Phase 5): XGBoost on IEEE-CIS with SMOTE + an LR baseline.
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "imbalanced-learn>=0.12",
+    "xgboost>=2.1",
+    "shap>=0.46",
+    # RAG over FinCEN/BSA (Phase 6): LangChain orchestration + ChromaDB vector store.
+    "langchain>=0.3",
+    "chromadb>=0.5",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -33,3 +44,4 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "fraudlens_backend" = { msg = "Layering: fraudlens-ml must not import fraudlens-backend." }
+"fraudlens_llm" = { msg = "Layering: fraudlens-ml must not import fraudlens-llm (use the injected SarDrafter protocol)." }

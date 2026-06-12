@@ -17,9 +17,11 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan dup-check deadcode docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check dup-check deadcode docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary \
+        local-demo local-demo-down local-demo-reset local-demo-smoke \
+        db-migrate db-seed import-ieee ingest-rag train-model tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -111,6 +113,8 @@ header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
+no-hardcoding-check: ## Flag hardcoded URLs/IPs/model-ids in source (rule 4 / §12.1).
+	$(UV) run python scripts/check_no_hardcoding.py
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
@@ -155,9 +159,43 @@ docker-build: ## Build the backend image (no push).
 	docker build -f backend/Dockerfile -t fraudlens-backend:local .
 
 # ---------------------------------------------------------------------------
+# Local demo & data lifecycle (plan §3.4 / §16 Phase 1). `make local-demo` is the
+# one-command path: Docker Postgres + local backends + mock LLM + (Phase 2+) migrate/seed
+# -> gateway+services + frontend, then prints the URL. The data-lifecycle targets wrap the
+# canonical commands; the scripts they call land in their phases (noted inline).
+# ---------------------------------------------------------------------------
+local-demo: ## Boot the full stack locally (Postgres + gateway + frontend); prints the URL.
+	$(UV) run python scripts/local_demo.py up
+local-demo-down: ## Stop the local demo stack and remove its containers.
+	$(UV) run python scripts/local_demo.py down
+local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
+	$(UV) run python scripts/local_demo.py reset
+local-demo-smoke: ## Boot, hit the health probes, then tear down (local E2E gate).
+	$(UV) run python scripts/local_demo.py smoke
+
+db-migrate: ## Apply database migrations (Alembic config lands in Phase 2).
+	$(UV) run alembic upgrade head
+db-seed: ## Seed the demo dataset, dev/demo only (scripts/seed.py lands in Phase 2).
+	$(UV) run python scripts/seed.py
+import-ieee: ## Import the synthetic IEEE-CIS sample (scripts/import_ieee.py lands in Phase 3).
+	$(UV) run python scripts/import_ieee.py
+ingest-rag: ## Build the FinCEN/BSA RAG index (scripts/ingest_rag.py lands in Phase 6).
+	$(UV) run python scripts/ingest_rag.py
+train-model: ## Train + register an XGBoost model (scripts/train_model.py lands in Phase 5).
+	$(UV) run python scripts/train_model.py
+
+tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
+	terraform fmt -recursive -check infra/terraform
+	@for env in dev prod; do \
+		echo ">> terraform validate ($$env)"; \
+		terraform -chdir=infra/terraform/environments/$$env init -backend=false -input=false -no-color >/dev/null; \
+		terraform -chdir=infra/terraform/environments/$$env validate -no-color; \
+	done
+
+# ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).

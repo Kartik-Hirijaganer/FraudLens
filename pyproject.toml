@@ -8,8 +8,9 @@
 # Layering (ruff-enforced per-package, see packages/*/pyproject.toml):
 #   fraudlens-core -> (nothing internal)
 #   fraudlens-llm  -> (nothing internal; standalone provider client)
-#   fraudlens-ml   -> may import fraudlens-core, never fraudlens-backend
-#   fraudlens-backend -> may import both
+#   fraudlens-ml   -> may import fraudlens-core, never fraudlens-backend OR fraudlens-llm
+#                     (SAR drafting reaches ml only via an injected SarDrafter protocol)
+#   fraudlens-backend -> may import core, llm, and ml
 
 [project]
 name = "fraudlens"

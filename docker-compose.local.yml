@@ -1,0 +1,24 @@
+# Local development stack for `make local-demo` (plan §3.4). NON-SECRET local config
+# ONLY — real secrets always come from Infisical at runtime (Golden Rule 2). Values
+# interpolate from the environment / .env (see .env.example) with safe local defaults.
+# This file is never used in production; the deploy target is Supabase Postgres.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fraudlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraudlens}
+      POSTGRES_DB: ${POSTGRES_DB:-fraudlens}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - fraudlens_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraudlens} -d ${POSTGRES_DB:-fraudlens}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  fraudlens_pg_data:

@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+!.env.example
 .envrc
 .venv
 env/
@@ -156,6 +157,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# FraudLens local-demo state: docker volumes are named, but local-FS artifacts,
+# the local ChromaDB index, and any scratch output live under .local/ (never committed).
+.local/
 
 # Spyder project settings
 .spyderproject
