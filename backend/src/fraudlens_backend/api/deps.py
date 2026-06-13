@@ -20,6 +20,7 @@ Key functions:
 - authenticate: resolve AccessClaims, honoring the prod-inert dev bypass.
 - enforce_tenant: validate a claim's agency_id against the requested agency_id.
 - get_tenant_for_path: dependency enforcing tenancy for /agencies/{agency_id}.
+- get_tenant: dependency resolving tenant scope from the verified claim alone.
 
 Notes:
 - enforce_tenant delegates to fraudlens_core.require_agency_id and maps its
@@ -139,3 +140,8 @@ async def get_tenant_for_path(
 ) -> TenantContext:
     """Tenant-scoping dependency for /agencies/{agency_id}: claim must match the path."""
     return enforce_tenant(claims, agency_id)
+
+
+async def get_tenant(claims: AuthenticatedClaims) -> TenantContext:
+    """Tenant scope from the verified claim alone (resources never take a path/body tenant)."""
+    return enforce_tenant(claims, None)

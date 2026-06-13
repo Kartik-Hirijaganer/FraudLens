@@ -3,13 +3,13 @@
 database (columns use `Enum(..., native_enum=False)`, so the value is what persists) and
 serializes cleanly on the camelCase API surface. Centralizing them here keeps the domain
 vocabulary in one place (no duplication, rule 5) and lets models, repositories, the seed,
-and later phases share the exact same members. `RiskBand` is intentionally NOT redefined
-here — it is the canonical scoring band from `fraudlens_core` and is reused directly.
+and later phases share the exact same members. `RiskBand` and `AmlRuleType` are intentionally
+NOT redefined here — they are canonical in `fraudlens_core` (the scoring band and the rules-
+engine taxonomy) and are reused directly, since the pure rules engine dispatches on the type.
 
 Key classes:
 - UserRole: a user's RBAC role within an agency.
 - Severity: ordinal severity shared by rules, alerts, and drift reports.
-- AmlRuleType: the kind of deterministic AML rule (engine logic lands in Phase 4).
 - RunStatus: lifecycle status of an analysis run.
 - AlertStatus: lifecycle status of an alert.
 - AlertActionType: a review action recorded against an alert.
@@ -52,17 +52,6 @@ class Severity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-
-
-class AmlRuleType(StrEnum):
-    """Kind of deterministic AML rule (rule evaluation logic lands in Phase 4)."""
-
-    STRUCTURING = "structuring"
-    VELOCITY = "velocity"
-    HIGH_RISK_GEOGRAPHY = "high_risk_geography"
-    ROUND_AMOUNT = "round_amount"
-    THRESHOLD_EVASION = "threshold_evasion"
-    RAPID_MOVEMENT = "rapid_movement"
 
 
 class RunStatus(StrEnum):

@@ -54,8 +54,8 @@ from fraudlens_backend.db.base import (
     TimestampMixin,
     str_enum,
 )
-from fraudlens_backend.db.models.enums import AmlRuleType, Severity, UserRole
-from fraudlens_core import RiskBand
+from fraudlens_backend.db.models.enums import Severity, UserRole
+from fraudlens_core import AmlRuleType, RiskBand
 
 
 class Agency(IdMixin, Base):

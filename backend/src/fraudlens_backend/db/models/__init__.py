@@ -17,7 +17,6 @@ from fraudlens_backend.db.models.core import Agency, AmlRule, Transaction, User
 from fraudlens_backend.db.models.enums import (
     AlertActionType,
     AlertStatus,
-    AmlRuleType,
     AnalysisRunEventType,
     JobStatus,
     JobType,
@@ -41,6 +40,7 @@ from fraudlens_backend.db.models.mlops import (
     TrainingLabel,
 )
 from fraudlens_backend.db.models.ops import AuditLog, JobExecution, SystemConfig
+from fraudlens_core import AmlRuleType
 
 # Platform (non-tenant) tables — carry no `agency_id`. Mirrored by scripts/check_tenancy.py.
 PLATFORM_TABLES: frozenset[str] = frozenset(

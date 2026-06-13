@@ -162,6 +162,12 @@ venv.bak/
 # the local ChromaDB index, and any scratch output live under .local/ (never committed).
 .local/
 
+# Model artifacts (plan §16 Phase 5): the demo model_artifacts_dir is data/models. Only the
+# committed local-demo fixture bundle (v0-fixture) is tracked; locally trained candidate
+# bundles (from `make train-model`) land here too and must NOT be committed.
+/data/models/*
+!/data/models/v0-fixture/
+
 # Spyder project settings
 .spyderproject
 .spyproject

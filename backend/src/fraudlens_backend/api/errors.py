@@ -1,15 +1,17 @@
 """Summary: Exception handlers that render every error as the FraudLens envelope
 {code, message, details, requestId} — never a raw stack trace, exception class
-name, or framework default body. Three handlers cover the surface: HTTP errors
-(from raised HTTPException, including auth 401/403), request-validation errors
-(field/message pairs only, never echoed input values), and a catch-all for
+name, or framework default body. The handlers cover the surface: catalog errors
+(AppError → the stable business code + HTTP status from models/errors.py), canonical
+schema errors (fraudlens_core.SchemaValidationError → 422 with a field/reason detail),
+HTTP errors (from raised HTTPException, including auth 401/403), request-validation
+errors (field/message pairs only, never echoed input values), and a catch-all for
 unhandled exceptions (logged server-side with stack info, but a generic 500 body).
 
 Key classes:
 - (none)
 
 Key functions:
-- register_exception_handlers: install all three handlers on the FastAPI app.
+- register_exception_handlers: install every error-envelope handler on the FastAPI app.
 
 Notes:
 - details carries only {field, message} — raw request values are never reflected
@@ -30,6 +32,8 @@ from starlette.responses import Response
 
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
 from fraudlens_backend.models.common import ErrorResponse
+from fraudlens_backend.models.errors import AppError, get_error_spec
+from fraudlens_core import SchemaValidationError
 
 _GENERIC_500_MESSAGE = "An internal error occurred."
 
@@ -68,6 +72,31 @@ def _envelope(
         request_id=_request_id(request),
     )
     return JSONResponse(status_code=status_code, content=body.model_dump(by_alias=True))
+
+
+async def _app_error_handler(request: Request, exc: Exception) -> Response:
+    """Render a raised AppError using its catalog code, status, and fixed message."""
+    app_exc = cast(AppError, exc)
+    spec = get_error_spec(app_exc.code)
+    return _envelope(
+        code=spec.code,
+        message=spec.message,
+        status_code=spec.http_status,
+        request=request,
+        details=app_exc.details,
+    )
+
+
+async def _schema_validation_handler(request: Request, exc: Exception) -> Response:
+    """Render a canonical SchemaValidationError as a 422 with a field/reason detail."""
+    schema_exc = cast(SchemaValidationError, exc)
+    return _envelope(
+        code="validation_error",
+        message="Request validation failed.",
+        status_code=422,
+        request=request,
+        details=[{"field": schema_exc.field, "message": schema_exc.reason}],
+    )
 
 
 async def _http_exception_handler(request: Request, exc: Exception) -> Response:
@@ -118,7 +147,9 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> Resp
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Install the HTTP, validation, and catch-all handlers on the app."""
+    """Install the AppError, HTTP, validation, and catch-all handlers on the app."""
+    app.add_exception_handler(AppError, _app_error_handler)
+    app.add_exception_handler(SchemaValidationError, _schema_validation_handler)
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
     app.add_exception_handler(Exception, _unhandled_exception_handler)
