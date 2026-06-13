@@ -1316,6 +1316,12 @@ Docs · Acceptance · Risks · Dependencies · Complexity). Consolidated test ma
 - **Acceptance:** fixed inputs → schema-valid streamed SAR in mock; budget guard works; `local-demo` drafts via mock.
 - **Risks:** provider variability (record-replay fixtures; `@pytest.mark.llm` excluded from CI).
 - **Dependencies:** P5, P6, `fraudlens-llm`. **Complexity:** M.
+- **Implementation notes (delivered — plan↔code traceability):**
+  - The **`SarDrafter` protocol + its PHI-free value types** live in `packages/fraudlens-ml/src/fraudlens_ml/sar/` so ml never imports `fraudlens-llm`/`fraudlens-backend` (layering); the concrete impls live in `backend/sar/`.
+  - The "`SarDraft` Pydantic schema" is realized as **`SarDraftContent`** (in `fraudlens_ml/sar/protocol.py`) because the ORM row `SarDraft` (Phase 2, `db/models/alerts.py`) already owns that name; schema validation + citation grounding live in `backend/sar/schema.py`.
+  - Beyond the file list, the backend adds focused single-purpose modules: `backend/sar/{__init__,budget,cache,streaming,factory}.py` (budget guard, replay cache, shared token streamer, and the `FRAUDLENS_LLM_MODE` mock|live selector). SAR model id + fallback chain are config-driven in **`config/llm/sar.yml`** (no hardcoded model ids, §7.2).
+  - The budget guard enforces session **and** daily USD caps; the day's prior spend is supplied via an injected `daily_spent_provider` (wired to a `system_config` cap + a `sar_drafts` day-sum in P10/P12), so the drafter needs no DB access.
+  - Phase 7 ships the mock drafter + selection (`build_sar_drafter`); the end-to-end `local-demo` investigate→stream→SAR path is wired by the **Phase 8** LangGraph pipeline (`fraudlens-ml/pipeline/*` + `backend/pipeline_wiring.py`).
 
 #### Phase 8 — LangGraph orchestration + SSE + run ownership + job runner
 - **Goal:** compose rules+score+SHAP+RAG+SAR into a persisted, idempotent run **owned by `POST`**; SSE as observer/replay; batch job runner.

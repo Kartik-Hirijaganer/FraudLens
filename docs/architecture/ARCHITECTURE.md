@@ -147,6 +147,29 @@ the call's `DataClass` and maintain an equal-or-stricter governance posture. Fal
 weakens region, retention, ZDR, or training-opt-out posture unless an explicit non-prod
 override is set.
 
+### SAR drafting & prompt versioning
+
+SAR drafting reaches `fraudlens-ml` only through the injected `SarDrafter` protocol
+(`fraudlens_ml.sar`), so ml never imports `fraudlens-llm`. The backend supplies the concrete
+drafter, selected by `FRAUDLENS_LLM_MODE`: a deterministic, keyless **mock** (the `make
+local-demo` default — no provider, no cost) or a **live** drafter over `LlmClient`. Both consume
+a PHI-free `SarInput` (risk band, model probability, the rule hits that fired, the top SHAP
+drivers, and the grounded regulatory citations) and stream token events followed by one terminal
+result.
+
+Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML front-matter
+semantic version + a static instruction body). Every draft records the template's
+`prompt_version` (`<id>@<semver>`) and a `prompt_hash` (SHA-256 of the exact template bytes) on
+`sar_drafts`, so which prompt produced which SAR is auditable and any template edit is detectable.
+The model output is parsed into a strict structured schema and **grounded** — only regulation ids
+present in the supplied citations survive, so a fabricated id can never reach the persisted SAR.
+The masked narrative, structured body, grounded citations, token usage, and estimated USD cost are
+persisted for the audit trail. A per-session/per-day USD **budget guard** caps spend (429 on
+exceed), a replay **cache** returns an identical prior draft with no new spend, and SAR model/
+fallback selection is config-driven (`config/llm/sar.yml`, no hardcoded model ids). PHI is masked
+before the prompt is assembled; any provider/guardrail/schema failure degrades to
+`sarStatus=failed` so the run still completes with score + SHAP + RAG.
+
 ## FraudLens governance mapping
 
 | FraudLens invariant | Enforced by |
