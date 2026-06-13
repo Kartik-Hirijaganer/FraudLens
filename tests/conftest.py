@@ -39,6 +39,11 @@ _SCRIPTS_DIR = str(_REPO_ROOT / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+# Put tests/fixtures/ on the path so tests can import shared helpers (e.g. pipeline_fakes).
+_FIXTURES_DIR = str(Path(__file__).resolve().parent / "fixtures")
+if _FIXTURES_DIR not in sys.path:
+    sys.path.insert(0, _FIXTURES_DIR)
+
 # The committed Phase 5 fixture model bundle the scorer/explainer tests load.
 FIXTURE_MODEL_DIR = _REPO_ROOT / "data" / "models" / "v0-fixture"
 
