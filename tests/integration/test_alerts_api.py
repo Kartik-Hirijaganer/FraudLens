@@ -769,3 +769,78 @@ async def test_alert_detail_includes_action_history(
     assert len(actions) == 1
     assert actions[0]["action"] == "comment"
     assert actions[0]["actorId"] == str(DEMO_USER_ID)
+
+
+# --------------------------------------------------------------------------------------------------
+# Acceptance: triage a seeded high-risk alert end-to-end (assign → SAR approve+PDF → resolve)
+# --------------------------------------------------------------------------------------------------
+
+
+async def test_triage_high_risk_alert_end_to_end(
+    make_settings: Callable[..., AppSettings],
+    file_db: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
+    tmp_path: Path,
+) -> None:
+    engine, sm = file_db
+    ids = await _seed_alert(sm, status=AlertStatus.OPEN, sar_status=SarStatus.DRAFT)
+    storage_dir = tmp_path / "e2e-artifacts"
+    app = _demo_app(make_settings, engine, sm, storage_local_dir=str(storage_dir))
+    async with _client(app) as client:
+        # 1. the high-risk alert sits in the open queue
+        listed = await client.get("/api/v1/alerts", params={"status": "open"})
+        assert [a["alertId"] for a in listed.json()["alerts"]] == [str(ids["alert_id"])]
+        # 2. opening the detail surfaces the draft SAR
+        detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
+        assert detail.json()["sarDraft"]["status"] == "draft"
+        # 3. assign to the reviewer → in_review
+        assigned = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "assign", "assigneeId": str(_REVIEWER_ID)},
+        )
+        assert assigned.json()["status"] == "in_review"
+        # 4. reviewer approves the SAR → approved + deferred PDF
+        approved = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/sar/review", json={"decision": "approve"}
+        )
+        assert approved.json()["status"] == "approved"
+        # 5. resolve as confirmed fraud → resolved + a training label
+        resolved = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={
+                "action": "resolve",
+                "label": "confirmed_fraud",
+                "note": "Confirmed structuring.",
+            },
+        )
+        assert resolved.json()["status"] == "resolved"
+    # Terminal: alert resolved+assigned, SAR approved with a PDF, label written, fully audited.
+    async with sm() as session:
+        alert = await session.get(Alert, ids["alert_id"])
+        assert alert is not None
+        assert alert.status is AlertStatus.RESOLVED
+        assert alert.assigned_to == _REVIEWER_ID
+        draft = await session.get(SarDraft, ids["sar_id"])
+        assert draft is not None
+        assert draft.status is SarStatus.APPROVED
+        assert draft.pdf_blob_url is not None
+        label = (
+            await session.execute(
+                select(TrainingLabel).where(TrainingLabel.run_id == ids["run_id"])
+            )
+        ).scalar_one()
+        assert label.label.value == "confirmed_fraud"
+        assert label.created_by == DEMO_USER_ID
+        alert_actions = (
+            (
+                await session.execute(
+                    select(AlertAction).where(AlertAction.alert_id == ids["alert_id"])
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {a.action.value for a in alert_actions} == {"assign", "resolve"}
+        audits = {a.action for a in (await session.execute(select(AuditLog))).scalars().all()}
+        assert audits == {"alert.assign", "sar.approve", "alert.resolve"}
+    pdf_path = storage_dir / "sar" / str(DEMO_AGENCY_ID) / f"{ids['sar_id']}.pdf"
+    assert pdf_path.read_bytes().startswith(b"%PDF-1.4")
