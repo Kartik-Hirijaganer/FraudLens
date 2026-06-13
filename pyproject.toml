@@ -39,6 +39,9 @@ dev = [
     "interrogate>=1.7",
     "vulture>=2.13",
     "types-pyyaml>=6.0",
+    # aiosqlite backs the in-memory async DB used by the Phase 2 DB tests (migrations,
+    # repositories, agency lookup, seed); production/local-demo run on Postgres (asyncpg).
+    "aiosqlite>=0.20",
     # diff-cover gates changed-line coverage in the PR `changed` job (Cobertura XML
     # for the backend, lcov for the frontend); see the Makefile `*-coverage-diff` targets.
     "diff-cover>=9.2",
@@ -76,6 +79,9 @@ known-first-party = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fr
 "tests/**" = ["PLR2004", "PLR0913", "PLR0915"]
 "**/conftest.py" = ["PLR2004"]
 "scripts/**" = ["PLR0912", "PLR0915"]  # checkers branch a lot by design
+# Alembic migrations are long by nature (one create_table per table); the upgrade/downgrade
+# bodies legitimately exceed the statement cap. Logic stays minimal and reviewed.
+"alembic/versions/*.py" = ["PLR0915"]
 
 # ---------------------------------------------------------------------------
 # mypy — strict, pydantic plugin. Paths are passed by `make typecheck`.

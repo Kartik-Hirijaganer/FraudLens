@@ -73,8 +73,8 @@ jobs:
           url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
           curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
-      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog)
-        run: make header-check secrets-scan dup-check docs-check llm-catalog-check
+      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog, tenancy)
+        run: make header-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check
 
   docker-build:
     name: docker-build
