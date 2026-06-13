@@ -19,8 +19,10 @@ Key functions:
 Notes:
 - /readyz sets the HTTP status from the aggregate so platform probes can gate on it.
 - The database probe runs a bounded SELECT 1 against the engine on app.state; when no
-  DATABASE_URL is configured it reports "skipped" (the app still boots). ChromaDB and
-  Infisical remain "skipped" until their phases wire real reachability checks.
+  DATABASE_URL is configured it reports "skipped" (the app still boots).
+- The ChromaDB probe checks the baked RAG index for presence (plan §16 Phase 6): a populated
+  index → "ok"; a missing/empty index → "down" when `rag_index_required` (prod bakes the
+  index) else "skipped" (dev/local need not have built it yet). Infisical remains "skipped".
 - Probes may be sync or async; readyz awaits any awaitable result.
 """
 
@@ -74,6 +76,7 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
     """Build the active readiness probes from app state (overridable in tests/wiring)."""
     settings = cast(AppSettings, request.app.state.settings)
     engine = getattr(request.app.state, "db_engine", None)
+    rag_index_dir = getattr(request.app.state, "rag_index_dir", None)
     timeout = settings.db_connect_timeout_seconds
 
     async def _database() -> DependencyCheck:
@@ -86,7 +89,21 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="database", status="down", detail="unreachable")
         return DependencyCheck(name="database", status="ok")
 
-    return [_database, lambda: _skipped("chromadb"), lambda: _skipped("infisical")]
+    def _chromadb() -> DependencyCheck:
+        """Probe the baked RAG index presence; down only when an index is required (prod)."""
+        if rag_index_dir is None:
+            return _skipped("chromadb")
+        # Lazy import keeps heavy chromadb out of the import graph until /readyz needs it.
+        from fraudlens_ml.rag import index_status  # noqa: PLC0415
+
+        status = index_status(rag_index_dir, settings.rag_collection)
+        if status == "ready":
+            return DependencyCheck(name="chromadb", status="ok")
+        if settings.rag_index_required:
+            return DependencyCheck(name="chromadb", status="down", detail=f"index {status}")
+        return DependencyCheck(name="chromadb", status="skipped", detail=f"index {status}")
+
+    return [_database, _chromadb, lambda: _skipped("infisical")]
 
 
 ProbesDep = Annotated[list[ReadinessProbe], Depends(get_readiness_probes)]

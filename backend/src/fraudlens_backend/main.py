@@ -19,12 +19,15 @@ Notes:
   so a prod-mode test app cannot accidentally read the dev defaults.
 - The DB engine on app.state.db_engine is None when no DATABASE_URL is configured, so
   the app still boots locally and /readyz reports the database as "skipped".
+- The resolved RAG index dir on app.state.rag_index_dir is what the /readyz ChromaDB
+  probe checks for index presence; tests override it to exercise ok/down/skipped.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -40,6 +43,12 @@ from fraudlens_backend.db.session import (
 from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
 from fraudlens_backend.settings import AppSettings, get_settings
+
+
+def _resolve_index_dir(settings: AppSettings) -> Path:
+    """Resolve the RAG index dir; relative paths anchor at the process CWD (repo root / /app)."""
+    index_dir = Path(settings.rag_index_dir)
+    return index_dir if index_dir.is_absolute() else Path.cwd() / index_dir
 
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:
@@ -68,6 +77,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.db_engine = engine
     app.state.db_sessionmaker = build_sessionmaker(engine) if engine is not None else None
+    app.state.rag_index_dir = _resolve_index_dir(resolved)
     register_exception_handlers(app)
     install_gateway(app, resolved)
     app.include_router(ops.router)

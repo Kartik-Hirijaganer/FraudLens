@@ -5,8 +5,9 @@ and the keyless mock SAR drafter via dev config. `up` waits for /healthz, prints
 demo URL, and blocks until Ctrl-C, then tears the child processes down cleanly; `down`
 /`reset` stop the stack (reset also drops volumes + .local state); `smoke` is the
 headless gate — boot Postgres + backend, assert /healthz and /readyz, tear down. The
-database migrate + seed steps are guarded so they run once Phase 2 lands Alembic + the
-seed script, and are skipped (not failed) until then, keeping `make local-demo` green.
+database migrate + seed + RAG-index-build steps are guarded so they run once their phases
+land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase 6), and are skipped (not
+failed) until then, keeping `make local-demo` green and shipping a fixture RAG index.
 
 Key classes:
 - (none)
@@ -138,6 +139,16 @@ def _maybe_migrate_and_seed(env: dict[str, str]) -> None:
         print(">> seed: skipped (scripts/seed.py lands in Phase 2)")
 
 
+def _maybe_build_rag_index(env: dict[str, str]) -> None:
+    """Build the FinCEN/BSA RAG index when present; skip (don't fail) until Phase 6 lands it."""
+    if (REPO_ROOT / "scripts" / "ingest_rag.py").is_file():
+        subprocess.run(
+            ["uv", "run", "python", "scripts/ingest_rag.py"], cwd=REPO_ROOT, env=env, check=True
+        )
+    else:
+        print(">> rag index: skipped (scripts/ingest_rag.py lands in Phase 6)")
+
+
 def _backend_command(env: dict[str, str]) -> list[str]:
     """Build the uvicorn command for the gateway+services app."""
     return [
@@ -159,6 +170,7 @@ def up() -> int:
     backend_port, frontend_port = _env("BACKEND_PORT"), _env("FRONTEND_PORT")
     _start_postgres(env)
     _maybe_migrate_and_seed(env)
+    _maybe_build_rag_index(env)
     procs = [
         subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
         subprocess.Popen(["npm", "--prefix", "frontend", "run", "dev"], cwd=REPO_ROOT, env=env),
@@ -204,6 +216,7 @@ def smoke() -> int:
     backend_port = _env("BACKEND_PORT")
     _start_postgres(env)
     _maybe_migrate_and_seed(env)
+    _maybe_build_rag_index(env)
     backend = subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env)
     try:
         base = _base_url(backend_port)
