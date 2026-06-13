@@ -145,6 +145,7 @@ async def _ensure_users(session: AsyncSession) -> int:
         if (await session.execute(stmt)).scalar_one_or_none() is None:
             session.add(
                 User(
+                    id=spec.user_id,
                     agency_id=DEMO_AGENCY_ID,
                     email=spec.email,
                     display_name=spec.display_name,
