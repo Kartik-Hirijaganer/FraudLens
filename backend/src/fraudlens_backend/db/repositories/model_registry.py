@@ -58,6 +58,11 @@ class ModelRegistryRepository:
         """Return one registry version by id, or None when it does not exist."""
         return await self._session.get(ModelVersion, version_id)
 
+    async def get_version_by_label(self, version_label: str) -> ModelVersion | None:
+        """Return the registry version with this label, or None (maps a scored label to its id)."""
+        stmt = select(ModelVersion).where(ModelVersion.version_label == version_label)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def get_active_deployment(self) -> ModelDeployment | None:
         """Return the single live deployment pointer row, or None when unset."""
         return (await self._session.execute(select(ModelDeployment).limit(1))).scalar_one_or_none()

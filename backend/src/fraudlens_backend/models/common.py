@@ -57,6 +57,11 @@ class TenantContext(CamelModel):
         min_length=1,
         description="Active tenant (agency) id from the verified JWT claim.",
     )
+    user_id: str | None = Field(
+        default=None,
+        description="Acting user id from the verified token subject; the actor audited "
+        "actions are recorded under (None when the token carries no subject).",
+    )
 
 
 class AgencyResponse(CamelModel):

@@ -98,6 +98,47 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             http_status=404,
             message="No model version with that id exists in the registry.",
         ),
+        ErrorSpec(
+            code="investigation_not_found",
+            http_status=404,
+            message="No investigation run with that id exists for this agency.",
+        ),
+        ErrorSpec(
+            code="investigations_unavailable",
+            http_status=503,
+            message="The investigation service is not available (database not configured).",
+        ),
+        # --- Phase 9: alerts & review workflow (endpoints 9-12) ---
+        ErrorSpec(
+            code="alert_not_found",
+            http_status=404,
+            message="No alert with that id exists for this agency.",
+        ),
+        ErrorSpec(
+            code="invalid_alert_transition",
+            http_status=409,
+            message="That action is not allowed from the alert's current status.",
+        ),
+        ErrorSpec(
+            code="sar_draft_not_found",
+            http_status=404,
+            message="No SAR draft exists for this alert's investigation.",
+        ),
+        ErrorSpec(
+            code="invalid_sar_transition",
+            http_status=409,
+            message="That review decision is not allowed from the SAR draft's current status.",
+        ),
+        ErrorSpec(
+            code="assignee_not_in_agency",
+            http_status=403,
+            message="The requested assignee does not belong to this agency.",
+        ),
+        ErrorSpec(
+            code="acting_user_required",
+            http_status=401,
+            message="A verified acting user is required for this action.",
+        ),
     )
 }
 
