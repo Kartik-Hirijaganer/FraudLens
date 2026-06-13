@@ -27,8 +27,9 @@ from sqlalchemy.pool import StaticPool
 from fraudlens_backend.db.models import Base
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
-from fraudlens_core import RuleContext
-from fraudlens_core.rules.base import RuleTransaction, TransactionDirection
+from fraudlens_core import RiskBand, RuleContext
+from fraudlens_core.rules.base import AmlRuleType, RuleHit, RuleTransaction, TransactionDirection
+from fraudlens_ml.sar import SarCitation, SarFeature, SarInput
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -73,6 +74,52 @@ def make_rule_context() -> Callable[..., RuleContext]:
             direction=direction,
         )
         return RuleContext(transaction=txn, history=history)
+
+    return _make
+
+
+@pytest.fixture
+def make_sar_input() -> Callable[..., SarInput]:
+    """Return a factory building a PHI-free SarInput for the SAR-drafting tests."""
+
+    def _make(**overrides: Any) -> SarInput:
+        params: dict[str, Any] = {
+            "agency_id": "agency-1",
+            "transaction_id": "txn-1",
+            "risk_band": RiskBand.HIGH,
+            "fraud_probability": 0.91,
+            "amount": Decimal("9500.00"),
+            "currency": "USD",
+            "country": "US",
+            "channel": "wire",
+            "model_version": "v0-fixture",
+            "rules_version": "rules-abc",
+            "rag_version": "rag-v1",
+            "rule_hits": (
+                RuleHit(
+                    code="STRUCT",
+                    rule_type=AmlRuleType.STRUCTURING,
+                    severity="high",
+                    weight=Decimal("1.0"),
+                    reason="Multiple sub-threshold deposits",
+                ),
+            ),
+            "top_features": (
+                SarFeature(feature="amount", value=9500.0, shap_value=0.8),
+                SarFeature(feature="velocity", value=5.0, shap_value=-0.2),
+            ),
+            "citations": (
+                SarCitation(
+                    citation="31 CFR 1010.314",
+                    title="Structuring transactions",
+                    source="FinCEN",
+                    snippet="No person shall structure a transaction.",
+                ),
+            ),
+            "rag_context": "<<REGS>>\n[31 CFR 1010.314] Structuring\nsafe reference text\n<<END>>",
+        }
+        params.update(overrides)
+        return SarInput(**params)
 
     return _make
 
