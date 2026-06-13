@@ -165,6 +165,11 @@ class AppSettings(BaseSettings):
         default="mock",
         description="SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider.",
     )
+    model_artifacts_dir: str = Field(
+        default="data/models",
+        description="Root dir (by version label) for model artifact bundles; the committed "
+        "fixture lives here, candidates are written here, prod points it at Blob.",
+    )
 
     # --- Database (secret value via env; non-secret local docker URL in dev) ---
     database_url: str | None = Field(
@@ -176,6 +181,33 @@ class AppSettings(BaseSettings):
         default=5.0,
         gt=0,
         description="Timeout for the /readyz database connectivity probe, in seconds.",
+    )
+
+    # --- Ingestion limits (plan §16 Phase 3; config-driven, never hardcoded) ---
+    ingest_max_batch_size: int = Field(
+        default=500,
+        gt=0,
+        description="Max transactions accepted in one /transactions/batch request.",
+    )
+    ingest_csv_max_bytes: int = Field(
+        default=5_242_880,
+        gt=0,
+        description="Max accepted /transactions/upload body size in bytes (413 above it).",
+    )
+    ingest_csv_max_rows: int = Field(
+        default=10_000,
+        gt=0,
+        description="Max data rows accepted in one CSV upload (413 above it).",
+    )
+    ingest_sample_errors_limit: int = Field(
+        default=10,
+        ge=0,
+        description="Max per-row rejection samples returned by batch/CSV ingest.",
+    )
+    client_error_max_message_length: int = Field(
+        default=2_000,
+        gt=0,
+        description="Max length of a client-error report message before truncation.",
     )
 
     @property

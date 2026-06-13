@@ -11,12 +11,16 @@ import uuid
 from collections.abc import Callable
 
 import httpx
+import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import AccessClaims, TokenVerifier, get_token_verifier
+from fraudlens_backend.api.v1.router import read_agency
 from fraudlens_backend.db.models import Agency
 from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_AGENCY_NAME, DEMO_AGENCY_SLUG
 from fraudlens_backend.main import create_app
+from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.settings import AppSettings
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -79,6 +83,18 @@ async def test_missing_agency_returns_404(
         resp = await client.get(f"/api/v1/agencies/{missing}", headers=AUTH)
     assert resp.status_code == 404
     assert resp.json()["code"] == "not_found"
+
+
+async def test_read_agency_handler_returns_and_404s(db_session: AsyncSession) -> None:
+    # Direct-call coverage of the handler body (the httpx path above isn't traced by coverage).
+    agency = Agency(id=uuid.uuid4(), name="Acme", slug="acme-direct")
+    db_session.add(agency)
+    await db_session.flush()
+    found = await read_agency(TenantContext(agency_id=str(agency.id)), db_session)
+    assert found.slug == "acme-direct"
+    with pytest.raises(HTTPException) as excinfo:
+        await read_agency(TenantContext(agency_id=str(uuid.uuid4())), db_session)
+    assert excinfo.value.status_code == 404
 
 
 async def test_dev_bypass_resolves_seeded_demo_agency(

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import sys
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +27,54 @@ from sqlalchemy.pool import StaticPool
 from fraudlens_backend.db.models import Base
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
+from fraudlens_core import RuleContext
+from fraudlens_core.rules.base import RuleTransaction, TransactionDirection
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Put scripts/ on the path so tests can spec-load the maintenance scripts
 # (changed_files, next_version) and let them import their `lib.*` helpers.
-_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
+_SCRIPTS_DIR = str(_REPO_ROOT / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+# The committed Phase 5 fixture model bundle the scorer/explainer tests load.
+FIXTURE_MODEL_DIR = _REPO_ROOT / "data" / "models" / "v0-fixture"
+
 # Test templates are examples to copy, not live tests.
 collect_ignore_glob = ["**/_template_test.py"]
+
+
+@pytest.fixture
+def fixture_model_dir() -> Path:
+    """Return the committed Phase 5 fixture model bundle directory (data/models/v0-fixture)."""
+    return FIXTURE_MODEL_DIR
+
+
+@pytest.fixture
+def make_rule_context() -> Callable[..., RuleContext]:
+    """Return a factory building a PHI-free RuleContext for scoring/feature tests."""
+
+    def _make(
+        *,
+        amount: str = "100.00",
+        country: str = "US",
+        channel: str = "card",
+        occurred_at: datetime | None = None,
+        direction: TransactionDirection = TransactionDirection.OUTBOUND,
+        history: tuple[RuleTransaction, ...] = (),
+    ) -> RuleContext:
+        txn = RuleTransaction(
+            amount=Decimal(amount),
+            currency="USD",
+            country=country,
+            channel=channel,
+            occurred_at=occurred_at or datetime(2024, 6, 1, 14, 0, tzinfo=UTC),
+            direction=direction,
+        )
+        return RuleContext(transaction=txn, history=history)
+
+    return _make
 
 
 @pytest.fixture

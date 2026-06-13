@@ -102,6 +102,13 @@ mypy_path = [
 ]
 exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 
+# Heavy ML/RAG libraries (isolated to fraudlens-ml, plan §16 Phase 5) ship no type
+# stubs / py.typed marker; xgboost and numpy do. Ignoring their missing stubs keeps
+# the rest of the tree under strict typing while letting the scoring code import them.
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "shap.*", "imblearn.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true

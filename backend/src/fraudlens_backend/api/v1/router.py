@@ -1,11 +1,12 @@
-"""Summary: Aggregates the versioned /api/v1 business surface. It mounts the
-health sub-router and serves the tenant-scoped GET /api/v1/agencies/{agency_id} lookup,
-which exercises the full FraudLens access path: fail-closed authentication, agency_id
-claim validation (401 unauthenticated, 403 tenant mismatch), then a database existence
-check — the agency is loaded via AgencyRepository and a missing row returns 404 (no
-existence leak). The `tenant` dependency is resolved before the DB session so an auth or
-tenancy failure short-circuits before any database access. The prefix itself is applied by
-the app factory from settings.api_v1_prefix, so this router is prefix-agnostic.
+"""Summary: Aggregates the versioned /api/v1 business surface. It mounts the health,
+transaction-ingestion, AML-rules, model-registry, and telemetry sub-routers, and serves the
+tenant-scoped GET /api/v1/agencies/{agency_id} lookup, which exercises the full access path:
+fail-closed authentication, agency_id claim validation (401 unauthenticated, 403 tenant
+mismatch), then a database existence check — the agency is loaded via AgencyRepository and
+a missing row returns 404 (no existence leak). The `tenant` dependency is resolved before
+the DB session so an auth or tenancy failure short-circuits before any database access. The
+prefix itself is applied by the app factory from settings.api_v1_prefix, so this router is
+prefix-agnostic.
 
 Key classes:
 - (none)
@@ -27,12 +28,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from fraudlens_backend.api.deps import DbSessionDep, get_tenant_for_path
-from fraudlens_backend.api.v1 import health
+from fraudlens_backend.api.v1 import health, model_versions, rules, telemetry, transactions
 from fraudlens_backend.db.repositories import AgencyRepository
 from fraudlens_backend.models.common import AgencyResponse, TenantContext
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(transactions.router)
+api_router.include_router(rules.router)
+api_router.include_router(model_versions.router)
+api_router.include_router(telemetry.router)
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant_for_path)]
 

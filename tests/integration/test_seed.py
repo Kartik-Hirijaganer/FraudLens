@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Agency,
+    AmlRule,
     JobExecution,
     ModelDeployment,
     ModelVersion,
@@ -17,7 +18,7 @@ from fraudlens_backend.db.models import (
 )
 from seed import seed
 
-_COUNTED = (Agency, User, SystemConfig, ModelVersion, ModelDeployment, JobExecution)
+_COUNTED = (Agency, User, AmlRule, SystemConfig, ModelVersion, ModelDeployment, JobExecution)
 
 
 async def _count(session: AsyncSession, model: type) -> int:
@@ -48,6 +49,14 @@ async def test_seed_is_idempotent(db_session: AsyncSession) -> None:
     # The single seed job row is updated in place across runs (attempts increments).
     job = (await db_session.execute(select(JobExecution))).scalar_one()
     assert job.attempts == 2
+
+
+async def test_seed_creates_six_global_baseline_rules(db_session: AsyncSession) -> None:
+    summary = await seed(db_session)
+    assert summary.rules == 6
+    rows = (await db_session.execute(select(AmlRule))).scalars().all()
+    assert len(rows) == 6
+    assert all(row.agency_id is None for row in rows)  # baseline rules are global (platform)
 
 
 async def test_active_deployment_points_at_fixture_model(db_session: AsyncSession) -> None:

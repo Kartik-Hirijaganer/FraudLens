@@ -29,6 +29,19 @@
         "title": "AgencyResponse",
         "type": "object"
       },
+      "AmlRuleType": {
+        "description": "The canonical kind of deterministic AML rule; the engine dispatch key (plan \u00a79.1).",
+        "enum": [
+          "structuring",
+          "velocity",
+          "high_risk_geography",
+          "round_amount",
+          "threshold_evasion",
+          "rapid_movement"
+        ],
+        "title": "AmlRuleType",
+        "type": "string"
+      },
       "ApiHealthResponse": {
         "additionalProperties": false,
         "description": "Heartbeat payload for the versioned API surface.",
@@ -61,6 +74,163 @@
           "environment"
         ],
         "title": "ApiHealthResponse",
+        "type": "object"
+      },
+      "BatchIngestRequest": {
+        "additionalProperties": false,
+        "description": "A batch of transactions; dryRun validates + masks without persisting anything.\n\nItems are accepted as raw camelCase objects (the `TransactionIngestRequest` shape)\nand validated PER ROW in the handler, so one malformed item becomes a rejection\nrather than failing the whole request \u2014 i.e. the batch is partial-accept.",
+        "properties": {
+          "dryRun": {
+            "default": false,
+            "description": "When true, validate + mask but persist nothing.",
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "transactions": {
+            "description": "Transactions to ingest (non-empty; validated per row).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "minItems": 1,
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "transactions"
+        ],
+        "title": "BatchIngestRequest",
+        "type": "object"
+      },
+      "BatchIngestResponse": {
+        "additionalProperties": false,
+        "description": "Outcome of a batch ingest: counts, created rows, and bounded sample errors.",
+        "properties": {
+          "accepted": {
+            "description": "Rows inserted (0 on dryRun).",
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "dryRun": {
+            "description": "Whether this was a non-persisting validation run.",
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "duplicates": {
+            "description": "Rows skipped as already-existing.",
+            "minimum": 0.0,
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Rows rejected as invalid.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "sampleErrors": {
+            "description": "Bounded sample of per-row rejections (PHI-free).",
+            "items": {
+              "$ref": "#/components/schemas/IngestRejection"
+            },
+            "title": "Sampleerrors",
+            "type": "array"
+          },
+          "transactions": {
+            "description": "Created transactions (empty on dryRun).",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accepted",
+          "duplicates",
+          "rejected",
+          "dryRun"
+        ],
+        "title": "BatchIngestResponse",
+        "type": "object"
+      },
+      "ClientErrorReport": {
+        "additionalProperties": false,
+        "description": "The frontend client-error sink body (PHI-scrubbed before logging).",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional safe key/value context (scrubbed).",
+            "title": "Context"
+          },
+          "message": {
+            "description": "Client error message (scrubbed).",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ClientErrorReport",
+        "type": "object"
+      },
+      "CsvUploadResponse": {
+        "additionalProperties": false,
+        "description": "Outcome of a CSV upload: the recorded job id, counts, and bounded sample errors.",
+        "properties": {
+          "accepted": {
+            "description": "Rows inserted.",
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicates": {
+            "description": "Rows skipped as already-existing.",
+            "minimum": 0.0,
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "jobId": {
+            "description": "The csv_import job_executions id for this upload.",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "rejected": {
+            "description": "Rows rejected as invalid.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "sampleErrors": {
+            "description": "Bounded sample of per-row rejections (PHI-free).",
+            "items": {
+              "$ref": "#/components/schemas/IngestRejection"
+            },
+            "title": "Sampleerrors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobId",
+          "accepted",
+          "duplicates",
+          "rejected"
+        ],
+        "title": "CsvUploadResponse",
         "type": "object"
       },
       "DependencyCheck": {
@@ -110,6 +280,47 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IngestRejection": {
+        "additionalProperties": false,
+        "description": "A single PHI-free per-row rejection from a batch/CSV ingest.",
+        "properties": {
+          "code": {
+            "description": "Stable error code (e.g. 'duplicate_external_id').",
+            "title": "Code",
+            "type": "string"
+          },
+          "externalId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The row's externalId when known (no other values).",
+            "title": "Externalid"
+          },
+          "index": {
+            "description": "Zero-based position of the rejected row.",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Fixed, PHI-free reason for the rejection.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "code",
+          "message"
+        ],
+        "title": "IngestRejection",
+        "type": "object"
+      },
       "LivenessResponse": {
         "additionalProperties": false,
         "description": "Liveness payload \u2014 the process is running and serving.",
@@ -123,6 +334,107 @@
         },
         "title": "LivenessResponse",
         "type": "object"
+      },
+      "ModelVersionListResponse": {
+        "additionalProperties": false,
+        "description": "The model-registry versions plus the label of the currently active version.",
+        "properties": {
+          "activeVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label of the active (deployed) version, if any.",
+            "title": "Activeversionlabel"
+          },
+          "versions": {
+            "description": "Registry versions, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ModelVersionResponse"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "title": "ModelVersionListResponse",
+        "type": "object"
+      },
+      "ModelVersionResponse": {
+        "additionalProperties": false,
+        "description": "One model-registry version projected onto the API surface (PHI-free).",
+        "properties": {
+          "artifactUri": {
+            "description": "Artifact bundle uri (relative to the store).",
+            "title": "Artifacturi",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the version was registered.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "featureSpec": {
+            "additionalProperties": true,
+            "description": "Ordered feature spec (names only).",
+            "title": "Featurespec",
+            "type": "object"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free holdout metrics recorded.",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "notes": {
+            "description": "Human-readable notes about the version.",
+            "title": "Notes",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModelVersionStatus",
+            "description": "Registry lifecycle status."
+          },
+          "versionId": {
+            "description": "The model version's unique id (UUID).",
+            "title": "Versionid",
+            "type": "string"
+          },
+          "versionLabel": {
+            "description": "Unique human-readable version label.",
+            "title": "Versionlabel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "versionId",
+          "versionLabel",
+          "status",
+          "artifactUri",
+          "featureSpec",
+          "metrics",
+          "notes",
+          "createdAt"
+        ],
+        "title": "ModelVersionResponse",
+        "type": "object"
+      },
+      "ModelVersionStatus": {
+        "description": "Registry lifecycle state of a model version (plan \u00a79.2 / \u00a710.5).",
+        "enum": [
+          "candidate",
+          "shadow",
+          "canary",
+          "active",
+          "archived",
+          "rejected"
+        ],
+        "title": "ModelVersionStatus",
+        "type": "string"
       },
       "ReadinessResponse": {
         "additionalProperties": false,
@@ -147,6 +459,507 @@
           "checks"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RiskBand": {
+        "description": "Ordinal risk classification assigned to a scored transaction.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "RiskBand",
+        "type": "string"
+      },
+      "RuleCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new agency-scoped rule; `code` + `ruleType` are immutable after creation.",
+        "properties": {
+          "code": {
+            "description": "Stable per-agency rule code.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Optional human-readable description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether the rule is evaluated.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Rule display name.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Rule-type-specific tunables (camelCase JSONB).",
+            "title": "Params",
+            "type": "object"
+          },
+          "ruleType": {
+            "$ref": "#/components/schemas/AmlRuleType",
+            "description": "Which built-in evaluator runs this rule."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "default": "medium",
+            "description": "Ordinal severity carried through to a hit."
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "1.0",
+            "description": "Aggregation weight of the rule's contribution.",
+            "title": "Weight"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "ruleType"
+        ],
+        "title": "RuleCreateRequest",
+        "type": "object"
+      },
+      "RuleListResponse": {
+        "additionalProperties": false,
+        "description": "The agency's own rules (its custom overrides; baseline rules are global).",
+        "properties": {
+          "rules": {
+            "description": "The agency's rules, ordered by code.",
+            "items": {
+              "$ref": "#/components/schemas/RuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "RuleListResponse",
+        "type": "object"
+      },
+      "RuleResponse": {
+        "additionalProperties": false,
+        "description": "A persisted rule row projected onto the API surface.",
+        "properties": {
+          "agencyId": {
+            "description": "Owning tenant (agency) id.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "code": {
+            "description": "Stable per-agency rule code.",
+            "title": "Code",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the rule was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the rule is evaluated.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Rule display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Rule-type-specific tunables.",
+            "title": "Params",
+            "type": "object"
+          },
+          "ruleId": {
+            "description": "The rule's unique id (UUID).",
+            "title": "Ruleid",
+            "type": "string"
+          },
+          "ruleType": {
+            "$ref": "#/components/schemas/AmlRuleType",
+            "description": "The rule's evaluator type."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Ordinal severity."
+          },
+          "updatedAt": {
+            "description": "When the rule was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "version": {
+            "description": "Monotonic version (bumped on each update).",
+            "title": "Version",
+            "type": "integer"
+          },
+          "weight": {
+            "description": "Aggregation weight.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Weight",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ruleId",
+          "agencyId",
+          "code",
+          "name",
+          "description",
+          "ruleType",
+          "params",
+          "severity",
+          "weight",
+          "enabled",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "RuleResponse",
+        "type": "object"
+      },
+      "RuleUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update of a rule's mutable fields; only sent fields are applied (PATCH).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New description.",
+            "title": "Description"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Enable (true) or disable (false).",
+            "title": "Enabled"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New display name.",
+            "title": "Name"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replacement tunables object.",
+            "title": "Params"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Severity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New severity."
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New aggregation weight.",
+            "title": "Weight"
+          }
+        },
+        "title": "RuleUpdateRequest",
+        "type": "object"
+      },
+      "Severity": {
+        "description": "Ordinal severity shared by AML rules, alerts, and drift reports.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "Severity",
+        "type": "string"
+      },
+      "TransactionIngestRequest": {
+        "additionalProperties": false,
+        "description": "One transaction to ingest; structural checks only (semantics in build_canonical).",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "description": "Transaction amount (must be positive).",
+            "title": "Amount"
+          },
+          "channel": {
+            "description": "Origination channel.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Channel",
+            "type": "string"
+          },
+          "country": {
+            "description": "ISO-3166 alpha-2 country.",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country",
+            "type": "string"
+          },
+          "currency": {
+            "description": "ISO-4217 currency code.",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "destAccount": {
+            "description": "Destination account (masked).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Destaccount",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "Caller-unique id (dedup key).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Externalid",
+            "type": "string"
+          },
+          "features": {
+            "additionalProperties": true,
+            "description": "Optional extra model features (stored in JSONB).",
+            "title": "Features",
+            "type": "object"
+          },
+          "occurredAt": {
+            "description": "When the transaction occurred (not future).",
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "originAccount": {
+            "description": "Origin account (masked at rest).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Originaccount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "amount",
+          "currency",
+          "occurredAt",
+          "originAccount",
+          "destAccount",
+          "channel",
+          "country"
+        ],
+        "title": "TransactionIngestRequest",
+        "type": "object"
+      },
+      "TransactionListResponse": {
+        "additionalProperties": false,
+        "description": "A page of transactions plus the opaque cursor for the next page (null at the end).",
+        "properties": {
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page, or null when exhausted.",
+            "title": "Nextcursor"
+          },
+          "transactions": {
+            "description": "The transactions on this page (masked).",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "title": "TransactionListResponse",
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "additionalProperties": false,
+        "description": "A persisted transaction; account identifiers are masked, riskBand null at ingest.",
+        "properties": {
+          "agencyId": {
+            "description": "Owning tenant (agency) id.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "amount": {
+            "description": "Transaction amount.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "channel": {
+            "description": "Origination channel.",
+            "title": "Channel",
+            "type": "string"
+          },
+          "country": {
+            "description": "ISO-3166 alpha-2 country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "currency": {
+            "description": "ISO-4217 currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "destAccount": {
+            "description": "Masked destination account identifier.",
+            "title": "Destaccount",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "Caller-supplied unique id.",
+            "title": "Externalid",
+            "type": "string"
+          },
+          "ingestedAt": {
+            "description": "When the transaction was ingested.",
+            "format": "date-time",
+            "title": "Ingestedat",
+            "type": "string"
+          },
+          "latestRunId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest analysis run id, if any.",
+            "title": "Latestrunid"
+          },
+          "occurredAt": {
+            "description": "When the transaction occurred.",
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "originAccount": {
+            "description": "Masked origin account identifier.",
+            "title": "Originaccount",
+            "type": "string"
+          },
+          "riskBand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Risk band (null until scored).",
+            "title": "Riskband"
+          },
+          "transactionId": {
+            "description": "The transaction's unique id (UUID).",
+            "title": "Transactionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "externalId",
+          "agencyId",
+          "amount",
+          "currency",
+          "occurredAt",
+          "originAccount",
+          "destAccount",
+          "channel",
+          "country",
+          "ingestedAt"
+        ],
+        "title": "TransactionResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -271,6 +1084,596 @@
         "summary": "Api Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/model-versions": {
+      "get": {
+        "description": "Return the model registry (newest first) plus the active version label.",
+        "operationId": "list_model_versions_api_v1_model_versions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Model Versions",
+        "tags": [
+          "model-versions"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}": {
+      "get": {
+        "description": "Return one model-registry version by id; 404 when it does not exist.",
+        "operationId": "get_model_version_api_v1_model_versions__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Model Version",
+        "tags": [
+          "model-versions"
+        ]
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "description": "Return the agency's own rules (its custom overrides), ordered by code.",
+        "operationId": "list_rules_api_v1_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Rules",
+        "tags": [
+          "rules"
+        ]
+      },
+      "post": {
+        "description": "Create an agency-scoped rule (201); 409 when its code already exists for the agency.",
+        "operationId": "create_rule_api_v1_rules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/rules/{rule_id}": {
+      "delete": {
+        "description": "Delete the agency's rule (204); 404 when missing, global, or cross-tenant.",
+        "operationId": "delete_rule_api_v1_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Rule",
+        "tags": [
+          "rules"
+        ]
+      },
+      "get": {
+        "description": "Return one rule by id; 404 when missing, global, or owned by another agency.",
+        "operationId": "get_rule_api_v1_rules__rule_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Rule",
+        "tags": [
+          "rules"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update (incl. enable/disable) to the agency's rule; bumps version.",
+        "operationId": "update_rule_api_v1_rules__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/telemetry/client-error": {
+      "post": {
+        "description": "Scrub + log a frontend client-error report (PHI-masked, truncated); return 202.",
+        "operationId": "report_client_error_api_v1_telemetry_client_error_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Report Client Error",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "description": "Return a keyset page of the agency's transactions (newest first), optional riskBand.",
+        "operationId": "list_transactions_api_v1_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "riskBand",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RiskBand"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Riskband"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Transactions",
+        "tags": [
+          "transactions"
+        ]
+      },
+      "post": {
+        "description": "Ingest one transaction (201); 409 when its externalId already exists for the agency.",
+        "operationId": "ingest_transaction_api_v1_transactions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Transaction",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/batch": {
+      "post": {
+        "description": "Ingest a batch (partial-accept); dryRun validates + masks without persisting.",
+        "operationId": "ingest_batch_api_v1_transactions_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Batch",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/upload": {
+      "post": {
+        "description": "Ingest a text/csv upload (partial-accept); enforce size/row caps; record a job.",
+        "operationId": "upload_csv_api_v1_transactions_upload_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Csv",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/{transaction_id}": {
+      "get": {
+        "description": "Return one transaction by id; 404 when missing or owned by another agency.",
+        "operationId": "get_transaction_api_v1_transactions__transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Transaction",
+        "tags": [
+          "transactions"
         ]
       }
     },

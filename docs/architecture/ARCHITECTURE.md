@@ -187,6 +187,19 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | --- | --- | --- |
 | GET | `/api/v1/agencies/{agency_id}` | `read_agency` |
 | GET | `/api/v1/health` | `api_health` |
+| GET | `/api/v1/model-versions` | `list_model_versions` |
+| GET | `/api/v1/model-versions/{version_id}` | `get_model_version` |
+| GET | `/api/v1/rules` | `list_rules` |
+| POST | `/api/v1/rules` | `create_rule` |
+| DELETE | `/api/v1/rules/{rule_id}` | `delete_rule` |
+| GET | `/api/v1/rules/{rule_id}` | `get_rule` |
+| PATCH | `/api/v1/rules/{rule_id}` | `update_rule` |
+| POST | `/api/v1/telemetry/client-error` | `report_client_error` |
+| GET | `/api/v1/transactions` | `list_transactions` |
+| POST | `/api/v1/transactions` | `ingest_transaction` |
+| POST | `/api/v1/transactions/batch` | `ingest_batch` |
+| POST | `/api/v1/transactions/upload` | `upload_csv` |
+| GET | `/api/v1/transactions/{transaction_id}` | `get_transaction` |
 | GET | `/healthz` | `healthz` |
 | GET | `/readyz` | `readyz` |
 <!-- /AUTOGEN:endpoints -->
@@ -219,8 +232,14 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `storage_local_dir` | `str` | `'.local/artifacts'` | Root directory for the local-FS storage backend (gitignored). |
 | `queue_backend` | `Literal` | `'local'` | Background-job backend selector (local runner vs Container Apps Jobs). |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
+| `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
 | `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
+| `ingest_max_batch_size` | `int` | `500` | Max transactions accepted in one /transactions/batch request. |
+| `ingest_csv_max_bytes` | `int` | `5242880` | Max accepted /transactions/upload body size in bytes (413 above it). |
+| `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |
+| `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
+| `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
 <!-- /AUTOGEN:config-keys -->
 
 ## Data model (ERD)
