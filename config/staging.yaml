@@ -13,3 +13,6 @@ cors_allow_credentials: true
 storage_backend: azure_blob
 queue_backend: container_apps_jobs
 llm_mode: live
+
+# Mirror prod: the baked FinCEN/BSA RAG index is required at readiness (§10.6).
+rag_index_required: true

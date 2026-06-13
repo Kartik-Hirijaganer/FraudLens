@@ -171,6 +171,28 @@ class AppSettings(BaseSettings):
         "fixture lives here, candidates are written here, prod points it at Blob.",
     )
 
+    # --- RAG over FinCEN/BSA (plan §16 Phase 6; config-driven, never hardcoded) ---
+    rag_corpus_dir: str = Field(
+        default="data/regulations",
+        description="Committed source corpus dir (`*.md` provisions) ingest builds the index from.",
+    )
+    rag_index_dir: str = Field(
+        default=".local/chroma",
+        description="ChromaDB index dir (built by ingest-rag; baked into the prod image).",
+    )
+    rag_collection: str = Field(
+        default="fincen_bsa",
+        description="ChromaDB collection name holding the embedded regulatory chunks.",
+    )
+    rag_version: str = Field(
+        default="rag-v1",
+        description="Corpus/index version recorded on each retrieval for the audit trail.",
+    )
+    rag_index_required: bool = Field(
+        default=False,
+        description="When true, a missing/empty RAG index fails /readyz (prod bakes the index).",
+    )
+
     # --- Database (secret value via env; non-secret local docker URL in dev) ---
     database_url: str | None = Field(
         default=None,

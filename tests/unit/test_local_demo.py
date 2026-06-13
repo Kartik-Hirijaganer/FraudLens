@@ -51,3 +51,21 @@ def test_require_tools_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(local_demo.shutil, "which", lambda _tool: None)
     with pytest.raises(RuntimeError, match="missing required tools"):
         local_demo._require_tools("docker")
+
+
+def test_maybe_build_rag_index_runs_the_ingest_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(local_demo.subprocess, "run", lambda cmd, **_kw: calls.append(cmd))
+    local_demo._maybe_build_rag_index({"X": "1"})
+    assert calls == [["uv", "run", "python", "scripts/ingest_rag.py"]]
+
+
+def test_maybe_build_rag_index_skips_when_script_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(local_demo, "REPO_ROOT", tmp_path)  # no scripts/ingest_rag.py here
+    ran: list[object] = []
+    monkeypatch.setattr(local_demo.subprocess, "run", lambda *a, **k: ran.append(a))
+    local_demo._maybe_build_rag_index({})
+    assert ran == []
+    assert "rag index: skipped" in capsys.readouterr().out
