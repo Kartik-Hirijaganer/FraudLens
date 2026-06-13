@@ -31,7 +31,7 @@ import base64
 import binascii
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
 from sqlalchemy import and_, or_, select
@@ -116,6 +116,32 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         self._session.add(transaction)
         await self._session.flush()
         return IngestOutcome(transaction, created=True)
+
+    async def same_account_history(
+        self, *, account: str, before: datetime, window_hours: int, limit: int
+    ) -> Sequence[Transaction]:
+        """Return this agency's recent transactions touching `account` before `before` (windowed).
+
+        Groups by the masked account identifier (masking is deterministic, ADR-014), matching it
+        as either origin OR destination so the pipeline can label each prior as outbound/inbound —
+        the same-account history the rules engine + feature extractor expect (plan §16 Phase 8).
+        """
+        start = before - timedelta(hours=window_hours)
+        stmt = (
+            select(Transaction)
+            .where(
+                Transaction.agency_id == self._agency_id,
+                Transaction.occurred_at < before,
+                Transaction.occurred_at >= start,
+                or_(
+                    Transaction.origin_account == account,
+                    Transaction.dest_account == account,
+                ),
+            )
+            .order_by(Transaction.occurred_at.desc())
+            .limit(limit)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
 
     async def page(
         self,
