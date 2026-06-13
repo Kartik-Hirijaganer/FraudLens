@@ -43,12 +43,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from fraudlens_backend.demo import DEMO_AGENCY_ID
+from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import TenantIsolationError, require_agency_id
 
 DEV_BYPASS_AGENCY_ID = str(DEMO_AGENCY_ID)
+DEV_BYPASS_USER_ID = str(DEMO_USER_ID)
 
 
 def get_app_settings(request: Request) -> AppSettings:
@@ -69,6 +70,9 @@ class AccessClaims(BaseModel):
     """Claims extracted from a verified access token (internal, snake_case)."""
 
     agency_id: str = Field(..., min_length=1, description="Tenant id from the token.")
+    user_id: str | None = Field(
+        default=None, description="Acting user id from the token subject (None when absent)."
+    )
 
 
 class CredentialsError(Exception):
@@ -111,7 +115,7 @@ async def authenticate(
 ) -> AccessClaims:
     """Resolve AccessClaims, applying the prod-inert dev bypass; else verify the token."""
     if settings.is_dev_bypass_enabled:
-        return AccessClaims(agency_id=DEV_BYPASS_AGENCY_ID)
+        return AccessClaims(agency_id=DEV_BYPASS_AGENCY_ID, user_id=DEV_BYPASS_USER_ID)
     if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=401, detail="missing bearer token")
     try:
@@ -131,7 +135,7 @@ def enforce_tenant(claims: AccessClaims, requested_agency_id: str | None) -> Ten
         if exc.reason == "mismatch":
             raise HTTPException(status_code=403, detail="tenant mismatch") from exc
         raise HTTPException(status_code=401, detail="missing tenant claim") from exc
-    return TenantContext(agency_id=agency_id)
+    return TenantContext(agency_id=agency_id, user_id=claims.user_id)
 
 
 async def get_tenant_for_path(
