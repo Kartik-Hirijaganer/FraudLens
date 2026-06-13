@@ -19,6 +19,9 @@ Notes:
   JSON is camelCase and JSON-native (tuples→arrays) — matching the API surface with no remapping.
 - `get_for_run` returns the latest version for a run; `list_for_alert` returns an alert's drafts
   newest-first — both agency-scoped so cross-tenant rows are never returned (defense-in-depth).
+- The Phase 9 review methods (`create_edited_version`, `set_review_status`, `set_pdf_url`) record
+  the human-review lifecycle: an edit is a new version (provenance carried over), approve/reject
+  stamp status + reviewer, and the deferred PDF's URI lands via `set_pdf_url` (never overwriting).
 """
 
 from __future__ import annotations
@@ -77,6 +80,56 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         self._session.add(draft)
         await self._session.flush()
         return draft
+
+    async def create_edited_version(
+        self,
+        *,
+        base: SarDraft,
+        content: str,
+        created_by: uuid.UUID,
+        alert_id: uuid.UUID | None = None,
+    ) -> SarDraft:
+        """Persist a human-edited next version of a draft (masked content, status=reviewed, §10.4).
+
+        Provenance (model/prompt/structured/citations) carries over from `base`; `content` is the
+        analyst's edited narrative, already PHI-masked by the caller. Recorded as a new version so
+        the original machine draft and the human edit are both auditable (never overwritten).
+        """
+        draft = SarDraft(
+            agency_id=self._agency_id,
+            run_id=base.run_id,
+            alert_id=alert_id if alert_id is not None else base.alert_id,
+            version=await self._next_version(base.run_id),
+            model_id=base.model_id,
+            prompt_version=base.prompt_version,
+            prompt_hash=base.prompt_hash,
+            content=content,
+            structured=base.structured,
+            citations=base.citations,
+            status=SarStatus.REVIEWED,
+            token_usage=base.token_usage,
+            cost_usd=base.cost_usd,
+            created_by=created_by,
+        )
+        self._session.add(draft)
+        await self._session.flush()
+        return draft
+
+    async def set_review_status(
+        self, draft: SarDraft, *, status: SarStatus, reviewed_by: uuid.UUID
+    ) -> SarDraft:
+        """Stamp a human-review decision (approved/rejected) + the reviewer onto the draft."""
+        draft.status = status
+        draft.reviewed_by = reviewed_by
+        await self._session.flush()
+        return draft
+
+    async def set_pdf_url(self, draft_id: uuid.UUID, pdf_blob_url: str) -> None:
+        """Record the generated SAR PDF's storage URI on the draft (deferred, agency-scoped)."""
+        draft = await self.get(draft_id)
+        if draft is not None:
+            draft.pdf_blob_url = pdf_blob_url
+            await self._session.flush()
 
     async def get_for_run(self, run_id: uuid.UUID) -> SarDraft | None:
         """Return this agency's latest SAR draft (highest version) for a run, or None."""
