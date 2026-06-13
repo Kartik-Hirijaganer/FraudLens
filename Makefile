@@ -17,7 +17,7 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check dup-check deadcode docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary \
         local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -115,6 +115,8 @@ secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	$(UV) run python scripts/check_no_secrets.py
 no-hardcoding-check: ## Flag hardcoded URLs/IPs/model-ids in source (rule 4 / §12.1).
 	$(UV) run python scripts/check_no_hardcoding.py
+tenancy-check: ## Assert every tenant-scoped table has indexed agency_id (plan §9.3).
+	$(UV) run python scripts/check_tenancy.py
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
@@ -195,7 +197,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).

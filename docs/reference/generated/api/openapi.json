@@ -1,6 +1,34 @@
 {
   "components": {
     "schemas": {
+      "AgencyResponse": {
+        "additionalProperties": false,
+        "description": "The GET /agencies/{agencyId} lookup body \u2014 confirms the agency exists.",
+        "properties": {
+          "agencyId": {
+            "description": "The agency's unique id (UUID).",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable agency name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe unique agency slug.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agencyId",
+          "name",
+          "slug"
+        ],
+        "title": "AgencyResponse",
+        "type": "object"
+      },
       "ApiHealthResponse": {
         "additionalProperties": false,
         "description": "Heartbeat payload for the versioned API surface.",
@@ -121,23 +149,6 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
-      "TenantContext": {
-        "additionalProperties": false,
-        "description": "Authenticated tenant identity resolved from the verified agency_id claim.",
-        "properties": {
-          "agencyId": {
-            "description": "Active tenant (agency) id from the verified JWT claim.",
-            "minLength": 1,
-            "title": "Agencyid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agencyId"
-        ],
-        "title": "TenantContext",
-        "type": "object"
-      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -195,7 +206,7 @@
   "paths": {
     "/api/v1/agencies/{agency_id}": {
       "get": {
-        "description": "Return the validated TenantContext for the requested agency (tenant-scoped).",
+        "description": "Return the requested agency once tenancy is validated; 404 if it does not exist.",
         "operationId": "read_agency_api_v1_agencies__agency_id__get",
         "parameters": [
           {
@@ -213,7 +224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TenantContext"
+                  "$ref": "#/components/schemas/AgencyResponse"
                 }
               }
             },

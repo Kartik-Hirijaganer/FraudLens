@@ -15,6 +15,7 @@ Key classes:
 
 Key functions:
 - get_app_settings: dependency returning the settings bound to the app instance.
+- get_db_session: dependency yielding an AsyncSession (503 when DB is unconfigured).
 - get_token_verifier: dependency returning the (overridable) default verifier.
 - authenticate: resolve AccessClaims, honoring the prod-inert dev bypass.
 - enforce_tenant: validate a claim's agency_id against the requested agency_id.
@@ -24,27 +25,43 @@ Notes:
 - enforce_tenant delegates to fraudlens_core.require_agency_id and maps its
   TenantIsolationError to 401 (missing claim) or 403 (mismatch) — no agency id
   value ever appears in the raised message (FraudLens tenant/PHI hygiene).
+- The dev-bypass agency id is the shared demo tenant (fraudlens_backend.demo), so a
+  bypassed identity resolves to the seeded demo agency in local-demo (still inert in prod).
+- get_db_session yields from app.state.db_sessionmaker; when no DATABASE_URL is configured
+  the sessionmaker is None and the dependency fails closed with 503 (the app still boots).
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
+from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import TenantIsolationError, require_agency_id
 
-DEV_BYPASS_AGENCY_ID = "dev-agency"
+DEV_BYPASS_AGENCY_ID = str(DEMO_AGENCY_ID)
 
 
 def get_app_settings(request: Request) -> AppSettings:
     """Return the settings bound to the running app instance (set by the factory)."""
     return cast(AppSettings, request.app.state.settings)
+
+
+async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """Yield a request-scoped AsyncSession; fail closed with 503 when DB is unconfigured."""
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    async with sessionmaker() as session:
+        yield session
 
 
 class AccessClaims(BaseModel):
@@ -81,6 +98,7 @@ def get_token_verifier() -> TokenVerifier:
 bearer_scheme = HTTPBearer(auto_error=False)
 
 SettingsDep = Annotated[AppSettings, Depends(get_app_settings)]
+DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 VerifierDep = Annotated[TokenVerifier, Depends(get_token_verifier)]
 CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
 
