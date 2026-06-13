@@ -5,7 +5,14 @@
 | Method | Path | Handler |
 | --- | --- | --- |
 | GET | `/api/v1/agencies/{agency_id}` | `read_agency` |
+| GET | `/api/v1/alerts` | `list_alerts` |
+| GET | `/api/v1/alerts/{alert_id}` | `get_alert` |
+| POST | `/api/v1/alerts/{alert_id}/actions` | `act_on_alert` |
+| POST | `/api/v1/alerts/{alert_id}/sar/review` | `review_sar` |
 | GET | `/api/v1/health` | `api_health` |
+| POST | `/api/v1/investigations` | `start_investigation` |
+| GET | `/api/v1/investigations/{run_id}` | `get_investigation` |
+| GET | `/api/v1/investigations/{run_id}/stream` | `stream_investigation` |
 | GET | `/api/v1/model-versions` | `list_model_versions` |
 | GET | `/api/v1/model-versions/{version_id}` | `get_model_version` |
 | GET | `/api/v1/rules` | `list_rules` |

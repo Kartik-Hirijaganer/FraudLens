@@ -29,6 +29,276 @@
         "title": "AgencyResponse",
         "type": "object"
       },
+      "AlertActionRequest": {
+        "additionalProperties": false,
+        "description": "The POST /alerts/{id}/actions body; conditional fields validated up front (plan \u00a75.4).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AlertActionType",
+            "description": "The triage action to apply."
+          },
+          "assigneeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target user id for an `assign` action (must be in the agency).",
+            "title": "Assigneeid"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingLabelType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outcome label for a `resolve` action (writes a training label)."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free-text note (PHI-masked).",
+            "title": "Note"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "AlertActionRequest",
+        "type": "object"
+      },
+      "AlertActionType": {
+        "description": "A review action recorded against an alert (plan \u00a75.4).",
+        "enum": [
+          "assign",
+          "comment",
+          "escalate",
+          "resolve",
+          "dismiss"
+        ],
+        "title": "AlertActionType",
+        "type": "string"
+      },
+      "AlertActionView": {
+        "additionalProperties": false,
+        "description": "One append-only triage action projected onto the API surface (PHI-masked note).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AlertActionType",
+            "description": "The triage action recorded."
+          },
+          "actionId": {
+            "description": "The action's unique id (UUID).",
+            "title": "Actionid",
+            "type": "string"
+          },
+          "actorId": {
+            "description": "User id that performed the action.",
+            "title": "Actorid",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the action was recorded.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "fromStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert status before the action.",
+            "title": "Fromstatus"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional PHI-masked free-text note.",
+            "title": "Note"
+          },
+          "toStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert status after the action.",
+            "title": "Tostatus"
+          }
+        },
+        "required": [
+          "actionId",
+          "action",
+          "actorId",
+          "createdAt"
+        ],
+        "title": "AlertActionView",
+        "type": "object"
+      },
+      "AlertDetailResponse": {
+        "additionalProperties": false,
+        "description": "An alert with its latest SAR draft and full append-only action history.",
+        "properties": {
+          "actions": {
+            "description": "The alert's triage actions, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AlertActionView"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "alert": {
+            "$ref": "#/components/schemas/AlertView",
+            "description": "The alert summary."
+          },
+          "sarDraft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SarDraftView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest SAR draft for the alert's run, if one exists."
+          }
+        },
+        "required": [
+          "alert"
+        ],
+        "title": "AlertDetailResponse",
+        "type": "object"
+      },
+      "AlertListResponse": {
+        "additionalProperties": false,
+        "description": "A page of the agency's alerts (newest first).",
+        "properties": {
+          "alerts": {
+            "description": "The agency's alerts for the requested page/filter.",
+            "items": {
+              "$ref": "#/components/schemas/AlertView"
+            },
+            "title": "Alerts",
+            "type": "array"
+          }
+        },
+        "title": "AlertListResponse",
+        "type": "object"
+      },
+      "AlertStatus": {
+        "description": "Lifecycle status of an alert (plan \u00a79.1 `alerts`).",
+        "enum": [
+          "open",
+          "in_review",
+          "resolved",
+          "dismissed"
+        ],
+        "title": "AlertStatus",
+        "type": "string"
+      },
+      "AlertView": {
+        "additionalProperties": false,
+        "description": "The camelCase summary projection of a persisted alert (list + detail header).",
+        "properties": {
+          "alertId": {
+            "description": "The alert's unique id (UUID).",
+            "title": "Alertid",
+            "type": "string"
+          },
+          "assignedTo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User id the alert is currently assigned to, if any.",
+            "title": "Assignedto"
+          },
+          "createdAt": {
+            "description": "When the alert was raised.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "reviewFlags": {
+            "description": "PHI-free force-review reasons ({flag, reason}) set at investigation time.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Reviewflags",
+            "type": "array"
+          },
+          "runId": {
+            "description": "The investigation run that raised the alert.",
+            "title": "Runid",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Alert severity derived from the run's risk band."
+          },
+          "status": {
+            "$ref": "#/components/schemas/AlertStatus",
+            "description": "Lifecycle status (open|in_review|resolved|dismissed)."
+          },
+          "transactionId": {
+            "description": "The flagged transaction's id.",
+            "title": "Transactionid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the alert was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alertId",
+          "transactionId",
+          "runId",
+          "status",
+          "severity",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "AlertView",
+        "type": "object"
+      },
       "AmlRuleType": {
         "description": "The canonical kind of deterministic AML rule; the engine dispatch key (plan \u00a79.1).",
         "enum": [
@@ -319,6 +589,228 @@
           "message"
         ],
         "title": "IngestRejection",
+        "type": "object"
+      },
+      "InvestigationSnapshotResponse": {
+        "additionalProperties": false,
+        "description": "The authoritative investigation snapshot the SSE observer reconciles against.",
+        "properties": {
+          "citations": {
+            "description": "Grounded regulatory citations the SAR relied on.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "createdAt": {
+            "description": "When the run was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable code shown to the analyst when a run failed.",
+            "title": "Errorcode"
+          },
+          "fraudProbability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Calibrated model probability (from the result snapshot).",
+            "title": "Fraudprobability"
+          },
+          "modelVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version label of the model that scored this run.",
+            "title": "Modelversion"
+          },
+          "promptVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the SAR prompt template this run used.",
+            "title": "Promptversion"
+          },
+          "ragVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the regulatory corpus this run cited.",
+            "title": "Ragversion"
+          },
+          "riskBand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved risk band (once scored).",
+            "title": "Riskband"
+          },
+          "riskScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Blended risk score (once scored).",
+            "title": "Riskscore"
+          },
+          "ruleHits": {
+            "description": "Fired deterministic rule hits (PHI-free findings).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rulehits",
+            "type": "array"
+          },
+          "rulesVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fingerprint of the rule set this run evaluated.",
+            "title": "Rulesversion"
+          },
+          "runId": {
+            "description": "The run's unique id (UUID).",
+            "title": "Runid",
+            "type": "string"
+          },
+          "sarDraftId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Persisted SAR draft id, if any.",
+            "title": "Sardraftid"
+          },
+          "sarStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAR draft status (draft | failed).",
+            "title": "Sarstatus"
+          },
+          "status": {
+            "description": "Run status: pending | running | completed | failed.",
+            "title": "Status",
+            "type": "string"
+          },
+          "topFeatures": {
+            "description": "Top SHAP drivers (feature names + numbers, no PHI).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Topfeatures",
+            "type": "array"
+          },
+          "transactionId": {
+            "description": "The investigated transaction's id.",
+            "title": "Transactionid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the run was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "transactionId",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "InvestigationSnapshotResponse",
+        "type": "object"
+      },
+      "InvestigationStartRequest": {
+        "additionalProperties": false,
+        "description": "The `POST /investigations` body: the transaction to investigate (active-model scoring).",
+        "properties": {
+          "transactionId": {
+            "description": "Id of the transaction to investigate.",
+            "format": "uuid",
+            "title": "Transactionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId"
+        ],
+        "title": "InvestigationStartRequest",
+        "type": "object"
+      },
+      "InvestigationStartResponse": {
+        "additionalProperties": false,
+        "description": "The 202 acknowledgement: the run id the investigation is owned under (ADR-016).",
+        "properties": {
+          "runId": {
+            "description": "The persisted run id; stream/poll it for progress.",
+            "title": "Runid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId"
+        ],
+        "title": "InvestigationStartResponse",
         "type": "object"
       },
       "LivenessResponse": {
@@ -734,6 +1226,174 @@
         "title": "RuleUpdateRequest",
         "type": "object"
       },
+      "SarDraftView": {
+        "additionalProperties": false,
+        "description": "The camelCase API projection of a persisted SAR draft (PHI-free, human-reviewed).",
+        "properties": {
+          "alertId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alert this draft is attached to, if any.",
+            "title": "Alertid"
+          },
+          "citations": {
+            "description": "The grounded regulatory citations the SAR relied on.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "content": {
+            "description": "The PHI-masked, human-readable SAR narrative.",
+            "title": "Content",
+            "type": "string"
+          },
+          "costUsd": {
+            "description": "Estimated USD spend for the draft.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Costusd",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the draft was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "modelId": {
+            "description": "Model reference that produced the draft (or 'mock').",
+            "title": "Modelid",
+            "type": "string"
+          },
+          "promptHash": {
+            "description": "Hash of the exact prompt template used.",
+            "title": "Prompthash",
+            "type": "string"
+          },
+          "promptVersion": {
+            "description": "SAR prompt template version id used.",
+            "title": "Promptversion",
+            "type": "string"
+          },
+          "runId": {
+            "description": "The analysis run that produced the draft.",
+            "title": "Runid",
+            "type": "string"
+          },
+          "sarDraftId": {
+            "description": "The SAR draft's unique id (UUID).",
+            "title": "Sardraftid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SarStatus",
+            "description": "Human-review lifecycle status."
+          },
+          "structured": {
+            "additionalProperties": true,
+            "description": "The structured SAR body (camelCase, PHI-free).",
+            "title": "Structured",
+            "type": "object"
+          },
+          "tokenUsage": {
+            "additionalProperties": true,
+            "description": "Token usage recorded for the call (cost/audit trail).",
+            "title": "Tokenusage",
+            "type": "object"
+          },
+          "version": {
+            "description": "Monotonic draft version for the run.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sarDraftId",
+          "runId",
+          "version",
+          "status",
+          "content",
+          "modelId",
+          "promptVersion",
+          "promptHash",
+          "costUsd",
+          "createdAt"
+        ],
+        "title": "SarDraftView",
+        "type": "object"
+      },
+      "SarReviewDecision": {
+        "description": "The human SAR review verb applied to the latest draft (plan \u00a75.4 / \u00a710.4).",
+        "enum": [
+          "approve",
+          "reject",
+          "edit"
+        ],
+        "title": "SarReviewDecision",
+        "type": "string"
+      },
+      "SarReviewRequest": {
+        "additionalProperties": false,
+        "description": "The POST /alerts/{id}/sar/review body (approve/reject/edit), validated up front.",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/SarReviewDecision",
+            "description": "The review verb to apply to the draft."
+          },
+          "editedContent": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edited SAR narrative (required for `edit`; optional final edit on `approve`).",
+            "title": "Editedcontent"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reason for the decision (required for `reject`; PHI-masked).",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "SarReviewRequest",
+        "type": "object"
+      },
+      "SarStatus": {
+        "description": "Lifecycle status of a SAR draft (plan \u00a79.1 `sar_drafts`).",
+        "enum": [
+          "draft",
+          "reviewed",
+          "approved",
+          "rejected",
+          "failed"
+        ],
+        "title": "SarStatus",
+        "type": "string"
+      },
       "Severity": {
         "description": "Ordinal severity shared by AML rules, alerts, and drift reports.",
         "enum": [
@@ -743,6 +1403,17 @@
           "critical"
         ],
         "title": "Severity",
+        "type": "string"
+      },
+      "TrainingLabelType": {
+        "description": "Outcome label produced by a reviewed decision (plan \u00a79.2).",
+        "enum": [
+          "confirmed_fraud",
+          "false_positive",
+          "false_negative",
+          "benign"
+        ],
+        "title": "TrainingLabelType",
         "type": "string"
       },
       "TransactionIngestRequest": {
@@ -1065,6 +1736,251 @@
         ]
       }
     },
+    "/api/v1/alerts": {
+      "get": {
+        "description": "Return a page of the agency's alerts (newest first), optionally filtered by status.",
+        "operationId": "list_alerts_api_v1_alerts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AlertStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Alerts",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}": {
+      "get": {
+        "description": "Return an alert's detail (latest SAR draft + action history); 404 if missing/cross-tenant.",
+        "operationId": "get_alert_api_v1_alerts__alert_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Alert",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}/actions": {
+      "post": {
+        "description": "Apply a validated triage action; illegal transition \u2192 409, cross-tenant assignee \u2192 403.",
+        "operationId": "act_on_alert_api_v1_alerts__alert_id__actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Act On Alert",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}/sar/review": {
+      "post": {
+        "description": "Approve/reject/edit the alert's latest SAR draft; approve schedules a deferred PDF.",
+        "operationId": "review_sar_api_v1_alerts__alert_id__sar_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SarReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SarDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Review Sar",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "description": "Return the API-surface heartbeat (status, service, version, environment).",
@@ -1084,6 +2000,149 @@
         "summary": "Api Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/investigations": {
+      "post": {
+        "description": "Start + own an investigation run (202 {runId}); an Idempotency-Key dedupes double-clicks.",
+        "operationId": "start_investigation_api_v1_investigations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Investigation",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}": {
+      "get": {
+        "description": "Return the authoritative run snapshot; 404 when missing or owned by another agency.",
+        "operationId": "get_investigation_api_v1_investigations__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationSnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Investigation",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/stream": {
+      "get": {
+        "description": "Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens.",
+        "operationId": "stream_investigation_api_v1_investigations__run_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stream Investigation",
+        "tags": [
+          "investigations"
         ]
       }
     },

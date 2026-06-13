@@ -209,7 +209,14 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | Method | Path | Handler |
 | --- | --- | --- |
 | GET | `/api/v1/agencies/{agency_id}` | `read_agency` |
+| GET | `/api/v1/alerts` | `list_alerts` |
+| GET | `/api/v1/alerts/{alert_id}` | `get_alert` |
+| POST | `/api/v1/alerts/{alert_id}/actions` | `act_on_alert` |
+| POST | `/api/v1/alerts/{alert_id}/sar/review` | `review_sar` |
 | GET | `/api/v1/health` | `api_health` |
+| POST | `/api/v1/investigations` | `start_investigation` |
+| GET | `/api/v1/investigations/{run_id}` | `get_investigation` |
+| GET | `/api/v1/investigations/{run_id}/stream` | `stream_investigation` |
 | GET | `/api/v1/model-versions` | `list_model_versions` |
 | GET | `/api/v1/model-versions/{version_id}` | `get_model_version` |
 | GET | `/api/v1/rules` | `list_rules` |
@@ -268,6 +275,12 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |
 | `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
 | `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
+| `investigation_history_window_hours` | `int` | `168` | Same-account history lookback fed to the rules engine + features (covers the widest built-in rule window, structuring at 7 days). |
+| `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
+| `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
+| `investigation_idempotency_cache_size` | `int` | `1024` | Max retained Idempotency-Key→runId entries in the in-process run manager (LRU-bounded; the single-replica dedupe window, ADR-016). |
+| `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
+| `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
 <!-- /AUTOGEN:config-keys -->
 
 ## Data model (ERD)
