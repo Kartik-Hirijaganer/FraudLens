@@ -42,6 +42,7 @@ from fraudlens_backend.db.session import (
 )
 from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
+from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_components
 from fraudlens_backend.settings import AppSettings, get_settings
 
 
@@ -76,8 +77,22 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     app.state.db_engine = engine
-    app.state.db_sessionmaker = build_sessionmaker(engine) if engine is not None else None
+    sessionmaker = build_sessionmaker(engine) if engine is not None else None
+    app.state.db_sessionmaker = sessionmaker
     app.state.rag_index_dir = _resolve_index_dir(resolved)
+    # The investigation pipeline's heavy singletons (warm model cache + retriever + drafter) and
+    # the in-process RunManager that POST owns runs through; the manager needs a sessionmaker for
+    # its background runs, so it exists only when the DB is configured (plan §16 Phase 8, ADR-016).
+    app.state.pipeline_components = build_pipeline_components(resolved)
+    app.state.run_manager = (
+        RunManager(
+            sessionmaker=sessionmaker,
+            components=app.state.pipeline_components,
+            settings=resolved,
+        )
+        if sessionmaker is not None
+        else None
+    )
     register_exception_handlers(app)
     install_gateway(app, resolved)
     app.include_router(ops.router)

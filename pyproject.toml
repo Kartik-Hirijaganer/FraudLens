@@ -127,6 +127,10 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+# SQLAlchemy async runs DB IO on greenlets; without greenlet concurrency tracking, coverage loses
+# tracing on every handler line after the first `await session/repo...` call (under-reporting the
+# async API handlers). This makes branch + diff coverage of the async surface accurate.
+concurrency = ["greenlet", "thread"]
 source = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fraudlens_ml"]
 omit = ["*/tests/*", "*/__main__.py"]
 

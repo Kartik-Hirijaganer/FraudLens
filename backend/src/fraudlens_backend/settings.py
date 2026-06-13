@@ -232,6 +232,45 @@ class AppSettings(BaseSettings):
         description="Max length of a client-error report message before truncation.",
     )
 
+    # --- Investigation pipeline (plan §16 Phase 8; config-driven, never hardcoded) ---
+    investigation_history_window_hours: int = Field(
+        default=168,
+        gt=0,
+        description="Same-account history lookback fed to the rules engine + features (covers the "
+        "widest built-in rule window, structuring at 7 days).",
+    )
+    investigation_history_max: int = Field(
+        default=100,
+        gt=0,
+        description="Cap on same-account history rows loaded per investigation (bounds the query).",
+    )
+    investigation_rag_top_k: int = Field(
+        default=4,
+        gt=0,
+        description="How many FinCEN/BSA chunks the investigation retrieves for citations.",
+    )
+    investigation_idempotency_cache_size: int = Field(
+        default=1024,
+        gt=0,
+        description="Max retained Idempotency-Key→runId entries in the in-process run manager "
+        "(LRU-bounded; the single-replica dedupe window, ADR-016).",
+    )
+
+    # --- Alerts & review workflow (plan §16 Phase 9; config-driven, never hardcoded) ---
+    review_low_confidence_margin: float = Field(
+        default=0.1,
+        gt=0,
+        le=0.5,
+        description="Half-width around the 0.5 decision boundary inside which a run's model "
+        "probability force-flags the alert as low-confidence for review (plan §8.5).",
+    )
+    sar_pdf_max_attempts: int = Field(
+        default=3,
+        gt=0,
+        description="Max attempts the deferred SAR-PDF task makes before giving up; PDF "
+        "generation is best-effort and never blocks SAR approval (plan §16 Phase 9).",
+    )
+
     @property
     def is_dev_bypass_enabled(self) -> bool:
         """True only when NOT in prod and the bypass flag is set (fails closed in prod)."""
