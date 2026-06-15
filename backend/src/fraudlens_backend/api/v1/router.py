@@ -1,7 +1,8 @@
 """Summary: Aggregates the versioned /api/v1 business surface. It mounts the health,
 transaction-ingestion, AML-rules, investigation (create/snapshot/SSE), alert/review-workflow,
-model-registry, and telemetry sub-routers, and serves the tenant-scoped GET
-/api/v1/agencies/{agency_id} lookup,
+model-registry, admin model-lifecycle (retrain/shadow/approve/canary/rollback/drift), dashboard
+metrics, and telemetry sub-routers, and serves the tenant-scoped GET /api/v1/agencies/{agency_id}
+lookup,
 which exercises the full access path:
 fail-closed authentication, agency_id claim validation (401 unauthenticated, 403 tenant
 mismatch), then a database existence check — the agency is loaded via AgencyRepository and
@@ -32,8 +33,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fraudlens_backend.api.deps import DbSessionDep, get_tenant_for_path
 from fraudlens_backend.api.v1 import (
     alerts,
+    dashboard,
     health,
     investigations,
+    model_lifecycle,
     model_versions,
     rules,
     telemetry,
@@ -49,6 +52,8 @@ api_router.include_router(rules.router)
 api_router.include_router(investigations.router)
 api_router.include_router(alerts.router)
 api_router.include_router(model_versions.router)
+api_router.include_router(model_lifecycle.router)
+api_router.include_router(dashboard.router)
 api_router.include_router(telemetry.router)
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant_for_path)]

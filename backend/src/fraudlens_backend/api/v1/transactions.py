@@ -23,6 +23,8 @@ Notes:
   from settings (413), and unknown columns are folded into the masked features JSONB.
 - A cross-tenant transaction id resolves to None (tenant-scoped get) and returns 404 with
   the same body as a truly missing row — no existence leak (plan §6.4).
+- Each successful ingest path (single/batch/CSV) writes a PHI-free `audit_logs` row (ids + counts
+  only, never an account/value) for the consistent audit trail (plan §11.7, §16 Phase 12).
 """
 
 from __future__ import annotations
@@ -37,7 +39,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.api.deps import DbSessionDep, SettingsDep, get_tenant
+from fraudlens_backend.api.deps import (
+    DbSessionDep,
+    SettingsDep,
+    audit_writer,
+    get_tenant,
+    optional_actor,
+)
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.models.common import TenantContext
@@ -146,13 +154,20 @@ def _repo(tenant: TenantContext, session: AsyncSession) -> TransactionRepository
 
 @router.post("/transactions", response_model=TransactionResponse, status_code=201)
 async def ingest_transaction(
-    payload: TransactionIngestRequest, tenant: TenantDep, session: DbSessionDep
+    payload: TransactionIngestRequest, request: Request, tenant: TenantDep, session: DbSessionDep
 ) -> TransactionResponse:
     """Ingest one transaction (201); 409 when its externalId already exists for the agency."""
     repo = _repo(tenant, session)
     outcome = await repo.ingest(_mapping_to_canonical(payload.model_dump(by_alias=True)))
     if not outcome.created:
         raise AppError("duplicate_external_id")
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="transaction.ingest",
+        resource_type="transaction",
+        resource_id=str(outcome.transaction.id),
+        metadata={"externalId": outcome.transaction.external_id},
+    )
     await session.commit()
     return _to_response(outcome.transaction)
 
@@ -160,6 +175,7 @@ async def ingest_transaction(
 @router.post("/transactions/batch", response_model=BatchIngestResponse)
 async def ingest_batch(
     payload: BatchIngestRequest,
+    request: Request,
     tenant: TenantDep,
     session: DbSessionDep,
     settings: SettingsDep,
@@ -193,6 +209,17 @@ async def ingest_batch(
         else:
             duplicates += 1
     if not payload.dry_run:
+        await audit_writer(tenant, session, request).record(
+            actor_id=optional_actor(tenant),
+            action="transaction.batch_ingest",
+            resource_type="transaction_batch",
+            resource_id=None,
+            metadata={
+                "accepted": str(accepted),
+                "duplicates": str(duplicates),
+                "rejected": str(rejected),
+            },
+        )
         await session.commit()
     return BatchIngestResponse(
         accepted=accepted,
@@ -240,6 +267,18 @@ async def upload_csv(
     session.add(job)
     await session.flush()
     job_id = str(job.id)
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="transaction.csv_import",
+        resource_type="job_execution",
+        resource_id=job_id,
+        metadata={
+            "accepted": str(accepted),
+            "duplicates": str(duplicates),
+            "rejected": str(rejected),
+            "rowCount": str(len(rows)),
+        },
+    )
     await session.commit()
     return CsvUploadResponse(
         job_id=job_id,
