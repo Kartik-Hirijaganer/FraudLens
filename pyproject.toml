@@ -8,12 +8,13 @@
 # Layering (ruff-enforced per-package, see packages/*/pyproject.toml):
 #   fraudlens-core -> (nothing internal)
 #   fraudlens-llm  -> (nothing internal; standalone provider client)
-#   fraudlens-ml   -> may import fraudlens-core, never fraudlens-backend
-#   fraudlens-backend -> may import both
+#   fraudlens-ml   -> may import fraudlens-core, never fraudlens-backend OR fraudlens-llm
+#                     (SAR drafting reaches ml only via an injected SarDrafter protocol)
+#   fraudlens-backend -> may import core, llm, and ml
 
 [project]
 name = "fraudlens"
-version = "0.1.0"
+version = "1.0.0"
 description = "FraudLens — AML fraud investigation system (workspace root)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,9 +39,15 @@ dev = [
     "interrogate>=1.7",
     "vulture>=2.13",
     "types-pyyaml>=6.0",
+    # aiosqlite backs the in-memory async DB used by the Phase 2 DB tests (migrations,
+    # repositories, agency lookup, seed); production/local-demo run on Postgres (asyncpg).
+    "aiosqlite>=0.20",
     # diff-cover gates changed-line coverage in the PR `changed` job (Cobertura XML
     # for the backend, lcov for the frontend); see the Makefile `*-coverage-diff` targets.
     "diff-cover>=9.2",
+    # pip-audit scans the resolved Python dependency tree for known CVEs in the CI
+    # dependency-audit gate (Makefile `deps-audit`, plan §16 Phase 13).
+    "pip-audit>=2.7",
 ]
 
 # ---------------------------------------------------------------------------
@@ -75,6 +82,9 @@ known-first-party = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fr
 "tests/**" = ["PLR2004", "PLR0913", "PLR0915"]
 "**/conftest.py" = ["PLR2004"]
 "scripts/**" = ["PLR0912", "PLR0915"]  # checkers branch a lot by design
+# Alembic migrations are long by nature (one create_table per table); the upgrade/downgrade
+# bodies legitimately exceed the statement cap. Logic stays minimal and reviewed.
+"alembic/versions/*.py" = ["PLR0915"]
 
 # ---------------------------------------------------------------------------
 # mypy — strict, pydantic plugin. Paths are passed by `make typecheck`.
@@ -95,6 +105,13 @@ mypy_path = [
 ]
 exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 
+# Heavy ML/RAG libraries (isolated to fraudlens-ml, plan §16 Phase 5) ship no type
+# stubs / py.typed marker; xgboost and numpy do. Ignoring their missing stubs keeps
+# the rest of the tree under strict typing while letting the scoring code import them.
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "shap.*", "imblearn.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
@@ -113,6 +130,10 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+# SQLAlchemy async runs DB IO on greenlets; without greenlet concurrency tracking, coverage loses
+# tracing on every handler line after the first `await session/repo...` call (under-reporting the
+# async API handlers). This makes branch + diff coverage of the async surface accurate.
+concurrency = ["greenlet", "thread"]
 source = ["fraudlens_backend", "fraudlens_core", "fraudlens_llm", "fraudlens_ml"]
 omit = ["*/tests/*", "*/__main__.py"]
 

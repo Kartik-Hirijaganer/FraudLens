@@ -1,6 +1,362 @@
 {
   "components": {
     "schemas": {
+      "AgencyResponse": {
+        "additionalProperties": false,
+        "description": "The GET /agencies/{agencyId} lookup body \u2014 confirms the agency exists.",
+        "properties": {
+          "agencyId": {
+            "description": "The agency's unique id (UUID).",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable agency name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe unique agency slug.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agencyId",
+          "name",
+          "slug"
+        ],
+        "title": "AgencyResponse",
+        "type": "object"
+      },
+      "AlertActionRequest": {
+        "additionalProperties": false,
+        "description": "The POST /alerts/{id}/actions body; conditional fields validated up front (plan \u00a75.4).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AlertActionType",
+            "description": "The triage action to apply."
+          },
+          "assigneeId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target user id for an `assign` action (must be in the agency).",
+            "title": "Assigneeid"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingLabelType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outcome label for a `resolve` action (writes a training label)."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free-text note (PHI-masked).",
+            "title": "Note"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "AlertActionRequest",
+        "type": "object"
+      },
+      "AlertActionType": {
+        "description": "A review action recorded against an alert (plan \u00a75.4).",
+        "enum": [
+          "assign",
+          "comment",
+          "escalate",
+          "resolve",
+          "dismiss"
+        ],
+        "title": "AlertActionType",
+        "type": "string"
+      },
+      "AlertActionView": {
+        "additionalProperties": false,
+        "description": "One append-only triage action projected onto the API surface (PHI-masked note).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AlertActionType",
+            "description": "The triage action recorded."
+          },
+          "actionId": {
+            "description": "The action's unique id (UUID).",
+            "title": "Actionid",
+            "type": "string"
+          },
+          "actorId": {
+            "description": "User id that performed the action.",
+            "title": "Actorid",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the action was recorded.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "fromStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert status before the action.",
+            "title": "Fromstatus"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional PHI-masked free-text note.",
+            "title": "Note"
+          },
+          "toStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert status after the action.",
+            "title": "Tostatus"
+          }
+        },
+        "required": [
+          "actionId",
+          "action",
+          "actorId",
+          "createdAt"
+        ],
+        "title": "AlertActionView",
+        "type": "object"
+      },
+      "AlertDetailResponse": {
+        "additionalProperties": false,
+        "description": "An alert with its latest SAR draft and full append-only action history.",
+        "properties": {
+          "actions": {
+            "description": "The alert's triage actions, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AlertActionView"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "alert": {
+            "$ref": "#/components/schemas/AlertView",
+            "description": "The alert summary."
+          },
+          "sarDraft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SarDraftView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest SAR draft for the alert's run, if one exists."
+          }
+        },
+        "required": [
+          "alert"
+        ],
+        "title": "AlertDetailResponse",
+        "type": "object"
+      },
+      "AlertListResponse": {
+        "additionalProperties": false,
+        "description": "A page of the agency's alerts (newest first).",
+        "properties": {
+          "alerts": {
+            "description": "The agency's alerts for the requested page/filter.",
+            "items": {
+              "$ref": "#/components/schemas/AlertView"
+            },
+            "title": "Alerts",
+            "type": "array"
+          }
+        },
+        "title": "AlertListResponse",
+        "type": "object"
+      },
+      "AlertMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant alert counts by status (plan \u00a79.1 `alerts`).",
+        "properties": {
+          "dismissed": {
+            "description": "Alerts dismissed as not actionable.",
+            "minimum": 0.0,
+            "title": "Dismissed",
+            "type": "integer"
+          },
+          "inReview": {
+            "description": "Alerts currently in review.",
+            "minimum": 0.0,
+            "title": "Inreview",
+            "type": "integer"
+          },
+          "open": {
+            "description": "Alerts awaiting triage.",
+            "minimum": 0.0,
+            "title": "Open",
+            "type": "integer"
+          },
+          "resolved": {
+            "description": "Alerts resolved (a label was written).",
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All alerts for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open",
+          "inReview",
+          "resolved",
+          "dismissed",
+          "total"
+        ],
+        "title": "AlertMetrics",
+        "type": "object"
+      },
+      "AlertStatus": {
+        "description": "Lifecycle status of an alert (plan \u00a79.1 `alerts`).",
+        "enum": [
+          "open",
+          "in_review",
+          "resolved",
+          "dismissed"
+        ],
+        "title": "AlertStatus",
+        "type": "string"
+      },
+      "AlertView": {
+        "additionalProperties": false,
+        "description": "The camelCase summary projection of a persisted alert (list + detail header).",
+        "properties": {
+          "alertId": {
+            "description": "The alert's unique id (UUID).",
+            "title": "Alertid",
+            "type": "string"
+          },
+          "assignedTo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User id the alert is currently assigned to, if any.",
+            "title": "Assignedto"
+          },
+          "createdAt": {
+            "description": "When the alert was raised.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "reviewFlags": {
+            "description": "PHI-free force-review reasons ({flag, reason}) set at investigation time.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Reviewflags",
+            "type": "array"
+          },
+          "runId": {
+            "description": "The investigation run that raised the alert.",
+            "title": "Runid",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Alert severity derived from the run's risk band."
+          },
+          "status": {
+            "$ref": "#/components/schemas/AlertStatus",
+            "description": "Lifecycle status (open|in_review|resolved|dismissed)."
+          },
+          "transactionId": {
+            "description": "The flagged transaction's id.",
+            "title": "Transactionid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the alert was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alertId",
+          "transactionId",
+          "runId",
+          "status",
+          "severity",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "AlertView",
+        "type": "object"
+      },
+      "AmlRuleType": {
+        "description": "The canonical kind of deterministic AML rule; the engine dispatch key (plan \u00a79.1).",
+        "enum": [
+          "structuring",
+          "velocity",
+          "high_risk_geography",
+          "round_amount",
+          "threshold_evasion",
+          "rapid_movement"
+        ],
+        "title": "AmlRuleType",
+        "type": "string"
+      },
       "ApiHealthResponse": {
         "additionalProperties": false,
         "description": "Heartbeat payload for the versioned API surface.",
@@ -33,6 +389,279 @@
           "environment"
         ],
         "title": "ApiHealthResponse",
+        "type": "object"
+      },
+      "BatchIngestRequest": {
+        "additionalProperties": false,
+        "description": "A batch of transactions; dryRun validates + masks without persisting anything.\n\nItems are accepted as raw camelCase objects (the `TransactionIngestRequest` shape)\nand validated PER ROW in the handler, so one malformed item becomes a rejection\nrather than failing the whole request \u2014 i.e. the batch is partial-accept.",
+        "properties": {
+          "dryRun": {
+            "default": false,
+            "description": "When true, validate + mask but persist nothing.",
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "transactions": {
+            "description": "Transactions to ingest (non-empty; validated per row).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "minItems": 1,
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "transactions"
+        ],
+        "title": "BatchIngestRequest",
+        "type": "object"
+      },
+      "BatchIngestResponse": {
+        "additionalProperties": false,
+        "description": "Outcome of a batch ingest: counts, created rows, and bounded sample errors.",
+        "properties": {
+          "accepted": {
+            "description": "Rows inserted (0 on dryRun).",
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "dryRun": {
+            "description": "Whether this was a non-persisting validation run.",
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "duplicates": {
+            "description": "Rows skipped as already-existing.",
+            "minimum": 0.0,
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Rows rejected as invalid.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "sampleErrors": {
+            "description": "Bounded sample of per-row rejections (PHI-free).",
+            "items": {
+              "$ref": "#/components/schemas/IngestRejection"
+            },
+            "title": "Sampleerrors",
+            "type": "array"
+          },
+          "transactions": {
+            "description": "Created transactions (empty on dryRun).",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accepted",
+          "duplicates",
+          "rejected",
+          "dryRun"
+        ],
+        "title": "BatchIngestResponse",
+        "type": "object"
+      },
+      "CanaryEvaluationResponse": {
+        "additionalProperties": false,
+        "description": "The canary auto-abort verdict + the per-arm inference stats behind it (plan \u00a710.5.1).",
+        "properties": {
+          "aborted": {
+            "description": "True when the canary deviated enough to auto-rollback.",
+            "title": "Aborted",
+            "type": "boolean"
+          },
+          "activeCount": {
+            "description": "Active-arm inference samples in the window.",
+            "minimum": 0.0,
+            "title": "Activecount",
+            "type": "integer"
+          },
+          "activeMean": {
+            "description": "Active-arm mean predicted probability.",
+            "title": "Activemean",
+            "type": "number"
+          },
+          "canaryCount": {
+            "description": "Canary-arm inference samples in the window.",
+            "minimum": 0.0,
+            "title": "Canarycount",
+            "type": "integer"
+          },
+          "canaryMean": {
+            "description": "Canary-arm mean predicted probability.",
+            "title": "Canarymean",
+            "type": "number"
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentResponse",
+            "description": "The deployment pointer after the check."
+          },
+          "deviation": {
+            "description": "Absolute gap between the arms' mean scores.",
+            "minimum": 0.0,
+            "title": "Deviation",
+            "type": "number"
+          }
+        },
+        "required": [
+          "aborted",
+          "activeCount",
+          "activeMean",
+          "canaryCount",
+          "canaryMean",
+          "deviation",
+          "deployment"
+        ],
+        "title": "CanaryEvaluationResponse",
+        "type": "object"
+      },
+      "CanaryRequest": {
+        "additionalProperties": false,
+        "description": "The canary ramp percent \u2014 only the documented 5/25/50/100 steps are accepted.",
+        "properties": {
+          "percent": {
+            "description": "Traffic percent for the canary; 100 promotes it to active.",
+            "enum": [
+              5,
+              25,
+              50,
+              100
+            ],
+            "title": "Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "percent"
+        ],
+        "title": "CanaryRequest",
+        "type": "object"
+      },
+      "ClientErrorReport": {
+        "additionalProperties": false,
+        "description": "The frontend client-error sink body (PHI-scrubbed before logging).",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional safe key/value context (scrubbed).",
+            "title": "Context"
+          },
+          "message": {
+            "description": "Client error message (scrubbed).",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ClientErrorReport",
+        "type": "object"
+      },
+      "CsvUploadResponse": {
+        "additionalProperties": false,
+        "description": "Outcome of a CSV upload: the recorded job id, counts, and bounded sample errors.",
+        "properties": {
+          "accepted": {
+            "description": "Rows inserted.",
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicates": {
+            "description": "Rows skipped as already-existing.",
+            "minimum": 0.0,
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "jobId": {
+            "description": "The csv_import job_executions id for this upload.",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "rejected": {
+            "description": "Rows rejected as invalid.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "sampleErrors": {
+            "description": "Bounded sample of per-row rejections (PHI-free).",
+            "items": {
+              "$ref": "#/components/schemas/IngestRejection"
+            },
+            "title": "Sampleerrors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobId",
+          "accepted",
+          "duplicates",
+          "rejected"
+        ],
+        "title": "CsvUploadResponse",
+        "type": "object"
+      },
+      "DashboardMetricsResponse": {
+        "additionalProperties": false,
+        "description": "The tenant-scoped dashboard aggregate (plan \u00a75.3 endpoint 13, \u00a716 Phase 12).",
+        "properties": {
+          "alerts": {
+            "$ref": "#/components/schemas/AlertMetrics",
+            "description": "Alert counts by status."
+          },
+          "llmCost": {
+            "$ref": "#/components/schemas/LlmCostMetrics",
+            "description": "SAR LLM spend for the cost dashboard."
+          },
+          "modelHealth": {
+            "$ref": "#/components/schemas/ModelHealthMetrics",
+            "description": "Live model-health signals."
+          },
+          "runs": {
+            "$ref": "#/components/schemas/RunMetrics",
+            "description": "Investigation-run counts by status."
+          },
+          "sar": {
+            "$ref": "#/components/schemas/SarMetrics",
+            "description": "SAR-draft counts by review status."
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/TransactionMetrics",
+            "description": "Transaction volume + risk bands."
+          }
+        },
+        "required": [
+          "alerts",
+          "transactions",
+          "runs",
+          "sar",
+          "llmCost",
+          "modelHealth"
+        ],
+        "title": "DashboardMetricsResponse",
         "type": "object"
       },
       "DependencyCheck": {
@@ -69,6 +698,129 @@
         "title": "DependencyCheck",
         "type": "object"
       },
+      "DeploymentResponse": {
+        "additionalProperties": false,
+        "description": "The live active/canary deployment pointer projected onto the API surface (PHI-free).",
+        "properties": {
+          "activeVersionLabel": {
+            "description": "The currently active model version label.",
+            "title": "Activeversionlabel",
+            "type": "string"
+          },
+          "canaryPercent": {
+            "description": "Percent of traffic on the canary.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Canarypercent",
+            "type": "integer"
+          },
+          "canaryVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canary candidate's label, or None when no rollout is live.",
+            "title": "Canaryversionlabel"
+          },
+          "previousActiveVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The prior active label retained for rollback, if any.",
+            "title": "Previousactiveversionlabel"
+          },
+          "updatedAt": {
+            "description": "When the pointer was last changed.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "activeVersionLabel",
+          "canaryPercent",
+          "updatedAt"
+        ],
+        "title": "DeploymentResponse",
+        "type": "object"
+      },
+      "DriftReportListResponse": {
+        "additionalProperties": false,
+        "description": "Advisory drift reports, newest first.",
+        "properties": {
+          "driftReports": {
+            "description": "Advisory drift reports, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/DriftReportView"
+            },
+            "title": "Driftreports",
+            "type": "array"
+          }
+        },
+        "title": "DriftReportListResponse",
+        "type": "object"
+      },
+      "DriftReportView": {
+        "additionalProperties": false,
+        "description": "One advisory drift report projected onto the API surface (PHI-free).",
+        "properties": {
+          "advisory": {
+            "description": "Always true \u2014 drift never gates serving (plan \u00a710.5).",
+            "title": "Advisory",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "description": "When the report was produced.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "driftReportId": {
+            "description": "The drift report's unique id (UUID).",
+            "title": "Driftreportid",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free drift metrics (PSI, sample counts, means).",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Advisory severity band derived from the PSI."
+          },
+          "versionLabel": {
+            "description": "The model version the report concerns.",
+            "title": "Versionlabel",
+            "type": "string"
+          },
+          "window": {
+            "description": "The window the report was computed over.",
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "driftReportId",
+          "versionLabel",
+          "window",
+          "severity",
+          "advisory",
+          "createdAt"
+        ],
+        "title": "DriftReportView",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -80,6 +832,281 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IngestRejection": {
+        "additionalProperties": false,
+        "description": "A single PHI-free per-row rejection from a batch/CSV ingest.",
+        "properties": {
+          "code": {
+            "description": "Stable error code (e.g. 'duplicate_external_id').",
+            "title": "Code",
+            "type": "string"
+          },
+          "externalId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The row's externalId when known (no other values).",
+            "title": "Externalid"
+          },
+          "index": {
+            "description": "Zero-based position of the rejected row.",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Fixed, PHI-free reason for the rejection.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "code",
+          "message"
+        ],
+        "title": "IngestRejection",
+        "type": "object"
+      },
+      "InvestigationSnapshotResponse": {
+        "additionalProperties": false,
+        "description": "The authoritative investigation snapshot the SSE observer reconciles against.",
+        "properties": {
+          "citations": {
+            "description": "Grounded regulatory citations the SAR relied on.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "createdAt": {
+            "description": "When the run was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable code shown to the analyst when a run failed.",
+            "title": "Errorcode"
+          },
+          "fraudProbability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Calibrated model probability (from the result snapshot).",
+            "title": "Fraudprobability"
+          },
+          "modelVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version label of the model that scored this run.",
+            "title": "Modelversion"
+          },
+          "promptVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the SAR prompt template this run used.",
+            "title": "Promptversion"
+          },
+          "ragVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the regulatory corpus this run cited.",
+            "title": "Ragversion"
+          },
+          "riskBand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved risk band (once scored).",
+            "title": "Riskband"
+          },
+          "riskScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Blended risk score (once scored).",
+            "title": "Riskscore"
+          },
+          "ruleHits": {
+            "description": "Fired deterministic rule hits (PHI-free findings).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rulehits",
+            "type": "array"
+          },
+          "rulesVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fingerprint of the rule set this run evaluated.",
+            "title": "Rulesversion"
+          },
+          "runId": {
+            "description": "The run's unique id (UUID).",
+            "title": "Runid",
+            "type": "string"
+          },
+          "sarDraftId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Persisted SAR draft id, if any.",
+            "title": "Sardraftid"
+          },
+          "sarStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAR draft status (draft | failed).",
+            "title": "Sarstatus"
+          },
+          "status": {
+            "description": "Run status: pending | running | completed | failed.",
+            "title": "Status",
+            "type": "string"
+          },
+          "topFeatures": {
+            "description": "Top SHAP drivers (feature names + numbers, no PHI).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Topfeatures",
+            "type": "array"
+          },
+          "transactionId": {
+            "description": "The investigated transaction's id.",
+            "title": "Transactionid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the run was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "transactionId",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "InvestigationSnapshotResponse",
+        "type": "object"
+      },
+      "InvestigationStartRequest": {
+        "additionalProperties": false,
+        "description": "The `POST /investigations` body: the transaction to investigate (+ optional override).",
+        "properties": {
+          "modelOverride": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional model version label to score this run with, overriding the active/canary routing (plan \u00a75.4); must be a registered version. None = active/canary routing.",
+            "title": "Modeloverride"
+          },
+          "transactionId": {
+            "description": "Id of the transaction to investigate.",
+            "format": "uuid",
+            "title": "Transactionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId"
+        ],
+        "title": "InvestigationStartRequest",
+        "type": "object"
+      },
+      "InvestigationStartResponse": {
+        "additionalProperties": false,
+        "description": "The 202 acknowledgement: the run id the investigation is owned under (ADR-016).",
+        "properties": {
+          "runId": {
+            "description": "The persisted run id; stream/poll it for progress.",
+            "title": "Runid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId"
+        ],
+        "title": "InvestigationStartResponse",
         "type": "object"
       },
       "LivenessResponse": {
@@ -95,6 +1122,197 @@
         },
         "title": "LivenessResponse",
         "type": "object"
+      },
+      "LlmCostMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant SAR LLM spend for the cost dashboard (plan \u00a77.6, \u00a711.5).",
+        "properties": {
+          "draftCount": {
+            "description": "SAR drafts that incurred (or attempted) spend.",
+            "minimum": 0.0,
+            "title": "Draftcount",
+            "type": "integer"
+          },
+          "todayUsd": {
+            "description": "SAR LLM USD spend since UTC midnight (string NUMERIC).",
+            "title": "Todayusd",
+            "type": "string"
+          },
+          "totalUsd": {
+            "description": "All-time SAR LLM USD spend (string NUMERIC).",
+            "title": "Totalusd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "todayUsd",
+          "totalUsd",
+          "draftCount"
+        ],
+        "title": "LlmCostMetrics",
+        "type": "object"
+      },
+      "ModelHealthMetrics": {
+        "additionalProperties": false,
+        "description": "Live model-health signals for the dashboard (plan \u00a710.5; acceptance: model health).",
+        "properties": {
+          "activeVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The currently active model version label (None when unset).",
+            "title": "Activeversionlabel"
+          },
+          "canaryPercent": {
+            "description": "Percent of traffic on the canary.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Canarypercent",
+            "type": "integer"
+          },
+          "canaryVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canary candidate label, or None when no rollout is live.",
+            "title": "Canaryversionlabel"
+          },
+          "latestDriftSeverity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Severity of the most recent advisory drift report, if any.",
+            "title": "Latestdriftseverity"
+          },
+          "recentInferenceCount": {
+            "description": "Tenant hash-only inference records logged (model activity proxy).",
+            "minimum": 0.0,
+            "title": "Recentinferencecount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "canaryPercent",
+          "recentInferenceCount"
+        ],
+        "title": "ModelHealthMetrics",
+        "type": "object"
+      },
+      "ModelVersionListResponse": {
+        "additionalProperties": false,
+        "description": "The model-registry versions plus the label of the currently active version.",
+        "properties": {
+          "activeVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label of the active (deployed) version, if any.",
+            "title": "Activeversionlabel"
+          },
+          "versions": {
+            "description": "Registry versions, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ModelVersionResponse"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "title": "ModelVersionListResponse",
+        "type": "object"
+      },
+      "ModelVersionResponse": {
+        "additionalProperties": false,
+        "description": "One model-registry version projected onto the API surface (PHI-free).",
+        "properties": {
+          "artifactUri": {
+            "description": "Artifact bundle uri (relative to the store).",
+            "title": "Artifacturi",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the version was registered.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "featureSpec": {
+            "additionalProperties": true,
+            "description": "Ordered feature spec (names only).",
+            "title": "Featurespec",
+            "type": "object"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free holdout metrics recorded.",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "notes": {
+            "description": "Human-readable notes about the version.",
+            "title": "Notes",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModelVersionStatus",
+            "description": "Registry lifecycle status."
+          },
+          "versionId": {
+            "description": "The model version's unique id (UUID).",
+            "title": "Versionid",
+            "type": "string"
+          },
+          "versionLabel": {
+            "description": "Unique human-readable version label.",
+            "title": "Versionlabel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "versionId",
+          "versionLabel",
+          "status",
+          "artifactUri",
+          "featureSpec",
+          "metrics",
+          "notes",
+          "createdAt"
+        ],
+        "title": "ModelVersionResponse",
+        "type": "object"
+      },
+      "ModelVersionStatus": {
+        "description": "Registry lifecycle state of a model version (plan \u00a79.2 / \u00a710.5).",
+        "enum": [
+          "candidate",
+          "shadow",
+          "canary",
+          "active",
+          "archived",
+          "rejected"
+        ],
+        "title": "ModelVersionStatus",
+        "type": "string"
       },
       "ReadinessResponse": {
         "additionalProperties": false,
@@ -121,21 +1339,969 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
-      "TenantContext": {
+      "RiskBand": {
+        "description": "Ordinal risk classification assigned to a scored transaction.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "RiskBand",
+        "type": "string"
+      },
+      "RollbackResponse": {
         "additionalProperties": false,
-        "description": "Authenticated tenant identity resolved from the verified agency_id claim.",
+        "description": "What a rollback did (aborted a canary or restored the previous active) + the new pointer.",
+        "properties": {
+          "action": {
+            "description": "'canary_aborted' or 'restored_previous'.",
+            "title": "Action",
+            "type": "string"
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentResponse",
+            "description": "The deployment pointer after rollback."
+          }
+        },
+        "required": [
+          "action",
+          "deployment"
+        ],
+        "title": "RollbackResponse",
+        "type": "object"
+      },
+      "RuleCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new agency-scoped rule; `code` + `ruleType` are immutable after creation.",
+        "properties": {
+          "code": {
+            "description": "Stable per-agency rule code.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Optional human-readable description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether the rule is evaluated.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Rule display name.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Rule-type-specific tunables (camelCase JSONB).",
+            "title": "Params",
+            "type": "object"
+          },
+          "ruleType": {
+            "$ref": "#/components/schemas/AmlRuleType",
+            "description": "Which built-in evaluator runs this rule."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "default": "medium",
+            "description": "Ordinal severity carried through to a hit."
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "1.0",
+            "description": "Aggregation weight of the rule's contribution.",
+            "title": "Weight"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "ruleType"
+        ],
+        "title": "RuleCreateRequest",
+        "type": "object"
+      },
+      "RuleListResponse": {
+        "additionalProperties": false,
+        "description": "The agency's own rules (its custom overrides; baseline rules are global).",
+        "properties": {
+          "rules": {
+            "description": "The agency's rules, ordered by code.",
+            "items": {
+              "$ref": "#/components/schemas/RuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "RuleListResponse",
+        "type": "object"
+      },
+      "RuleResponse": {
+        "additionalProperties": false,
+        "description": "A persisted rule row projected onto the API surface.",
         "properties": {
           "agencyId": {
-            "description": "Active tenant (agency) id from the verified JWT claim.",
-            "minLength": 1,
+            "description": "Owning tenant (agency) id.",
             "title": "Agencyid",
+            "type": "string"
+          },
+          "code": {
+            "description": "Stable per-agency rule code.",
+            "title": "Code",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the rule was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the rule is evaluated.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Rule display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Rule-type-specific tunables.",
+            "title": "Params",
+            "type": "object"
+          },
+          "ruleId": {
+            "description": "The rule's unique id (UUID).",
+            "title": "Ruleid",
+            "type": "string"
+          },
+          "ruleType": {
+            "$ref": "#/components/schemas/AmlRuleType",
+            "description": "The rule's evaluator type."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Ordinal severity."
+          },
+          "updatedAt": {
+            "description": "When the rule was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "version": {
+            "description": "Monotonic version (bumped on each update).",
+            "title": "Version",
+            "type": "integer"
+          },
+          "weight": {
+            "description": "Aggregation weight.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Weight",
             "type": "string"
           }
         },
         "required": [
-          "agencyId"
+          "ruleId",
+          "agencyId",
+          "code",
+          "name",
+          "description",
+          "ruleType",
+          "params",
+          "severity",
+          "weight",
+          "enabled",
+          "version",
+          "createdAt",
+          "updatedAt"
         ],
-        "title": "TenantContext",
+        "title": "RuleResponse",
+        "type": "object"
+      },
+      "RuleUpdateRequest": {
+        "additionalProperties": false,
+        "description": "A partial update of a rule's mutable fields; only sent fields are applied (PATCH).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New description.",
+            "title": "Description"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Enable (true) or disable (false).",
+            "title": "Enabled"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New display name.",
+            "title": "Name"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replacement tunables object.",
+            "title": "Params"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Severity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New severity."
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New aggregation weight.",
+            "title": "Weight"
+          }
+        },
+        "title": "RuleUpdateRequest",
+        "type": "object"
+      },
+      "RunMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant investigation-run counts by status (plan \u00a79.1 `analysis_runs`).",
+        "properties": {
+          "completed": {
+            "description": "Runs that finished (with or without a SAR).",
+            "minimum": 0.0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Runs whose deterministic core failed.",
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Runs queued but not started.",
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "running": {
+            "description": "Runs in progress.",
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All investigation runs for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "total"
+        ],
+        "title": "RunMetrics",
+        "type": "object"
+      },
+      "SarDraftView": {
+        "additionalProperties": false,
+        "description": "The camelCase API projection of a persisted SAR draft (PHI-free, human-reviewed).",
+        "properties": {
+          "alertId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The alert this draft is attached to, if any.",
+            "title": "Alertid"
+          },
+          "citations": {
+            "description": "The grounded regulatory citations the SAR relied on.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "content": {
+            "description": "The PHI-masked, human-readable SAR narrative.",
+            "title": "Content",
+            "type": "string"
+          },
+          "costUsd": {
+            "description": "Estimated USD spend for the draft.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Costusd",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the draft was created.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "modelId": {
+            "description": "Model reference that produced the draft (or 'mock').",
+            "title": "Modelid",
+            "type": "string"
+          },
+          "promptHash": {
+            "description": "Hash of the exact prompt template used.",
+            "title": "Prompthash",
+            "type": "string"
+          },
+          "promptVersion": {
+            "description": "SAR prompt template version id used.",
+            "title": "Promptversion",
+            "type": "string"
+          },
+          "runId": {
+            "description": "The analysis run that produced the draft.",
+            "title": "Runid",
+            "type": "string"
+          },
+          "sarDraftId": {
+            "description": "The SAR draft's unique id (UUID).",
+            "title": "Sardraftid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SarStatus",
+            "description": "Human-review lifecycle status."
+          },
+          "structured": {
+            "additionalProperties": true,
+            "description": "The structured SAR body (camelCase, PHI-free).",
+            "title": "Structured",
+            "type": "object"
+          },
+          "tokenUsage": {
+            "additionalProperties": true,
+            "description": "Token usage recorded for the call (cost/audit trail).",
+            "title": "Tokenusage",
+            "type": "object"
+          },
+          "version": {
+            "description": "Monotonic draft version for the run.",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sarDraftId",
+          "runId",
+          "version",
+          "status",
+          "content",
+          "modelId",
+          "promptVersion",
+          "promptHash",
+          "costUsd",
+          "createdAt"
+        ],
+        "title": "SarDraftView",
+        "type": "object"
+      },
+      "SarMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant SAR-draft counts by review status (plan \u00a79.1 `sar_drafts`).",
+        "properties": {
+          "approved": {
+            "description": "Approved SARs.",
+            "minimum": 0.0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "draft": {
+            "description": "Machine drafts awaiting review.",
+            "minimum": 0.0,
+            "title": "Draft",
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Runs whose SAR could not be drafted (plan \u00a77.5).",
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Rejected SARs.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "reviewed": {
+            "description": "Human-edited drafts.",
+            "minimum": 0.0,
+            "title": "Reviewed",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All SAR drafts for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "draft",
+          "reviewed",
+          "approved",
+          "rejected",
+          "failed",
+          "total"
+        ],
+        "title": "SarMetrics",
+        "type": "object"
+      },
+      "SarReviewDecision": {
+        "description": "The human SAR review verb applied to the latest draft (plan \u00a75.4 / \u00a710.4).",
+        "enum": [
+          "approve",
+          "reject",
+          "edit"
+        ],
+        "title": "SarReviewDecision",
+        "type": "string"
+      },
+      "SarReviewRequest": {
+        "additionalProperties": false,
+        "description": "The POST /alerts/{id}/sar/review body (approve/reject/edit), validated up front.",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/SarReviewDecision",
+            "description": "The review verb to apply to the draft."
+          },
+          "editedContent": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edited SAR narrative (required for `edit`; optional final edit on `approve`).",
+            "title": "Editedcontent"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reason for the decision (required for `reject`; PHI-masked).",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "SarReviewRequest",
+        "type": "object"
+      },
+      "SarStatus": {
+        "description": "Lifecycle status of a SAR draft (plan \u00a79.1 `sar_drafts`).",
+        "enum": [
+          "draft",
+          "reviewed",
+          "approved",
+          "rejected",
+          "failed"
+        ],
+        "title": "SarStatus",
+        "type": "string"
+      },
+      "Severity": {
+        "description": "Ordinal severity shared by AML rules, alerts, and drift reports.",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "Severity",
+        "type": "string"
+      },
+      "TrainingLabelType": {
+        "description": "Outcome label produced by a reviewed decision (plan \u00a79.2).",
+        "enum": [
+          "confirmed_fraud",
+          "false_positive",
+          "false_negative",
+          "benign"
+        ],
+        "title": "TrainingLabelType",
+        "type": "string"
+      },
+      "TrainingRunListResponse": {
+        "additionalProperties": false,
+        "description": "The model training-run history, newest first.",
+        "properties": {
+          "trainingRuns": {
+            "description": "Training runs, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/TrainingRunView"
+            },
+            "title": "Trainingruns",
+            "type": "array"
+          }
+        },
+        "title": "TrainingRunListResponse",
+        "type": "object"
+      },
+      "TrainingRunTriggerResponse": {
+        "additionalProperties": false,
+        "description": "The 202 acknowledgement that a retrain Job was submitted (+ the eligibility counts).",
+        "properties": {
+          "jobId": {
+            "description": "The submitted background-job id (training runs async).",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "labelNegatives": {
+            "description": "Matured fraud-negative target labels.",
+            "minimum": 0.0,
+            "title": "Labelnegatives",
+            "type": "integer"
+          },
+          "labelPositives": {
+            "description": "Matured fraud-positive target labels.",
+            "minimum": 0.0,
+            "title": "Labelpositives",
+            "type": "integer"
+          },
+          "labelTotal": {
+            "description": "Matured reviewed labels available to train on.",
+            "minimum": 0.0,
+            "title": "Labeltotal",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Submission status (always 'submitted' here).",
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "What initiated this retrain (manual | scheduled).",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId",
+          "trigger",
+          "status",
+          "labelTotal",
+          "labelPositives",
+          "labelNegatives"
+        ],
+        "title": "TrainingRunTriggerResponse",
+        "type": "object"
+      },
+      "TrainingRunView": {
+        "additionalProperties": false,
+        "description": "One model training run projected onto the API surface (PHI-free).",
+        "properties": {
+          "artifactUri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Artifact bundle uri when trained.",
+            "title": "Artifacturi"
+          },
+          "createdAt": {
+            "description": "When the run was recorded.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "datasetId": {
+            "description": "The training dataset manifest id (UUID).",
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free holdout metrics + gate verdict recorded.",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "status": {
+            "description": "Job status (pending|running|succeeded|failed).",
+            "title": "Status",
+            "type": "string"
+          },
+          "trainingRunId": {
+            "description": "The training run's unique id (UUID).",
+            "title": "Trainingrunid",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "What initiated the run (manual | scheduled).",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trainingRunId",
+          "trigger",
+          "status",
+          "datasetId",
+          "createdAt"
+        ],
+        "title": "TrainingRunView",
+        "type": "object"
+      },
+      "TransactionIngestRequest": {
+        "additionalProperties": false,
+        "description": "One transaction to ingest; structural checks only (semantics in build_canonical).",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "description": "Transaction amount (must be positive).",
+            "title": "Amount"
+          },
+          "channel": {
+            "description": "Origination channel.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Channel",
+            "type": "string"
+          },
+          "country": {
+            "description": "ISO-3166 alpha-2 country.",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country",
+            "type": "string"
+          },
+          "currency": {
+            "description": "ISO-4217 currency code.",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "destAccount": {
+            "description": "Destination account (masked).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Destaccount",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "Caller-unique id (dedup key).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Externalid",
+            "type": "string"
+          },
+          "features": {
+            "additionalProperties": true,
+            "description": "Optional extra model features (stored in JSONB).",
+            "title": "Features",
+            "type": "object"
+          },
+          "occurredAt": {
+            "description": "When the transaction occurred (not future).",
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "originAccount": {
+            "description": "Origin account (masked at rest).",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Originaccount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "amount",
+          "currency",
+          "occurredAt",
+          "originAccount",
+          "destAccount",
+          "channel",
+          "country"
+        ],
+        "title": "TransactionIngestRequest",
+        "type": "object"
+      },
+      "TransactionListResponse": {
+        "additionalProperties": false,
+        "description": "A page of transactions plus the opaque cursor for the next page (null at the end).",
+        "properties": {
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page, or null when exhausted.",
+            "title": "Nextcursor"
+          },
+          "transactions": {
+            "description": "The transactions on this page (masked).",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "title": "TransactionListResponse",
+        "type": "object"
+      },
+      "TransactionMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant transaction volume + risk-band distribution (plan \u00a79.1 `transactions`).",
+        "properties": {
+          "byRiskBand": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Count per risk band (low|medium|high|critical) plus `unscored`.",
+            "title": "Byriskband",
+            "type": "object"
+          },
+          "total": {
+            "description": "All ingested transactions for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "TransactionMetrics",
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "additionalProperties": false,
+        "description": "A persisted transaction; account identifiers are masked, riskBand null at ingest.",
+        "properties": {
+          "agencyId": {
+            "description": "Owning tenant (agency) id.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "amount": {
+            "description": "Transaction amount.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "channel": {
+            "description": "Origination channel.",
+            "title": "Channel",
+            "type": "string"
+          },
+          "country": {
+            "description": "ISO-3166 alpha-2 country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "currency": {
+            "description": "ISO-4217 currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "destAccount": {
+            "description": "Masked destination account identifier.",
+            "title": "Destaccount",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "Caller-supplied unique id.",
+            "title": "Externalid",
+            "type": "string"
+          },
+          "ingestedAt": {
+            "description": "When the transaction was ingested.",
+            "format": "date-time",
+            "title": "Ingestedat",
+            "type": "string"
+          },
+          "latestRunId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest analysis run id, if any.",
+            "title": "Latestrunid"
+          },
+          "occurredAt": {
+            "description": "When the transaction occurred.",
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "originAccount": {
+            "description": "Masked origin account identifier.",
+            "title": "Originaccount",
+            "type": "string"
+          },
+          "riskBand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Risk band (null until scored).",
+            "title": "Riskband"
+          },
+          "transactionId": {
+            "description": "The transaction's unique id (UUID).",
+            "title": "Transactionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "externalId",
+          "agencyId",
+          "amount",
+          "currency",
+          "occurredAt",
+          "originAccount",
+          "destAccount",
+          "channel",
+          "country",
+          "ingestedAt"
+        ],
+        "title": "TransactionResponse",
+        "type": "object"
+      },
+      "TriggerTrainingRequest": {
+        "additionalProperties": false,
+        "description": "The optional retrain trigger body (defaults to a manual run).",
+        "properties": {
+          "trigger": {
+            "default": "manual",
+            "description": "What initiated this retrain (manual | scheduled).",
+            "enum": [
+              "manual",
+              "scheduled"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "title": "TriggerTrainingRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -189,13 +2355,13 @@
   "info": {
     "summary": "FraudLens AML fraud investigation API (walking skeleton).",
     "title": "FraudLens",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
     "/api/v1/agencies/{agency_id}": {
       "get": {
-        "description": "Return the validated TenantContext for the requested agency (tenant-scoped).",
+        "description": "Return the requested agency once tenancy is validated; 404 if it does not exist.",
         "operationId": "read_agency_api_v1_agencies__agency_id__get",
         "parameters": [
           {
@@ -213,7 +2379,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TenantContext"
+                  "$ref": "#/components/schemas/AgencyResponse"
                 }
               }
             },
@@ -241,6 +2407,340 @@
         ]
       }
     },
+    "/api/v1/alerts": {
+      "get": {
+        "description": "Return a page of the agency's alerts (newest first), optionally filtered by status.",
+        "operationId": "list_alerts_api_v1_alerts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AlertStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Alerts",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}": {
+      "get": {
+        "description": "Return an alert's detail (latest SAR draft + action history); 404 if missing/cross-tenant.",
+        "operationId": "get_alert_api_v1_alerts__alert_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Alert",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}/actions": {
+      "post": {
+        "description": "Apply a validated triage action; illegal transition \u2192 409, cross-tenant assignee \u2192 403.",
+        "operationId": "act_on_alert_api_v1_alerts__alert_id__actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Act On Alert",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/{alert_id}/sar/review": {
+      "post": {
+        "description": "Approve/reject/edit the alert's latest SAR draft; approve schedules a deferred PDF.",
+        "operationId": "review_sar_api_v1_alerts__alert_id__sar_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SarReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SarDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Review Sar",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/dashboard/metrics": {
+      "get": {
+        "description": "Return the tenant-scoped dashboard aggregate (counts + LLM cost + live model health).",
+        "operationId": "read_dashboard_metrics_api_v1_dashboard_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Dashboard Metrics",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/drift-reports": {
+      "get": {
+        "description": "Return advisory drift reports (newest first); these only signal, never gate serving.",
+        "operationId": "list_drift_reports_api_v1_drift_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriftReportListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Drift Reports",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "description": "Return the API-surface heartbeat (status, service, version, environment).",
@@ -260,6 +2760,1091 @@
         "summary": "Api Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/investigations": {
+      "post": {
+        "description": "Start + own an investigation run (202 {runId}); an Idempotency-Key dedupes double-clicks.",
+        "operationId": "start_investigation_api_v1_investigations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Investigation",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}": {
+      "get": {
+        "description": "Return the authoritative run snapshot; 404 when missing or owned by another agency.",
+        "operationId": "get_investigation_api_v1_investigations__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationSnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Investigation",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/stream": {
+      "get": {
+        "description": "Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens.",
+        "operationId": "stream_investigation_api_v1_investigations__run_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stream Investigation",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
+    "/api/v1/model-deployment": {
+      "get": {
+        "description": "Return the live active/canary deployment pointer (404 when none is configured).",
+        "operationId": "get_deployment_api_v1_model_deployment_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Deployment",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-deployment/canary/evaluate": {
+      "post": {
+        "description": "Run the \u00a710.5.1 canary auto-abort guard; roll back the canary when it deviates too far.",
+        "operationId": "evaluate_canary_api_v1_model_deployment_canary_evaluate_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanaryEvaluationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Evaluate Canary",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-deployment/rollback": {
+      "post": {
+        "description": "Abort an in-progress canary, else restore the previous active pointer (plan \u00a710.5/\u00a710.6).",
+        "operationId": "rollback_deployment_api_v1_model_deployment_rollback_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RollbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rollback Deployment",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-versions": {
+      "get": {
+        "description": "Return the model registry (newest first) plus the active version label.",
+        "operationId": "list_model_versions_api_v1_model_versions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Model Versions",
+        "tags": [
+          "model-versions"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}": {
+      "get": {
+        "description": "Return one model-registry version by id; 404 when it does not exist.",
+        "operationId": "get_model_version_api_v1_model_versions__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Model Version",
+        "tags": [
+          "model-versions"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/approve": {
+      "post": {
+        "description": "Record the human approval on a shadow version (the \u00a75.4 gate before any canary).",
+        "operationId": "approve_version_api_v1_model_versions__version_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Version",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/canary": {
+      "post": {
+        "description": "Ramp the canary to a percent; 100% promotes it to active (pointer flip, no redeploy).",
+        "operationId": "set_canary_api_v1_model_versions__version_id__canary_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Canary",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/shadow": {
+      "post": {
+        "description": "Promote a candidate to shadow \u2014 only with a passing evaluation (plan \u00a710.5.1).",
+        "operationId": "promote_to_shadow_api_v1_model_versions__version_id__shadow_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promote To Shadow",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "description": "Return the agency's own rules (its custom overrides), ordered by code.",
+        "operationId": "list_rules_api_v1_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Rules",
+        "tags": [
+          "rules"
+        ]
+      },
+      "post": {
+        "description": "Create an agency-scoped rule (201); 409 when its code already exists for the agency.",
+        "operationId": "create_rule_api_v1_rules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/rules/{rule_id}": {
+      "delete": {
+        "description": "Delete the agency's rule (204); 404 when missing, global, or cross-tenant.",
+        "operationId": "delete_rule_api_v1_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Rule",
+        "tags": [
+          "rules"
+        ]
+      },
+      "get": {
+        "description": "Return one rule by id; 404 when missing, global, or owned by another agency.",
+        "operationId": "get_rule_api_v1_rules__rule_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Rule",
+        "tags": [
+          "rules"
+        ]
+      },
+      "patch": {
+        "description": "Apply a partial update (incl. enable/disable) to the agency's rule; bumps version.",
+        "operationId": "update_rule_api_v1_rules__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/telemetry/client-error": {
+      "post": {
+        "description": "Scrub + log a frontend client-error report (PHI-masked, truncated); return 202.",
+        "operationId": "report_client_error_api_v1_telemetry_client_error_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Report Client Error",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/api/v1/training-runs": {
+      "get": {
+        "description": "Return the model training-run history (newest first).",
+        "operationId": "list_training_runs_api_v1_training_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Training Runs",
+        "tags": [
+          "model-lifecycle"
+        ]
+      },
+      "post": {
+        "description": "Submit a retrain Job (candidate-only); 422 if labels insufficient, 409 if one is running.",
+        "operationId": "trigger_training_run_api_v1_training_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TriggerTrainingRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunTriggerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Training Run",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "description": "Return a keyset page of the agency's transactions (newest first), optional riskBand.",
+        "operationId": "list_transactions_api_v1_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "riskBand",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RiskBand"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Riskband"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Transactions",
+        "tags": [
+          "transactions"
+        ]
+      },
+      "post": {
+        "description": "Ingest one transaction (201); 409 when its externalId already exists for the agency.",
+        "operationId": "ingest_transaction_api_v1_transactions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Transaction",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/batch": {
+      "post": {
+        "description": "Ingest a batch (partial-accept); dryRun validates + masks without persisting.",
+        "operationId": "ingest_batch_api_v1_transactions_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ingest Batch",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/upload": {
+      "post": {
+        "description": "Ingest a text/csv upload (partial-accept); enforce size/row caps; record a job.",
+        "operationId": "upload_csv_api_v1_transactions_upload_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Csv",
+        "tags": [
+          "transactions"
+        ]
+      }
+    },
+    "/api/v1/transactions/{transaction_id}": {
+      "get": {
+        "description": "Return one transaction by id; 404 when missing or owned by another agency.",
+        "operationId": "get_transaction_api_v1_transactions__transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Transaction",
+        "tags": [
+          "transactions"
         ]
       }
     },

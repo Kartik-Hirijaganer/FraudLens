@@ -1,0 +1,18 @@
+# Staging overlay (non-secret). Applied on top of default.yaml.
+# Per AGENTS.md there is a single Infisical environment (prod); staging supplies its
+# own NON-secret config here while secrets still resolve from Infisical at runtime.
+environment: staging
+log_level: INFO
+auth_dev_bypass: false
+
+# Filled with the staging Vercel preview origin at deploy; empty denies cross-origin.
+cors_allow_origins: []
+cors_allow_credentials: true
+
+# Mirrors prod's cloud backends + live drafter; deploy stays inert until accounts exist.
+storage_backend: azure_blob
+queue_backend: container_apps_jobs
+llm_mode: live
+
+# Mirror prod: the baked FinCEN/BSA RAG index is required at readiness (§10.6).
+rag_index_required: true

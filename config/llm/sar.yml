@@ -1,0 +1,18 @@
+# =====================================================================
+# FraudLens SAR-drafting model selection (NON-SECRET).
+# =====================================================================
+#
+# Model NAMES live HERE in config, never in source (no-hardcoding, plan §7.2 / §12).
+# The live drafter resolves these refs against config/llm/catalog.yml + providers.yml.
+#
+# v1 default is Anthropic Claude Haiku (cheapest/fastest, handoff / plan §7.1), with an
+# OpenRouter fallback chain. Governance still gates fallback at the client: a weaker-posture
+# provider is skipped unless policy-downgrade is explicitly allowed (non-prod) — plan §7.5.
+# Compliance-upgrade path: flip `model` to an Azure OpenAI ref here, no code change (plan §7.1).
+# =====================================================================
+
+model: anthropic/claude-haiku-4-5
+fallbacks:
+  - openrouter/openai/gpt-5-mini
+  - openrouter/google/gemini-2.0-flash-001
+max_output_tokens: 1200

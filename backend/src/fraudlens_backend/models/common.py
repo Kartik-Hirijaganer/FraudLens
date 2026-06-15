@@ -8,6 +8,7 @@ Key classes:
 - CamelModel: base model with a camelCase alias generator and extra="forbid".
 - ErrorResponse: the FraudLens error envelope {code, message, details, requestId}.
 - TenantContext: API-surface tenant identity (agencyId) for authenticated callers.
+- AgencyResponse: the GET /agencies/{agencyId} lookup body (agencyId, name, slug).
 
 Key functions:
 - (none)
@@ -56,3 +57,21 @@ class TenantContext(CamelModel):
         min_length=1,
         description="Active tenant (agency) id from the verified JWT claim.",
     )
+    user_id: str | None = Field(
+        default=None,
+        description="Acting user id from the verified token subject; the actor audited "
+        "actions are recorded under (None when the token carries no subject).",
+    )
+    role: str = Field(
+        default="analyst",
+        description="RBAC role from the verified claim (analyst|reviewer|admin); gates "
+        "admin-only routes (e.g. model lifecycle). Defaults to least privilege.",
+    )
+
+
+class AgencyResponse(CamelModel):
+    """The GET /agencies/{agencyId} lookup body — confirms the agency exists."""
+
+    agency_id: str = Field(..., description="The agency's unique id (UUID).")
+    name: str = Field(..., description="Human-readable agency name.")
+    slug: str = Field(..., description="URL-safe unique agency slug.")

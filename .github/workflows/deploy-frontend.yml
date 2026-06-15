@@ -1,7 +1,8 @@
-# Frontend deploy — WIRED BUT INERT until Vercel exists (gated on VERCEL_DEPLOY_ENABLED).
-# Deploys are allowed only from `dev` and `release/*` after CI succeeds. The Vercel token
-# is fetched from Infisical with GitHub Actions OIDC, masked, and never persisted — no
-# long-lived secret is stored in GitHub. Flow: verify → deploy → smoke.
+# Frontend deploy (plan §15.7 / Phase 14) — WIRED BUT INERT until Vercel exists (gated on
+# VERCEL_DEPLOY_ENABLED). Deploys run only from `dev` / `release/*` after CI succeeds. The Vercel
+# token is fetched short-lived from Infisical via GitHub Actions OIDC, masked, and never persisted.
+# Vercel deploys are already atomic with instant rollback (see docs/runbooks/deploy-rollback.md).
+# Flow: verify -> build (HTTPS-only VITE_API_BASE_URL baked in) -> deploy -> smoke.
 name: deploy-frontend
 
 on:
@@ -30,6 +31,7 @@ jobs:
     if: ${{ vars.VERCEL_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,12 +49,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Deploy to Vercel (prod)
         working-directory: frontend
+        env:
+          # The SPA calls ONLY the gateway base URL, over HTTPS — sourced from config, never
+          # hardcoded. Baked into the build so the prebuilt artifact targets the gateway.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
         run: |
+          set -euo pipefail
+          case "$VITE_API_BASE_URL" in
+            https://*) ;;
+            *) echo "VITE_API_BASE_URL must be an https:// URL"; exit 1 ;;
+          esac
           npm i -g vercel
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           vercel build --prod --token="$VERCEL_TOKEN"
           vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
       - name: Smoke-test the deployed site
-        run: curl -fsS "${{ vars.FRONTEND_URL }}" > /dev/null
+        run: curl -fsS --retry 5 --retry-delay 10 "${{ vars.FRONTEND_URL }}" > /dev/null

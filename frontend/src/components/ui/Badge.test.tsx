@@ -10,4 +10,11 @@ describe("Badge", () => {
     rerender(<Badge tone="negative">BAD</Badge>);
     expect(screen.getByText("BAD")).toHaveClass("bg-negative-bg");
   });
+
+  it("renders the warning and neutral tones", () => {
+    const { rerender } = render(<Badge tone="warning">WARN</Badge>);
+    expect(screen.getByText("WARN")).toHaveClass("bg-warning");
+    rerender(<Badge tone="neutral">MEH</Badge>);
+    expect(screen.getByText("MEH")).toHaveClass("bg-canvas-soft");
+  });
 });

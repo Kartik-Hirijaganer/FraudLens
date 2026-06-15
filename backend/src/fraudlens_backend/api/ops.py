@@ -12,29 +12,38 @@ Key classes:
 - ReadinessResponse: body of /readyz (overall status + per-dependency checks).
 
 Key functions:
-- default_readiness_probes: the skeleton's (skipped) dependency probes.
-- get_readiness_probes: dependency returning the active probe set (overridable).
+- get_readiness_probes: dependency building the active probe set from app state.
 - healthz: liveness handler.
 - readyz: readiness handler returning 200/503 from the aggregate.
 
 Notes:
 - /readyz sets the HTTP status from the aggregate so platform probes can gate on it.
+- The database probe runs a bounded SELECT 1 against the engine on app.state; when no
+  DATABASE_URL is configured it reports "skipped" (the app still boots).
+- The ChromaDB probe checks the baked RAG index for presence (plan §16 Phase 6): a populated
+  index → "ok"; a missing/empty index → "down" when `rag_index_required` (prod bakes the
+  index) else "skipped" (dev/local need not have built it yet). Infisical remains "skipped".
+- Probes may be sync or async; readyz awaits any awaitable result.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Annotated
+import inspect
+from collections.abc import Awaitable, Callable
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import Field
+from starlette.requests import Request
 from starlette.responses import Response
 
+from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
+from fraudlens_backend.settings import AppSettings
 
 router = APIRouter(tags=["ops"])
 
-ReadinessProbe = Callable[[], "DependencyCheck"]
+ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
 
 
 class LivenessResponse(CamelModel):
@@ -59,22 +68,42 @@ class ReadinessResponse(CamelModel):
 
 
 def _skipped(name: str) -> DependencyCheck:
-    """Return a 'skipped' check for a dependency that is not provisioned yet."""
-    return DependencyCheck(name=name, status="skipped", detail="not configured in skeleton")
+    """Return a 'skipped' check for a dependency that is not configured/provisioned."""
+    return DependencyCheck(name=name, status="skipped", detail="not configured")
 
 
-def default_readiness_probes() -> list[ReadinessProbe]:
-    """Return the skeleton's dependency probes (database, ChromaDB, Infisical)."""
-    return [
-        lambda: _skipped("database"),
-        lambda: _skipped("chromadb"),
-        lambda: _skipped("infisical"),
-    ]
+def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
+    """Build the active readiness probes from app state (overridable in tests/wiring)."""
+    settings = cast(AppSettings, request.app.state.settings)
+    engine = getattr(request.app.state, "db_engine", None)
+    rag_index_dir = getattr(request.app.state, "rag_index_dir", None)
+    timeout = settings.db_connect_timeout_seconds
 
+    async def _database() -> DependencyCheck:
+        """Probe DB connectivity; skipped when unconfigured, down on any failure."""
+        if engine is None:
+            return _skipped("database")
+        try:
+            await ping_database(engine, timeout_seconds=timeout)
+        except Exception:  # any connectivity failure → down; detail stays PHI-free
+            return DependencyCheck(name="database", status="down", detail="unreachable")
+        return DependencyCheck(name="database", status="ok")
 
-def get_readiness_probes() -> list[ReadinessProbe]:
-    """Dependency yielding the active readiness probes (overridable in tests/wiring)."""
-    return default_readiness_probes()
+    def _chromadb() -> DependencyCheck:
+        """Probe the baked RAG index presence; down only when an index is required (prod)."""
+        if rag_index_dir is None:
+            return _skipped("chromadb")
+        # Lazy import keeps heavy chromadb out of the import graph until /readyz needs it.
+        from fraudlens_ml.rag import index_status  # noqa: PLC0415
+
+        status = index_status(rag_index_dir, settings.rag_collection)
+        if status == "ready":
+            return DependencyCheck(name="chromadb", status="ok")
+        if settings.rag_index_required:
+            return DependencyCheck(name="chromadb", status="down", detail=f"index {status}")
+        return DependencyCheck(name="chromadb", status="skipped", detail=f"index {status}")
+
+    return [_database, _chromadb, lambda: _skipped("infisical")]
 
 
 ProbesDep = Annotated[list[ReadinessProbe], Depends(get_readiness_probes)]
@@ -89,7 +118,10 @@ async def healthz() -> LivenessResponse:
 @router.get("/readyz", response_model=ReadinessResponse)
 async def readyz(response: Response, probes: ProbesDep) -> ReadinessResponse:
     """Readiness probe — 200 when every dependency check is non-'down', else 503."""
-    checks = [probe() for probe in probes]
+    checks: list[DependencyCheck] = []
+    for probe in probes:
+        result = probe()
+        checks.append(await result if inspect.isawaitable(result) else result)
     ready = all(check.status != "down" for check in checks)
     response.status_code = 200 if ready else 503
     return ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)

@@ -3,3 +3,18 @@
 environment: prod
 log_level: INFO
 auth_dev_bypass: false
+
+# CORS origins are filled with the real Vercel domain at deploy (Phase 14); empty
+# here means cross-origin is denied by default until explicitly configured.
+cors_allow_origins: []
+cors_allow_credentials: true
+
+# Cloud backends + live SAR drafter (Anthropic Haiku). Accounts do not exist yet, so
+# the deploy is inert until provisioned; the selection itself is just config.
+storage_backend: azure_blob
+queue_backend: container_apps_jobs
+llm_mode: live
+
+# The FinCEN/BSA RAG index is baked into the image; require it at readiness so a broken
+# deploy (missing/empty index) fails /readyz instead of serving without citations (§10.6).
+rag_index_required: true

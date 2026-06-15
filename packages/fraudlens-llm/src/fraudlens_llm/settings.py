@@ -67,7 +67,10 @@ class LlmSettings(BaseSettings):
         default_factory=_providers_path, description="Path to config/llm/providers.yml."
     )
     default_model: str = Field(
-        default="openai/gpt-5-mini", description="Default provider/model reference for chat."
+        # Overridable catalog fallback (FRAUDLENS_LLM_DEFAULT_MODEL / config); real model
+        # selection is config-driven, so this is a safe default, not a hardcoded endpoint.
+        default="openai/gpt-5-mini",  # allow-hardcoded
+        description="Default provider/model reference for chat.",
     )
     default_data_class: DataClass = Field(
         default=DataClass.SYNTHETIC, description="Default data class for calls."

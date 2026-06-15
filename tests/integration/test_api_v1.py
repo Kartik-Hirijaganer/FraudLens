@@ -31,7 +31,7 @@ def test_api_health_returns_camelcase_heartbeat(
     assert response.json() == {
         "status": "ok",
         "service": "FraudLens",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "environment": "dev",
     }
 
@@ -52,14 +52,17 @@ def test_invalid_token_is_401(client_factory: Callable[..., TestClient]) -> None
     assert response.json()["message"] == "invalid token"
 
 
-def test_valid_token_matching_tenant_is_200(
+def test_authorized_request_without_db_is_503(
     client_factory: Callable[..., TestClient],
 ) -> None:
+    # Auth + tenancy pass (claim == path), but the agency lookup needs a database; the
+    # client_factory app has no DATABASE_URL, so get_db_session fails closed with 503.
+    # This also proves the dependency order: auth/tenancy resolve before the DB session.
     client = client_factory()
     client.app.dependency_overrides[get_token_verifier] = _accept_acme
     response = client.get("/api/v1/agencies/acme", headers=AUTH_HEADER)
-    assert response.status_code == 200
-    assert response.json() == {"agencyId": "acme"}
+    assert response.status_code == 503
+    assert response.json()["code"] == "service_unavailable"
 
 
 def test_valid_token_mismatched_tenant_is_403(
@@ -70,15 +73,6 @@ def test_valid_token_mismatched_tenant_is_403(
     response = client.get("/api/v1/agencies/other", headers=AUTH_HEADER)
     assert response.status_code == 403
     assert response.json()["code"] == "forbidden"
-
-
-def test_dev_bypass_allows_dev_agency_without_token(
-    client_factory: Callable[..., TestClient],
-) -> None:
-    client = client_factory(environment="dev", auth_dev_bypass=True)
-    response = client.get("/api/v1/agencies/dev-agency")
-    assert response.status_code == 200
-    assert response.json() == {"agencyId": "dev-agency"}
 
 
 def test_dev_bypass_still_enforces_tenant_isolation(
