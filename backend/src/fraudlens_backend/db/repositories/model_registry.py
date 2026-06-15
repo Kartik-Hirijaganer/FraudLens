@@ -19,6 +19,9 @@ Notes:
   (readiness, the pipeline) can fail closed rather than score with no model (plan §10.6).
 - The previous-active version is folded into the pointer only when both its label and uri
   resolve, so the scorer's last-known-good fallback is offered only when it is loadable.
+- `build_canary_deployment` resolves the active + optional canary (at its percent) into the
+  `fraudlens_ml` `CanaryDeployment` the wiring routes per-transaction through (Phase 10, §10.5);
+  the canary arm is offered only when its version row resolves (else it stays active-only).
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import ModelDeployment, ModelVersion
-from fraudlens_ml.scoring import DeploymentPointer
+from fraudlens_ml.scoring import CanaryDeployment, DeploymentPointer
 
 _DEFAULT_LIST_LIMIT = 50
 
@@ -87,4 +90,32 @@ class ModelRegistryRepository:
             active_artifact_uri=active.artifact_uri,
             previous_version_label=previous_label,
             previous_artifact_uri=previous_uri,
+        )
+
+    async def build_canary_deployment(self) -> CanaryDeployment | None:
+        """Resolve the active (+ optional canary at its percent) into a CanaryDeployment.
+
+        Returns None when no deployment row or no active version exists. The canary arm is
+        populated only when the deployment names a canary version that resolves; the percent
+        rides along so the wiring's `CanaryRouter` decides per-transaction (plan §10.5).
+        """
+        deployment = await self.get_active_deployment()
+        if deployment is None:
+            return None
+        active = await self._session.get(ModelVersion, deployment.active_version_id)
+        if active is None:
+            return None
+        canary_label: str | None = None
+        canary_uri: str | None = None
+        if deployment.canary_version_id is not None:
+            canary = await self._session.get(ModelVersion, deployment.canary_version_id)
+            if canary is not None:
+                canary_label = canary.version_label
+                canary_uri = canary.artifact_uri
+        return CanaryDeployment(
+            active_version_label=active.version_label,
+            active_artifact_uri=active.artifact_uri,
+            canary_version_label=canary_label,
+            canary_artifact_uri=canary_uri,
+            canary_percent=deployment.canary_percent,
         )

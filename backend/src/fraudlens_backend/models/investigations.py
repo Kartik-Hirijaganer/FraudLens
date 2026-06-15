@@ -1,10 +1,9 @@
 """Summary: Pydantic request/response models for the investigation surface (plan §5.4, §16
 Phase 8; endpoints 6-7). Every model is a `CamelModel`, so the wire is camelCase while Python
 stays snake_case, and `extra="forbid"` rejects unknown fields. `InvestigationStartRequest` is the
-`POST /investigations` body — Phase 8 scores via the active registry pointer, so the body carries
-only the transaction to investigate (the `modelOverride` from the §5.4 endpoint contract is NOT
-exposed until the Phase 10 model selector implements routing — an accepted-but-ignored field would
-mis-advertise the surface). `InvestigationStartResponse` is the 202 acknowledgement carrying the
+`POST /investigations` body — the transaction to investigate plus the optional Phase 10
+`modelOverride` (a registered model version label scoring this run, overriding the active/canary
+split — §5.4). `InvestigationStartResponse` is the 202 acknowledgement carrying the
 `runId` the run is owned under (ADR-016). `InvestigationSnapshotResponse` is the authoritative
 `GET /investigations/{runId}` snapshot the SSE observer reconciles against — the run status +
 version provenance plus, once the deterministic core has run, the score/band/SHAP/rule-hits and
@@ -12,7 +11,7 @@ version provenance plus, once the deterministic core has run, the score/band/SHA
 (scores, feature names, escaped citations, structured facts).
 
 Key classes:
-- InvestigationStartRequest: the POST body (the transaction to investigate).
+- InvestigationStartRequest: the POST body (the transaction + optional modelOverride).
 - InvestigationStartResponse: the 202 acknowledgement (runId).
 - InvestigationSnapshotResponse: the authoritative run snapshot (status + results + provenance).
 
@@ -20,8 +19,9 @@ Key functions:
 - (none)
 
 Notes:
-- `modelOverride` is intentionally omitted in v1: Phase 8 always scores via the active deployment
-  pointer, so the field is added with real routing behavior in Phase 10, never as a silent no-op.
+- `modelOverride` (Phase 10) names a registered model version to score this run with, taking
+  precedence over the active/canary routing; the API rejects an unregistered label (404) before
+  starting the run, so it is never a silent no-op. Absent → normal active/canary routing.
 - The result/SAR/citation fields are optional because they fill in as the pipeline progresses, so a
   snapshot taken mid-run returns exactly what is durable so far (the SSE stream carries the rest).
 """
@@ -38,9 +38,14 @@ from fraudlens_backend.models.common import CamelModel
 
 
 class InvestigationStartRequest(CamelModel):
-    """The `POST /investigations` body: the transaction to investigate (active-model scoring)."""
+    """The `POST /investigations` body: the transaction to investigate (+ optional override)."""
 
     transaction_id: uuid.UUID = Field(..., description="Id of the transaction to investigate.")
+    model_override: str | None = Field(
+        default=None,
+        description="Optional model version label to score this run with, overriding the active/"
+        "canary routing (plan §5.4); must be a registered version. None = active/canary routing.",
+    )
 
 
 class InvestigationStartResponse(CamelModel):

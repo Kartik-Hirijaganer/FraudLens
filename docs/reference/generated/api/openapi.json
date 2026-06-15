@@ -213,6 +213,51 @@
         "title": "AlertListResponse",
         "type": "object"
       },
+      "AlertMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant alert counts by status (plan \u00a79.1 `alerts`).",
+        "properties": {
+          "dismissed": {
+            "description": "Alerts dismissed as not actionable.",
+            "minimum": 0.0,
+            "title": "Dismissed",
+            "type": "integer"
+          },
+          "inReview": {
+            "description": "Alerts currently in review.",
+            "minimum": 0.0,
+            "title": "Inreview",
+            "type": "integer"
+          },
+          "open": {
+            "description": "Alerts awaiting triage.",
+            "minimum": 0.0,
+            "title": "Open",
+            "type": "integer"
+          },
+          "resolved": {
+            "description": "Alerts resolved (a label was written).",
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All alerts for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open",
+          "inReview",
+          "resolved",
+          "dismissed",
+          "total"
+        ],
+        "title": "AlertMetrics",
+        "type": "object"
+      },
       "AlertStatus": {
         "description": "Lifecycle status of an alert (plan \u00a79.1 `alerts`).",
         "enum": [
@@ -426,6 +471,82 @@
         "title": "BatchIngestResponse",
         "type": "object"
       },
+      "CanaryEvaluationResponse": {
+        "additionalProperties": false,
+        "description": "The canary auto-abort verdict + the per-arm inference stats behind it (plan \u00a710.5.1).",
+        "properties": {
+          "aborted": {
+            "description": "True when the canary deviated enough to auto-rollback.",
+            "title": "Aborted",
+            "type": "boolean"
+          },
+          "activeCount": {
+            "description": "Active-arm inference samples in the window.",
+            "minimum": 0.0,
+            "title": "Activecount",
+            "type": "integer"
+          },
+          "activeMean": {
+            "description": "Active-arm mean predicted probability.",
+            "title": "Activemean",
+            "type": "number"
+          },
+          "canaryCount": {
+            "description": "Canary-arm inference samples in the window.",
+            "minimum": 0.0,
+            "title": "Canarycount",
+            "type": "integer"
+          },
+          "canaryMean": {
+            "description": "Canary-arm mean predicted probability.",
+            "title": "Canarymean",
+            "type": "number"
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentResponse",
+            "description": "The deployment pointer after the check."
+          },
+          "deviation": {
+            "description": "Absolute gap between the arms' mean scores.",
+            "minimum": 0.0,
+            "title": "Deviation",
+            "type": "number"
+          }
+        },
+        "required": [
+          "aborted",
+          "activeCount",
+          "activeMean",
+          "canaryCount",
+          "canaryMean",
+          "deviation",
+          "deployment"
+        ],
+        "title": "CanaryEvaluationResponse",
+        "type": "object"
+      },
+      "CanaryRequest": {
+        "additionalProperties": false,
+        "description": "The canary ramp percent \u2014 only the documented 5/25/50/100 steps are accepted.",
+        "properties": {
+          "percent": {
+            "description": "Traffic percent for the canary; 100 promotes it to active.",
+            "enum": [
+              5,
+              25,
+              50,
+              100
+            ],
+            "title": "Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "percent"
+        ],
+        "title": "CanaryRequest",
+        "type": "object"
+      },
       "ClientErrorReport": {
         "additionalProperties": false,
         "description": "The frontend client-error sink body (PHI-scrubbed before logging).",
@@ -503,6 +624,46 @@
         "title": "CsvUploadResponse",
         "type": "object"
       },
+      "DashboardMetricsResponse": {
+        "additionalProperties": false,
+        "description": "The tenant-scoped dashboard aggregate (plan \u00a75.3 endpoint 13, \u00a716 Phase 12).",
+        "properties": {
+          "alerts": {
+            "$ref": "#/components/schemas/AlertMetrics",
+            "description": "Alert counts by status."
+          },
+          "llmCost": {
+            "$ref": "#/components/schemas/LlmCostMetrics",
+            "description": "SAR LLM spend for the cost dashboard."
+          },
+          "modelHealth": {
+            "$ref": "#/components/schemas/ModelHealthMetrics",
+            "description": "Live model-health signals."
+          },
+          "runs": {
+            "$ref": "#/components/schemas/RunMetrics",
+            "description": "Investigation-run counts by status."
+          },
+          "sar": {
+            "$ref": "#/components/schemas/SarMetrics",
+            "description": "SAR-draft counts by review status."
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/TransactionMetrics",
+            "description": "Transaction volume + risk bands."
+          }
+        },
+        "required": [
+          "alerts",
+          "transactions",
+          "runs",
+          "sar",
+          "llmCost",
+          "modelHealth"
+        ],
+        "title": "DashboardMetricsResponse",
+        "type": "object"
+      },
       "DependencyCheck": {
         "additionalProperties": false,
         "description": "Readiness result for a single downstream dependency.",
@@ -535,6 +696,129 @@
           "status"
         ],
         "title": "DependencyCheck",
+        "type": "object"
+      },
+      "DeploymentResponse": {
+        "additionalProperties": false,
+        "description": "The live active/canary deployment pointer projected onto the API surface (PHI-free).",
+        "properties": {
+          "activeVersionLabel": {
+            "description": "The currently active model version label.",
+            "title": "Activeversionlabel",
+            "type": "string"
+          },
+          "canaryPercent": {
+            "description": "Percent of traffic on the canary.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Canarypercent",
+            "type": "integer"
+          },
+          "canaryVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canary candidate's label, or None when no rollout is live.",
+            "title": "Canaryversionlabel"
+          },
+          "previousActiveVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The prior active label retained for rollback, if any.",
+            "title": "Previousactiveversionlabel"
+          },
+          "updatedAt": {
+            "description": "When the pointer was last changed.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "activeVersionLabel",
+          "canaryPercent",
+          "updatedAt"
+        ],
+        "title": "DeploymentResponse",
+        "type": "object"
+      },
+      "DriftReportListResponse": {
+        "additionalProperties": false,
+        "description": "Advisory drift reports, newest first.",
+        "properties": {
+          "driftReports": {
+            "description": "Advisory drift reports, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/DriftReportView"
+            },
+            "title": "Driftreports",
+            "type": "array"
+          }
+        },
+        "title": "DriftReportListResponse",
+        "type": "object"
+      },
+      "DriftReportView": {
+        "additionalProperties": false,
+        "description": "One advisory drift report projected onto the API surface (PHI-free).",
+        "properties": {
+          "advisory": {
+            "description": "Always true \u2014 drift never gates serving (plan \u00a710.5).",
+            "title": "Advisory",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "description": "When the report was produced.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "driftReportId": {
+            "description": "The drift report's unique id (UUID).",
+            "title": "Driftreportid",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free drift metrics (PSI, sample counts, means).",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "Advisory severity band derived from the PSI."
+          },
+          "versionLabel": {
+            "description": "The model version the report concerns.",
+            "title": "Versionlabel",
+            "type": "string"
+          },
+          "window": {
+            "description": "The window the report was computed over.",
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "driftReportId",
+          "versionLabel",
+          "window",
+          "severity",
+          "advisory",
+          "createdAt"
+        ],
+        "title": "DriftReportView",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -782,8 +1066,20 @@
       },
       "InvestigationStartRequest": {
         "additionalProperties": false,
-        "description": "The `POST /investigations` body: the transaction to investigate (active-model scoring).",
+        "description": "The `POST /investigations` body: the transaction to investigate (+ optional override).",
         "properties": {
+          "modelOverride": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional model version label to score this run with, overriding the active/canary routing (plan \u00a75.4); must be a registered version. None = active/canary routing.",
+            "title": "Modeloverride"
+          },
           "transactionId": {
             "description": "Id of the transaction to investigate.",
             "format": "uuid",
@@ -825,6 +1121,96 @@
           }
         },
         "title": "LivenessResponse",
+        "type": "object"
+      },
+      "LlmCostMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant SAR LLM spend for the cost dashboard (plan \u00a77.6, \u00a711.5).",
+        "properties": {
+          "draftCount": {
+            "description": "SAR drafts that incurred (or attempted) spend.",
+            "minimum": 0.0,
+            "title": "Draftcount",
+            "type": "integer"
+          },
+          "todayUsd": {
+            "description": "SAR LLM USD spend since UTC midnight (string NUMERIC).",
+            "title": "Todayusd",
+            "type": "string"
+          },
+          "totalUsd": {
+            "description": "All-time SAR LLM USD spend (string NUMERIC).",
+            "title": "Totalusd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "todayUsd",
+          "totalUsd",
+          "draftCount"
+        ],
+        "title": "LlmCostMetrics",
+        "type": "object"
+      },
+      "ModelHealthMetrics": {
+        "additionalProperties": false,
+        "description": "Live model-health signals for the dashboard (plan \u00a710.5; acceptance: model health).",
+        "properties": {
+          "activeVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The currently active model version label (None when unset).",
+            "title": "Activeversionlabel"
+          },
+          "canaryPercent": {
+            "description": "Percent of traffic on the canary.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Canarypercent",
+            "type": "integer"
+          },
+          "canaryVersionLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canary candidate label, or None when no rollout is live.",
+            "title": "Canaryversionlabel"
+          },
+          "latestDriftSeverity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Severity of the most recent advisory drift report, if any.",
+            "title": "Latestdriftseverity"
+          },
+          "recentInferenceCount": {
+            "description": "Tenant hash-only inference records logged (model activity proxy).",
+            "minimum": 0.0,
+            "title": "Recentinferencecount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "canaryPercent",
+          "recentInferenceCount"
+        ],
+        "title": "ModelHealthMetrics",
         "type": "object"
       },
       "ModelVersionListResponse": {
@@ -963,6 +1349,27 @@
         ],
         "title": "RiskBand",
         "type": "string"
+      },
+      "RollbackResponse": {
+        "additionalProperties": false,
+        "description": "What a rollback did (aborted a canary or restored the previous active) + the new pointer.",
+        "properties": {
+          "action": {
+            "description": "'canary_aborted' or 'restored_previous'.",
+            "title": "Action",
+            "type": "string"
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentResponse",
+            "description": "The deployment pointer after rollback."
+          }
+        },
+        "required": [
+          "action",
+          "deployment"
+        ],
+        "title": "RollbackResponse",
+        "type": "object"
       },
       "RuleCreateRequest": {
         "additionalProperties": false,
@@ -1226,6 +1633,51 @@
         "title": "RuleUpdateRequest",
         "type": "object"
       },
+      "RunMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant investigation-run counts by status (plan \u00a79.1 `analysis_runs`).",
+        "properties": {
+          "completed": {
+            "description": "Runs that finished (with or without a SAR).",
+            "minimum": 0.0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Runs whose deterministic core failed.",
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Runs queued but not started.",
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "running": {
+            "description": "Runs in progress.",
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All investigation runs for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "total"
+        ],
+        "title": "RunMetrics",
+        "type": "object"
+      },
       "SarDraftView": {
         "additionalProperties": false,
         "description": "The camelCase API projection of a persisted SAR draft (PHI-free, human-reviewed).",
@@ -1331,6 +1783,58 @@
         "title": "SarDraftView",
         "type": "object"
       },
+      "SarMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant SAR-draft counts by review status (plan \u00a79.1 `sar_drafts`).",
+        "properties": {
+          "approved": {
+            "description": "Approved SARs.",
+            "minimum": 0.0,
+            "title": "Approved",
+            "type": "integer"
+          },
+          "draft": {
+            "description": "Machine drafts awaiting review.",
+            "minimum": 0.0,
+            "title": "Draft",
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Runs whose SAR could not be drafted (plan \u00a77.5).",
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Rejected SARs.",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "reviewed": {
+            "description": "Human-edited drafts.",
+            "minimum": 0.0,
+            "title": "Reviewed",
+            "type": "integer"
+          },
+          "total": {
+            "description": "All SAR drafts for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "draft",
+          "reviewed",
+          "approved",
+          "rejected",
+          "failed",
+          "total"
+        ],
+        "title": "SarMetrics",
+        "type": "object"
+      },
       "SarReviewDecision": {
         "description": "The human SAR review verb applied to the latest draft (plan \u00a75.4 / \u00a710.4).",
         "enum": [
@@ -1415,6 +1919,130 @@
         ],
         "title": "TrainingLabelType",
         "type": "string"
+      },
+      "TrainingRunListResponse": {
+        "additionalProperties": false,
+        "description": "The model training-run history, newest first.",
+        "properties": {
+          "trainingRuns": {
+            "description": "Training runs, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/TrainingRunView"
+            },
+            "title": "Trainingruns",
+            "type": "array"
+          }
+        },
+        "title": "TrainingRunListResponse",
+        "type": "object"
+      },
+      "TrainingRunTriggerResponse": {
+        "additionalProperties": false,
+        "description": "The 202 acknowledgement that a retrain Job was submitted (+ the eligibility counts).",
+        "properties": {
+          "jobId": {
+            "description": "The submitted background-job id (training runs async).",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "labelNegatives": {
+            "description": "Matured fraud-negative target labels.",
+            "minimum": 0.0,
+            "title": "Labelnegatives",
+            "type": "integer"
+          },
+          "labelPositives": {
+            "description": "Matured fraud-positive target labels.",
+            "minimum": 0.0,
+            "title": "Labelpositives",
+            "type": "integer"
+          },
+          "labelTotal": {
+            "description": "Matured reviewed labels available to train on.",
+            "minimum": 0.0,
+            "title": "Labeltotal",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Submission status (always 'submitted' here).",
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "What initiated this retrain (manual | scheduled).",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId",
+          "trigger",
+          "status",
+          "labelTotal",
+          "labelPositives",
+          "labelNegatives"
+        ],
+        "title": "TrainingRunTriggerResponse",
+        "type": "object"
+      },
+      "TrainingRunView": {
+        "additionalProperties": false,
+        "description": "One model training run projected onto the API surface (PHI-free).",
+        "properties": {
+          "artifactUri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Artifact bundle uri when trained.",
+            "title": "Artifacturi"
+          },
+          "createdAt": {
+            "description": "When the run was recorded.",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "datasetId": {
+            "description": "The training dataset manifest id (UUID).",
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "PHI-free holdout metrics + gate verdict recorded.",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "status": {
+            "description": "Job status (pending|running|succeeded|failed).",
+            "title": "Status",
+            "type": "string"
+          },
+          "trainingRunId": {
+            "description": "The training run's unique id (UUID).",
+            "title": "Trainingrunid",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "What initiated the run (manual | scheduled).",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trainingRunId",
+          "trigger",
+          "status",
+          "datasetId",
+          "createdAt"
+        ],
+        "title": "TrainingRunView",
+        "type": "object"
       },
       "TransactionIngestRequest": {
         "additionalProperties": false,
@@ -1530,6 +2158,31 @@
         "title": "TransactionListResponse",
         "type": "object"
       },
+      "TransactionMetrics": {
+        "additionalProperties": false,
+        "description": "Tenant transaction volume + risk-band distribution (plan \u00a79.1 `transactions`).",
+        "properties": {
+          "byRiskBand": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Count per risk band (low|medium|high|critical) plus `unscored`.",
+            "title": "Byriskband",
+            "type": "object"
+          },
+          "total": {
+            "description": "All ingested transactions for the tenant.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "TransactionMetrics",
+        "type": "object"
+      },
       "TransactionResponse": {
         "additionalProperties": false,
         "description": "A persisted transaction; account identifiers are masked, riskBand null at ingest.",
@@ -1631,6 +2284,24 @@
           "ingestedAt"
         ],
         "title": "TransactionResponse",
+        "type": "object"
+      },
+      "TriggerTrainingRequest": {
+        "additionalProperties": false,
+        "description": "The optional retrain trigger body (defaults to a manual run).",
+        "properties": {
+          "trigger": {
+            "default": "manual",
+            "description": "What initiated this retrain (manual | scheduled).",
+            "enum": [
+              "manual",
+              "scheduled"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "title": "TriggerTrainingRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -1981,6 +2652,95 @@
         ]
       }
     },
+    "/api/v1/dashboard/metrics": {
+      "get": {
+        "description": "Return the tenant-scoped dashboard aggregate (counts + LLM cost + live model health).",
+        "operationId": "read_dashboard_metrics_api_v1_dashboard_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Dashboard Metrics",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/drift-reports": {
+      "get": {
+        "description": "Return advisory drift reports (newest first); these only signal, never gate serving.",
+        "operationId": "list_drift_reports_api_v1_drift_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriftReportListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Drift Reports",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "description": "Return the API-surface heartbeat (status, service, version, environment).",
@@ -2146,6 +2906,87 @@
         ]
       }
     },
+    "/api/v1/model-deployment": {
+      "get": {
+        "description": "Return the live active/canary deployment pointer (404 when none is configured).",
+        "operationId": "get_deployment_api_v1_model_deployment_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Deployment",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-deployment/canary/evaluate": {
+      "post": {
+        "description": "Run the \u00a710.5.1 canary auto-abort guard; roll back the canary when it deviates too far.",
+        "operationId": "evaluate_canary_api_v1_model_deployment_canary_evaluate_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanaryEvaluationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Evaluate Canary",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-deployment/rollback": {
+      "post": {
+        "description": "Abort an in-progress canary, else restore the previous active pointer (plan \u00a710.5/\u00a710.6).",
+        "operationId": "rollback_deployment_api_v1_model_deployment_rollback_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RollbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rollback Deployment",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
     "/api/v1/model-versions": {
       "get": {
         "description": "Return the model registry (newest first) plus the active version label.",
@@ -2219,6 +3060,163 @@
         "summary": "Get Model Version",
         "tags": [
           "model-versions"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/approve": {
+      "post": {
+        "description": "Record the human approval on a shadow version (the \u00a75.4 gate before any canary).",
+        "operationId": "approve_version_api_v1_model_versions__version_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Version",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/canary": {
+      "post": {
+        "description": "Ramp the canary to a percent; 100% promotes it to active (pointer flip, no redeploy).",
+        "operationId": "set_canary_api_v1_model_versions__version_id__canary_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Canary",
+        "tags": [
+          "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/model-versions/{version_id}/shadow": {
+      "post": {
+        "description": "Promote a candidate to shadow \u2014 only with a passing evaluation (plan \u00a710.5.1).",
+        "operationId": "promote_to_shadow_api_v1_model_versions__version_id__shadow_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promote To Shadow",
+        "tags": [
+          "model-lifecycle"
         ]
       }
     },
@@ -2482,6 +3480,120 @@
         "summary": "Report Client Error",
         "tags": [
           "telemetry"
+        ]
+      }
+    },
+    "/api/v1/training-runs": {
+      "get": {
+        "description": "Return the model training-run history (newest first).",
+        "operationId": "list_training_runs_api_v1_training_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Training Runs",
+        "tags": [
+          "model-lifecycle"
+        ]
+      },
+      "post": {
+        "description": "Submit a retrain Job (candidate-only); 422 if labels insufficient, 409 if one is running.",
+        "operationId": "trigger_training_run_api_v1_training_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TriggerTrainingRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunTriggerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trigger Training Run",
+        "tags": [
+          "model-lifecycle"
         ]
       }
     },

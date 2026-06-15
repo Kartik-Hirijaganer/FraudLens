@@ -17,6 +17,7 @@ Key functions:
 - redact_processor: structlog processor masking denylisted keys + scrubbing values.
 - configure_logging: install the structlog + stdlib ProcessorFormatter pipeline.
 - get_logger: return a bound structlog logger for the given (optional) name.
+- bind_identity: bind the verified agency_id/user_id into the structlog contextvars (§11.4).
 
 Notes:
 - Access logs record method, route path, status, and duration only — never the query
@@ -34,6 +35,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import structlog
+from structlog.contextvars import bind_contextvars
 from structlog.typing import EventDict, WrappedLogger
 
 APP_LOGGER_NAME = "fraudlens"
@@ -63,14 +65,19 @@ def scrub_text(text: str) -> str:
 
 
 def _is_denied_key(key: str) -> bool:
-    """True when a log field's key names a secret/credential that must be masked."""
+    """True when a log field's key names a secret/credential that must be masked.
+
+    The `token` rule matches credential tokens (`token`, `access_token`, `id_token`, …) but NOT a
+    token COUNT (`input_tokens`/`output_tokens`/`total_tokens`), which §11.3 logs for LLM cost — a
+    credential is singular, a count is the plural `*tokens`, so the plural is allowed through.
+    """
     low = key.lower()
     return (
         low in _DENY_EXACT
         or low.endswith("_key")
         or "secret" in low
-        or "token" in low
         or "password" in low
+        or ("token" in low and not low.endswith("tokens"))
     )
 
 
@@ -144,3 +151,21 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Return a bound structlog logger (optionally named) using the configured pipeline."""
     logger = structlog.get_logger(name) if name else structlog.get_logger()
     return cast(structlog.stdlib.BoundLogger, logger)
+
+
+def bind_identity(*, agency_id: str | None = None, user_id: str | None = None) -> None:
+    """Bind the verified tenant/user identity into the structlog contextvars (plan §11.4).
+
+    The gateway binds the per-request `request_id`; once a route resolves its tenant, this adds
+    `agency_id` (and `user_id` when the token carries a subject) so the gateway's access-log line
+    and every subsequent record in the request are correlated to the tenant. Both are tenant/user
+    ids — never PHI — so they are not on the redaction denylist. None values are skipped so a
+    partial identity (e.g. a subject-less token) never overwrites a bound value with a blank.
+    """
+    fields = {
+        key: value
+        for key, value in (("agency_id", agency_id), ("user_id", user_id))
+        if value is not None
+    }
+    if fields:
+        bind_contextvars(**fields)
