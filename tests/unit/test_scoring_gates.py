@@ -13,6 +13,7 @@ from fraudlens_ml.scoring import (
     ModelGates,
     compute_metrics,
     evaluate_gates,
+    evaluate_tenant_slices,
 )
 from fraudlens_ml.scoring.gates import (
     average_precision,
@@ -139,3 +140,32 @@ def test_model_gates_parses_camelcase_system_config() -> None:
     # defaults mirror §10.5.1
     assert ModelGates().pr_auc_floor == 0.45
     assert ModelGates().recall_at_budget == 0.60
+    assert ModelGates().tenant_slice_max_regression == 0.05
+
+
+# --- Phase 10: per-tenant slice gate (plan §9.4 / §10.5.1 / ADR-015) ---
+
+
+def test_tenant_slices_pass_when_within_tolerance() -> None:
+    checks = evaluate_tenant_slices(
+        {"slice-0": 0.61, "slice-1": 0.59}, active_pr_auc=0.62, gates=ModelGates()
+    )
+    assert len(checks) == 2
+    assert all(check.passed for check in checks)
+    assert [check.name for check in checks] == ["tenant_slice:slice-0", "tenant_slice:slice-1"]
+
+
+def test_tenant_slice_fails_when_one_slice_regresses() -> None:
+    # slice-1 is 0.10 below active (> the 0.05 tolerance) → that slice fails, the rest pass.
+    checks = evaluate_tenant_slices(
+        {"slice-0": 0.61, "slice-1": 0.52}, active_pr_auc=0.62, gates=ModelGates()
+    )
+    assert next(c for c in checks if c.name == "tenant_slice:slice-0").passed is True
+    assert next(c for c in checks if c.name == "tenant_slice:slice-1").passed is False
+
+
+def test_tenant_slices_auto_pass_when_no_active_model() -> None:
+    checks = evaluate_tenant_slices(
+        {"slice-0": 0.10, "slice-1": 0.05}, active_pr_auc=None, gates=ModelGates()
+    )
+    assert all(check.passed for check in checks)  # the first model is judged on the overall gates

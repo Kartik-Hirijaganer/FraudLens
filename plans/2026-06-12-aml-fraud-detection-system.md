@@ -384,7 +384,8 @@ future), originAccount, destAccount, channel, country(ISO-3166), features?}`; Re
 only; errors 400 / 409 `duplicate_external_id` / 401; tests: valid, dup→409, bad fields→422, no
 token→401, cross-tenant invisible.
 
-**POST `/api/v1/investigations`** *(starts & OWNS the run)* — `{transactionId, modelOverride?}` +
+**POST `/api/v1/investigations`** *(starts & OWNS the run)* — `{transactionId}` (the `modelOverride`
+selector is added with the Phase 10 model lifecycle; v1 scores via the active pointer) +
 optional `Idempotency-Key` (dedup → returns the existing `runId`); **202 `{runId}`**. The pipeline
 runs as an **in-process background task** that persists ordered events to `analysis_run_events` and
 the SAR to `sar_drafts`, **independent of any stream** (ADR-016).
@@ -394,7 +395,9 @@ step.scoring.completed{fraudProbability,modelVersion} → step.shap.completed �
 step.rag.completed{citations} → sar.token* → run.completed{riskScore,riskBand,sarDraftId} |
 run.failed{code}`. **Never starts the run**; never-connect/reconnect-safe (the run completes
 regardless); `GET /investigations/{runId}` is the authoritative snapshot; cross-tenant runId→404;
-provider failure→`run.failed`+partial persisted; canary logs both models.
+a deterministic-core failure→`run.failed`+partial persisted, while an LLM/provider failure degrades
+to `sarStatus=failed` and the run still `run.completed` (graceful degradation, §10.6 / §7.5); canary
+logs both models.
 
 **POST `/api/v1/alerts/{id}/actions`** — `{action:assign|comment|escalate|resolve|dismiss,
 assigneeId?, note?}`; legal transitions only (409 else); `note` ≤2k, PHI-masked; **resolve writes
