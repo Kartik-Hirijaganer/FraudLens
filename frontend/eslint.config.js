@@ -38,5 +38,12 @@ export default tseslint.config(
     settings: { tailwindcss: { config: { content: ["./src/**/*.{ts,tsx}"] } } },
     rules: { "tailwindcss/no-custom-classname": "off" },
   },
+  {
+    // Tests assert on mock methods (e.g. `expect(client.reviewSar).toHaveBeenCalled()`),
+    // which the unbound-method rule flags; that `this`-scoping concern doesn't apply to
+    // vitest mocks, so the rule is relaxed for test files only (source keeps it).
+    files: ["src/**/*.test.{ts,tsx}", "src/test/**"],
+    rules: { "@typescript-eslint/unbound-method": "off" },
+  },
   prettier,
 );
