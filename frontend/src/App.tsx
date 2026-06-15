@@ -1,68 +1,106 @@
 /**
- * Summary: The sample FraudLens page, demonstrating the wise design system end to
- * end: a sage hero band with a weight-900 display headline, a white card holding a
- * labelled input and the lime primary CTA, and a status badge. The CTA calls the
- * typed API client and reflects the API-surface health, tracing the full
- * UI -> API path on the walking skeleton.
+ * Summary: The FraudLens app shell (plan §16 Phase 11). It renders the wise nav-bar +
+ * sidebar (DESIGN.md app-shell), switches the main content on the hash route
+ * (`useHashRoute`), and mounts the Sonner `<Toaster/>` once so any page can raise a toast.
+ * Each page owns its own data + states; the shell only routes and frames them. Surfaces
+ * cycle sage canvas → white cards, and the active nav row uses an ink indicator (the brand
+ * green stays reserved for primary CTAs per DESIGN.md).
  *
  * Key classes:
- * - AppProps: props (an injectable health fetcher for tests).
+ * - (none)
  *
  * Key functions:
- * - App: render the sample page.
+ * - App: render the shell + route the current page.
  *
  * Notes:
- * - Surfaces cycle sage canvas -> white card; the lime CTA is the only use of the
- *   brand accent. Status uses the semantic positive/negative badge palette.
+ * - Unknown ids deep-link straight to the relevant page (which resolves existence); an
+ *   unrecognized route renders a not-found empty state.
  */
-import { useState } from "react";
+import { Toaster } from "sonner";
 
-import { Badge } from "./components/ui/Badge";
-import { Button } from "./components/ui/Button";
-import { Card } from "./components/ui/Card";
-import { TextInput } from "./components/ui/TextInput";
-import { fetchApiHealth } from "./lib/api";
-import { config } from "./lib/config";
+import { EmptyState } from "./components/feedback/EmptyState";
+import { AlertDetail } from "./pages/AlertDetail";
+import { Alerts } from "./pages/Alerts";
+import { Dashboard } from "./pages/Dashboard";
+import { Investigation } from "./pages/Investigation";
+import { ModelAdmin } from "./pages/ModelAdmin";
+import { Transactions } from "./pages/Transactions";
+import { cx } from "./lib/cx";
+import { paths, useHashRoute, type Route } from "./lib/router";
 
-export interface AppProps {
-  healthFetcher?: typeof fetchApiHealth;
+const NAV_ITEMS = [
+  { href: paths.dashboard, label: "Dashboard", match: "dashboard" },
+  { href: paths.transactions, label: "Transactions", match: "transactions" },
+  { href: paths.alerts, label: "Alerts", match: "alerts" },
+  { href: paths.modelAdmin, label: "Model admin", match: "modelAdmin" },
+];
+
+function renderRoute(route: Route) {
+  switch (route.name) {
+    case "dashboard":
+      return <Dashboard />;
+    case "transactions":
+      return <Transactions />;
+    case "investigation":
+      return <Investigation runId={route.runId} />;
+    case "alerts":
+      return <Alerts />;
+    case "alertDetail":
+      return <AlertDetail alertId={route.alertId} />;
+    case "modelAdmin":
+      return <ModelAdmin />;
+    default:
+      return (
+        <EmptyState title="Page not found" description="The link you followed doesn't exist." />
+      );
+  }
 }
 
-export function App({ healthFetcher = fetchApiHealth }: AppProps) {
-  const [status, setStatus] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  async function checkHealth(): Promise<void> {
-    try {
-      const health = await healthFetcher();
-      setStatus(health.status);
-      setFailed(false);
-    } catch {
-      setStatus(null);
-      setFailed(true);
-    }
+function isActive(route: Route, match: string): boolean {
+  if (match === "alerts") {
+    return route.name === "alerts" || route.name === "alertDetail";
   }
+  if (match === "transactions") {
+    return route.name === "transactions" || route.name === "investigation";
+  }
+  return route.name === match;
+}
 
+export function App() {
+  const route = useHashRoute();
   return (
-    <main className="max-w-container gap-2xl px-xl py-3xl mx-auto flex flex-col">
-      <header className="gap-md bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="font-display text-display-xl text-ink">FraudLens</h1>
-        <p className="text-body-lg text-body">
-          AML fraud investigation — risk scoring, regulatory RAG, and SAR drafting.
-        </p>
+    <div className="bg-canvas-soft text-ink min-h-screen">
+      <header className="gap-md bg-canvas px-xl py-md flex items-center justify-between">
+        <a href={paths.dashboard} className="font-display text-display-xs text-ink">
+          FraudLens
+        </a>
+        <span className="text-caption text-mute">AML investigation</span>
       </header>
-
-      <Card className="gap-lg flex flex-col">
-        <h2 className="text-display-xs text-ink">API status</h2>
-        <TextInput label="Agency ID" name="agencyId" placeholder="acme" />
-        <div className="gap-md flex items-center">
-          <Button onClick={() => void checkHealth()}>Check API health</Button>
-          {status ? <Badge tone="positive">{status}</Badge> : null}
-          {failed ? <Badge tone="negative">unavailable</Badge> : null}
-        </div>
-      </Card>
-
-      <footer className="text-caption text-mute">FraudLens v{config.appVersion}</footer>
-    </main>
+      <div className="max-w-container gap-xl px-xl py-xl mx-auto flex flex-col sm:flex-row">
+        <nav
+          aria-label="Primary"
+          className="gap-xs flex shrink-0 flex-row sm:w-[200px] sm:flex-col"
+        >
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(route, item.match);
+            return (
+              <a
+                key={item.match}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={cx(
+                  "rounded-md px-lg py-md text-body-sm font-semibold",
+                  active ? "border-l-4 border-ink bg-canvas-soft text-ink" : "text-body",
+                )}
+              >
+                {item.label}
+              </a>
+            );
+          })}
+        </nav>
+        <main className="grow">{renderRoute(route)}</main>
+      </div>
+      <Toaster richColors position="bottom-right" />
+    </div>
   );
 }

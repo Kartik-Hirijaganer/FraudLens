@@ -4,12 +4,14 @@
 
 [project]
 name = "fraudlens-core"
-version = "0.1.0"
+version = "1.0.0"
 description = "FraudLens shared domain types and multi-tenancy (agency_id) helpers."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Kartik Hirijaganer" }]
-dependencies = ["pydantic>=2.9"]
+# python-stdnum backs the deterministic PHI masking (Luhn card check, IBAN/account
+# validation) in fraudlens_core.phi — pure-Python, no network, no NLP model (plan §8.2).
+dependencies = ["pydantic>=2.9", "python-stdnum>=1.20"]
 
 [build-system]
 requires = ["hatchling"]

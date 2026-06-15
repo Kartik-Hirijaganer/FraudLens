@@ -18,3 +18,29 @@ request_id_header: X-Request-Id
 # Auth dev-bypass: honored ONLY when environment != "prod" AND this is true.
 # Inert in prod by construction (see backend api/deps.py and its tests).
 auth_dev_bypass: false
+
+# --- Gateway edge — BOOT-CRITICAL config (loaded at startup, never DB-dependent) ---
+# The security posture (CORS, rate limits, headers) is fully determined here before
+# DB readiness. Exact CORS origins are set in the per-environment overlay, never in
+# source (no-hardcoding, plan §12.1/§12.3). Empty = deny all cross-origin by default.
+cors_allow_origins: []
+cors_allow_credentials: false
+rate_limit_enabled: true
+rate_limit_requests: 120
+rate_limit_window_seconds: 60
+
+# Content-Security-Policy (boot-critical security header, plan §12.3 / §16 Phase 13). The API
+# surface gets a strict policy; the interactive docs UI (Swagger/ReDoc) relaxes it so the
+# documentation CDN can load its assets. The CDN origin lives here (config), never in source.
+csp_enabled: true
+content_security_policy: "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+content_security_policy_docs: "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data: https://cdn.jsdelivr.net https://fastapi.tiangolo.com; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+
+# Telemetry client-error sink: stricter per-route request budget (defense-in-depth beyond the
+# global gateway limiter above) for this abuse-prone, client-driven endpoint (plan §16 Phase 13).
+client_error_rate_limit_requests: 60
+
+# --- Config-driven backends — local for `make local-demo`; cloud selected per-env ---
+storage_backend: local
+queue_backend: local
+llm_mode: mock

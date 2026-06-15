@@ -10,11 +10,15 @@ Every path runs the **same gate** (`make ci` + `make docker-build`) via the reus
 workflow before anything ships:
 
 ```
-push main → ci.yml (make ci + docker-build)
-          → deploy-backend.yml: verify → build-push → terraform apply (revision @0%) → smoke → promote
-          → deploy-frontend.yml: verify → vercel --prod → smoke
-tag v*    → release.yml: verify → git-cliff CHANGELOG → GitHub release
+push dev/release → ci.yml (make ci + docker-build + tf-validate)
+   → deploy-backend.yml:  verify → build-push (GHCR, build-once SHA) → infra (apply only if changed)
+                          → stage revision @0% → gated migration → smoke → promote-or-abort
+   → deploy-frontend.yml: verify → vercel build (VITE_API_BASE_URL) → deploy → smoke
+tag v*           → release.yml: verify → git-cliff CHANGELOG → GitHub release
 ```
+
+The full fast/reliable-deploy detail (build-once-promote-many, probes, promote-or-abort, switch
+paths) is in [`azure-deploy.md`](azure-deploy.md).
 
 ## Secrets posture (no long-lived secrets in GitHub)
 
@@ -34,16 +38,20 @@ and path setup.
    (see [`infra/terraform/README.md`](../../infra/terraform/README.md)) and rename each
    `backend.tf.template` → `backend.tf`.
 2. Configure GitHub→Azure OIDC federation; set repo **variables** (not secrets):
-   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ACR_NAME`,
-   `BACKEND_STAGING_URL`, `FRONTEND_URL`, `INFISICAL_PROJECT_SLUG`,
-   `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID`.
+   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
+   `VITE_API_BASE_URL` (HTTPS gateway URL), `FRONTEND_URL`, `INFISICAL_PROJECT_SLUG`,
+   `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID`. (The backend image source is public GHCR by default —
+   no `AZURE_ACR_NAME` needed unless `acr_enabled = true`; the staged-revision URL is derived at
+   deploy time, so no `BACKEND_STAGING_URL`.)
 3. Flip `AZURE_DEPLOY_ENABLED=true` and/or `VERCEL_DEPLOY_ENABLED=true`.
 
 ## Deploy verification
 
 - Backend: the `smoke` job hits **`/healthz` + `/readyz`** and runs `pytest -m smoke`
-  against the staged revision **before** traffic is promoted.
-- Promotion shifts 100% traffic to the new revision only after smoke passes.
+  against the **staged revision** (still at 0% traffic) **before** any traffic shift.
+- Promotion shifts 100% traffic to the new revision only after smoke passes; a failed
+  smoke/migration **auto-aborts** (the `abort` job deactivates the staged revision and the
+  previous revision keeps serving 100%).
 
 ## Rollback
 

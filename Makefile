@@ -17,9 +17,11 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan dup-check deadcode docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
-        version-next changelog-unreleased pr-summary \
+        version-next changelog-unreleased pr-summary release-gate \
+        local-demo local-demo-down local-demo-reset local-demo-smoke \
+        db-migrate db-seed import-ieee ingest-rag train-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -111,12 +113,22 @@ header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
+no-hardcoding-check: ## Flag hardcoded URLs/IPs/model-ids in source (rule 4 / §12.1).
+	$(UV) run python scripts/check_no_hardcoding.py
+tenancy-check: ## Assert every tenant-scoped table has indexed agency_id (plan §9.3).
+	$(UV) run python scripts/check_tenancy.py
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
 	npx --yes jscpd@4 backend/src packages frontend/src --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
+deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
+	# --skip-editable: the local workspace packages are not on PyPI. --ignore-vuln: CVE-2026-45829
+	# (ChromaDB HTTP-server /api/v2 RCE) is not exploitable here — we use the embedded/baked index,
+	# not the server, and no fix is published; assessed in docs/runbooks/security.md §5.
+	$(UV) run pip-audit --desc --skip-editable --ignore-vuln CVE-2026-45829
+	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run python scripts/update_docs.py --check openapi
 docs: ## Regenerate header inventories + OpenAPI + ERD + architecture AUTOGEN (WRITES).
@@ -147,6 +159,8 @@ changelog-unreleased: ## Render the pending changelog for the proposed version (
 	uvx git-cliff --config cliff.toml --unreleased --tag "$$tag"
 pr-summary: ## Preview the auto PR area-summary for this branch (areas changed vs BASE_REF).
 	$(UV) run python scripts/pr_summary.py --base $(BASE_REF) --summary-only
+release-gate: ## Assert the §20 release gate (version consistency + automation wired); propose-only, never tags.
+	$(UV) run python scripts/release_gate.py --format text
 
 # ---------------------------------------------------------------------------
 # Image build (separate required check; proves the deploy image in CI)
@@ -155,9 +169,47 @@ docker-build: ## Build the backend image (no push).
 	docker build -f backend/Dockerfile -t fraudlens-backend:local .
 
 # ---------------------------------------------------------------------------
+# Local demo & data lifecycle (plan §3.4 / §16 Phase 1). `make local-demo` is the
+# one-command path: Docker Postgres + local backends + mock LLM + (Phase 2+) migrate/seed
+# -> gateway+services + frontend, then prints the URL. The data-lifecycle targets wrap the
+# canonical commands; the scripts they call land in their phases (noted inline).
+# ---------------------------------------------------------------------------
+local-demo: ## Boot the full stack locally (Postgres + gateway + frontend); prints the URL.
+	$(UV) run python scripts/local_demo.py up
+local-demo-down: ## Stop the local demo stack and remove its containers.
+	$(UV) run python scripts/local_demo.py down
+local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
+	$(UV) run python scripts/local_demo.py reset
+local-demo-smoke: ## Boot, hit the health probes, then tear down (local E2E gate).
+	$(UV) run python scripts/local_demo.py smoke
+
+db-migrate: ## Apply database migrations (Alembic config lands in Phase 2).
+	$(UV) run alembic upgrade head
+db-seed: ## Seed the demo dataset, dev/demo only (scripts/seed.py lands in Phase 2).
+	$(UV) run python scripts/seed.py
+import-ieee: ## Import the synthetic IEEE-CIS sample (scripts/import_ieee.py lands in Phase 3).
+	$(UV) run python scripts/import_ieee.py
+ingest-rag: ## Build the FinCEN/BSA RAG index (scripts/ingest_rag.py lands in Phase 6).
+	$(UV) run python scripts/ingest_rag.py
+train-model: ## Train + register an XGBoost model (scripts/train_model.py lands in Phase 5).
+	$(UV) run python scripts/train_model.py
+retrain: ## Retrain a candidate from matured reviewed labels (scripts/retrain.py, Phase 10).
+	$(UV) run python scripts/retrain.py
+drift-scan: ## Advisory model drift scan (scripts/drift_scan.py, Phase 10).
+	$(UV) run python scripts/drift_scan.py
+
+tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
+	terraform fmt -recursive -check infra/terraform
+	@for env in dev prod; do \
+		echo ">> terraform validate ($$env)"; \
+		terraform -chdir=infra/terraform/environments/$$env init -backend=false -input=false -no-color >/dev/null; \
+		terraform -chdir=infra/terraform/environments/$$env validate -no-color; \
+	done
+
+# ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).

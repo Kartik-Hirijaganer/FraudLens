@@ -11,6 +11,7 @@
  *
  * Notes:
  * - Excluded from coverage (bootstrap glue); behavior is covered via App tests.
+ * - Installs the global client-error reporter so uncaught errors reach the gateway sink.
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -21,8 +22,11 @@ import "@fontsource/manrope/700.css";
 import "@fontsource/manrope/800.css";
 
 import { App } from "./App";
+import { installErrorReporter } from "./lib/logger";
 
 import "./index.css";
+
+installErrorReporter();
 
 const rootElement = document.getElementById("root");
 if (rootElement) {

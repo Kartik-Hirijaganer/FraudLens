@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fraudlens_backend.settings import AppSettings, _find_config_dir
+from fraudlens_backend.settings import AppSettings, find_config_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,20 +47,70 @@ def test_config_dir_override_empty_uses_field_defaults(monkeypatch: pytest.Monke
     assert settings.auth_dev_bypass is False
 
 
-def test_find_config_dir_walks_up_from_module(monkeypatch: pytest.MonkeyPatch) -> None:
+def testfind_config_dir_walks_up_from_module(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
     with tempfile.TemporaryDirectory() as scratch:
         monkeypatch.chdir(scratch)  # cwd has no config/; must walk up from the module path
-        assert _find_config_dir() == REPO_ROOT / "config"
+        assert find_config_dir() == REPO_ROOT / "config"
 
 
 def test_config_dir_override_is_honored(monkeypatch: pytest.MonkeyPatch) -> None:
     with tempfile.TemporaryDirectory() as override_dir:
         monkeypatch.setenv("FRAUDLENS_CONFIG_DIR", override_dir)
-        assert _find_config_dir() == Path(override_dir)
+        assert find_config_dir() == Path(override_dir)
 
 
 def test_dev_bypass_is_inert_in_prod() -> None:
     assert AppSettings(environment="prod", auth_dev_bypass=True).is_dev_bypass_enabled is False
     assert AppSettings(environment="dev", auth_dev_bypass=True).is_dev_bypass_enabled is True
     assert AppSettings(environment="dev", auth_dev_bypass=False).is_dev_bypass_enabled is False
+
+
+def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    with tempfile.TemporaryDirectory() as empty_dir:  # no yaml -> pure field defaults
+        monkeypatch.setenv("FRAUDLENS_CONFIG_DIR", empty_dir)
+        settings = AppSettings()
+    assert settings.cors_allow_origins == []
+    assert settings.rate_limit_enabled is True
+    assert settings.rate_limit_requests == 120
+    assert settings.storage_backend == "local"
+    assert settings.queue_backend == "local"
+    assert settings.llm_mode == "mock"
+    assert settings.database_url is None
+    assert set(settings.security_headers) >= {"X-Content-Type-Options", "X-Frame-Options"}
+
+
+def test_dev_overlay_sets_cors_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    settings = AppSettings()
+    assert settings.cors_allow_origins == ["http://localhost:5173"]
+    assert settings.cors_allow_credentials is True
+
+
+def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    settings = AppSettings()
+    assert settings.storage_backend == "azure_blob"
+    assert settings.queue_backend == "container_apps_jobs"
+    assert settings.llm_mode == "live"
+
+
+def test_database_url_read_from_unprefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+    assert AppSettings().database_url == "postgresql+asyncpg://u:p@localhost:5432/db"
+
+
+def test_database_url_accepts_constructor_and_prefixed_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("FRAUDLENS_DATABASE_URL", "postgresql+asyncpg://x/y")
+    assert AppSettings().database_url == "postgresql+asyncpg://x/y"
+    assert AppSettings(database_url="postgresql+asyncpg://a/b").database_url == (
+        "postgresql+asyncpg://a/b"
+    )
