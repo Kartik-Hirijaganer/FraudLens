@@ -85,3 +85,39 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Build backend image (no push)
         run: make docker-build
+
+  tf-validate:
+    # Terraform fmt -check + validate per environment (plan §15.6 / Phase 14). No apply runs until
+    # the Azure account exists; the internal service-split module validates but stays inert in v1.
+    name: tf-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Terraform fmt -check + validate (dev + prod)
+        run: make tf-validate
+
+  deps-audit:
+    # Dependency vulnerability gate (plan §16 Phase 13): pip-audit over the resolved Python
+    # tree + npm audit over the production frontend deps. Separate job (not in the offline
+    # `make ci` umbrella) because both query live advisory databases and need network.
+    name: deps-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies (uv workspace + npm ci)
+        run: make install
+      - name: Dependency vulnerability audit (pip-audit + npm audit)
+        run: make deps-audit

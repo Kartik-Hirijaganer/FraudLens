@@ -1,6 +1,7 @@
 """Summary: FastAPI application factory for the FraudLens backend. create_app wires
 settings into the app instance, configures structlog (JSON outside dev, console in
-dev), builds the async DB engine + session factory from settings and disposes the
+dev), initializes optional telemetry export (OTel → Azure Monitor; off by default,
+plan §11.5), builds the async DB engine + session factory from settings and disposes the
 engine on shutdown via a lifespan, registers the FraudLens error-envelope handlers,
 installs the gateway edge middleware stack (request-id, rate-limit, CORS allowlist,
 security headers, access logging) in front of the in-process services, and mounts the
@@ -44,6 +45,7 @@ from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
 from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_components
 from fraudlens_backend.settings import AppSettings, get_settings
+from fraudlens_backend.telemetry import init_telemetry
 
 
 def _resolve_index_dir(settings: AppSettings) -> Path:
@@ -56,6 +58,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Construct a fully-configured FastAPI app (optionally with explicit settings)."""
     resolved = settings or get_settings()
     configure_logging(resolved.log_level, json_logs=resolved.environment != "dev")
+    init_telemetry(resolved)
     engine = create_engine_from_settings(resolved)
 
     @asynccontextmanager
@@ -80,6 +83,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     sessionmaker = build_sessionmaker(engine) if engine is not None else None
     app.state.db_sessionmaker = sessionmaker
     app.state.rag_index_dir = _resolve_index_dir(resolved)
+    # Per-scope counters for the per-route rate-limit dependency (api/deps.rate_limit); kept on
+    # app.state so the limiter state is process-local and test-isolated (plan §16 Phase 13).
+    app.state.route_rate_limiters = {}
     # The investigation pipeline's heavy singletons (warm model cache + retriever + drafter) and
     # the in-process RunManager that POST owns runs through; the manager needs a sessionmaker for
     # its background runs, so it exists only when the DB is configured (plan §16 Phase 8, ADR-016).

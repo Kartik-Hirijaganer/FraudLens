@@ -104,18 +104,47 @@ def _require_tools(*tools: str) -> None:
         raise RuntimeError(f"missing required tools: {', '.join(missing)}")
 
 
+def _http_ok(url: str) -> bool:
+    """Return True if a single GET to url returns HTTP 200 (within the poll timeout)."""
+    try:
+        with urllib.request.urlopen(url, timeout=_HEALTH_POLL_SECONDS) as response:
+            return bool(response.status == _HTTP_OK)
+    except (urllib.error.URLError, OSError):
+        return False
+
+
 def _wait_for_http(url: str, *, timeout: float = _HEALTH_TIMEOUT_SECONDS) -> bool:
     """Poll url until it returns HTTP 200 or the timeout elapses."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=_HEALTH_POLL_SECONDS) as response:
-                if response.status == _HTTP_OK:
-                    return True
-        except (urllib.error.URLError, OSError):
-            pass
+        if _http_ok(url):
+            return True
         time.sleep(_HEALTH_POLL_SECONDS)
     return False
+
+
+def _await_backend_ready(
+    base: str, process: subprocess.Popen[bytes], *, timeout: float = _HEALTH_TIMEOUT_SECONDS
+) -> bool:
+    """Wait for /healthz then /readyz==200, bailing FAST if the backend process exits first.
+
+    Hardens the smoke gate (plan §16 Phase 14): a crash-on-boot fails immediately with the exit
+    code instead of blocking for the full timeout, and a never-ready /readyz is reported by name.
+    """
+    deadline = time.monotonic() + timeout
+    for path in ("/healthz", "/readyz"):
+        while not _http_ok(f"{base}{path}"):
+            if process.poll() is not None:
+                print(
+                    f"backend exited (code {process.returncode}) before {path} was ready",
+                    file=sys.stderr,
+                )
+                return False
+            if time.monotonic() >= deadline:
+                print(f"timed out waiting for {path}", file=sys.stderr)
+                return False
+            time.sleep(_HEALTH_POLL_SECONDS)
+    return True
 
 
 def _start_postgres(env: dict[str, str]) -> None:
@@ -219,8 +248,7 @@ def smoke() -> int:
     _maybe_build_rag_index(env)
     backend = subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env)
     try:
-        base = _base_url(backend_port)
-        ok = _wait_for_http(f"{base}/healthz") and _wait_for_http(f"{base}/readyz")
+        ok = _await_backend_ready(_base_url(backend_port), backend)
         print("local-demo smoke:", "PASS" if ok else "FAIL")
         return 0 if ok else 1
     finally:

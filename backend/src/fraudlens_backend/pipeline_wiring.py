@@ -14,7 +14,7 @@ loaded windowed.
 
 Key classes:
 - RulesAdapter: adapts the pure `RuleRegistry` + the agency's rule set onto `RulesPort`.
-- ScorerAdapter: adapts the heavy `Scorer` (+ active pointer) onto `ScorerPort`.
+- ScorerAdapter: adapts the heavy `Scorer` (+ the routed active/canary pointer) onto `ScorerPort`.
 - ExplainerAdapter: adapts the heavy SHAP `Explainer` (+ cache) onto `ExplainerPort`.
 - RetrieverAdapter: adapts the heavy `Retriever` (+ citation fencing) onto `RetrieverPort`.
 - PipelineRunStore: the async `RunStore` over the analysis/registry/SAR repositories (commits).
@@ -25,11 +25,16 @@ Key functions:
 - build_pipeline_components: construct the process-wide singletons from settings + the index dir.
 - load_risk_policy: resolve the `RiskPolicy` from `system_config` (safe core defaults on any miss).
 - build_pipeline_input: assemble the PHI-free `PipelineInput` (context + same-account history).
-- build_pipeline_deps: resolve the pointer/rules/policy and assemble the per-run `PipelineDeps`.
+- resolve_scoring_pointer: route the run to the active or canary model (deterministic per txn).
+- build_pipeline_deps: resolve the routed pointer/rules/policy and assemble the `PipelineDeps`.
 
 Notes:
 - The scorer/explainer adapters raise when no active model deployment exists; that surfaces as a
   deterministic-core failure → `run.failed` (a healthy deploy is gated by `/readyz`, plan §10.6).
+- During a canary rollout `resolve_scoring_pointer` routes ~canary_percent% of transactions (by a
+  stable hash of the transaction id) to the candidate; the scorer + explainer share that one routed
+  pointer so the SAME model both scores and explains, and the inference log records which arm ran
+  (`was_canary`) — that is the "canary logs both models" of plan §5.4 (Phase 10, §10.5).
 - The retriever uses the offline `HashingEmbedder` so it matches the keyless index the build bakes
   (`scripts/ingest_rag.py`), keeping investigations offline + deterministic in local-demo + tests.
 - `RunManager` evicts a finished run's record once no subscriber remains, and LRU-bounds the
@@ -62,6 +67,7 @@ from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
 from fraudlens_backend.sar import build_sar_drafter
 from fraudlens_backend.settings import AppSettings
+from fraudlens_backend.telemetry import log_llm_call
 from fraudlens_core import (
     RiskBand,
     RiskPolicy,
@@ -89,7 +95,13 @@ from fraudlens_ml.pipeline import (
 )
 from fraudlens_ml.rag import HashingEmbedder, Retriever, build_rag_context, extract_citations
 from fraudlens_ml.sar import SarCitation, SarDrafter, SarDraftResult, SarFeature
-from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
+from fraudlens_ml.scoring import (
+    CanaryRouter,
+    DeploymentPointer,
+    Explainer,
+    ModelCache,
+    Scorer,
+)
 
 _RISK_BAND_THRESHOLDS_KEY = "riskBandThresholds"
 _ALERT_THRESHOLD_KEY = "alertThreshold"
@@ -120,21 +132,29 @@ class RulesAdapter:
 
 
 class ScorerAdapter:
-    """Adapts the heavy `Scorer` (+ the active deployment pointer) onto `ScorerPort`."""
+    """Adapts the heavy `Scorer` (+ the routed deployment pointer) onto `ScorerPort`."""
 
-    def __init__(self, scorer: Scorer, pointer: DeploymentPointer | None) -> None:
-        """Bind the scorer and the resolved active/last-known-good deployment pointer."""
+    def __init__(
+        self, scorer: Scorer, pointer: DeploymentPointer | None, *, was_canary: bool = False
+    ) -> None:
+        """Bind the scorer, the resolved (active or canary-routed) pointer, and the canary flag."""
         self._scorer = scorer
         self._pointer = pointer
+        self._was_canary = was_canary
 
     def score(self, context: RuleContext) -> ScoreResult:
-        """Score via the active model; raise when no deployment exists (→ run.failed)."""
+        """Score via the routed model; raise when no deployment exists (→ run.failed).
+
+        `was_canary` is the per-run routing decision (plan §10.5); it flows onto the `ScoreResult`
+        so the scoring step's hash-only inference log records which arm scored ("logs both").
+        """
         if self._pointer is None:
             raise RuntimeError("no active model deployment")
         output = self._scorer.score(self._pointer, context)
         return ScoreResult(
             fraud_probability=output.fraud_probability,
             model_version_label=output.model_version_label,
+            was_canary=self._was_canary,
         )
 
 
@@ -268,9 +288,27 @@ class PipelineRunStore:
         await self._session.commit()
 
     async def save_sar(self, result: SarDraftResult) -> str:
-        """Persist the SAR draft (draft or failed) for the run + commit; return its id."""
+        """Persist the SAR draft (draft or failed) for the run + commit; return its id.
+
+        Emits a PHI-free LLM-call cost/usage event after persisting (plan §7.4/§11.3, Phase 12):
+        model + prompt provenance + tokens + USD cost + fallback/cache — never prompt content. The
+        run is a background task (no request contextvars), so run_id/agency_id are passed in.
+        """
         draft = await self._sar.create_from_result(run_id=self._run_id, result=result)
         await self._session.commit()
+        log_llm_call(
+            model=result.model_id,
+            prompt_version=result.prompt_version,
+            prompt_hash=result.prompt_hash,
+            input_tokens=result.token_usage.input_tokens,
+            output_tokens=result.token_usage.output_tokens,
+            total_tokens=result.token_usage.total_tokens,
+            cost_usd=result.cost_usd,
+            fallback_count=result.fallback_count,
+            cached=result.cached,
+            run_id=str(self._run_id),
+            agency_id=str(self._sar.agency_id),
+        )
         return str(draft.id)
 
     async def raise_alert(self, record: AlertRecord) -> None:
@@ -452,6 +490,48 @@ async def build_pipeline_input(
     )
 
 
+async def resolve_scoring_pointer(
+    registry: ModelRegistryRepository, *, routing_key: str, model_override: str | None = None
+) -> tuple[DeploymentPointer | None, bool]:
+    """Resolve the per-run scoring pointer + whether it routed to the canary (plan §10.5 / §5.4).
+
+    `model_override` (a registered version label) takes precedence over everything: the run scores
+    with exactly that version (the active model is its last-known-good fallback) and `was_canary` is
+    False — it is an explicit operator choice, not a canary-routing decision. Absent: with no canary
+    configured (or 0% / unresolved) this is the active pointer (+ previous active for fallback,
+    unchanged from v1); when a canary rollout is live, `CanaryRouter` decides by a stable hash of
+    `routing_key` (the transaction id) whether this run scores with the canary (its inference log
+    then records the canary arm). Routing is deterministic, so a re-run / replay routes identically.
+    """
+    pointer = await registry.build_pointer()
+    if pointer is None:
+        return None, False
+    if model_override is not None:
+        version = await registry.get_version_by_label(model_override)
+        if version is None:  # the API validates existence first; defensive fallthrough to active
+            return pointer, False
+        overridden = DeploymentPointer(
+            active_version_label=version.version_label,
+            active_artifact_uri=version.artifact_uri,
+            previous_version_label=pointer.active_version_label,
+            previous_artifact_uri=pointer.active_artifact_uri,
+        )
+        return overridden, False
+    canary = await registry.build_canary_deployment()
+    if canary is None:
+        return pointer, False
+    decision = CanaryRouter().route(canary, routing_key)
+    if not decision.was_canary:
+        return pointer, False
+    routed = DeploymentPointer(
+        active_version_label=decision.version_label,
+        active_artifact_uri=decision.artifact_uri,
+        previous_version_label=canary.active_version_label,
+        previous_artifact_uri=canary.active_artifact_uri,
+    )
+    return routed, True
+
+
 async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injected collaborators (keyword-only).
     *,
     components: PipelineComponents,
@@ -461,10 +541,13 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
     run_id: uuid.UUID,
     transaction_id: uuid.UUID,
     emit: EventEmitter,
+    model_override: str | None = None,
 ) -> PipelineDeps:
-    """Resolve the pointer/rule-set/policy and assemble the per-run PipelineDeps for the Runner."""
+    """Resolve the routed pointer/rule-set/policy and assemble the per-run PipelineDeps."""
     registry = ModelRegistryRepository(session)
-    pointer = await registry.build_pointer()
+    pointer, was_canary = await resolve_scoring_pointer(
+        registry, routing_key=str(transaction_id), model_override=model_override
+    )
     definitions = await RuleRepository(session, agency_id).load_definitions()
     risk_policy = await load_risk_policy(session)
     store = PipelineRunStore(
@@ -478,7 +561,7 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
     )
     return PipelineDeps(
         rules=RulesAdapter(RuleRegistry(), definitions),
-        scorer=ScorerAdapter(components.scorer, pointer),
+        scorer=ScorerAdapter(components.scorer, pointer, was_canary=was_canary),
         explainer=ExplainerAdapter(components.explainer, components.cache, pointer),
         retriever=RetrieverAdapter(components.retriever),
         drafter=components.drafter,
@@ -545,6 +628,7 @@ class RunManager:
         run_id: uuid.UUID,
         transaction_id: uuid.UUID,
         pipeline_input: PipelineInput,
+        model_override: str | None = None,
     ) -> None:
         """Launch the Runner as a background task that owns the run (independent of any stream)."""
         state = _RunState()
@@ -556,10 +640,11 @@ class RunManager:
                 transaction_id=transaction_id,
                 pipeline_input=pipeline_input,
                 state=state,
+                model_override=model_override,
             )
         )
 
-    async def _drive(
+    async def _drive(  # noqa: PLR0913 - the run's identity + input + state + the optional override (keyword-only).
         self,
         *,
         agency_id: uuid.UUID,
@@ -567,6 +652,7 @@ class RunManager:
         transaction_id: uuid.UUID,
         pipeline_input: PipelineInput,
         state: _RunState,
+        model_override: str | None = None,
     ) -> None:
         """Run the pipeline to completion on a fresh session, then signal + evict the run state."""
         try:
@@ -579,6 +665,7 @@ class RunManager:
                     run_id=run_id,
                     transaction_id=transaction_id,
                     emit=self._emitter(state),
+                    model_override=model_override,
                 )
                 await Runner(deps).run(pipeline_input)
         except (
