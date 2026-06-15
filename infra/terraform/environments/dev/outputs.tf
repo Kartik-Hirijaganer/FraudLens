@@ -3,9 +3,9 @@ output "resource_group" {
   value       = azurerm_resource_group.this.name
 }
 
-output "acr_login_server" {
-  description = "ACR login server (image registry)."
-  value       = module.acr.login_server
+output "registry_login_server" {
+  description = "Image registry login server (empty => public GHCR)."
+  value       = local.registry_server
 }
 
 output "identity_client_id" {
@@ -14,6 +14,11 @@ output "identity_client_id" {
 }
 
 output "app_fqdn" {
-  description = "Public FQDN of the deployed backend."
-  value       = module.container_app.app_fqdn
+  description = "Public FQDN of the deployed gateway app."
+  value       = module.gateway_app.app_fqdn
+}
+
+output "startup_probe_budget_seconds" {
+  description = "Gateway startup-probe budget; must exceed the cold-start target (≤75s)."
+  value       = module.gateway_app.startup_probe_budget_seconds
 }

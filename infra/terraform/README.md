@@ -9,16 +9,28 @@ runs** until the account and the remote-state backend are bootstrapped (Golden R
 
 ```
 infra/terraform/
-├── modules/{networking,identity,acr,blob,container_app}/   # reusable building blocks
+├── modules/
+│   ├── networking/      # VNet + Container Apps-delegated subnet
+│   ├── observability/   # Log Analytics workspace + Application Insights (capped retention)
+│   ├── identity/        # user-assigned MI (Blob; AcrPull only when acr_enabled)
+│   ├── acr/             # OPTIONAL registry (acr_enabled=false => public GHCR, default)
+│   ├── blob/            # storage account + artifacts/sar-pdfs containers + lifecycle policy
+│   ├── gateway_app/     # the v1 single EXTERNAL Container App (allowInsecure=false, tuned probes,
+│   │                    #   Multiple revision mode for 0%-staged deploys); owns the shared env
+│   ├── service_app/     # INTERNAL-ingress app — scaffolded + validated, NOT applied in v1
+│   └── jobs/            # Container Apps Job (retrain cron + on-demand batch-score)
 └── environments/{dev,prod}/                                # one root module per env
     ├── providers.tf            # azurerm ~> 4, use_oidc = true (no client secret)
-    ├── variables.tf            # inputs (account ids via TF_VAR_*)
+    ├── variables.tf            # inputs (account ids via TF_VAR_*; acr/split/retention knobs)
     ├── main.tf                 # resource group + module wiring
-    ├── outputs.tf              # rg, acr login server, identity client id, app FQDN
+    ├── outputs.tf              # rg, registry login server, identity client id, app FQDN, probe budget
     ├── <env>.tfvars            # NON-SECRET knobs (committed)
     ├── backend.tf.template     # remote-state config (rename to backend.tf when ready)
     └── .terraform.lock.hcl     # provider lock (committed for reproducibility)
 ```
+
+The full deploy procedure (state bootstrap, OIDC, enabling gates, switch paths, fast/reliable
+deploy flow) lives in [`docs/runbooks/azure-deploy.md`](../../docs/runbooks/azure-deploy.md).
 
 ## CI validation (what runs today)
 
@@ -69,7 +81,9 @@ secret in GitHub):
 
 ## Apply order (once live)
 
-`environments/<env>`: `init` → `plan -var-file=<env>.tfvars` → `apply`. The resource group
-and modules resolve in dependency order (networking/acr/blob → identity → container_app).
-Deploy is driven by `.github/workflows/deploy-backend.yml` (ACA staged revision → smoke →
-promote); see [`docs/runbooks/deploy-rollback.md`](../../docs/runbooks/deploy-rollback.md).
+`environments/<env>`: `init` → `plan -var-file=<env>.tfvars` → `apply`. The resource group and
+modules resolve in dependency order (networking/observability/blob (+acr if enabled) → identity →
+gateway_app → jobs; service_app stays inert until `services_split_enabled = true`). Deploy is driven
+by `.github/workflows/deploy-backend.yml` (build-once → GHCR → revision @0% → gated migration →
+smoke → promote-or-abort); see [`docs/runbooks/azure-deploy.md`](../../docs/runbooks/azure-deploy.md)
+and [`docs/runbooks/deploy-rollback.md`](../../docs/runbooks/deploy-rollback.md).
