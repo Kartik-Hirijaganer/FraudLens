@@ -31,7 +31,7 @@ def test_api_health_returns_camelcase_heartbeat(
     assert response.json() == {
         "status": "ok",
         "service": "FraudLens",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "environment": "dev",
     }
 

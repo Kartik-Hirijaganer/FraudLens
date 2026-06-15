@@ -9,7 +9,7 @@
 
 [project]
 name = "fraudlens-llm"
-version = "0.1.0"
+version = "1.0.0"
 description = "FraudLens catalog-driven async LLM client with built-in security guardrails."
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -14,7 +14,7 @@
 
 [project]
 name = "fraudlens"
-version = "0.1.0"
+version = "1.0.0"
 description = "FraudLens — AML fraud investigation system (workspace root)"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -19,7 +19,7 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         lint-changed format-check-changed ci-changed \
         header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
-        version-next changelog-unreleased pr-summary \
+        version-next changelog-unreleased pr-summary release-gate \
         local-demo local-demo-down local-demo-reset local-demo-smoke \
         db-migrate db-seed import-ieee ingest-rag train-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
@@ -159,6 +159,8 @@ changelog-unreleased: ## Render the pending changelog for the proposed version (
 	uvx git-cliff --config cliff.toml --unreleased --tag "$$tag"
 pr-summary: ## Preview the auto PR area-summary for this branch (areas changed vs BASE_REF).
 	$(UV) run python scripts/pr_summary.py --base $(BASE_REF) --summary-only
+release-gate: ## Assert the §20 release gate (version consistency + automation wired); propose-only, never tags.
+	$(UV) run python scripts/release_gate.py --format text
 
 # ---------------------------------------------------------------------------
 # Image build (separate required check; proves the deploy image in CI)

@@ -2355,7 +2355,7 @@
   "info": {
     "summary": "FraudLens AML fraud investigation API (walking skeleton).",
     "title": "FraudLens",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
