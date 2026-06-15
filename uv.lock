@@ -867,7 +867,7 @@ wheels = [
 
 [[package]]
 name = "fraudlens"
-version = "0.1.0"
+version = "1.0.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -906,7 +906,7 @@ dev = [
 
 [[package]]
 name = "fraudlens-backend"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
@@ -937,7 +937,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-core"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/fraudlens-core" }
 dependencies = [
     { name = "pydantic" },
@@ -952,7 +952,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-llm"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/fraudlens-llm" }
 dependencies = [
     { name = "anthropic" },
@@ -973,7 +973,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-ml"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/fraudlens-ml" }
 dependencies = [
     { name = "chromadb" },

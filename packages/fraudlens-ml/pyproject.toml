@@ -7,7 +7,7 @@
 
 [project]
 name = "fraudlens-ml"
-version = "0.1.0"
+version = "1.0.0"
 description = "FraudLens ML scoring + RAG (heavy ML/RAG deps isolated here)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
