@@ -1,12 +1,22 @@
-# Backend deploy — WIRED BUT INERT until the Azure account exists. Deploys are allowed
-# only from `dev` and `release/*` after CI succeeds. The cloud jobs run only when the repo
-# variable AZURE_DEPLOY_ENABLED == 'true'; until then only `verify` runs (re-running the
-# SAME gate at the deployed SHA — deploy parity).
+# Backend deploy (plan §15.4 / §15.7 / Phase 14) — WIRED BUT INERT until the Azure account
+# exists. Deploys run only from `dev` / `release/*` after CI succeeds, and the cloud jobs run
+# only when the repo variable AZURE_DEPLOY_ENABLED == 'true'; until then only `verify` runs
+# (re-running the SAME gate at the deployed SHA — deploy parity).
 #
-# Secrets posture: Azure auth is GitHub→Azure OIDC (id-token: write; no stored client
-# secret). App secrets are fetched at runtime from Infisical by the Container App,
-# never injected here. Flow: verify → build-push → terraform apply (staged revision
-# at 0%) → smoke (/healthz,/readyz + pytest -m smoke) → promote 100% traffic.
+# Fast & reliable deploy (ADR-013):
+#   build-once-promote-many : ONE immutable image (SHA tag) is built and pushed to GHCR, then
+#                             reused unchanged through stage -> promote (never rebuilt).
+#   app rollout != infra     : terraform apply runs ONLY when the plan is non-empty; the common
+#                             path is a fast Container Apps revision (no per-deploy terraform).
+#   revision @0% -> promote  : the new revision is staged at 0% traffic; gated expand/contract
+#                             migrations -> smoke -> promote to 100% ONLY if green, else auto-abort
+#                             with the previous revision still serving 100% (a broken version
+#                             never reaches users).
+#   resilience               : per-job timeouts, step retries/backoff, concurrency (no overlap).
+#
+# Secrets posture: Azure auth is GitHub->Azure OIDC (id-token: write; no stored client secret).
+# The image source is public GHCR (no registry credential). App + DB secrets are fetched at
+# runtime from Infisical, never injected into the image or terraform state.
 name: deploy-backend
 
 on:
@@ -20,48 +30,74 @@ on:
 permissions:
   contents: read
   id-token: write
+  packages: write # push the backend image to GHCR
 
 concurrency:
   group: deploy-backend
   cancel-in-progress: false # never cancel an in-flight deploy
 
+env:
+  APP_NAME: fraudlens-prod-api
+  RESOURCE_GROUP: fraudlens-prod-rg
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/fraudlens-backend
+  BASE_IMAGE: ghcr.io/${{ github.repository_owner }}/fraudlens-base:latest
+  REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha }}
+
 jobs:
+  # Deploy parity: re-run the identical gate at the exact SHA being deployed.
   verify:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     uses: ./.github/workflows/_ci-reusable.yml
 
+  # Build ONE immutable image (SHA tag) and push to GHCR. The same digest is promoted unchanged.
   build-push:
     needs: verify
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 30
     outputs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Compute image reference (SHA tag)
+      - name: Compute image reference (build-once SHA tag)
         id: meta
-        run: |
-          echo "image=${{ vars.AZURE_ACR_NAME }}.azurecr.io/fraudlens-backend:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-      - name: Build & push to ACR
-        run: |
-          az acr login --name "${{ vars.AZURE_ACR_NAME }}"
-          docker build -f backend/Dockerfile -t "${{ steps.meta.outputs.image }}" .
-          docker push "${{ steps.meta.outputs.image }}"
+        run: echo "image=${IMAGE_NAME}:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Thin build FROM the prebuilt base, with registry + GHA layer caches so only changed layers
+      # rebuild/push. Native linux/amd64 (no emulation). Pushed once, promoted many.
+      - name: Build & push (cached, build-once)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          build-args: BASE_IMAGE=${{ env.BASE_IMAGE }}
+          tags: ${{ steps.meta.outputs.image }}
+          push: true
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
+            type=gha
+          cache-to: |
+            type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
+            type=gha,mode=max
 
-  deploy:
+  # Provision infra ONLY when it actually changed (plan non-empty). The common code deploy skips
+  # this entirely — the slow step is not on the hot path (§15.7).
+  infra:
     needs: build-push
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +109,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - uses: hashicorp/setup-terraform@v3
-      - name: Terraform apply (new revision, staged at 0% traffic)
+      - name: Terraform plan; apply only if the plan is non-empty
         working-directory: infra/terraform/environments/prod
         env:
           ARM_USE_OIDC: "true"
@@ -81,15 +117,61 @@ jobs:
           TF_VAR_tenant_id: ${{ vars.AZURE_TENANT_ID }}
           TF_VAR_client_id: ${{ vars.AZURE_CLIENT_ID }}
         run: |
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
           cp backend.tf.template backend.tf
-          terraform init
-          terraform apply -auto-approve -var-file=prod.tfvars \
-            -var="container_image=${{ needs.build-push.outputs.image }}"
+          retry terraform init -input=false -lock-timeout=120s
+          # -detailed-exitcode: 0=no changes, 2=changes pending, 1=error.
+          set +e
+          terraform plan -input=false -lock-timeout=120s -detailed-exitcode \
+            -var-file=prod.tfvars -var="container_image=${{ needs.build-push.outputs.image }}" -out=tfplan
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "infra changed — applying"; retry terraform apply -input=false -lock-timeout=120s -auto-approve tfplan
+          elif [ "$code" = "0" ]; then
+            echo "no infra changes — skipping apply (fast app-rollout path)"
+          else
+            exit "$code"
+          fi
 
-  smoke:
-    needs: deploy
+  # Stage the new image as a Container Apps revision at 0% traffic (Multiple revision mode keeps
+  # the prior revision serving). A fast `az containerapp update` — no terraform.
+  stage:
+    needs: [build-push, infra]
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    outputs:
+      revision_fqdn: ${{ steps.stage.outputs.revision_fqdn }}
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Create revision at 0% traffic
+        id: stage
+        run: |
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
+          retry az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --image "${{ needs.build-push.outputs.image }}" --revision-suffix "$REVISION_SUFFIX"
+          fqdn=$(az containerapp revision show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --revision "${APP_NAME}--${REVISION_SUFFIX}" --query properties.fqdn -o tsv)
+          echo "revision_fqdn=https://${fqdn}" >> "$GITHUB_OUTPUT"
+
+  # Gated pre-promote migration: expand/contract (backward-compatible) Alembic upgrade against
+  # Supabase. Old + new revisions coexist during the shift, so a slow/failed migration blocks
+  # promotion WITHOUT breaking the live revision. Own timeout + retry.
+  migrate:
+    needs: stage
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,20 +179,53 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Smoke-test the staged revision
-        env:
-          SMOKE_BASE_URL: ${{ vars.BACKEND_STAGING_URL }}
+      - name: Fetch DATABASE_URL from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /backend
+      - name: Alembic upgrade head (expand/contract, gated)
         run: |
-          curl -fsS "$SMOKE_BASE_URL/healthz"
-          curl -fsS "$SMOKE_BASE_URL/readyz"
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
+          uv sync --all-packages
+          retry uv run alembic upgrade head
+
+  # Smoke the STAGED revision (still at 0% traffic) before any traffic shift.
+  smoke:
+    needs: [stage, migrate]
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Smoke the staged revision (/healthz, /readyz, pytest -m smoke)
+        env:
+          SMOKE_BASE_URL: ${{ needs.stage.outputs.revision_fqdn }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/healthz"
+          curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/readyz"
           uv sync --all-packages
           uv run pytest -m smoke
 
+  # Promote: smoke passed -> shift 100% traffic to the new revision (zero-downtime).
   promote:
     needs: smoke
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 15
     steps:
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -120,7 +235,29 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Shift 100% traffic to the new revision
         run: |
-          az containerapp ingress traffic set \
-            --name fraudlens-prod-api \
-            --resource-group fraudlens-prod-rg \
-            --revision-weight latest=100
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
+          retry az containerapp ingress traffic set -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --revision-weight "${APP_NAME}--${REVISION_SUFFIX}=100"
+
+  # Auto-abort: any failure between staging and promotion -> deactivate the staged revision; the
+  # PREVIOUS revision keeps serving 100% (it was never shifted). A broken version never goes live.
+  abort:
+    needs: [stage, migrate, smoke]
+    if: ${{ always() && vars.AZURE_DEPLOY_ENABLED == 'true' && needs.stage.result == 'success' && (needs.migrate.result == 'failure' || needs.smoke.result == 'failure') }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Deactivate the staged revision (previous revision stays at 100%)
+        run: |
+          set -euo pipefail
+          echo "::error::smoke/migration failed — aborting; previous revision keeps 100% traffic"
+          az containerapp revision deactivate -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --revision "${APP_NAME}--${REVISION_SUFFIX}" || true

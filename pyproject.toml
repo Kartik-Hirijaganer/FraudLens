@@ -45,6 +45,9 @@ dev = [
     # diff-cover gates changed-line coverage in the PR `changed` job (Cobertura XML
     # for the backend, lcov for the frontend); see the Makefile `*-coverage-diff` targets.
     "diff-cover>=9.2",
+    # pip-audit scans the resolved Python dependency tree for known CVEs in the CI
+    # dependency-audit gate (Makefile `deps-audit`, plan §16 Phase 13).
+    "pip-audit>=2.7",
 ]
 
 # ---------------------------------------------------------------------------

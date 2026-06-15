@@ -46,14 +46,22 @@ StorageBackend = Literal["local", "azure_blob"]
 QueueBackend = Literal["local", "container_apps_jobs"]
 LlmMode = Literal["mock", "live"]
 
-# Safe defaults for the always-on security headers (no CSP — Phase 13 adds CSP, which
-# needs care around the Swagger UI CDN). These are overridable via config (plan §12.3).
+# Safe defaults for the always-on static security headers. The Content-Security-Policy is
+# handled separately (it is path-aware: strict on the API, relaxed on the docs UI — see
+# middleware/security.py). All values are overridable via config (plan §12.3).
 _DEFAULT_SECURITY_HEADERS: dict[str, str] = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 }
+
+# Strict default Content-Security-Policy for the JSON API surface: nothing loads, frames,
+# or submits. The interactive docs UI relaxes this via content_security_policy_docs (which
+# carries the documentation CDN origin and therefore lives in config, not source — §12.3).
+_DEFAULT_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+)
 
 
 def find_config_dir() -> Path:
@@ -103,6 +111,11 @@ class AppSettings(BaseSettings):
         default=False,
         description="Dev-only auth bypass; honored only when environment != 'prod'.",
     )
+    auth_dev_bypass_role: Literal["analyst", "reviewer", "admin"] = Field(
+        default="admin",
+        description="RBAC role the dev bypass mints (default admin so local-demo can drive the "
+        "model lifecycle); honored only when the bypass is enabled, so it is prod-inert.",
+    )
 
     # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
     cors_allow_origins: list[str] = Field(
@@ -141,11 +154,39 @@ class AppSettings(BaseSettings):
     # --- Gateway edge: security response headers (config-overridable safe defaults) ---
     security_headers: dict[str, str] = Field(
         default_factory=lambda: dict(_DEFAULT_SECURITY_HEADERS),
-        description="Security response headers applied to every gateway response.",
+        description="Static security response headers applied to every gateway response.",
+    )
+    csp_enabled: bool = Field(
+        default=True,
+        description="Stamp a Content-Security-Policy header on every gateway response.",
+    )
+    content_security_policy: str = Field(
+        default=_DEFAULT_CONTENT_SECURITY_POLICY,
+        description="Strict CSP applied to the API surface (config-overridable, plan §12.3).",
+    )
+    content_security_policy_docs: str = Field(
+        default="",
+        description="Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. "
+        "Empty falls back to the strict policy so the API surface is never weakened.",
+    )
+    docs_ui_paths: list[str] = Field(
+        default_factory=lambda: ["/docs", "/redoc"],
+        description="Paths serving the interactive docs UI that receive the relaxed CSP.",
     )
     gateway_routes_file: str | None = Field(
         default=None,
         description="Override path to the gateway routing table; else discovered under config/.",
+    )
+
+    # --- Observability (plan §11.5, §16 Phase 12): optional OTel export, OFF by default ---
+    telemetry_enabled: bool = Field(
+        default=False,
+        description="Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default "
+        "(stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14).",
+    )
+    telemetry_service_name: str = Field(
+        default="fraudlens-backend",
+        description="Service name reported by telemetry export when enabled (App Insights / OTel).",
     )
 
     # --- Config-driven backends (plan §12.3): local for the one-command demo, cloud later ---
@@ -231,6 +272,13 @@ class AppSettings(BaseSettings):
         gt=0,
         description="Max length of a client-error report message before truncation.",
     )
+    client_error_rate_limit_requests: int = Field(
+        default=60,
+        gt=0,
+        description="Per-client request budget for the telemetry client-error sink within the "
+        "rate-limit window — a stricter per-route limit layered on the global gateway limiter as "
+        "defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13).",
+    )
 
     # --- Investigation pipeline (plan §16 Phase 8; config-driven, never hardcoded) ---
     investigation_history_window_hours: int = Field(
@@ -269,6 +317,39 @@ class AppSettings(BaseSettings):
         gt=0,
         description="Max attempts the deferred SAR-PDF task makes before giving up; PDF "
         "generation is best-effort and never blocks SAR approval (plan §16 Phase 9).",
+    )
+
+    # --- Model lifecycle / MLOps (plan §16 Phase 10, §9.4, §10.5.1; config-driven) ---
+    retrain_min_labels_total: int = Field(
+        default=10,
+        gt=0,
+        description="Min matured reviewed labels (any class) before a retrain is eligible; below "
+        "it the trigger returns insufficient_matured_labels (plan §9.4). Dev-friendly default.",
+    )
+    retrain_min_labels_per_class: int = Field(
+        default=2,
+        gt=0,
+        description="Min matured labels required for EACH of the fraud/benign classes before a "
+        "retrain is eligible (guards a one-sided training set, plan §9.4).",
+    )
+    retrain_tenant_slices: int = Field(
+        default=2,
+        ge=2,
+        description="Deterministic holdout partitions used as per-tenant evaluation slices when "
+        "computing the §9.4 per-tenant slice gate (synthetic-data MLOps stand-in for agencies).",
+    )
+    canary_guard_min_samples: int = Field(
+        default=20,
+        gt=0,
+        description="Min inference samples per arm (active/canary) before the canary auto-abort "
+        "guard will act on a deviation (the §10.5.1 min-sample window).",
+    )
+    canary_guard_max_deviation: float = Field(
+        default=0.20,
+        gt=0,
+        le=1.0,
+        description="Max absolute deviation between the canary's and active's mean predicted "
+        "probability (alert-rate/precision proxy) before auto-abort → rollback (plan §10.5.1).",
     )
 
     @property

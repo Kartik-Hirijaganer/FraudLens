@@ -69,3 +69,43 @@ def test_maybe_build_rag_index_skips_when_script_absent(
     local_demo._maybe_build_rag_index({})
     assert ran == []
     assert "rag index: skipped" in capsys.readouterr().out
+
+
+class _FakeProc:
+    """Minimal stand-in for subprocess.Popen exposing poll()/returncode for the smoke gate."""
+
+    def __init__(self, exit_code: int | None) -> None:
+        self.returncode = exit_code
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+
+def test_await_backend_ready_passes_when_healthz_and_readyz_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local_demo, "_http_ok", lambda _url: True)
+    assert local_demo._await_backend_ready("http://localhost:8000", _FakeProc(None)) is True
+
+
+def test_await_backend_ready_bails_fast_when_backend_exits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(local_demo, "_http_ok", lambda _url: False)
+    monkeypatch.setattr(local_demo.time, "sleep", lambda _s: None)
+    # Process already dead (code 1) -> fail immediately, no waiting for the full timeout.
+    assert local_demo._await_backend_ready("http://localhost:8000", _FakeProc(1)) is False
+    assert "backend exited (code 1)" in capsys.readouterr().err
+
+
+def test_await_backend_ready_times_out_when_never_ready(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(local_demo, "_http_ok", lambda _url: False)
+    monkeypatch.setattr(local_demo.time, "sleep", lambda _s: None)
+    # Live process (poll None) that never serves /healthz -> times out by name.
+    assert (
+        local_demo._await_backend_ready("http://localhost:8000", _FakeProc(None), timeout=0.0)
+        is False
+    )
+    assert "timed out waiting for /healthz" in capsys.readouterr().err

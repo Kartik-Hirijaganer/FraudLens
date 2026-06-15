@@ -1,0 +1,53 @@
+# Prebuilt ML base image (plan §15.7 / Phase 14). Builds `fraudlens-base` (python + uv + the heavy
+# ML dependency closure: xgboost/shap/sklearn/langchain/chromadb) WEEKLY and pushes it to GHCR, so
+# per-commit backend builds (deploy-backend.yml) are thin and fast (FROM fraudlens-base). This is
+# NOT a deploy — it only publishes a build-cache base image — so it is not gated on
+# AZURE_DEPLOY_ENABLED. On pull requests it builds without pushing (validation only).
+name: build-base
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC (weekly)
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - backend/Dockerfile.base
+      - .github/workflows/build-base.yml
+      - uv.lock
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-base
+  cancel-in-progress: true
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BASE_IMAGE: ghcr.io/${{ github.repository_owner }}/fraudlens-base
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (and push on non-PR) the ML base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile.base
+          platforms: linux/amd64
+          tags: |
+            ${{ env.BASE_IMAGE }}:latest
+            ${{ env.BASE_IMAGE }}:${{ github.sha }}
+          push: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=registry,ref=${{ env.BASE_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.BASE_IMAGE }}:buildcache,mode=max

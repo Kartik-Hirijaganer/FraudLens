@@ -17,11 +17,11 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary \
         local-demo local-demo-down local-demo-reset local-demo-smoke \
-        db-migrate db-seed import-ieee ingest-rag train-model tf-validate \
+        db-migrate db-seed import-ieee ingest-rag train-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -123,6 +123,12 @@ dup-check: ## Copy/paste detection (jscpd).
 	npx --yes jscpd@4 backend/src packages frontend/src --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
+deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
+	# --skip-editable: the local workspace packages are not on PyPI. --ignore-vuln: CVE-2026-45829
+	# (ChromaDB HTTP-server /api/v2 RCE) is not exploitable here — we use the embedded/baked index,
+	# not the server, and no fix is published; assessed in docs/runbooks/security.md §5.
+	$(UV) run pip-audit --desc --skip-editable --ignore-vuln CVE-2026-45829
+	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run python scripts/update_docs.py --check openapi
 docs: ## Regenerate header inventories + OpenAPI + ERD + architecture AUTOGEN (WRITES).
@@ -185,6 +191,10 @@ ingest-rag: ## Build the FinCEN/BSA RAG index (scripts/ingest_rag.py lands in Ph
 	$(UV) run python scripts/ingest_rag.py
 train-model: ## Train + register an XGBoost model (scripts/train_model.py lands in Phase 5).
 	$(UV) run python scripts/train_model.py
+retrain: ## Retrain a candidate from matured reviewed labels (scripts/retrain.py, Phase 10).
+	$(UV) run python scripts/retrain.py
+drift-scan: ## Advisory model drift scan (scripts/drift_scan.py, Phase 10).
+	$(UV) run python scripts/drift_scan.py
 
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform

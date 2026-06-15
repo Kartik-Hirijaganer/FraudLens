@@ -73,6 +73,17 @@ def _row(**overrides: Any) -> dict[str, Any]:
     return row
 
 
+def _request() -> Request:
+    """A minimal Starlette request (no body / request-id) for the single/batch ingest handlers.
+
+    Single/batch ingest take the already-parsed payload + a request only for the audit
+    correlation id (Phase 12), so they never read the body; the CSV handler uses `_csv_request`.
+    """
+    return Request(
+        {"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""}
+    )
+
+
 def _csv_request(body: str, content_type: str = "text/csv") -> Request:
     """Build a minimal Starlette Request carrying a raw CSV body."""
     raw = body.encode("utf-8")
@@ -94,12 +105,12 @@ async def test_ingest_single_and_duplicate(
     db_session: AsyncSession, make_settings: Callable[..., AppSettings]
 ) -> None:
     tenant = await _tenant(db_session)
-    created = await ingest_transaction(_request_model(), tenant, db_session)
+    created = await ingest_transaction(_request_model(), _request(), tenant, db_session)
     assert created.origin_account.endswith("1111")
     assert "4111111111111111" not in created.origin_account
     assert created.risk_band is None
     with pytest.raises(AppError) as excinfo:
-        await ingest_transaction(_request_model(), tenant, db_session)
+        await ingest_transaction(_request_model(), _request(), tenant, db_session)
     assert excinfo.value.code == "duplicate_external_id"
 
 
@@ -107,7 +118,10 @@ async def test_ingest_future_date_raises_schema_error(db_session: AsyncSession) 
     tenant = await _tenant(db_session)
     with pytest.raises(SchemaValidationError) as excinfo:
         await ingest_transaction(
-            _request_model(occurred_at=datetime(2999, 1, 1, tzinfo=UTC)), tenant, db_session
+            _request_model(occurred_at=datetime(2999, 1, 1, tzinfo=UTC)),
+            _request(),
+            tenant,
+            db_session,
         )
     assert excinfo.value.field == "occurred_at"
 
@@ -123,7 +137,7 @@ async def test_batch_partial_accept_and_duplicate(
             _row(externalId="OK1"),
         ]
     )
-    result = await ingest_batch(payload, tenant, db_session, make_settings())
+    result = await ingest_batch(payload, _request(), tenant, db_session, make_settings())
     # OK1 inserted once, the second OK1 is a duplicate, BAD is rejected.
     assert (result.accepted, result.duplicates, result.rejected) == (1, 1, 1)
     assert result.sample_errors[0].external_id == "BAD"
@@ -145,7 +159,7 @@ async def test_batch_rejects_missing_field_and_bad_date(
     payload = BatchIngestRequest(
         transactions=[no_external_id, _row(externalId="BADDATE", occurredAt="not-a-date")]
     )
-    result = await ingest_batch(payload, tenant, db_session, make_settings())
+    result = await ingest_batch(payload, _request(), tenant, db_session, make_settings())
     assert (result.accepted, result.rejected) == (0, 2)
     fields = {error.message.split(":")[0] for error in result.sample_errors}
     assert fields == {"externalId", "occurredAt"}
@@ -159,7 +173,7 @@ async def test_batch_sample_errors_are_bounded(
         transactions=[_row(externalId="B1", amount="-1"), _row(externalId="B2", amount="-2")]
     )
     result = await ingest_batch(
-        payload, tenant, db_session, make_settings(ingest_sample_errors_limit=1)
+        payload, _request(), tenant, db_session, make_settings(ingest_sample_errors_limit=1)
     )
     assert result.rejected == 2
     assert len(result.sample_errors) == 1  # bounded — the second rejection is not sampled
@@ -169,11 +183,11 @@ async def test_batch_dry_run_persists_nothing(
     db_session: AsyncSession, make_settings: Callable[..., AppSettings]
 ) -> None:
     tenant = await _tenant(db_session)
-    await ingest_transaction(_request_model(external_id="EXISTS"), tenant, db_session)
+    await ingest_transaction(_request_model(external_id="EXISTS"), _request(), tenant, db_session)
     payload = BatchIngestRequest(
         dry_run=True, transactions=[_row(externalId="EXISTS"), _row(externalId="NEW")]
     )
-    result = await ingest_batch(payload, tenant, db_session, make_settings())
+    result = await ingest_batch(payload, _request(), tenant, db_session, make_settings())
     assert (result.accepted, result.duplicates, result.dry_run) == (1, 1, True)
     count = (await db_session.execute(select(func.count()).select_from(Transaction))).scalar_one()
     assert count == 1  # only EXISTS; dryRun added nothing
@@ -185,7 +199,9 @@ async def test_batch_too_large_raises(
     tenant = await _tenant(db_session)
     payload = BatchIngestRequest(transactions=[_row(externalId="A"), _row(externalId="B")])
     with pytest.raises(AppError) as excinfo:
-        await ingest_batch(payload, tenant, db_session, make_settings(ingest_max_batch_size=1))
+        await ingest_batch(
+            payload, _request(), tenant, db_session, make_settings(ingest_max_batch_size=1)
+        )
     assert excinfo.value.code == "batch_too_large"
 
 
@@ -256,7 +272,9 @@ async def test_upload_csv_caps_and_validation(
 async def test_list_paginates_and_detail(db_session: AsyncSession) -> None:
     tenant = await _tenant(db_session)
     for index in range(3):
-        await ingest_transaction(_request_model(external_id=f"L{index}"), tenant, db_session)
+        await ingest_transaction(
+            _request_model(external_id=f"L{index}"), _request(), tenant, db_session
+        )
     page1 = await list_transactions(tenant, db_session, limit=2)
     assert len(page1.transactions) == 2
     assert page1.next_cursor is not None
@@ -270,7 +288,9 @@ async def test_list_paginates_and_detail(db_session: AsyncSession) -> None:
 
 async def test_list_filters_risk_band_and_renders_scored_fields(db_session: AsyncSession) -> None:
     tenant = await _tenant(db_session)
-    created = await ingest_transaction(_request_model(external_id="SCORED"), tenant, db_session)
+    created = await ingest_transaction(
+        _request_model(external_id="SCORED"), _request(), tenant, db_session
+    )
     row = await db_session.get(Transaction, uuid.UUID(created.transaction_id))
     assert row is not None
     row.risk_band = RiskBand.HIGH

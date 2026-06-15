@@ -18,7 +18,8 @@ variable "location" {
 
 variable "acr_id" {
   type        = string
-  description = "Resource id of the ACR to grant AcrPull on."
+  description = "Resource id of the ACR to grant AcrPull on. Empty => GHCR default (no AcrPull)."
+  default     = ""
 }
 
 variable "storage_account_id" {
@@ -39,7 +40,9 @@ resource "azurerm_user_assigned_identity" "this" {
   tags                = var.tags
 }
 
+# Only granted when ACR is the registry (acr_enabled). Public GHCR needs no pull credential.
 resource "azurerm_role_assignment" "acr_pull" {
+  count                = var.acr_id == "" ? 0 : 1
   scope                = var.acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.this.principal_id

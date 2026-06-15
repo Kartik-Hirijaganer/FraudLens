@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.7
+#
+# Prebuilt ML base image (plan §15.7 / Phase 14), rebuilt WEEKLY by build-base.yml and pushed to
+# GHCR. It is python:3.11-slim-bookworm + uv + the FULL heavy dependency closure (xgboost / shap /
+# scikit-learn / langchain / chromadb, ...) pre-installed into /app/.venv, WITHOUT the workspace
+# members. The backend image (backend/Dockerfile) builds `FROM fraudlens-base` so its per-commit
+# `uv sync` only adds the thin app wheels — turning minute-scale ML builds into seconds-scale ones
+# (build-once-promote-many). The default slim base in backend/Dockerfile keeps `make docker-build`
+# self-contained when this prebuilt base is not supplied.
+
+FROM python:3.11-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_PYTHON_PREFERENCE=only-system
+WORKDIR /app
+
+# Only the manifests + lock change rarely, so this layer is the slow-but-stable one we cache.
+COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/pyproject.toml
+COPY packages/fraudlens-core/pyproject.toml packages/fraudlens-core/pyproject.toml
+COPY packages/fraudlens-ml/pyproject.toml packages/fraudlens-ml/pyproject.toml
+COPY packages/fraudlens-llm/pyproject.toml packages/fraudlens-llm/pyproject.toml
+# Install the locked dependency closure but NOT the local members (--no-install-project), so the
+# backend build adds only its own wheels on top of this warm venv. All member manifests are present
+# so uv resolves the full workspace.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project

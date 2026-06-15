@@ -46,6 +46,27 @@ def test_redact_processor_masks_denied_keys_and_scrubs_values() -> None:
     assert out["count"] == 7  # non-string, non-secret untouched
 
 
+def test_redact_processor_masks_credential_tokens_but_not_token_counts() -> None:
+    # Credential tokens are masked; LLM token COUNTS (plural *tokens, §11.3) are kept.
+    out = redact_processor(
+        None,
+        "info",
+        {
+            "event": "llm.call",
+            "token": "leak",
+            "access_token": "leak",
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+        },
+    )
+    assert out["token"] == "[REDACTED]"
+    assert out["access_token"] == "[REDACTED]"
+    assert out["input_tokens"] == 10
+    assert out["output_tokens"] == 20
+    assert out["total_tokens"] == 30
+
+
 def test_redact_processor_scrubs_nested_structures() -> None:
     out = redact_processor(
         None,
