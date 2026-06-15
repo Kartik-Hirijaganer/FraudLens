@@ -29,8 +29,10 @@ from fraudlens_ml.scoring.gates import (
     GateCheck,
     GateReport,
     ModelGates,
+    average_precision,
     compute_metrics,
     evaluate_gates,
+    evaluate_tenant_slices,
 )
 from fraudlens_ml.scoring.router import CanaryDeployment, CanaryRouter, RoutingDecision
 from fraudlens_ml.scoring.scorer import ScoreOutput, Scorer
@@ -57,9 +59,11 @@ __all__ = [
     "RoutingDecision",
     "ScoreOutput",
     "Scorer",
+    "average_precision",
     "compute_metrics",
     "current_feature_spec",
     "evaluate_gates",
+    "evaluate_tenant_slices",
     "extract_feature_vector",
     "extract_features",
     "feature_vector",
