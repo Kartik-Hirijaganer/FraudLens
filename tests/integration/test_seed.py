@@ -4,6 +4,8 @@ rows (the single seed job row is updated in place)."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,8 +16,10 @@ from fraudlens_backend.db.models import (
     ModelDeployment,
     ModelVersion,
     SystemConfig,
+    TrainingLabel,
     User,
 )
+from fraudlens_backend.db.repositories import ModelLifecycleRepository
 from seed import seed
 
 _COUNTED = (Agency, User, AmlRule, SystemConfig, ModelVersion, ModelDeployment, JobExecution)
@@ -66,3 +70,15 @@ async def test_active_deployment_points_at_fixture_model(db_session: AsyncSessio
     assert version is not None
     assert version.version_label == "v0-fixture"
     assert version.status.value == "active"
+
+
+async def test_seed_creates_balanced_matured_labels(db_session: AsyncSession) -> None:
+    summary = await seed(db_session)
+    assert summary.training_labels == 12
+    # The seeded labels are matured + balanced, so a retrain is immediately eligible (plan §9.4).
+    counts = await ModelLifecycleRepository(db_session).matured_label_counts(
+        as_of=datetime.now(UTC)
+    )
+    assert counts.total == 12
+    assert counts.positives == 6 and counts.negatives == 6
+    assert await _count(db_session, TrainingLabel) == 12

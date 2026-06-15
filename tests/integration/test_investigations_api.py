@@ -38,9 +38,15 @@ from fraudlens_backend.db.models import (
     AnalysisRun,
     AnalysisRunEvent,
     Base,
+    JobStatus,
+    ModelTrainingRun,
+    ModelTrigger,
+    ModelVersion,
+    ModelVersionStatus,
     RunStatus,
     SarDraft,
     SarStatus,
+    TrainingDataset,
     Transaction,
 )
 from fraudlens_backend.db.models.enums import AnalysisRunEventType
@@ -105,6 +111,65 @@ def _demo_app(make_settings: Callable[..., AppSettings], engine: AsyncEngine, sm
     app = create_app(make_settings(environment="dev", auth_dev_bypass=True))
     _wire(app, engine, sm)
     return app
+
+
+async def _register_version(sm: async_sessionmaker[AsyncSession], *, label: str) -> None:
+    """Register a model version (+ dataset/run) so a `modelOverride` to its label validates."""
+    async with sm() as session:
+        dataset = TrainingDataset(
+            snapshot_query={}, label_window="t", row_count=0, feature_spec={}, content_hash="o" * 64
+        )
+        session.add(dataset)
+        await session.flush()
+        run = ModelTrainingRun(
+            trigger=ModelTrigger.MANUAL, dataset_id=dataset.id, status=JobStatus.SUCCEEDED
+        )
+        session.add(run)
+        await session.flush()
+        session.add(
+            ModelVersion(
+                version_label=label,
+                training_run_id=run.id,
+                artifact_uri=label,
+                feature_spec={},
+                metrics={},
+                status=ModelVersionStatus.CANDIDATE,
+            )
+        )
+        await session.commit()
+
+
+async def test_post_unknown_model_override_returns_404(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    transaction_id = await _seed_demo_transaction(db_sessionmaker)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/investigations",
+            json={"transactionId": str(transaction_id), "modelOverride": "no-such-version"},
+        )
+    assert resp.status_code == 404  # unregistered override rejected before the run starts (§5.4)
+    assert resp.json()["code"] == "model_version_not_found"
+
+
+async def test_post_with_registered_model_override_owns_run(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    transaction_id = await _seed_demo_transaction(db_sessionmaker)
+    await _register_version(db_sessionmaker, label="override-cand")
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/investigations",
+            json={"transactionId": str(transaction_id), "modelOverride": "override-cand"},
+        )
+    assert resp.status_code == 202  # a registered override passes the guard and owns a run
+    assert resp.json()["runId"]
 
 
 async def test_post_without_database_returns_503(
