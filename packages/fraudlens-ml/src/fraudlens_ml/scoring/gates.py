@@ -22,6 +22,7 @@ Key functions:
 - brier_score: the Brier score (tracked alongside ECE).
 - compute_metrics: all candidate metrics for one (labels, probabilities) holdout.
 - evaluate_gates: apply the gates to candidate vs baseline vs (optional) active metrics.
+- evaluate_tenant_slices: per-tenant slice gate — no slice may regress beyond tolerance (§9.4).
 
 Notes:
 - The active-regression gate is skipped (auto-pass) when there is no current active model,
@@ -29,6 +30,8 @@ Notes:
 - recall_at_budget / precision_at_top_pct flag the top ceil(fraction*N) by score; the alert
   budget is a fraction of scored volume (configurable), matching §10.5.1's "alert budget".
 - ECE/precision/recall are computed with numpy; PR-AUC and Brier wrap scikit-learn.
+- The per-tenant slice gate (Phase 10, §9.4 / ADR-015) guards a model that is good on average
+  but harmful for one agency; like the active-regression gate it auto-passes when none is active.
 """
 
 from __future__ import annotations
@@ -69,6 +72,10 @@ class ModelGates(BaseModel):
     )
     ece_max: float = Field(default=0.05, description="Maximum expected calibration error.")
     calibration_bins: int = Field(default=10, ge=2, description="Equal-width bins for ECE.")
+    tenant_slice_max_regression: float = Field(
+        default=0.05,
+        description="Max PR-AUC a per-tenant slice may fall below active before failing (§9.4).",
+    )
 
 
 class CandidateMetrics(BaseModel):
@@ -231,3 +238,33 @@ def evaluate_gates(
         baseline_pr_auc=baseline_pr_auc,
         active_pr_auc=active_pr_auc,
     )
+
+
+def evaluate_tenant_slices(
+    slice_pr_aucs: dict[str, float],
+    active_pr_auc: float | None,
+    gates: ModelGates,
+) -> list[GateCheck]:
+    """Gate each per-tenant slice's PR-AUC against active - tolerance (plan §9.4 / ADR-015).
+
+    Returns one `GateCheck` per slice (sorted by slice key for determinism). When no model is
+    active yet, every slice auto-passes (mirrors the overall active-regression gate); otherwise a
+    slice fails when its PR-AUC drops more than `tenant_slice_max_regression` below the active
+    model — so a candidate that is good on average but harmful for one agency is rejected.
+    """
+    checks: list[GateCheck] = []
+    for slice_key in sorted(slice_pr_aucs):
+        slice_pr_auc = slice_pr_aucs[slice_key]
+        passed = (
+            active_pr_auc is None
+            or slice_pr_auc >= active_pr_auc - gates.tenant_slice_max_regression - _EPS
+        )
+        checks.append(
+            GateCheck(
+                name=f"tenant_slice:{slice_key}",
+                value=slice_pr_auc - active_pr_auc if active_pr_auc is not None else slice_pr_auc,
+                threshold=-gates.tenant_slice_max_regression,
+                passed=passed,
+            )
+        )
+    return checks
