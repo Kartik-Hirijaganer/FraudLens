@@ -4,11 +4,12 @@ services are in-process modules with clean interfaces, so the full trust boundar
 realized at $0 and splits into internal-ingress service apps later (ADR-004) without
 touching the SPA. GatewayMiddleware (pure-ASGI, outermost) issues/propagates the
 X-Request-Id, binds it into the structlog contextvars for end-to-end correlation,
-applies a fixed-window per-client rate limit (429 envelope), stamps configured
-security headers onto every response, runs an optional authN/Z hook seam, and emits
-one uniform access-log line. CORS is enforced by Starlette's CORSMiddleware from the
-boot-critical allowlist. The routing table is config-driven (config/gateway/routes.yaml)
-and loaded at startup; the matched route name is logged for correlation.
+applies a fixed-window per-client rate limit (429 envelope), stamps the configured
+security headers + path-aware Content-Security-Policy onto every response (delegated to
+middleware/security.py so there is one tested implementation), runs an optional authN/Z
+hook seam, and emits one uniform access-log line. CORS is enforced by Starlette's
+CORSMiddleware from the boot-critical allowlist. The routing table is config-driven
+(config/gateway/routes.yaml) and loaded at startup; the matched route name is logged.
 
 Key classes:
 - RouteRule: one gateway route (path prefix -> service, role, rate limit).
@@ -50,6 +51,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from fraudlens_backend.middleware.logging import ACCESS_LOGGER_NAME, get_logger
+from fraudlens_backend.middleware.security import apply_security_headers
 from fraudlens_backend.models.common import ErrorResponse
 from fraudlens_backend.settings import AppSettings, find_config_dir
 
@@ -121,8 +123,8 @@ class GatewayMiddleware:
     ) -> None:
         """Capture the wrapped app and the boot-critical edge config from settings."""
         self._app = app
+        self._settings = settings
         self._header = settings.request_id_header
-        self._security_headers = settings.security_headers
         self._rate_limit_enabled = settings.rate_limit_enabled
         self._rate_limit_requests = settings.rate_limit_requests
         self._rate_limit_window = settings.rate_limit_window_seconds
@@ -156,8 +158,7 @@ class GatewayMiddleware:
                 status_holder["status"] = int(message["status"])
                 headers = MutableHeaders(raw=list(message.get("headers", [])))
                 headers[self._header] = request_id
-                for name, value in self._security_headers.items():
-                    headers[name] = value
+                apply_security_headers(headers, request.url.path, self._settings)
                 message = {**message, "headers": headers.raw}
             await send(message)
 

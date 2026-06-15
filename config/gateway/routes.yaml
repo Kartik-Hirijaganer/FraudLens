@@ -36,3 +36,9 @@ routes:
   - path_prefix: /api/v1/model-versions
     service: model-lifecycle
     required_role: admin
+  - path_prefix: /api/v1/model-deployment
+    service: model-lifecycle
+    required_role: admin
+  - path_prefix: /api/v1/drift-reports
+    service: model-lifecycle
+    required_role: admin

@@ -213,18 +213,28 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/alerts/{alert_id}` | `get_alert` |
 | POST | `/api/v1/alerts/{alert_id}/actions` | `act_on_alert` |
 | POST | `/api/v1/alerts/{alert_id}/sar/review` | `review_sar` |
+| GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
+| GET | `/api/v1/drift-reports` | `list_drift_reports` |
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |
 | GET | `/api/v1/investigations/{run_id}` | `get_investigation` |
 | GET | `/api/v1/investigations/{run_id}/stream` | `stream_investigation` |
+| GET | `/api/v1/model-deployment` | `get_deployment` |
+| POST | `/api/v1/model-deployment/canary/evaluate` | `evaluate_canary` |
+| POST | `/api/v1/model-deployment/rollback` | `rollback_deployment` |
 | GET | `/api/v1/model-versions` | `list_model_versions` |
 | GET | `/api/v1/model-versions/{version_id}` | `get_model_version` |
+| POST | `/api/v1/model-versions/{version_id}/approve` | `approve_version` |
+| POST | `/api/v1/model-versions/{version_id}/canary` | `set_canary` |
+| POST | `/api/v1/model-versions/{version_id}/shadow` | `promote_to_shadow` |
 | GET | `/api/v1/rules` | `list_rules` |
 | POST | `/api/v1/rules` | `create_rule` |
 | DELETE | `/api/v1/rules/{rule_id}` | `delete_rule` |
 | GET | `/api/v1/rules/{rule_id}` | `get_rule` |
 | PATCH | `/api/v1/rules/{rule_id}` | `update_rule` |
 | POST | `/api/v1/telemetry/client-error` | `report_client_error` |
+| GET | `/api/v1/training-runs` | `list_training_runs` |
+| POST | `/api/v1/training-runs` | `trigger_training_run` |
 | GET | `/api/v1/transactions` | `list_transactions` |
 | POST | `/api/v1/transactions` | `ingest_transaction` |
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
@@ -249,6 +259,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `api_v1_prefix` | `str` | `'/api/v1'` | Prefix for business APIs; ops endpoints stay unprefixed. |
 | `request_id_header` | `str` | `'X-Request-Id'` | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | `bool` | `False` | Dev-only auth bypass; honored only when environment != 'prod'. |
+| `auth_dev_bypass_role` | `Literal` | `'admin'` | RBAC role the dev bypass mints (default admin so local-demo can drive the model lifecycle); honored only when the bypass is enabled, so it is prod-inert. |
 | `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
 | `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
 | `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
@@ -256,8 +267,14 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
 | `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
 | `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
-| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Security response headers applied to every gateway response. |
+| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Static security response headers applied to every gateway response. |
+| `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
+| `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable, plan §12.3). |
+| `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. Empty falls back to the strict policy so the API surface is never weakened. |
+| `docs_ui_paths` | `list` | `['/docs', '/redoc']` | Paths serving the interactive docs UI that receive the relaxed CSP. |
 | `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
+| `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default (stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14). |
+| `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled (App Insights / OTel). |
 | `storage_backend` | `Literal` | `'local'` | Artifact/PDF storage backend selector (local-FS vs Azure Blob). |
 | `storage_local_dir` | `str` | `'.local/artifacts'` | Root directory for the local-FS storage backend (gitignored). |
 | `queue_backend` | `Literal` | `'local'` | Background-job backend selector (local runner vs Container Apps Jobs). |
@@ -275,12 +292,18 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |
 | `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
 | `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
+| `client_error_rate_limit_requests` | `int` | `60` | Per-client request budget for the telemetry client-error sink within the rate-limit window — a stricter per-route limit layered on the global gateway limiter as defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13). |
 | `investigation_history_window_hours` | `int` | `168` | Same-account history lookback fed to the rules engine + features (covers the widest built-in rule window, structuring at 7 days). |
 | `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
 | `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
 | `investigation_idempotency_cache_size` | `int` | `1024` | Max retained Idempotency-Key→runId entries in the in-process run manager (LRU-bounded; the single-replica dedupe window, ADR-016). |
 | `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
 | `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
+| `retrain_min_labels_total` | `int` | `10` | Min matured reviewed labels (any class) before a retrain is eligible; below it the trigger returns insufficient_matured_labels (plan §9.4). Dev-friendly default. |
+| `retrain_min_labels_per_class` | `int` | `2` | Min matured labels required for EACH of the fraud/benign classes before a retrain is eligible (guards a one-sided training set, plan §9.4). |
+| `retrain_tenant_slices` | `int` | `2` | Deterministic holdout partitions used as per-tenant evaluation slices when computing the §9.4 per-tenant slice gate (synthetic-data MLOps stand-in for agencies). |
+| `canary_guard_min_samples` | `int` | `20` | Min inference samples per arm (active/canary) before the canary auto-abort guard will act on a deviation (the §10.5.1 min-sample window). |
+| `canary_guard_max_deviation` | `float` | `0.2` | Max absolute deviation between the canary's and active's mean predicted probability (alert-rate/precision proxy) before auto-abort → rollback (plan §10.5.1). |
 <!-- /AUTOGEN:config-keys -->
 
 ## Data model (ERD)
