@@ -62,6 +62,11 @@ class TenantContext(CamelModel):
         description="Acting user id from the verified token subject; the actor audited "
         "actions are recorded under (None when the token carries no subject).",
     )
+    role: str = Field(
+        default="analyst",
+        description="RBAC role from the verified claim (analyst|reviewer|admin); gates "
+        "admin-only routes (e.g. model lifecycle). Defaults to least privilege.",
+    )
 
 
 class AgencyResponse(CamelModel):

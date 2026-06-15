@@ -139,6 +139,45 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             http_status=401,
             message="A verified acting user is required for this action.",
         ),
+        # --- Phase 10: model lifecycle / MLOps (endpoints 19-26, admin) ---
+        ErrorSpec(
+            code="admin_role_required",
+            http_status=403,
+            message="This action requires the admin role.",
+        ),
+        ErrorSpec(
+            code="insufficient_matured_labels",
+            http_status=422,
+            message="Not enough matured reviewed labels to train a candidate model yet.",
+        ),
+        ErrorSpec(
+            code="training_in_progress",
+            http_status=409,
+            message="A model training run is already in progress.",
+        ),
+        ErrorSpec(
+            code="invalid_model_transition",
+            http_status=409,
+            message="That action is not allowed from the model version's current status.",
+        ),
+        ErrorSpec(
+            code="nothing_to_rollback",
+            http_status=409,
+            message="There is no canary or previous deployment to roll back to.",
+        ),
+        ErrorSpec(
+            code="deployment_not_found",
+            http_status=404,
+            message="No model deployment is configured.",
+        ),
+        # --- Phase 13: per-route rate limiting (api/deps.rate_limit). The gateway edge builds
+        # its own 429 envelope inline at the ASGI layer; this entry backs the AppError raised by
+        # the per-route dependency so both paths surface the same machine-readable code. ---
+        ErrorSpec(
+            code="rate_limited",
+            http_status=429,
+            message="Too many requests; slow down and retry shortly.",
+        ),
     )
 }
 

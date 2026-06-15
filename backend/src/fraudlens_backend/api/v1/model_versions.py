@@ -2,15 +2,17 @@
 /api/v1/model-versions`). It exposes the global model registry (`model_versions`) plus which
 version is currently ACTIVE, so an operator can see the trained candidate(s), their gate
 metrics, and the live model. The registry is PLATFORM-global (models are not tenant-scoped,
-ADR-015), so these routes are not agency-filtered — but they still require a valid JWT
-(`get_tenant`), failing closed like every business route; mutating model-lifecycle routes
-(retrain/approve/canary/rollback) and admin RBAC land in Phase 10. Responses are PHI-free by
-construction: feature NAMES + numeric metrics only.
+ADR-015), so these routes are not agency-filtered — but they require an ADMIN JWT
+(`get_admin_tenant`), failing closed like every business route (admin RBAC, plan §6.3 / §5.3);
+the mutating model-lifecycle routes (retrain/shadow/approve/canary/rollback/drift) live in
+`api/v1/model_lifecycle.py` (Phase 10). Responses are PHI-free by construction: feature NAMES +
+numeric metrics only.
 
 Key classes:
 - (none)
 
 Key functions:
+- to_version_response: project a ModelVersion row onto the API response (shared with lifecycle).
 - list_model_versions: GET /model-versions — the registry, newest first, + the active label.
 - get_model_version: GET /model-versions/{versionId} — one version (404 when absent).
 
@@ -27,7 +29,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from fraudlens_backend.api.deps import DbSessionDep, get_tenant
+from fraudlens_backend.api.deps import DbSessionDep, get_admin_tenant
 from fraudlens_backend.db.models import ModelVersion
 from fraudlens_backend.db.repositories.model_registry import ModelRegistryRepository
 from fraudlens_backend.models.common import TenantContext
@@ -39,10 +41,11 @@ from fraudlens_backend.models.model_versions import (
 
 router = APIRouter(tags=["model-versions"])
 
-TenantDep = Annotated[TenantContext, Depends(get_tenant)]
+# Model lifecycle is admin-only (plan §5.3 endpoints 19-26; routes.yaml `required_role: admin`).
+TenantDep = Annotated[TenantContext, Depends(get_admin_tenant)]
 
 
-def _to_response(version: ModelVersion) -> ModelVersionResponse:
+def to_version_response(version: ModelVersion) -> ModelVersionResponse:
     """Project a persisted ModelVersion row onto the API response model."""
     return ModelVersionResponse(
         version_id=str(version.id),
@@ -63,7 +66,7 @@ async def list_model_versions(tenant: TenantDep, session: DbSessionDep) -> Model
     versions = await repo.list_versions()
     pointer = await repo.build_pointer()
     return ModelVersionListResponse(
-        versions=[_to_response(version) for version in versions],
+        versions=[to_version_response(version) for version in versions],
         active_version_label=pointer.active_version_label if pointer is not None else None,
     )
 
@@ -76,4 +79,4 @@ async def get_model_version(
     version = await ModelRegistryRepository(session).get_version(version_id)
     if version is None:
         raise AppError("model_version_not_found")
-    return _to_response(version)
+    return to_version_response(version)

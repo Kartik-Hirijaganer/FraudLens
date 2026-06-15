@@ -38,10 +38,17 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fraudlens_backend.api.deps import DbSessionDep, SettingsDep, get_tenant
+from fraudlens_backend.api.deps import (
+    DbSessionDep,
+    SettingsDep,
+    audit_writer,
+    get_tenant,
+    optional_actor,
+)
 from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, SarDraft
 from fraudlens_backend.db.repositories import (
     AnalysisRunRepository,
+    ModelRegistryRepository,
     SarDraftRepository,
     TransactionRepository,
 )
@@ -73,21 +80,36 @@ def _manager(request: Request) -> RunManager:
     return cast(RunManager, manager)
 
 
-async def _create_and_start(
+async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + correlation + the optional override (keyword-only).
     *,
     manager: RunManager,
     session: AsyncSession,
     settings: AppSettings,
-    agency_id: uuid.UUID,
+    tenant: TenantContext,
+    request: Request,
     transaction_id: uuid.UUID,
+    model_override: str | None = None,
 ) -> str:
     """Create the running run, build its input, launch the background Runner; return the runId."""
+    agency_id = uuid.UUID(tenant.agency_id)
     repo = TransactionRepository(session, agency_id)
     transaction = await repo.get(transaction_id)
     if transaction is None:
         raise AppError("transaction_not_found")
+    if model_override is not None and (
+        await ModelRegistryRepository(session).get_version_by_label(model_override) is None
+    ):
+        # Reject an unregistered override BEFORE starting the run (never a silent no-op, §5.4).
+        raise AppError("model_version_not_found")
     run = await AnalysisRunRepository(session, agency_id).create_running(
         transaction_id=transaction.id
+    )
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="investigation.start",
+        resource_type="analysis_run",
+        resource_id=str(run.id),
+        metadata={"transactionId": str(transaction.id)},
     )
     await session.commit()
     pipeline_input = await build_pipeline_input(
@@ -102,6 +124,7 @@ async def _create_and_start(
         run_id=run.id,
         transaction_id=transaction.id,
         pipeline_input=pipeline_input,
+        model_override=model_override,
     )
     return str(run.id)
 
@@ -116,7 +139,6 @@ async def start_investigation(
 ) -> InvestigationStartResponse:
     """Start + own an investigation run (202 {runId}); an Idempotency-Key dedupes double-clicks."""
     manager = _manager(request)
-    agency_id = uuid.UUID(tenant.agency_id)
     idempotency_key = request.headers.get(_IDEMPOTENCY_HEADER)
     if idempotency_key:
         async with manager.lock:
@@ -127,8 +149,10 @@ async def start_investigation(
                 manager=manager,
                 session=session,
                 settings=settings,
-                agency_id=agency_id,
+                tenant=tenant,
+                request=request,
                 transaction_id=payload.transaction_id,
+                model_override=payload.model_override,
             )
             manager.remember_idempotent(tenant.agency_id, idempotency_key, run_id)
             return InvestigationStartResponse(run_id=run_id)
@@ -136,8 +160,10 @@ async def start_investigation(
         manager=manager,
         session=session,
         settings=settings,
-        agency_id=agency_id,
+        tenant=tenant,
+        request=request,
         transaction_id=payload.transaction_id,
+        model_override=payload.model_override,
     )
     return InvestigationStartResponse(run_id=run_id)
 

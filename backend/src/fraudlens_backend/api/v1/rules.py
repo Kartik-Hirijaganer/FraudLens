@@ -31,10 +31,15 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.api.deps import DbSessionDep, get_tenant
+from fraudlens_backend.api.deps import (
+    DbSessionDep,
+    audit_writer,
+    get_tenant,
+    optional_actor,
+)
 from fraudlens_backend.db.models import AmlRule
 from fraudlens_backend.db.repositories import RuleRepository
 from fraudlens_backend.models.common import TenantContext
@@ -85,7 +90,7 @@ async def list_rules(tenant: TenantDep, session: DbSessionDep) -> RuleListRespon
 
 @router.post("/rules", response_model=RuleResponse, status_code=201)
 async def create_rule(
-    payload: RuleCreateRequest, tenant: TenantDep, session: DbSessionDep
+    payload: RuleCreateRequest, request: Request, tenant: TenantDep, session: DbSessionDep
 ) -> RuleResponse:
     """Create an agency-scoped rule (201); 409 when its code already exists for the agency."""
     repo = _repo(tenant, session)
@@ -104,6 +109,13 @@ async def create_rule(
     )
     await repo.add(rule)
     await session.refresh(rule)
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="rule.create",
+        resource_type="aml_rule",
+        resource_id=str(rule.id),
+        metadata={"code": rule.code},
+    )
     await session.commit()
     return _to_response(rule)
 
@@ -122,6 +134,7 @@ async def get_rule(rule_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep)
 async def update_rule(
     rule_id: uuid.UUID,
     payload: RuleUpdateRequest,
+    request: Request,
     tenant: TenantDep,
     session: DbSessionDep,
 ) -> RuleResponse:
@@ -145,16 +158,32 @@ async def update_rule(
     rule.version = rule.version + 1
     await session.flush()
     await session.refresh(rule)
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="rule.update",
+        resource_type="aml_rule",
+        resource_id=str(rule.id),
+        metadata={"code": rule.code, "version": str(rule.version)},
+    )
     await session.commit()
     return _to_response(rule)
 
 
 @router.delete("/rules/{rule_id}", status_code=204)
-async def delete_rule(rule_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep) -> None:
+async def delete_rule(
+    rule_id: uuid.UUID, request: Request, tenant: TenantDep, session: DbSessionDep
+) -> None:
     """Delete the agency's rule (204); 404 when missing, global, or cross-tenant."""
     repo = _repo(tenant, session)
     rule = await repo.get(rule_id)
     if rule is None:
         raise AppError("rule_not_found")
+    await audit_writer(tenant, session, request).record(
+        actor_id=optional_actor(tenant),
+        action="rule.delete",
+        resource_type="aml_rule",
+        resource_id=str(rule.id),
+        metadata={"code": rule.code},
+    )
     await repo.delete(rule)
     await session.commit()

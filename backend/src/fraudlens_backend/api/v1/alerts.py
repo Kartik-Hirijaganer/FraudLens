@@ -37,13 +37,18 @@ from typing import Annotated, cast
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.api.deps import DbSessionDep, SettingsDep, get_tenant
+from fraudlens_backend.api.deps import (
+    DbSessionDep,
+    SettingsDep,
+    audit_writer,
+    get_tenant,
+    require_actor,
+)
 from fraudlens_backend.backends.storage import get_storage_backend
 from fraudlens_backend.db.models import Alert, AlertAction, AlertActionType, AlertStatus, SarDraft
 from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import (
     AlertRepository,
-    AuditLogRepository,
     SarDraftRepository,
 )
 from fraudlens_backend.db.repositories.alerts import load_label_maturity_days, next_alert_status
@@ -81,19 +86,6 @@ def _repo(tenant: TenantContext, session: AsyncSession) -> AlertRepository:
 def _sar_repo(tenant: TenantContext, session: AsyncSession) -> SarDraftRepository:
     """Build an agency-scoped SAR-draft repository for the verified tenant."""
     return SarDraftRepository(session, uuid.UUID(tenant.agency_id))
-
-
-def _audit(tenant: TenantContext, session: AsyncSession, request: Request) -> AuditLogRepository:
-    """Build the request-correlated, tenant-scoped audit writer for this request."""
-    request_id = str(getattr(request.state, "request_id", "unknown"))
-    return AuditLogRepository(session, agency_id=uuid.UUID(tenant.agency_id), request_id=request_id)
-
-
-def _actor(tenant: TenantContext) -> uuid.UUID:
-    """Return the verified acting user id, or fail closed (401) when the token carries none."""
-    if not tenant.user_id:
-        raise AppError("acting_user_required")
-    return uuid.UUID(tenant.user_id)
 
 
 def _to_alert_view(alert: Alert) -> AlertView:
@@ -214,7 +206,7 @@ async def act_on_alert(
 ) -> AlertView:
     """Apply a validated triage action; illegal transition → 409, cross-tenant assignee → 403."""
     repo = _repo(tenant, session)
-    actor_id = _actor(tenant)
+    actor_id = require_actor(tenant)
     alert = await repo.get(alert_id)
     if alert is None:
         raise AppError("alert_not_found")
@@ -247,7 +239,7 @@ async def act_on_alert(
         note=masked_note,
         assigned_to=assigned_to,
     )
-    await _audit(tenant, session, request).record(
+    await audit_writer(tenant, session, request).record(
         actor_id=actor_id,
         action=f"alert.{payload.action.value}",
         resource_type="alert",
@@ -273,7 +265,7 @@ async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request 
 ) -> SarDraftView:
     """Approve/reject/edit the alert's latest SAR draft; approve schedules a deferred PDF."""
     repo = _repo(tenant, session)
-    actor_id = _actor(tenant)
+    actor_id = require_actor(tenant)
     alert = await repo.get(alert_id)
     if alert is None:
         raise AppError("alert_not_found")
@@ -296,7 +288,7 @@ async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request 
         await sar_repo.set_review_status(target, status=SarStatus.APPROVED, reviewed_by=actor_id)
     elif payload.decision == SarReviewDecision.REJECT:
         await sar_repo.set_review_status(target, status=SarStatus.REJECTED, reviewed_by=actor_id)
-    await _audit(tenant, session, request).record(
+    await audit_writer(tenant, session, request).record(
         actor_id=actor_id,
         action=f"sar.{payload.decision.value}",
         resource_type="sar_draft",
