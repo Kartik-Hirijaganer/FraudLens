@@ -116,6 +116,36 @@ class AppSettings(BaseSettings):
         description="RBAC role the dev bypass mints (default admin so local-demo can drive the "
         "model lifecycle); honored only when the bypass is enabled, so it is prod-inert.",
     )
+    auth_jwks_url: str | None = Field(
+        default=None,
+        description=(
+            "Supabase Auth JWKS URL for RS256 access-token verification; unset fails closed."
+        ),
+    )
+    auth_jwt_issuer: str | None = Field(
+        default=None,
+        description=(
+            "Expected JWT issuer; unset skips issuer validation for local/integration tests."
+        ),
+    )
+    auth_jwt_audience: str | None = Field(
+        default=None,
+        description=(
+            "Expected JWT audience; unset skips audience validation for local/integration tests."
+        ),
+    )
+    auth_jwt_algorithm: Literal["RS256"] = Field(
+        default="RS256",
+        description="JWT signing algorithm accepted from the configured JWKS.",
+    )
+    auth_agency_claim: str = Field(
+        default="agency_id",
+        description="JWT claim containing the tenant agency id.",
+    )
+    auth_role_claim: str = Field(
+        default="role",
+        description="JWT claim containing the FraudLens RBAC role.",
+    )
 
     # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
     cors_allow_origins: list[str] = Field(
@@ -367,6 +397,7 @@ class AppSettings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Layer YAML config under env vars and constructor args (highest priority first)."""
+        del dotenv_settings, file_secret_settings
         config_dir = find_config_dir()
         sources: list[PydanticBaseSettingsSource] = [init_settings, env_settings]
         env_yaml = config_dir / f"{_active_environment()}.yaml"

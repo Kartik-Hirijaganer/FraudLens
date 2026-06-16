@@ -12,6 +12,7 @@ Key classes:
 - AccessClaims: validated claims extracted from a verified token.
 - CredentialsError: raised by a TokenVerifier when a token is not acceptable.
 - TokenVerifier: protocol for pluggable token verification.
+- JwksTokenVerifier:
 
 Key functions:
 - get_app_settings: dependency returning the settings bound to the app instance.
@@ -19,7 +20,7 @@ Key functions:
 - get_token_verifier: dependency returning the (overridable) default verifier.
 - authenticate: resolve AccessClaims, honoring the prod-inert dev bypass.
 - enforce_tenant: validate a claim's agency_id against the requested agency_id.
-- get_tenant_for_path: dependency enforcing tenancy for /agencies/{agency_id}.
+- get_tenant_for_path: dependency enforcing tenancy for /agencies/{agencyId}.
 - get_tenant: dependency resolving tenant scope from the verified claim alone.
 - get_admin_tenant: dependency that additionally requires the admin role (403 otherwise).
 - require_actor: return the verified acting user id for an audited mutation (401 when absent).
@@ -29,25 +30,25 @@ Key functions:
 
 Notes:
 - rate_limit (plan §16 Phase 13) is a stricter per-route limiter layered on top of the global
-  gateway edge limiter (middleware/gateway.py) as defense-in-depth for abuse-prone routes (the
-  telemetry client-error sink). Its budget/window are read from settings at request time
-  (config-driven, rule 4) and its per-scope counter lives on app.state.route_rate_limiters, so
-  state is process-local and test-isolated; v1 runs single-replica (scale-to-zero), so a
-  per-replica counter is correct (a shared store is the documented multi-replica scale-up).
+gateway edge limiter (middleware/gateway.py) as defense-in-depth for abuse-prone routes (the
+telemetry client-error sink). Its budget/window are read from settings at request time
+(config-driven, rule 4) and its per-scope counter lives on app.state.route_rate_limiters, so
+state is process-local and test-isolated; v1 runs single-replica (scale-to-zero), so a
+per-replica counter is correct (a shared store is the documented multi-replica scale-up).
 - enforce_tenant delegates to fraudlens_core.require_agency_id and maps its
-  TenantIsolationError to 401 (missing claim) or 403 (mismatch) — no agency id
-  value ever appears in the raised message (FraudLens tenant/PHI hygiene).
+TenantIsolationError to 401 (missing claim) or 403 (mismatch) — no agency id
+value ever appears in the raised message (FraudLens tenant/PHI hygiene).
 - The dev-bypass agency id is the shared demo tenant (fraudlens_backend.demo), so a
-  bypassed identity resolves to the seeded demo agency in local-demo (still inert in prod);
-  the bypass mints the CONFIGURED role (settings.auth_dev_bypass_role, default admin so local-demo
-  can exercise the admin-only model lifecycle, Phase 10) while the audited actor stays DEMO_USER_ID.
+bypassed identity resolves to the seeded demo agency in local-demo (still inert in prod);
+the bypass mints the CONFIGURED role (settings.auth_dev_bypass_role, default admin so local-demo
+can exercise the admin-only model lifecycle, Phase 10) while the audited actor stays DEMO_USER_ID.
 - RBAC is claim-based (§6.3): the role rides the verified claim and is re-checked in services
-  via get_admin_tenant; a non-admin on an admin route fails closed with admin_role_required (403).
+via get_admin_tenant; a non-admin on an admin route fails closed with admin_role_required (403).
 - get_db_session yields from app.state.db_sessionmaker; when no DATABASE_URL is configured
-  the sessionmaker is None and the dependency fails closed with 503 (the app still boots).
+the sessionmaker is None and the dependency fails closed with 503 (the app still boots).
 - Observability (plan §11.4/§11.7, Phase 12): enforce_tenant binds the verified agency_id/user_id
-  into the structlog contextvars (access-log correlation) on success, and authenticate +
-  enforce_tenant emit a PHI-free `auth_fail`/`tenant_mismatch` security event on failure.
+into the structlog contextvars (access-log correlation) on success, and authenticate +
+enforce_tenant emit a PHI-free `auth_fail`/`tenant_mismatch` security event on failure.
 """
 
 from __future__ import annotations
@@ -58,8 +59,11 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Annotated, Protocol, cast
 
-from fastapi import Depends, HTTPException
+import jwt
+from fastapi import Depends, HTTPException, Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
+from jwt.exceptions import InvalidTokenError, PyJWKClientError
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -83,6 +87,9 @@ DEV_BYPASS_USER_ID = str(DEMO_USER_ID)
 def get_app_settings(request: Request) -> AppSettings:
     """Return the settings bound to the running app instance (set by the factory)."""
     return cast(AppSettings, request.app.state.settings)
+
+
+SettingsDep = Annotated[AppSettings, Depends(get_app_settings)]
 
 
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -127,14 +134,57 @@ class _UnconfiguredTokenVerifier:
         raise CredentialsError("token verification is not configured")
 
 
-def get_token_verifier() -> TokenVerifier:
-    """Return the default token verifier (overridden in tests / when wired up)."""
-    return _UnconfiguredTokenVerifier()
+class JwksTokenVerifier:
+    """Verify RS256 JWTs against the configured Supabase JWKS endpoint."""
+
+    def __init__(self, settings: AppSettings) -> None:
+        """Capture the JWKS client and the expected claim/issuer/audience policy."""
+        if settings.auth_jwks_url is None:
+            raise CredentialsError("jwks url is not configured")
+        self._client = PyJWKClient(settings.auth_jwks_url)
+        self._algorithm = settings.auth_jwt_algorithm
+        self._issuer = settings.auth_jwt_issuer
+        self._audience = settings.auth_jwt_audience
+        self._agency_claim = settings.auth_agency_claim
+        self._role_claim = settings.auth_role_claim
+
+    def __call__(self, token: str) -> AccessClaims:
+        """Return verified AccessClaims from a bearer token; raise on any invalid shape."""
+        try:
+            signing_key = self._client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=[self._algorithm],
+                issuer=self._issuer,
+                audience=self._audience,
+                options={
+                    "verify_iss": self._issuer is not None,
+                    "verify_aud": self._audience is not None,
+                },
+            )
+        except (InvalidTokenError, PyJWKClientError) as exc:
+            raise CredentialsError("token verification failed") from exc
+        agency_id = payload.get(self._agency_claim)
+        if not isinstance(agency_id, str) or not agency_id:
+            raise CredentialsError("missing agency claim")
+        role = payload.get(self._role_claim, UserRole.ANALYST.value)
+        if role not in {member.value for member in UserRole}:
+            raise CredentialsError("invalid role claim")
+        subject = payload.get("sub")
+        user_id = subject if isinstance(subject, str) and subject else None
+        return AccessClaims(agency_id=agency_id, user_id=user_id, role=str(role))
+
+
+def get_token_verifier(settings: SettingsDep) -> TokenVerifier:
+    """Return the configured JWKS verifier, or the fail-closed verifier when absent."""
+    if settings.auth_jwks_url is None:
+        return _UnconfiguredTokenVerifier()
+    return JwksTokenVerifier(settings)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-SettingsDep = Annotated[AppSettings, Depends(get_app_settings)]
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 VerifierDep = Annotated[TokenVerifier, Depends(get_token_verifier)]
 CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
@@ -185,10 +235,10 @@ def enforce_tenant(claims: AccessClaims, requested_agency_id: str | None) -> Ten
 
 
 async def get_tenant_for_path(
-    agency_id: str,
+    agency_id: Annotated[str, Path(alias="agencyId")],
     claims: AuthenticatedClaims,
 ) -> TenantContext:
-    """Tenant-scoping dependency for /agencies/{agency_id}: claim must match the path."""
+    """Tenant-scoping dependency for /agencies/{agencyId}: claim must match the path."""
     return enforce_tenant(claims, agency_id)
 
 
