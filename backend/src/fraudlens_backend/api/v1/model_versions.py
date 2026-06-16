@@ -27,7 +27,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 
 from fraudlens_backend.api.deps import DbSessionDep, get_admin_tenant
 from fraudlens_backend.db.models import ModelVersion
@@ -71,9 +71,11 @@ async def list_model_versions(tenant: TenantDep, session: DbSessionDep) -> Model
     )
 
 
-@router.get("/model-versions/{version_id}", response_model=ModelVersionResponse)
+@router.get("/model-versions/{versionId}", response_model=ModelVersionResponse)
 async def get_model_version(
-    version_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep
+    version_id: Annotated[uuid.UUID, Path(alias="versionId")],
+    tenant: TenantDep,
+    session: DbSessionDep,
 ) -> ModelVersionResponse:
     """Return one model-registry version by id; 404 when it does not exist."""
     version = await ModelRegistryRepository(session).get_version(version_id)
