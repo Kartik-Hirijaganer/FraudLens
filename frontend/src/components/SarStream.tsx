@@ -7,20 +7,20 @@
  * placeholder.
  *
  * Key classes:
- * - SarStreamProps: props (the accumulated text + streaming/failed flags).
+ * - (none)
  *
  * Key functions:
  * - SarStream: render the streaming SAR narrative, failed note, or placeholder.
  *
  * Notes:
  * - Text is whitespace-preserved and word-wrapped; it is the PHI-masked narrative built
- *   from rule hits + SHAP feature names + citations (never raw PHI, §7.8).
+ * from rule hits + SHAP feature names + citations (never raw PHI, §7.8).
  */
 import { cx } from "../lib/cx";
 import { usePrefersReducedMotion } from "../lib/motion";
 import { EmptyState } from "./feedback/EmptyState";
 
-export interface SarStreamProps {
+interface SarStreamProps {
   text: string;
   streaming: boolean;
   failed?: boolean;

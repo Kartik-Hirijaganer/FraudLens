@@ -7,7 +7,7 @@
  * an aria value + text so the score is announced accessibly.
  *
  * Key classes:
- * - FraudGaugeProps: props (value 0..1 + risk band string).
+ * - (none)
  *
  * Key functions:
  * - FraudGauge: render the accessible animated risk gauge.
@@ -34,7 +34,7 @@ const STROKE_CLASSES: Record<StatusTone, string> = {
   neutral: "stroke-mute",
 };
 
-export interface FraudGaugeProps {
+interface FraudGaugeProps {
   value: number;
   band: string;
 }

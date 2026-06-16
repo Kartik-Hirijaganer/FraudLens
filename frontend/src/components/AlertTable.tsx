@@ -5,7 +5,7 @@
  * EmptyState when there are no alerts.
  *
  * Key classes:
- * - AlertTableProps: props (the alerts + an onSelect callback).
+ * - (none)
  *
  * Key functions:
  * - AlertTable: render the alerts table (or an empty state).
@@ -20,7 +20,7 @@ import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./feedback/EmptyState";
 
-export interface AlertTableProps {
+interface AlertTableProps {
   alerts: AlertView[];
   onSelect: (alertId: string) => void;
 }
