@@ -1,4 +1,4 @@
-"""fraudlens-backend: the FastAPI service (walking skeleton)."""
+"""fraudlens-backend: the FraudLens FastAPI service."""
 
 __all__ = ["__version__"]
 
