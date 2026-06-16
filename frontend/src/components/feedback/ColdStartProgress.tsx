@@ -6,7 +6,7 @@
  * neutral ink palette, never the brand green (which is reserved for CTAs).
  *
  * Key classes:
- * - ColdStartProgressProps: props (optional reassurance message).
+ * - (none)
  *
  * Key functions:
  * - ColdStartProgress: render the cold-start progress message + indeterminate bar.
@@ -14,7 +14,7 @@
  * Notes:
  * - The bar is `role="progressbar"` without a value (indeterminate) — duration is unknown.
  */
-export interface ColdStartProgressProps {
+interface ColdStartProgressProps {
   message?: string;
 }
 

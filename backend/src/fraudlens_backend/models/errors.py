@@ -178,6 +178,12 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             http_status=429,
             message="Too many requests; slow down and retry shortly.",
         ),
+        # --- Admin runtime/dev utilities. Dev routes are production-disabled by design. ---
+        ErrorSpec(
+            code="dev_utility_disabled",
+            http_status=403,
+            message="Developer utility routes are disabled in production.",
+        ),
     )
 }
 

@@ -1,7 +1,8 @@
 """Summary: Aggregates the versioned /api/v1 business surface. It mounts the health,
 transaction-ingestion, AML-rules, investigation (create/snapshot/SSE), alert/review-workflow,
 model-registry, admin model-lifecycle (retrain/shadow/approve/canary/rollback/drift), dashboard
-metrics, and telemetry sub-routers, and serves the tenant-scoped GET /api/v1/agencies/{agency_id}
+metrics, runtime-config, dev-utility, and telemetry sub-routers, and serves the tenant-scoped
+GET /api/v1/agencies/{agencyId}
 lookup,
 which exercises the full access path:
 fail-closed authentication, agency_id claim validation (401 unauthenticated, 403 tenant
@@ -33,7 +34,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fraudlens_backend.api.deps import DbSessionDep, get_tenant_for_path
 from fraudlens_backend.api.v1 import (
     alerts,
+    config,
     dashboard,
+    dev,
     health,
     investigations,
     model_lifecycle,
@@ -54,12 +57,14 @@ api_router.include_router(alerts.router)
 api_router.include_router(model_versions.router)
 api_router.include_router(model_lifecycle.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(config.router)
+api_router.include_router(dev.router)
 api_router.include_router(telemetry.router)
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant_for_path)]
 
 
-@api_router.get("/agencies/{agency_id}", response_model=AgencyResponse, tags=["tenancy"])
+@api_router.get("/agencies/{agencyId}", response_model=AgencyResponse, tags=["tenancy"])
 async def read_agency(tenant: TenantDep, session: DbSessionDep) -> AgencyResponse:
     """Return the requested agency once tenancy is validated; 404 if it does not exist."""
     agency = await AgencyRepository(session).get(tenant.agency_id)

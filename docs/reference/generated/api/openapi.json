@@ -579,6 +579,112 @@
         "title": "ClientErrorReport",
         "type": "object"
       },
+      "ConfigEntry": {
+        "additionalProperties": false,
+        "description": "One runtime config row; agencyId is null for global defaults.",
+        "properties": {
+          "agencyId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning agency id, or null for a global default.",
+            "title": "Agencyid"
+          },
+          "configId": {
+            "description": "The system_config row id.",
+            "title": "Configid",
+            "type": "string"
+          },
+          "key": {
+            "description": "Stable runtime config key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the config row was last updated.",
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "value": {
+            "description": "JSON config value for the key.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "configId",
+          "key",
+          "value",
+          "updatedAt"
+        ],
+        "title": "ConfigEntry",
+        "type": "object"
+      },
+      "ConfigListResponse": {
+        "additionalProperties": false,
+        "description": "Runtime config rows visible to the tenant admin.",
+        "properties": {
+          "config": {
+            "description": "Global rows plus rows scoped to the caller's agency.",
+            "items": {
+              "$ref": "#/components/schemas/ConfigEntry"
+            },
+            "title": "Config",
+            "type": "array"
+          }
+        },
+        "title": "ConfigListResponse",
+        "type": "object"
+      },
+      "ConfigPatchRequest": {
+        "additionalProperties": false,
+        "description": "Create/update one runtime config key.",
+        "properties": {
+          "agencyScoped": {
+            "default": false,
+            "description": "When true, store the override for the caller's agency; otherwise global.",
+            "title": "Agencyscoped",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Runtime config key.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "JSON config value to store.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "ConfigPatchRequest",
+        "type": "object"
+      },
+      "ConfigPatchResponse": {
+        "additionalProperties": false,
+        "description": "The updated runtime config row.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/ConfigEntry",
+            "description": "Updated runtime config row."
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "title": "ConfigPatchResponse",
+        "type": "object"
+      },
       "CsvUploadResponse": {
         "additionalProperties": false,
         "description": "Outcome of a CSV upload: the recorded job id, counts, and bounded sample errors.",
@@ -751,6 +857,34 @@
           "updatedAt"
         ],
         "title": "DeploymentResponse",
+        "type": "object"
+      },
+      "DevUtilityResponse": {
+        "additionalProperties": false,
+        "description": "Acknowledgement for a non-production dev utility action.",
+        "properties": {
+          "action": {
+            "description": "Utility action accepted by the API.",
+            "title": "Action",
+            "type": "string"
+          },
+          "agencyId": {
+            "description": "Tenant scope under which the action was audited.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "status": {
+            "description": "Outcome status for the utility request.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "status",
+          "agencyId"
+        ],
+        "title": "DevUtilityResponse",
         "type": "object"
       },
       "DriftReportListResponse": {
@@ -2353,23 +2487,23 @@
     }
   },
   "info": {
-    "summary": "FraudLens AML fraud investigation API (walking skeleton).",
+    "summary": "FraudLens AML fraud investigation API.",
     "title": "FraudLens",
     "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/agencies/{agency_id}": {
+    "/api/v1/agencies/{agencyId}": {
       "get": {
         "description": "Return the requested agency once tenancy is validated; 404 if it does not exist.",
-        "operationId": "read_agency_api_v1_agencies__agency_id__get",
+        "operationId": "read_agency_api_v1_agencies__agencyId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "agency_id",
+            "name": "agencyId",
             "required": true,
             "schema": {
-              "title": "Agency Id",
+              "title": "Agencyid",
               "type": "string"
             }
           }
@@ -2485,18 +2619,18 @@
         ]
       }
     },
-    "/api/v1/alerts/{alert_id}": {
+    "/api/v1/alerts/{alertId}": {
       "get": {
         "description": "Return an alert's detail (latest SAR draft + action history); 404 if missing/cross-tenant.",
-        "operationId": "get_alert_api_v1_alerts__alert_id__get",
+        "operationId": "get_alert_api_v1_alerts__alertId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "alert_id",
+            "name": "alertId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Alert Id",
+              "title": "Alertid",
               "type": "string"
             }
           }
@@ -2534,18 +2668,18 @@
         ]
       }
     },
-    "/api/v1/alerts/{alert_id}/actions": {
+    "/api/v1/alerts/{alertId}/actions": {
       "post": {
         "description": "Apply a validated triage action; illegal transition \u2192 409, cross-tenant assignee \u2192 403.",
-        "operationId": "act_on_alert_api_v1_alerts__alert_id__actions_post",
+        "operationId": "act_on_alert_api_v1_alerts__alertId__actions_post",
         "parameters": [
           {
             "in": "path",
-            "name": "alert_id",
+            "name": "alertId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Alert Id",
+              "title": "Alertid",
               "type": "string"
             }
           }
@@ -2593,18 +2727,18 @@
         ]
       }
     },
-    "/api/v1/alerts/{alert_id}/sar/review": {
+    "/api/v1/alerts/{alertId}/sar/review": {
       "post": {
         "description": "Approve/reject/edit the alert's latest SAR draft; approve schedules a deferred PDF.",
-        "operationId": "review_sar_api_v1_alerts__alert_id__sar_review_post",
+        "operationId": "review_sar_api_v1_alerts__alertId__sar_review_post",
         "parameters": [
           {
             "in": "path",
-            "name": "alert_id",
+            "name": "alertId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Alert Id",
+              "title": "Alertid",
               "type": "string"
             }
           }
@@ -2652,6 +2786,78 @@
         ]
       }
     },
+    "/api/v1/config": {
+      "get": {
+        "description": "Return global runtime config plus overrides for the caller's agency.",
+        "operationId": "list_config_api_v1_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Config",
+        "tags": [
+          "config"
+        ]
+      },
+      "patch": {
+        "description": "Create/update one runtime config key; values are not echoed into audit metadata.",
+        "operationId": "patch_config_api_v1_config_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigPatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
     "/api/v1/dashboard/metrics": {
       "get": {
         "description": "Return the tenant-scoped dashboard aggregate (counts + LLM cost + live model health).",
@@ -2676,6 +2882,60 @@
         "summary": "Read Dashboard Metrics",
         "tags": [
           "dashboard"
+        ]
+      }
+    },
+    "/api/v1/dev/reset": {
+      "post": {
+        "description": "Acknowledge and audit a non-production reset request.",
+        "operationId": "dev_reset_api_v1_dev_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevUtilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dev Reset",
+        "tags": [
+          "dev"
+        ]
+      }
+    },
+    "/api/v1/dev/seed": {
+      "post": {
+        "description": "Acknowledge and audit a non-production seed request.",
+        "operationId": "dev_seed_api_v1_dev_seed_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevUtilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dev Seed",
+        "tags": [
+          "dev"
         ]
       }
     },
@@ -2810,18 +3070,18 @@
         ]
       }
     },
-    "/api/v1/investigations/{run_id}": {
+    "/api/v1/investigations/{runId}": {
       "get": {
         "description": "Return the authoritative run snapshot; 404 when missing or owned by another agency.",
-        "operationId": "get_investigation_api_v1_investigations__run_id__get",
+        "operationId": "get_investigation_api_v1_investigations__runId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "run_id",
+            "name": "runId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Run Id",
+              "title": "Runid",
               "type": "string"
             }
           }
@@ -2859,18 +3119,18 @@
         ]
       }
     },
-    "/api/v1/investigations/{run_id}/stream": {
+    "/api/v1/investigations/{runId}/stream": {
       "get": {
         "description": "Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens.",
-        "operationId": "stream_investigation_api_v1_investigations__run_id__stream_get",
+        "operationId": "stream_investigation_api_v1_investigations__runId__stream_get",
         "parameters": [
           {
             "in": "path",
-            "name": "run_id",
+            "name": "runId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Run Id",
+              "title": "Runid",
               "type": "string"
             }
           }
@@ -3014,18 +3274,18 @@
         ]
       }
     },
-    "/api/v1/model-versions/{version_id}": {
+    "/api/v1/model-versions/{versionId}": {
       "get": {
         "description": "Return one model-registry version by id; 404 when it does not exist.",
-        "operationId": "get_model_version_api_v1_model_versions__version_id__get",
+        "operationId": "get_model_version_api_v1_model_versions__versionId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "version_id",
+            "name": "versionId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Version Id",
+              "title": "Versionid",
               "type": "string"
             }
           }
@@ -3063,18 +3323,18 @@
         ]
       }
     },
-    "/api/v1/model-versions/{version_id}/approve": {
+    "/api/v1/model-versions/{versionId}/approve": {
       "post": {
         "description": "Record the human approval on a shadow version (the \u00a75.4 gate before any canary).",
-        "operationId": "approve_version_api_v1_model_versions__version_id__approve_post",
+        "operationId": "approve_version_api_v1_model_versions__versionId__approve_post",
         "parameters": [
           {
             "in": "path",
-            "name": "version_id",
+            "name": "versionId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Version Id",
+              "title": "Versionid",
               "type": "string"
             }
           }
@@ -3112,18 +3372,18 @@
         ]
       }
     },
-    "/api/v1/model-versions/{version_id}/canary": {
+    "/api/v1/model-versions/{versionId}/canary": {
       "post": {
         "description": "Ramp the canary to a percent; 100% promotes it to active (pointer flip, no redeploy).",
-        "operationId": "set_canary_api_v1_model_versions__version_id__canary_post",
+        "operationId": "set_canary_api_v1_model_versions__versionId__canary_post",
         "parameters": [
           {
             "in": "path",
-            "name": "version_id",
+            "name": "versionId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Version Id",
+              "title": "Versionid",
               "type": "string"
             }
           }
@@ -3171,18 +3431,18 @@
         ]
       }
     },
-    "/api/v1/model-versions/{version_id}/shadow": {
+    "/api/v1/model-versions/{versionId}/shadow": {
       "post": {
         "description": "Promote a candidate to shadow \u2014 only with a passing evaluation (plan \u00a710.5.1).",
-        "operationId": "promote_to_shadow_api_v1_model_versions__version_id__shadow_post",
+        "operationId": "promote_to_shadow_api_v1_model_versions__versionId__shadow_post",
         "parameters": [
           {
             "in": "path",
-            "name": "version_id",
+            "name": "versionId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Version Id",
+              "title": "Versionid",
               "type": "string"
             }
           }
@@ -3292,18 +3552,18 @@
         ]
       }
     },
-    "/api/v1/rules/{rule_id}": {
+    "/api/v1/rules/{ruleId}": {
       "delete": {
         "description": "Delete the agency's rule (204); 404 when missing, global, or cross-tenant.",
-        "operationId": "delete_rule_api_v1_rules__rule_id__delete",
+        "operationId": "delete_rule_api_v1_rules__ruleId__delete",
         "parameters": [
           {
             "in": "path",
-            "name": "rule_id",
+            "name": "ruleId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Rule Id",
+              "title": "Ruleid",
               "type": "string"
             }
           }
@@ -3335,15 +3595,15 @@
       },
       "get": {
         "description": "Return one rule by id; 404 when missing, global, or owned by another agency.",
-        "operationId": "get_rule_api_v1_rules__rule_id__get",
+        "operationId": "get_rule_api_v1_rules__ruleId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "rule_id",
+            "name": "ruleId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Rule Id",
+              "title": "Ruleid",
               "type": "string"
             }
           }
@@ -3382,15 +3642,15 @@
       },
       "patch": {
         "description": "Apply a partial update (incl. enable/disable) to the agency's rule; bumps version.",
-        "operationId": "update_rule_api_v1_rules__rule_id__patch",
+        "operationId": "update_rule_api_v1_rules__ruleId__patch",
         "parameters": [
           {
             "in": "path",
-            "name": "rule_id",
+            "name": "ruleId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Rule Id",
+              "title": "Ruleid",
               "type": "string"
             }
           }
@@ -3799,18 +4059,18 @@
         ]
       }
     },
-    "/api/v1/transactions/{transaction_id}": {
+    "/api/v1/transactions/{transactionId}": {
       "get": {
         "description": "Return one transaction by id; 404 when missing or owned by another agency.",
-        "operationId": "get_transaction_api_v1_transactions__transaction_id__get",
+        "operationId": "get_transaction_api_v1_transactions__transactionId__get",
         "parameters": [
           {
             "in": "path",
-            "name": "transaction_id",
+            "name": "transactionId",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Transaction Id",
+              "title": "Transactionid",
               "type": "string"
             }
           }

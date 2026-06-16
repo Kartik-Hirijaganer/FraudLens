@@ -6,19 +6,19 @@
  * motion) and carries `aria-current="step"` so assistive tech tracks progress.
  *
  * Key classes:
- * - ProgressStepsProps: props (completed step keys + the run status).
+ * - (none)
  *
  * Key functions:
  * - ProgressSteps: render the ordered step list with per-step state.
  *
  * Notes:
  * - The active/failed marker is whichever step comes next after the last completed one;
- *   colours use the semantic palette (never the brand green).
+ * colours use the semantic palette (never the brand green).
  */
 import { cx } from "../lib/cx";
 import { INVESTIGATION_STEPS, type InvestigationStatus } from "../lib/investigation";
 
-export interface ProgressStepsProps {
+interface ProgressStepsProps {
   completedSteps: string[];
   status: InvestigationStatus;
 }

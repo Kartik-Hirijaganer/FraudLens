@@ -36,7 +36,7 @@ or duplicated.
 
 | Control | Where | Notes |
 |---|---|---|
-| **AuthN — fail-closed JWT** | [`api/deps.py`](../../backend/src/fraudlens_backend/api/deps.py) `authenticate` | Missing/invalid token → 401. The default verifier rejects every token until a signing key is wired (locked by default). |
+| **AuthN — fail-closed JWT** | [`api/deps.py`](../../backend/src/fraudlens_backend/api/deps.py) `authenticate` | Missing/invalid token → 401. Production verification uses the configured Supabase JWKS URL; if no JWKS URL is configured, the verifier rejects every token. |
 | **Dev bypass — prod-inert** | `settings.is_dev_bypass_enabled` | False whenever `environment == "prod"` regardless of the flag. Proven by `tests/security/test_fail_closed.py` + `test_api_v1.py`. |
 | **AuthZ — RBAC** | `get_admin_tenant` | `analyst \| reviewer \| admin` in the JWT claim; admin-only model/lifecycle routes return 403 `admin_role_required` for non-admins. |
 | **Tenant isolation** | `enforce_tenant` → `fraudlens_core.require_agency_id` | `agency_id` comes **only** from the verified claim; cross-tenant reads return 404 (no existence leak), claim/path mismatch returns 403. Every tenant table carries indexed `agency_id` (`make tenancy-check`). |

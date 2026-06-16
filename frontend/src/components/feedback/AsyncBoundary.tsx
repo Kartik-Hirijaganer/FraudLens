@@ -6,14 +6,14 @@
  * once data exists it renders it (and keeps showing it during a background reload).
  *
  * Key classes:
- * - AsyncBoundaryProps: props (the async state, an optional skeleton, the data renderer).
+ * - (none)
  *
  * Key functions:
  * - AsyncBoundary: render skeleton / error+retry / data for an async state.
  *
  * Notes:
  * - During a reload that already has data, the stale data stays on screen (no skeleton
- *   flash); a reload error is left for the caller to surface (e.g. as a toast).
+ * flash); a reload error is left for the caller to surface (e.g. as a toast).
  */
 import type { ReactNode } from "react";
 
@@ -22,7 +22,7 @@ import type { AsyncState } from "../../lib/useAsync";
 import { ErrorState } from "./ErrorState";
 import { Skeleton } from "./Skeleton";
 
-export interface AsyncBoundaryProps<T> {
+interface AsyncBoundaryProps<T> {
   state: AsyncState<T>;
   skeleton?: ReactNode;
   children: (data: T) => ReactNode;
