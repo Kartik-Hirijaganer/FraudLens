@@ -5,7 +5,7 @@
  * tells the analyst what to do next (e.g. "Import transactions").
  *
  * Key classes:
- * - EmptyStateProps: props (title, optional description + action node).
+ * - (none)
  *
  * Key functions:
  * - EmptyState: render the empty-state card.
@@ -15,7 +15,7 @@
  */
 import type { ReactNode } from "react";
 
-export interface EmptyStateProps {
+interface EmptyStateProps {
   title: string;
   description?: string;
   action?: ReactNode;

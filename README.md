@@ -21,12 +21,13 @@ lifecycle operations behind admin-only APIs.
 ```bash
 uv sync --all-packages
 npm --prefix frontend ci
-make local-demo
+make run
 ```
 
 Open `http://localhost:5173` for the frontend and `http://localhost:8000/docs` for the API docs.
-The local demo uses docker Postgres, local artifact/job backends, and the keyless mock SAR drafter.
-No cloud account or real secret is required.
+The local run clean-resets the demo stack, reseeds synthetic data, uses docker Postgres, local
+artifact/job backends, and the keyless mock SAR drafter. No cloud account or real secret is
+required.
 
 ## Source Of Truth
 
