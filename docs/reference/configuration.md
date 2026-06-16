@@ -40,6 +40,7 @@ status-driven handler and apply across every route.
 | `rule_not_found` | 404 | `GET`/`PATCH`/`DELETE /rules/{id}` for a missing id, or one global/owned by another agency (no existence leak). |
 | `duplicate_rule_code` | 409 | Creating a rule whose `code` already exists for the agency. |
 | `model_version_not_found` | 404 | `GET /model-versions/{id}` for an id absent from the global registry. |
+| `dev_utility_disabled` | 403 | Calling `/dev/*` utility routes while `environment == "prod"`. |
 | `validation_error` | 422 | A field fails validation (Pydantic structural or canonical-schema semantic, e.g. non-ISO currency, non-positive amount, future `occurredAt`). |
 
 Batch and CSV ingestion are **partial-accept**: valid rows persist while invalid rows are
