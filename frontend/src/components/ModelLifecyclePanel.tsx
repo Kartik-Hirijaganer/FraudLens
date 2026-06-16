@@ -8,14 +8,14 @@
  * `busy` disables actions while a request is in flight (double-submit guard).
  *
  * Key classes:
- * - ModelLifecyclePanelProps: props (registry/deployment/drift data + action callbacks).
+ * - (none)
  *
  * Key functions:
  * - ModelLifecyclePanel: render the deployment summary, version actions, and drift list.
  *
  * Notes:
  * - Canary ramp order is enforced server-side; the panel shows the steps and surfaces an
- *   illegal transition as an error toast (the page maps the envelope code via lib/errors).
+ * illegal transition as an error toast (the page maps the envelope code via lib/errors).
  */
 import type {
   CanaryPercent,
@@ -32,7 +32,7 @@ import { EmptyState } from "./feedback/EmptyState";
 
 const CANARY_STEPS: CanaryPercent[] = [5, 25, 50, 100];
 
-export interface ModelLifecyclePanelProps {
+interface ModelLifecyclePanelProps {
   versions: ModelVersionResponse[];
   deployment: DeploymentResponse | null;
   driftReports: DriftReportView[];

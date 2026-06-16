@@ -34,7 +34,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -49,6 +49,7 @@ from fraudlens_backend.db.models import Alert, AlertAction, AlertActionType, Ale
 from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import (
     AlertRepository,
+    AuditLogRepository,
     SarDraftRepository,
 )
 from fraudlens_backend.db.repositories.alerts import load_label_maturity_days, next_alert_status
@@ -65,7 +66,7 @@ from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.sar.pdf import generate_sar_pdf
-from fraudlens_core.phi import mask_text
+from fraudlens_core.phi import MaskingReport, mask_text
 
 router = APIRouter(tags=["alerts"])
 
@@ -165,6 +166,31 @@ def _action_metadata(
     return metadata
 
 
+async def _record_text_phi_mask(  # noqa: PLR0913 - explicit audit fields keep call sites clear.
+    writer: AuditLogRepository,
+    *,
+    actor_id: uuid.UUID,
+    resource_type: str,
+    resource_id: str,
+    report: MaskingReport | None,
+    source: str,
+) -> None:
+    """Record counts-only PHI masking for reviewer-entered free text."""
+    if report is None or report.total == 0:
+        return
+    await writer.record(
+        actor_id=actor_id,
+        action="phi_mask",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        metadata={
+            "source": source,
+            "maskedCount": str(report.total),
+            "categories": ",".join(f"{key}:{value}" for key, value in report.categories.items()),
+        },
+    )
+
+
 @router.get("/alerts", response_model=AlertListResponse)
 async def list_alerts(
     tenant: TenantDep,
@@ -178,9 +204,11 @@ async def list_alerts(
     return AlertListResponse(alerts=[_to_alert_view(alert) for alert in alerts])
 
 
-@router.get("/alerts/{alert_id}", response_model=AlertDetailResponse)
+@router.get("/alerts/{alertId}", response_model=AlertDetailResponse)
 async def get_alert(
-    alert_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep
+    alert_id: Annotated[uuid.UUID, Path(alias="alertId")],
+    tenant: TenantDep,
+    session: DbSessionDep,
 ) -> AlertDetailResponse:
     """Return an alert's detail (latest SAR draft + action history); 404 if missing/cross-tenant."""
     repo = _repo(tenant, session)
@@ -196,9 +224,9 @@ async def get_alert(
     )
 
 
-@router.post("/alerts/{alert_id}/actions", response_model=AlertView)
+@router.post("/alerts/{alertId}/actions", response_model=AlertView)
 async def act_on_alert(
-    alert_id: uuid.UUID,
+    alert_id: Annotated[uuid.UUID, Path(alias="alertId")],
     payload: AlertActionRequest,
     request: Request,
     tenant: TenantDep,
@@ -230,7 +258,8 @@ async def act_on_alert(
             created_by=actor_id,
             matured_at=datetime.now(UTC) + timedelta(days=maturity_days),
         )
-    masked_note = mask_text(payload.note).value if payload.note else None
+    masked_note_result = mask_text(payload.note) if payload.note else None
+    masked_note = masked_note_result.value if masked_note_result is not None else None
     await repo.record_action(
         alert=alert,
         actor_id=actor_id,
@@ -239,7 +268,16 @@ async def act_on_alert(
         note=masked_note,
         assigned_to=assigned_to,
     )
-    await audit_writer(tenant, session, request).record(
+    writer = audit_writer(tenant, session, request)
+    await _record_text_phi_mask(
+        writer,
+        actor_id=actor_id,
+        resource_type="alert",
+        resource_id=str(alert_id),
+        report=masked_note_result.report if masked_note_result is not None else None,
+        source="alert.action_note",
+    )
+    await writer.record(
         actor_id=actor_id,
         action=f"alert.{payload.action.value}",
         resource_type="alert",
@@ -253,9 +291,9 @@ async def act_on_alert(
     return _to_alert_view(alert)
 
 
-@router.post("/alerts/{alert_id}/sar/review", response_model=SarDraftView)
+@router.post("/alerts/{alertId}/sar/review", response_model=SarDraftView)
 async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request + 3 injected deps.
-    alert_id: uuid.UUID,
+    alert_id: Annotated[uuid.UUID, Path(alias="alertId")],
     payload: SarReviewRequest,
     request: Request,
     tenant: TenantDep,
@@ -277,10 +315,13 @@ async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request 
     if not sar_decision_allowed(draft.status, payload.decision, has_edit=has_edit):
         raise AppError("invalid_sar_transition")
     target = draft
+    edited_report: MaskingReport | None = None
     if has_edit and payload.edited_content is not None:
+        masked_edit = mask_text(payload.edited_content)
+        edited_report = masked_edit.report
         target = await sar_repo.create_edited_version(
             base=draft,
-            content=mask_text(payload.edited_content).value,
+            content=masked_edit.value,
             created_by=actor_id,
             alert_id=alert.id,
         )
@@ -288,7 +329,16 @@ async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request 
         await sar_repo.set_review_status(target, status=SarStatus.APPROVED, reviewed_by=actor_id)
     elif payload.decision == SarReviewDecision.REJECT:
         await sar_repo.set_review_status(target, status=SarStatus.REJECTED, reviewed_by=actor_id)
-    await audit_writer(tenant, session, request).record(
+    writer = audit_writer(tenant, session, request)
+    await _record_text_phi_mask(
+        writer,
+        actor_id=actor_id,
+        resource_type="sar_draft",
+        resource_id=str(target.id),
+        report=edited_report,
+        source="sar.review_edit",
+    )
+    await writer.record(
         actor_id=actor_id,
         action=f"sar.{payload.decision.value}",
         resource_type="sar_draft",

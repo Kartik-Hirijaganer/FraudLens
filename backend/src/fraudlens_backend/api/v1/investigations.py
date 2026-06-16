@@ -34,7 +34,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -194,9 +194,11 @@ def _snapshot(
     )
 
 
-@router.get("/investigations/{run_id}", response_model=InvestigationSnapshotResponse)
+@router.get("/investigations/{runId}", response_model=InvestigationSnapshotResponse)
 async def get_investigation(
-    run_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep
+    run_id: Annotated[uuid.UUID, Path(alias="runId")],
+    tenant: TenantDep,
+    session: DbSessionDep,
 ) -> InvestigationSnapshotResponse:
     """Return the authoritative run snapshot; 404 when missing or owned by another agency."""
     agency_id = uuid.UUID(tenant.agency_id)
@@ -267,9 +269,11 @@ async def _event_stream(
             manager.detach(str(run_id), queue)
 
 
-@router.get("/investigations/{run_id}/stream")
+@router.get("/investigations/{runId}/stream")
 async def stream_investigation(
-    run_id: uuid.UUID, request: Request, tenant: TenantDep
+    run_id: Annotated[uuid.UUID, Path(alias="runId")],
+    request: Request,
+    tenant: TenantDep,
 ) -> StreamingResponse:
     """Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens."""
     manager = _manager(request)

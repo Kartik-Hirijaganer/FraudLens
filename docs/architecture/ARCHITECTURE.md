@@ -7,8 +7,9 @@
 FraudLens is an **AML fraud-investigation system**: transactions are risk-scored
 (XGBoost + SHAP), enriched with regulatory context retrieved from FinCEN/BSA references
 (LangChain + ChromaDB RAG), orchestrated through an investigation graph (LangGraph), and
-summarized into draft SARs by an LLM. This document describes the **foundation/walking
-skeleton**; ML/RAG/LLM features land in later plans, but the boundaries are drawn here.
+summarized into draft SARs by an LLM. This document describes the implemented v1 service
+surface, data model, governance controls, and deploy topology; generated regions below are
+kept in sync from the live codebase.
 
 ## C4 — System Context
 
@@ -188,7 +189,7 @@ before the prompt is assembled; any provider/guardrail/schema failure degrades t
 graph TD
     core["fraudlens-core<br/>(domain types, tenancy)"]
     llm["fraudlens-llm<br/>(catalog client, guardrails)"]
-    ml["fraudlens-ml<br/>(scoring/RAG; placeholder)"]
+    ml["fraudlens-ml<br/>(scoring, RAG, SAR protocols)"]
     backend["fraudlens-backend<br/>(FastAPI service)"]
     ml --> core
     backend --> core
@@ -208,30 +209,34 @@ client; `backend` may import `core`, `llm`, and `ml`.
 <!-- AUTOGEN:endpoints -->
 | Method | Path | Handler |
 | --- | --- | --- |
-| GET | `/api/v1/agencies/{agency_id}` | `read_agency` |
+| GET | `/api/v1/agencies/{agencyId}` | `read_agency` |
 | GET | `/api/v1/alerts` | `list_alerts` |
-| GET | `/api/v1/alerts/{alert_id}` | `get_alert` |
-| POST | `/api/v1/alerts/{alert_id}/actions` | `act_on_alert` |
-| POST | `/api/v1/alerts/{alert_id}/sar/review` | `review_sar` |
+| GET | `/api/v1/alerts/{alertId}` | `get_alert` |
+| POST | `/api/v1/alerts/{alertId}/actions` | `act_on_alert` |
+| POST | `/api/v1/alerts/{alertId}/sar/review` | `review_sar` |
+| GET | `/api/v1/config` | `list_config` |
+| PATCH | `/api/v1/config` | `patch_config` |
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
+| POST | `/api/v1/dev/reset` | `dev_reset` |
+| POST | `/api/v1/dev/seed` | `dev_seed` |
 | GET | `/api/v1/drift-reports` | `list_drift_reports` |
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |
-| GET | `/api/v1/investigations/{run_id}` | `get_investigation` |
-| GET | `/api/v1/investigations/{run_id}/stream` | `stream_investigation` |
+| GET | `/api/v1/investigations/{runId}` | `get_investigation` |
+| GET | `/api/v1/investigations/{runId}/stream` | `stream_investigation` |
 | GET | `/api/v1/model-deployment` | `get_deployment` |
 | POST | `/api/v1/model-deployment/canary/evaluate` | `evaluate_canary` |
 | POST | `/api/v1/model-deployment/rollback` | `rollback_deployment` |
 | GET | `/api/v1/model-versions` | `list_model_versions` |
-| GET | `/api/v1/model-versions/{version_id}` | `get_model_version` |
-| POST | `/api/v1/model-versions/{version_id}/approve` | `approve_version` |
-| POST | `/api/v1/model-versions/{version_id}/canary` | `set_canary` |
-| POST | `/api/v1/model-versions/{version_id}/shadow` | `promote_to_shadow` |
+| GET | `/api/v1/model-versions/{versionId}` | `get_model_version` |
+| POST | `/api/v1/model-versions/{versionId}/approve` | `approve_version` |
+| POST | `/api/v1/model-versions/{versionId}/canary` | `set_canary` |
+| POST | `/api/v1/model-versions/{versionId}/shadow` | `promote_to_shadow` |
 | GET | `/api/v1/rules` | `list_rules` |
 | POST | `/api/v1/rules` | `create_rule` |
-| DELETE | `/api/v1/rules/{rule_id}` | `delete_rule` |
-| GET | `/api/v1/rules/{rule_id}` | `get_rule` |
-| PATCH | `/api/v1/rules/{rule_id}` | `update_rule` |
+| DELETE | `/api/v1/rules/{ruleId}` | `delete_rule` |
+| GET | `/api/v1/rules/{ruleId}` | `get_rule` |
+| PATCH | `/api/v1/rules/{ruleId}` | `update_rule` |
 | POST | `/api/v1/telemetry/client-error` | `report_client_error` |
 | GET | `/api/v1/training-runs` | `list_training_runs` |
 | POST | `/api/v1/training-runs` | `trigger_training_run` |
@@ -239,7 +244,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | POST | `/api/v1/transactions` | `ingest_transaction` |
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
-| GET | `/api/v1/transactions/{transaction_id}` | `get_transaction` |
+| GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
 | GET | `/healthz` | `healthz` |
 | GET | `/readyz` | `readyz` |
 <!-- /AUTOGEN:endpoints -->
@@ -260,6 +265,12 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `request_id_header` | `str` | `'X-Request-Id'` | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | `bool` | `False` | Dev-only auth bypass; honored only when environment != 'prod'. |
 | `auth_dev_bypass_role` | `Literal` | `'admin'` | RBAC role the dev bypass mints (default admin so local-demo can drive the model lifecycle); honored only when the bypass is enabled, so it is prod-inert. |
+| `auth_jwks_url` | `str | None` | `None` | Supabase Auth JWKS URL for RS256 access-token verification; unset fails closed. |
+| `auth_jwt_issuer` | `str | None` | `None` | Expected JWT issuer; unset skips issuer validation for local/integration tests. |
+| `auth_jwt_audience` | `str | None` | `None` | Expected JWT audience; unset skips audience validation for local/integration tests. |
+| `auth_jwt_algorithm` | `Literal` | `'RS256'` | JWT signing algorithm accepted from the configured JWKS. |
+| `auth_agency_claim` | `str` | `'agency_id'` | JWT claim containing the tenant agency id. |
+| `auth_role_claim` | `str` | `'role'` | JWT claim containing the FraudLens RBAC role. |
 | `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
 | `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
 | `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |

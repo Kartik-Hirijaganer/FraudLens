@@ -36,7 +36,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -47,7 +47,7 @@ from fraudlens_backend.api.deps import (
     optional_actor,
 )
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
-from fraudlens_backend.db.repositories import TransactionRepository
+from fraudlens_backend.db.repositories import AuditLogRepository, TransactionRepository
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.transactions import (
@@ -60,6 +60,7 @@ from fraudlens_backend.models.transactions import (
     TransactionResponse,
 )
 from fraudlens_core import CanonicalTransaction, RiskBand, SchemaValidationError, build_canonical
+from fraudlens_core.phi import MaskingReport
 
 router = APIRouter(tags=["transactions"])
 
@@ -152,6 +153,56 @@ def _repo(tenant: TenantContext, session: AsyncSession) -> TransactionRepository
     return TransactionRepository(session, uuid.UUID(tenant.agency_id))
 
 
+async def _record_phi_mask(
+    writer: AuditLogRepository,
+    *,
+    actor_id: uuid.UUID | None,
+    resource_id: str,
+    report: MaskingReport | None,
+    source: str,
+) -> None:
+    """Record a counts-only PHI masking audit row when a masking pass redacted data."""
+    if report is None or report.total == 0:
+        return
+    await writer.record(
+        actor_id=actor_id,
+        action="phi_mask",
+        resource_type="transaction",
+        resource_id=resource_id,
+        metadata={
+            "source": source,
+            "maskedCount": str(report.total),
+            "categories": ",".join(f"{key}:{value}" for key, value in report.categories.items()),
+        },
+    )
+
+
+async def _record_phi_access(  # noqa: PLR0913 - explicit audit fields keep call sites clear.
+    writer: AuditLogRepository,
+    *,
+    actor_id: uuid.UUID | None,
+    resource_type: str,
+    resource_id: str | None,
+    count: int,
+    source: str,
+) -> None:
+    """Record access to masked transaction identifiers without exposing their values."""
+    if count == 0:
+        return
+    await writer.record(
+        actor_id=actor_id,
+        action="phi_access",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        metadata={
+            "source": source,
+            "recordCount": str(count),
+            "fields": "originAccount,destAccount",
+            "masked": "true",
+        },
+    )
+
+
 @router.post("/transactions", response_model=TransactionResponse, status_code=201)
 async def ingest_transaction(
     payload: TransactionIngestRequest, request: Request, tenant: TenantDep, session: DbSessionDep
@@ -161,12 +212,21 @@ async def ingest_transaction(
     outcome = await repo.ingest(_mapping_to_canonical(payload.model_dump(by_alias=True)))
     if not outcome.created:
         raise AppError("duplicate_external_id")
-    await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
+    writer = audit_writer(tenant, session, request)
+    actor_id = optional_actor(tenant)
+    await writer.record(
+        actor_id=actor_id,
         action="transaction.ingest",
         resource_type="transaction",
         resource_id=str(outcome.transaction.id),
         metadata={"externalId": outcome.transaction.external_id},
+    )
+    await _record_phi_mask(
+        writer,
+        actor_id=actor_id,
+        resource_id=str(outcome.transaction.id),
+        report=outcome.mask_report,
+        source="transaction.ingest",
     )
     await session.commit()
     return _to_response(outcome.transaction)
@@ -184,6 +244,8 @@ async def ingest_batch(
     if len(payload.transactions) > settings.ingest_max_batch_size:
         raise AppError("batch_too_large")
     repo = _repo(tenant, session)
+    writer = audit_writer(tenant, session, request)
+    actor_id = optional_actor(tenant)
     accepted = duplicates = rejected = 0
     created: list[TransactionResponse] = []
     samples: list[IngestRejection] = []
@@ -206,11 +268,18 @@ async def ingest_batch(
         if outcome.created:
             accepted += 1
             created.append(_to_response(outcome.transaction))
+            await _record_phi_mask(
+                writer,
+                actor_id=actor_id,
+                resource_id=str(outcome.transaction.id),
+                report=outcome.mask_report,
+                source="transaction.batch_ingest",
+            )
         else:
             duplicates += 1
     if not payload.dry_run:
-        await audit_writer(tenant, session, request).record(
-            actor_id=optional_actor(tenant),
+        await writer.record(
+            actor_id=actor_id,
             action="transaction.batch_ingest",
             resource_type="transaction_batch",
             resource_id=None,
@@ -238,6 +307,8 @@ async def upload_csv(
     """Ingest a text/csv upload (partial-accept); enforce size/row caps; record a job."""
     rows = await _read_csv(request, settings.ingest_csv_max_bytes, settings.ingest_csv_max_rows)
     repo = _repo(tenant, session)
+    writer = audit_writer(tenant, session, request)
+    actor_id = optional_actor(tenant)
     accepted = duplicates = rejected = 0
     samples: list[IngestRejection] = []
     for index, row in enumerate(rows):
@@ -256,6 +327,14 @@ async def upload_csv(
         outcome = await repo.ingest(canonical)
         accepted += outcome.created
         duplicates += not outcome.created
+        if outcome.created:
+            await _record_phi_mask(
+                writer,
+                actor_id=actor_id,
+                resource_id=str(outcome.transaction.id),
+                report=outcome.mask_report,
+                source="transaction.csv_import",
+            )
     job = JobExecution(
         agency_id=uuid.UUID(tenant.agency_id),
         job_type=JobType.CSV_IMPORT,
@@ -267,8 +346,8 @@ async def upload_csv(
     session.add(job)
     await session.flush()
     job_id = str(job.id)
-    await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
+    await writer.record(
+        actor_id=actor_id,
         action="transaction.csv_import",
         resource_type="job_execution",
         resource_id=job_id,
@@ -290,7 +369,8 @@ async def upload_csv(
 
 
 @router.get("/transactions", response_model=TransactionListResponse)
-async def list_transactions(
+async def list_transactions(  # noqa: PLR0913 - FastAPI handler: request + injected deps + filters.
+    request: Request,
     tenant: TenantDep,
     session: DbSessionDep,
     limit: Annotated[int, Query(ge=1, le=_MAX_PAGE_LIMIT)] = _DEFAULT_PAGE_LIMIT,
@@ -300,20 +380,42 @@ async def list_transactions(
     """Return a keyset page of the agency's transactions (newest first), optional riskBand."""
     repo = _repo(tenant, session)
     rows, next_cursor = await repo.page(limit=limit, cursor=cursor, risk_band=risk_band)
+    await _record_phi_access(
+        audit_writer(tenant, session, request),
+        actor_id=optional_actor(tenant),
+        resource_type="transaction_page",
+        resource_id=None,
+        count=len(rows),
+        source="transaction.list",
+    )
+    if rows:
+        await session.commit()
     return TransactionListResponse(
         transactions=[_to_response(row) for row in rows], next_cursor=next_cursor
     )
 
 
-@router.get("/transactions/{transaction_id}", response_model=TransactionResponse)
+@router.get("/transactions/{transactionId}", response_model=TransactionResponse)
 async def get_transaction(
-    transaction_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep
+    transaction_id: Annotated[uuid.UUID, Path(alias="transactionId")],
+    request: Request,
+    tenant: TenantDep,
+    session: DbSessionDep,
 ) -> TransactionResponse:
     """Return one transaction by id; 404 when missing or owned by another agency."""
     repo = _repo(tenant, session)
     transaction = await repo.get(transaction_id)
     if transaction is None:
         raise AppError("transaction_not_found")
+    await _record_phi_access(
+        audit_writer(tenant, session, request),
+        actor_id=optional_actor(tenant),
+        resource_type="transaction",
+        resource_id=str(transaction.id),
+        count=1,
+        source="transaction.detail",
+    )
+    await session.commit()
     return _to_response(transaction)
 
 

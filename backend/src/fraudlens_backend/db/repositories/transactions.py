@@ -41,15 +41,17 @@ from fraudlens_backend.db.models import Transaction
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_backend.services.phi_mask import PhiMasker
 from fraudlens_core import CanonicalTransaction, RiskBand
+from fraudlens_core.phi import MaskingReport
 
 _CURSOR_SEP = "|"
 
 
 class IngestOutcome(NamedTuple):
-    """The result of an ingest: the (possibly pre-existing) row and whether it was created."""
+    """The result of an ingest: row, creation flag, and counts-only masking report."""
 
     transaction: Transaction
     created: bool
+    mask_report: MaskingReport | None
 
 
 def _to_naive_utc(value: datetime) -> datetime:
@@ -97,7 +99,7 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         """Dedup by externalId; otherwise mask + persist the transaction (masked-only)."""
         existing = await self.get_by_external_id(canonical.external_id)
         if existing is not None:
-            return IngestOutcome(existing, created=False)
+            return IngestOutcome(existing, created=False, mask_report=None)
         masked = self._masker.mask(canonical)
         transaction = Transaction(
             agency_id=self._agency_id,
@@ -115,7 +117,7 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         )
         self._session.add(transaction)
         await self._session.flush()
-        return IngestOutcome(transaction, created=True)
+        return IngestOutcome(transaction, created=True, mask_report=masked.report)
 
     async def same_account_history(
         self, *, account: str, before: datetime, window_hours: int, limit: int

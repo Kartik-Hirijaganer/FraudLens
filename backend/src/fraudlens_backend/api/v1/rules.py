@@ -31,7 +31,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -120,8 +120,12 @@ async def create_rule(
     return _to_response(rule)
 
 
-@router.get("/rules/{rule_id}", response_model=RuleResponse)
-async def get_rule(rule_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep) -> RuleResponse:
+@router.get("/rules/{ruleId}", response_model=RuleResponse)
+async def get_rule(
+    rule_id: Annotated[uuid.UUID, Path(alias="ruleId")],
+    tenant: TenantDep,
+    session: DbSessionDep,
+) -> RuleResponse:
     """Return one rule by id; 404 when missing, global, or owned by another agency."""
     repo = _repo(tenant, session)
     rule = await repo.get(rule_id)
@@ -130,9 +134,9 @@ async def get_rule(rule_id: uuid.UUID, tenant: TenantDep, session: DbSessionDep)
     return _to_response(rule)
 
 
-@router.patch("/rules/{rule_id}", response_model=RuleResponse)
+@router.patch("/rules/{ruleId}", response_model=RuleResponse)
 async def update_rule(
-    rule_id: uuid.UUID,
+    rule_id: Annotated[uuid.UUID, Path(alias="ruleId")],
     payload: RuleUpdateRequest,
     request: Request,
     tenant: TenantDep,
@@ -169,9 +173,12 @@ async def update_rule(
     return _to_response(rule)
 
 
-@router.delete("/rules/{rule_id}", status_code=204)
+@router.delete("/rules/{ruleId}", status_code=204)
 async def delete_rule(
-    rule_id: uuid.UUID, request: Request, tenant: TenantDep, session: DbSessionDep
+    rule_id: Annotated[uuid.UUID, Path(alias="ruleId")],
+    request: Request,
+    tenant: TenantDep,
+    session: DbSessionDep,
 ) -> None:
     """Delete the agency's rule (204); 404 when missing, global, or cross-tenant."""
     repo = _repo(tenant, session)

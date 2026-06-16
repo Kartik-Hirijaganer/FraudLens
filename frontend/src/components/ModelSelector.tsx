@@ -6,7 +6,7 @@
  * Selecting the active option clears the override (passes `undefined`).
  *
  * Key classes:
- * - ModelSelectorProps: props (versions + active label + value + onChange).
+ * - (none)
  *
  * Key functions:
  * - ModelSelector: render the model-override dropdown.
@@ -17,7 +17,7 @@
 import type { ModelVersionResponse } from "../lib/api";
 import { Select } from "./ui/Select";
 
-export interface ModelSelectorProps {
+interface ModelSelectorProps {
   versions: ModelVersionResponse[];
   activeLabel: string | null;
   value?: string;
