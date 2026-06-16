@@ -38,7 +38,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -194,9 +194,12 @@ async def list_training_runs(
     return TrainingRunListResponse(training_runs=[_to_training_run_view(run) for run in runs])
 
 
-@router.post("/model-versions/{version_id}/shadow", response_model=ModelVersionResponse)
+@router.post("/model-versions/{versionId}/shadow", response_model=ModelVersionResponse)
 async def promote_to_shadow(
-    version_id: uuid.UUID, request: Request, tenant: AdminDep, session: DbSessionDep
+    version_id: Annotated[uuid.UUID, Path(alias="versionId")],
+    request: Request,
+    tenant: AdminDep,
+    session: DbSessionDep,
 ) -> ModelVersionResponse:
     """Promote a candidate to shadow — only with a passing evaluation (plan §10.5.1)."""
     lifecycle = ModelLifecycleRepository(session)
@@ -219,9 +222,12 @@ async def promote_to_shadow(
     return to_version_response(version)
 
 
-@router.post("/model-versions/{version_id}/approve", response_model=ModelVersionResponse)
+@router.post("/model-versions/{versionId}/approve", response_model=ModelVersionResponse)
 async def approve_version(
-    version_id: uuid.UUID, request: Request, tenant: AdminDep, session: DbSessionDep
+    version_id: Annotated[uuid.UUID, Path(alias="versionId")],
+    request: Request,
+    tenant: AdminDep,
+    session: DbSessionDep,
 ) -> ModelVersionResponse:
     """Record the human approval on a shadow version (the §5.4 gate before any canary)."""
     lifecycle = ModelLifecycleRepository(session)
@@ -243,9 +249,9 @@ async def approve_version(
     return to_version_response(version)
 
 
-@router.post("/model-versions/{version_id}/canary", response_model=DeploymentResponse)
+@router.post("/model-versions/{versionId}/canary", response_model=DeploymentResponse)
 async def set_canary(
-    version_id: uuid.UUID,
+    version_id: Annotated[uuid.UUID, Path(alias="versionId")],
     payload: CanaryRequest,
     request: Request,
     tenant: AdminDep,
