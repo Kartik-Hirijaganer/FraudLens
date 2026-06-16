@@ -6,7 +6,7 @@
  * returned nothing (graceful degradation, §10.6).
  *
  * Key classes:
- * - RagPanelProps: props (citations + optional retrieval mode).
+ * - (none)
  *
  * Key functions:
  * - RagPanel: render the citations list (or an empty state).
@@ -29,7 +29,7 @@ function modeLabel(mode: string): string {
   return MODE_LABELS[mode] ?? humanize(mode);
 }
 
-export interface RagPanelProps {
+interface RagPanelProps {
   citations: RegulationCitation[];
   mode?: string;
 }
