@@ -5,20 +5,20 @@
  * only; the caller may append a className.
  *
  * Key classes:
- * - ButtonProps: props (variant + native button attributes).
+ * - (none)
  *
  * Key functions:
  * - Button: render a themed button element.
  *
  * Notes:
  * - primary uses `bg-primary` (Wise green) and is reserved for the main CTA — never
- *   as a success indicator (use Badge tone="positive" for status).
+ * as a success indicator (use Badge tone="positive" for status).
  */
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cx } from "../../lib/cx";
 
-export type ButtonVariant = "primary" | "secondary" | "tertiary";
+type ButtonVariant = "primary" | "secondary" | "tertiary";
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: "bg-primary text-on-primary",
@@ -26,7 +26,7 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   tertiary: "border border-ink bg-canvas text-ink",
 };
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   children: ReactNode;
 }

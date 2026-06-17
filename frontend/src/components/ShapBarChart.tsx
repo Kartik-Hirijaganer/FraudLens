@@ -6,20 +6,20 @@
  * Renders an EmptyState until the explainer step has run.
  *
  * Key classes:
- * - ShapBarChartProps: props (the ordered SHAP features).
+ * - (none)
  *
  * Key functions:
  * - ShapBarChart: render the SHAP driver bars (or an empty state).
  *
  * Notes:
  * - Bar widths are data-driven percentages set via inline style (the only place a runtime
- *   value can't be a design-token class); colours/spacing stay tokens.
+ * value can't be a design-token class); colours/spacing stay tokens.
  */
 import { cx } from "../lib/cx";
 import type { ShapFeature } from "../lib/investigation";
 import { EmptyState } from "./feedback/EmptyState";
 
-export interface ShapBarChartProps {
+interface ShapBarChartProps {
   features: ShapFeature[];
 }
 

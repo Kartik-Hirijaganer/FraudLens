@@ -6,7 +6,7 @@
  * governance: no internals in user-visible errors).
  *
  * Key classes:
- * - ErrorStateProps: props (optional title/description + optional onRetry handler).
+ * - (none)
  *
  * Key functions:
  * - ErrorState: render the error card with an optional retry action.
@@ -16,7 +16,7 @@
  */
 import { Button } from "../ui/Button";
 
-export interface ErrorStateProps {
+interface ErrorStateProps {
   title?: string;
   description?: string;
   onRetry?: () => void;
