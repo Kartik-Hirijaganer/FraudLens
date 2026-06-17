@@ -6,14 +6,14 @@
  * states all flow through the shared AsyncBoundary, and the metrics + alerts load concurrently.
  *
  * Key classes:
- * - DashboardProps: props (an injectable ApiClient for tests).
+ * - (none)
  *
  * Key functions:
  * - Dashboard: render the metrics stat cards + open-alerts queue.
  *
  * Notes:
  * - A null active model label degrades to an em dash rather than failing the page, so a fresh
- *   environment without a promoted model still renders.
+ * environment without a promoted model still renders.
  */
 import { useCallback } from "react";
 
@@ -29,7 +29,7 @@ interface DashboardData {
   openAlerts: AlertView[];
 }
 
-export interface DashboardProps {
+interface DashboardProps {
   client?: ApiClient;
 }
 

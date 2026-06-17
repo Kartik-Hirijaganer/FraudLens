@@ -4,7 +4,7 @@
  * Loading / empty / error+retry flow through the shared AsyncBoundary + AlertTable.
  *
  * Key classes:
- * - AlertsProps: props (an injectable ApiClient for tests).
+ * - (none)
  *
  * Key functions:
  * - Alerts: render the filterable alerts queue.
@@ -30,7 +30,7 @@ const STATUS_OPTIONS = [
   { value: "dismissed", label: "Dismissed" },
 ];
 
-export interface AlertsProps {
+interface AlertsProps {
   client?: ApiClient;
 }
 

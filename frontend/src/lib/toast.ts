@@ -8,7 +8,7 @@
  * Sonner directly (rule 5: no duplication) and the policy is tested once.
  *
  * Key classes:
- * - NotifyOptions: the inputs to a toast (tone, title, optional description/timeout).
+ * - (none)
  *
  * Key functions:
  * - DEFAULT_TOAST_DURATION_MS: the default non-critical auto-dismiss timeout (ms).
@@ -26,7 +26,7 @@ import type { StatusTone } from "./risk";
 
 export const DEFAULT_TOAST_DURATION_MS = 5000;
 
-export interface NotifyOptions {
+interface NotifyOptions {
   tone?: StatusTone;
   title: string;
   description?: string;
