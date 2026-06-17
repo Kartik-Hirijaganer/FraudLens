@@ -5,7 +5,7 @@
  * announced.
  *
  * Key classes:
- * - SpinnerProps: props (optional accessible label).
+ * - (none)
  *
  * Key functions:
  * - Spinner: render an accessible loading spinner.
@@ -15,7 +15,7 @@
  */
 import { cx } from "../../lib/cx";
 
-export interface SpinnerProps {
+interface SpinnerProps {
   label?: string;
 }
 

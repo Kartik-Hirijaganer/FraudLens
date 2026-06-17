@@ -6,7 +6,7 @@
  * pill-radius per DESIGN.md. Wise green is NEVER a tone here (it is the CTA accent only).
  *
  * Key classes:
- * - BadgeProps: props (tone + children).
+ * - (none)
  *
  * Key functions:
  * - Badge: render a status pill.
@@ -26,7 +26,7 @@ const TONE_CLASSES: Record<StatusTone, string> = {
   neutral: "bg-canvas-soft text-body",
 };
 
-export interface BadgeProps {
+interface BadgeProps {
   tone?: StatusTone;
   children: ReactNode;
 }

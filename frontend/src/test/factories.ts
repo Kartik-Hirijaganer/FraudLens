@@ -51,7 +51,7 @@ export function alertView(overrides: Partial<AlertView> = {}): AlertView {
   };
 }
 
-export function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
+function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
   return {
     sarDraftId: "sar-1",
     runId: "run-1",
@@ -135,7 +135,7 @@ export function deployment(overrides: Partial<DeploymentResponse> = {}): Deploym
   };
 }
 
-export function trainingRun(overrides: Partial<TrainingRunView> = {}): TrainingRunView {
+function trainingRun(overrides: Partial<TrainingRunView> = {}): TrainingRunView {
   return {
     trainingRunId: "trun-1",
     trigger: "manual",

@@ -9,7 +9,7 @@
  * to the sink.
  *
  * Key classes:
- * - ReportOptions: options for the reporter (injectable fetch + base URL).
+ * - (none)
  *
  * Key functions:
  * - scrubForLog: mask PHI-shaped tokens (long digit runs, emails) from a log string.
@@ -30,7 +30,7 @@ export function scrubForLog(text: string): string {
   return text.replace(EMAIL, MASK).replace(DIGIT_RUN, MASK);
 }
 
-export interface ReportOptions {
+interface ReportOptions {
   fetchImpl?: typeof fetch;
   baseUrl?: string;
 }

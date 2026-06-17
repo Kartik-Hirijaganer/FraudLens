@@ -275,14 +275,16 @@ async def test_list_paginates_and_detail(db_session: AsyncSession) -> None:
         await ingest_transaction(
             _request_model(external_id=f"L{index}"), _request(), tenant, db_session
         )
-    page1 = await list_transactions(tenant, db_session, limit=2)
+    page1 = await list_transactions(_request(), tenant, db_session, limit=2)
     assert len(page1.transactions) == 2
     assert page1.next_cursor is not None
-    page2 = await list_transactions(tenant, db_session, limit=2, cursor=page1.next_cursor)
+    page2 = await list_transactions(
+        _request(), tenant, db_session, limit=2, cursor=page1.next_cursor
+    )
     assert len(page2.transactions) == 1
     assert page2.next_cursor is None
     tid = uuid.UUID(page1.transactions[0].transaction_id)
-    detail = await get_transaction(tid, tenant, db_session)
+    detail = await get_transaction(tid, _request(), tenant, db_session)
     assert detail.transaction_id == str(tid)
 
 
@@ -296,7 +298,7 @@ async def test_list_filters_risk_band_and_renders_scored_fields(db_session: Asyn
     row.risk_band = RiskBand.HIGH
     row.latest_run_id = uuid.uuid4()
     await db_session.flush()
-    page = await list_transactions(tenant, db_session, risk_band=RiskBand.HIGH)
+    page = await list_transactions(_request(), tenant, db_session, risk_band=RiskBand.HIGH)
     assert [t.external_id for t in page.transactions] == ["SCORED"]
     assert page.transactions[0].risk_band == "high"
     assert page.transactions[0].latest_run_id is not None
@@ -305,5 +307,5 @@ async def test_list_filters_risk_band_and_renders_scored_fields(db_session: Asyn
 async def test_get_transaction_missing_raises(db_session: AsyncSession) -> None:
     tenant = await _tenant(db_session)
     with pytest.raises(AppError) as excinfo:
-        await get_transaction(uuid.uuid4(), tenant, db_session)
+        await get_transaction(uuid.uuid4(), _request(), tenant, db_session)
     assert excinfo.value.code == "transaction_not_found"

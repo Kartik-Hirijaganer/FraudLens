@@ -390,8 +390,22 @@ async def test_comment_note_is_phi_masked(
                 select(AlertAction).where(AlertAction.alert_id == ids["alert_id"])
             )
         ).scalar_one()
+        audit = (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.agency_id == DEMO_AGENCY_ID,
+                    AuditLog.action == "phi_mask",
+                    AuditLog.resource_id == str(ids["alert_id"]),
+                )
+            )
+        ).scalar_one()
     assert "evil@example.com" not in (action.note or "")  # PHI-shaped span masked
     assert "[REDACTED_EMAIL]" in (action.note or "")
+    assert audit.meta == {
+        "source": "alert.action_note",
+        "maskedCount": "1",
+        "categories": "email:1",
+    }
 
 
 async def test_acting_user_required_fails_closed(
@@ -463,15 +477,33 @@ async def test_sar_edit_creates_new_reviewed_version(
     async with _client(app) as client:
         resp = await client.post(
             f"/api/v1/alerts/{ids['alert_id']}/sar/review",
-            json={"decision": "edit", "editedContent": "Analyst-authored narrative."},
+            json={
+                "decision": "edit",
+                "editedContent": "Analyst-authored narrative from evil@example.com.",
+            },
         )
         detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
     assert resp.status_code == 200
     body = resp.json()
     assert body["version"] == 2  # a new version, not an overwrite
     assert body["status"] == "reviewed"
-    assert body["content"] == "Analyst-authored narrative."
+    assert body["content"] == "Analyst-authored narrative from [REDACTED_EMAIL]."
     assert detail.json()["sarDraft"]["version"] == 2  # detail surfaces the latest version
+    async with db_sessionmaker() as session:
+        audit = (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.agency_id == DEMO_AGENCY_ID,
+                    AuditLog.action == "phi_mask",
+                    AuditLog.resource_type == "sar_draft",
+                )
+            )
+        ).scalar_one()
+    assert audit.meta == {
+        "source": "sar.review_edit",
+        "maskedCount": "1",
+        "categories": "email:1",
+    }
 
 
 async def test_sar_review_without_draft_is_404(
