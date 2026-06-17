@@ -4,7 +4,7 @@
  * so it is trivially testable; `config` is the resolved singleton for app use.
  *
  * Key classes:
- * - AppConfig: shape of the resolved configuration.
+ * - (none)
  *
  * Key functions:
  * - readConfig: derive an AppConfig from an import-meta env object.
@@ -13,7 +13,7 @@
  * Notes:
  * - apiBaseUrl defaults to "" (same-origin relative requests) when unset.
  */
-export interface AppConfig {
+interface AppConfig {
   apiBaseUrl: string;
   appVersion: string;
 }

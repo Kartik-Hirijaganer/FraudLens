@@ -16,7 +16,6 @@
  * - TransactionListResponse: a page of transactions + nextCursor.
  * - TransactionIngestRequest: a single transaction-ingest body.
  * - BatchIngestRequest: a batch-ingest body (+ dryRun).
- * - IngestRejection: one PHI-free per-row rejection.
  * - BatchIngestResponse: batch-ingest outcome (counts + rows + sample errors).
  * - CsvUploadResponse: CSV-upload outcome (jobId + counts + sample errors).
  * - InvestigationStartResponse: the 202 acknowledgement (runId).
@@ -62,10 +61,10 @@ import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./in
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type AlertStatus = "open" | "in_review" | "resolved" | "dismissed";
-export type AlertActionType = "assign" | "comment" | "escalate" | "resolve" | "dismiss";
+type AlertActionType = "assign" | "comment" | "escalate" | "resolve" | "dismiss";
 export type TrainingLabel = "confirmed_fraud" | "false_positive" | "false_negative" | "benign";
 export type SarStatus = "draft" | "reviewed" | "approved" | "rejected" | "failed";
-export type SarReviewDecision = "approve" | "reject" | "edit";
+type SarReviewDecision = "approve" | "reject" | "edit";
 export type ModelVersionStatus =
   | "candidate"
   | "shadow"
@@ -138,7 +137,7 @@ export interface BatchIngestRequest {
   dryRun?: boolean;
 }
 
-export interface IngestRejection {
+interface IngestRejection {
   index: number;
   externalId: string | null;
   code: string;

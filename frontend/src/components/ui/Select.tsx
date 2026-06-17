@@ -6,8 +6,7 @@
  * unless the caller supplies an explicit id.
  *
  * Key classes:
- * - SelectOption: one option (value + visible label).
- * - SelectProps: props (required label + options + native select attributes).
+ * - (none)
  *
  * Key functions:
  * - Select: render a labelled select element.
@@ -20,12 +19,12 @@ import { useId } from "react";
 
 import { cx } from "../../lib/cx";
 
-export interface SelectOption {
+interface SelectOption {
   value: string;
   label: string;
 }
 
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   options: SelectOption[];
 }
