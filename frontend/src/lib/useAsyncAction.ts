@@ -7,20 +7,20 @@
  * Actions with bespoke toasts pass no title and toast inside the action themselves.
  *
  * Key classes:
- * - AsyncAction: the hook's return shape (busy flag + run).
+ * - (none)
  *
  * Key functions:
  * - useAsyncAction: run a mutation with a busy guard, success/error toast, and reload.
  *
  * Notes:
  * - `onSuccess` is invoked only when the action resolves; a failure leaves state untouched
- *   and surfaces the error as a toast (no partial reload).
+ * and surfaces the error as a toast (no partial reload).
  */
 import { useCallback, useState } from "react";
 
 import { notify, notifyError } from "./toast";
 
-export interface AsyncAction {
+interface AsyncAction {
   busy: boolean;
   run: (action: () => Promise<unknown>, successTitle?: string) => Promise<void>;
 }

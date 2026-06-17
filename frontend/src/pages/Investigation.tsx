@@ -8,14 +8,14 @@
  * authoritative snapshot. A cold-start indicator shows until the first event arrives.
  *
  * Key classes:
- * - InvestigationProps: props (runId + injectable ApiClient + injectable SSE factory).
+ * - (none)
  *
  * Key functions:
  * - Investigation: render the streamed investigation view.
  *
  * Notes:
  * - The SSE factory is injectable so tests drive the stream deterministically; the gauge
- *   shows the live probability before completion and the blended score+band after.
+ * shows the live probability before completion and the blended score+band after.
  */
 import { useEffect, useState } from "react";
 
@@ -82,7 +82,7 @@ function snapshotToState(snapshot: InvestigationSnapshot): InvestigationState {
   };
 }
 
-export interface InvestigationProps {
+interface InvestigationProps {
   runId: string;
   client?: ApiClient;
   createStream?: typeof createSseClient;

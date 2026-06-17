@@ -7,14 +7,14 @@
  * outcome (PHI-free), and reloads — so the pointer flip is reflected with no redeploy.
  *
  * Key classes:
- * - ModelAdminProps: props (an injectable ApiClient for tests).
+ * - (none)
  *
  * Key functions:
  * - ModelAdmin: render the model-lifecycle admin surface.
  *
  * Notes:
  * - A missing deployment (404) degrades to "none" rather than failing the page; admin-only
- *   403s surface as an "Admin only" toast via lib/errors.
+ * 403s surface as an "Admin only" toast via lib/errors.
  */
 import { useCallback } from "react";
 
@@ -38,7 +38,7 @@ interface ModelAdminData {
   drift: DriftReportListResponse;
 }
 
-export interface ModelAdminProps {
+interface ModelAdminProps {
   client?: ApiClient;
 }
 

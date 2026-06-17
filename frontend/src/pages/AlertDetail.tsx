@@ -7,14 +7,14 @@
  * that toggles a busy guard, toasts the outcome, and reloads the authoritative detail.
  *
  * Key classes:
- * - AlertDetailProps: props (the alertId + an injectable ApiClient for tests).
+ * - (none)
  *
  * Key functions:
  * - AlertDetail: render the SAR review + triage workflow for one alert.
  *
  * Notes:
  * - Errors surface as PHI-free toasts via `notifyError`; the note/reason/edit fields are
- *   length-bounded server-side and masked before persistence (§5.4).
+ * length-bounded server-side and masked before persistence (§5.4).
  */
 import { useCallback, useState } from "react";
 
@@ -45,7 +45,7 @@ const SAR_STATUS_TONES: Record<string, StatusTone> = {
   failed: "warning",
 };
 
-export interface AlertDetailProps {
+interface AlertDetailProps {
   alertId: string;
   client?: ApiClient;
 }
