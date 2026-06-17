@@ -4,7 +4,7 @@
  * (`canvas-soft`) page background where the surface contrast carries elevation.
  *
  * Key classes:
- * - CardProps: props (children + native div attributes).
+ * - (none)
  *
  * Key functions:
  * - Card: render a themed card container.
@@ -16,7 +16,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "../../lib/cx";
 
-export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
 }
 
