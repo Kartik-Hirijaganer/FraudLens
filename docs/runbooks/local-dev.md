@@ -13,13 +13,31 @@
 
 No API keys, Infisical login, or cloud accounts are required for the demo.
 
-## Start it
+## Start it cleanly
+
+Use this as the normal local application command:
+
+```bash
+make run
+```
+
+`make run` resets the FraudLens local Docker stack, drops the local Postgres volume, clears
+generated local caches/state, frees FraudLens-owned dev listeners, re-applies migrations/seed/RAG
+indexing, then starts the backend and frontend. It uses `POSTGRES_PORT=55432` by default to avoid
+colliding with a local Postgres already bound to `5432`; override it if needed:
+
+```bash
+POSTGRES_PORT=5432 make run
+```
+
+## Start without reset
 
 ```bash
 make local-demo
 ```
 
-This runs [`scripts/local_demo.py`](../../scripts/local_demo.py), which:
+This lower-level command keeps existing local data/volumes and runs
+[`scripts/local_demo.py`](../../scripts/local_demo.py), which:
 
 1. checks the required tools are on `PATH`;
 2. starts Postgres via [`docker-compose.local.yml`](../../docker-compose.local.yml) and waits
@@ -46,6 +64,8 @@ flowchart LR
 
 | Command | What it does |
 |---|---|
+| `make run` | Clean reset + reseed + boot the full stack. Default app command. |
+| `make rebuild` | Alias for `make run`. |
 | `make local-demo` | Boot the full stack and print the URL (blocks until `Ctrl-C`). |
 | `make local-demo-down` | Stop the stack (containers removed, data volume kept). |
 | `make local-demo-reset` | Stop the stack, **drop the volume**, and remove `.local/`. |

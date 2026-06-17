@@ -9,18 +9,18 @@
  * governance: no PHI/internals in user-visible errors).
  *
  * Key classes:
- * - ErrorDescription: the resolved {title, description, critical, code} for display.
+ * - (none)
  *
  * Key functions:
  * - describeError: turn any thrown value into a safe ErrorDescription.
  *
  * Notes:
  * - The description prefers curated copy, then the envelope message (authored PHI-free),
- *   then a status-based generic — it never echoes the raw error/stack.
+ * then a status-based generic — it never echoes the raw error/stack.
  */
 import { ApiError } from "./api";
 
-export interface ErrorDescription {
+interface ErrorDescription {
   title: string;
   description: string;
   critical: boolean;

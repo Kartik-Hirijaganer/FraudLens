@@ -5,7 +5,7 @@
  * supplies an explicit id.
  *
  * Key classes:
- * - TextInputProps: props (required label + native input attributes).
+ * - (none)
  *
  * Key functions:
  * - TextInput: render a labelled text input.
@@ -18,7 +18,7 @@ import { useId } from "react";
 
 import { cx } from "../../lib/cx";
 
-export interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
 }
 

@@ -5,7 +5,7 @@
  * to the control for accessibility unless the caller supplies an explicit id.
  *
  * Key classes:
- * - TextareaProps: props (required label + native textarea attributes).
+ * - (none)
  *
  * Key functions:
  * - Textarea: render a labelled multi-line text input.
@@ -18,7 +18,7 @@ import { useId } from "react";
 
 import { cx } from "../../lib/cx";
 
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label: string;
 }
 

@@ -97,6 +97,18 @@ def test_unknown_path_is_404_envelope(client_factory: Callable[..., TestClient])
     assert body["code"] == "not_found"
 
 
+def test_openapi_uses_camelcase_path_parameters(
+    client_factory: Callable[..., TestClient],
+) -> None:
+    schema = client_factory().get("/openapi.json").json()
+    paths = set(schema["paths"])
+    assert "/api/v1/agencies/{agencyId}" in paths
+    assert "/api/v1/transactions/{transactionId}" in paths
+    assert "/api/v1/investigations/{runId}" in paths
+    assert "/api/v1/model-versions/{versionId}/canary" in paths
+    assert not any("{transaction_id}" in path or "{agency_id}" in path for path in paths)
+
+
 def test_validation_error_envelope_hides_raw_input(
     client_factory: Callable[..., TestClient],
 ) -> None:

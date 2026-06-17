@@ -3,8 +3,9 @@ boots the full stack with NO cloud and NO secrets: a docker-compose Postgres, th
 gateway+services (uvicorn :8000) and the frontend (Vite :5173), wired to local backends
 and the keyless mock SAR drafter via dev config. `up` waits for /healthz, prints the
 demo URL, and blocks until Ctrl-C, then tears the child processes down cleanly; `down`
-/`reset` stop the stack (reset also drops volumes + .local state); `smoke` is the
-headless gate — boot Postgres + backend, assert /healthz and /readyz, tear down. The
+/`reset` stop the stack (reset also drops volumes + .local state); `rebuild` performs a
+clean local reset, clears generated caches, frees FraudLens-owned listeners, then boots;
+`smoke` is the headless gate — boot Postgres + backend, assert /healthz and /readyz, tear down. The
 database migrate + seed + RAG-index-build steps are guarded so they run once their phases
 land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase 6), and are skipped (not
 failed) until then, keeping `make local-demo` green and shipping a fixture RAG index.
@@ -18,8 +19,9 @@ Key functions:
 - up: boot Postgres + backend + frontend, print the URL, wait for Ctrl-C.
 - down: stop the compose stack.
 - reset: stop the stack and remove volumes + local state.
+- rebuild: reset local state/caches and boot the full stack from a clean seed.
 - smoke: boot Postgres + backend, assert the health probes, tear down (gate).
-- main: CLI entry; dispatch up/down/reset/smoke.
+- main: CLI entry; dispatch up/down/reset/rebuild/smoke.
 
 Notes:
 - All credentials here are NON-SECRET local docker conveniences (overridable via .env);
@@ -43,6 +45,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.local.yml"
 LOCAL_STATE_DIR = REPO_ROOT / ".local"
+FRONTEND_DIR = REPO_ROOT / "frontend"
 
 # Non-secret local defaults (overridable via .env / environment); see .env.example.
 _DEFAULTS: dict[str, str] = {
@@ -58,6 +61,22 @@ _DEFAULTS: dict[str, str] = {
 _HEALTH_TIMEOUT_SECONDS = 60.0
 _HEALTH_POLL_SECONDS = 1.0
 _HTTP_OK = 200
+_PORT_DRAIN_TIMEOUT_SECONDS = 5.0
+_LOCAL_CACHE_PATHS = (
+    LOCAL_STATE_DIR,
+    REPO_ROOT / ".pytest_cache",
+    REPO_ROOT / ".ruff_cache",
+    REPO_ROOT / ".mypy_cache",
+    FRONTEND_DIR / "node_modules" / ".vite",
+    FRONTEND_DIR / "coverage",
+    FRONTEND_DIR / "dist",
+    REPO_ROOT / "coverage.xml",
+)
+_REPO_PROCESS_MARKERS = (
+    "fraudlens_backend.main:app",
+    "scripts/local_demo.py",
+    "npm --prefix frontend run dev",
+)
 
 
 def _env(name: str) -> str:
@@ -89,6 +108,7 @@ def demo_environment() -> dict[str, str]:
             "FRAUDLENS_LLM_MODE": "mock",
         }
     )
+    env.setdefault("VITE_API_BASE_URL", _base_url(env.get("BACKEND_PORT", _env("BACKEND_PORT"))))
     return env
 
 
@@ -102,6 +122,127 @@ def _require_tools(*tools: str) -> None:
     missing = [tool for tool in tools if shutil.which(tool) is None]
     if missing:
         raise RuntimeError(f"missing required tools: {', '.join(missing)}")
+
+
+def _compose_down(*, remove_volumes: bool) -> None:
+    """Stop the FraudLens compose stack, optionally dropping volumes too."""
+    args = ["down", "--remove-orphans"]
+    if remove_volumes:
+        args.append("-v")
+    subprocess.run(_compose(*args), cwd=REPO_ROOT, check=True)
+
+
+def _remove_path(path: Path) -> None:
+    """Remove a generated local path when present (directory or file)."""
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def _clear_local_caches() -> None:
+    """Delete generated local state/caches used by the demo and checks."""
+    for path in _LOCAL_CACHE_PATHS:
+        _remove_path(path)
+
+
+def _listening_pids(port: str) -> list[int]:
+    """Return PIDs listening on a TCP port, or an empty list when `lsof` is unavailable."""
+    if shutil.which("lsof") is None:
+        return []
+    proc = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return sorted({int(line) for line in proc.stdout.splitlines() if line.strip().isdigit()})
+
+
+def _process_command(pid: int) -> str:
+    """Return a process command line, best-effort."""
+    proc = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout.strip()
+
+
+def _process_cwd(pid: int) -> Path | None:
+    """Return a process working directory via lsof, best-effort."""
+    if shutil.which("lsof") is None:
+        return None
+    proc = subprocess.run(
+        ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    for line in proc.stdout.splitlines():
+        if line.startswith("n"):
+            return Path(line[1:])
+    return None
+
+
+def _is_under_repo(path: Path | None) -> bool:
+    """Return True when path resolves under the FraudLens repository."""
+    if path is None:
+        return False
+    with contextlib.suppress(OSError, RuntimeError):
+        return path.resolve().is_relative_to(REPO_ROOT.resolve())
+    return False
+
+
+def _is_fraudlens_listener(pid: int) -> bool:
+    """Return True when a listener is a FraudLens-owned local dev process."""
+    if pid == os.getpid():
+        return False
+    command = _process_command(pid)
+    if str(REPO_ROOT) in command or any(marker in command for marker in _REPO_PROCESS_MARKERS):
+        return True
+    return _is_under_repo(_process_cwd(pid))
+
+
+def _wait_for_ports_to_drain(ports: tuple[str, ...]) -> bool:
+    """Wait briefly for all configured ports to have no remaining listeners."""
+    deadline = time.monotonic() + _PORT_DRAIN_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if not any(_listening_pids(port) for port in ports):
+            return True
+        time.sleep(_HEALTH_POLL_SECONDS)
+    return not any(_listening_pids(port) for port in ports)
+
+
+def _free_fraudlens_ports(ports: tuple[str, ...]) -> None:
+    """Terminate FraudLens-owned listeners and fail clearly on unrelated port owners."""
+    blockers: list[str] = []
+    to_terminate: set[int] = set()
+    for port in ports:
+        for pid in _listening_pids(port):
+            if _is_fraudlens_listener(pid):
+                to_terminate.add(pid)
+            else:
+                blockers.append(f"{port}: pid {pid} ({_process_command(pid) or 'unknown'})")
+    if blockers:
+        details = "; ".join(blockers)
+        raise RuntimeError(
+            "local demo port(s) are occupied by non-FraudLens processes: "
+            f"{details}. Stop them or override BACKEND_PORT/FRONTEND_PORT/POSTGRES_PORT."
+        )
+    for pid in to_terminate:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGTERM)
+    if to_terminate and not _wait_for_ports_to_drain(ports):
+        for pid in to_terminate:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        if not _wait_for_ports_to_drain(ports):
+            raise RuntimeError("FraudLens local listeners did not release their ports in time")
 
 
 def _http_ok(url: str) -> bool:
@@ -225,17 +366,29 @@ def up() -> int:
 def down() -> int:
     """Stop the compose stack (containers removed, volumes kept)."""
     _require_tools("docker")
-    subprocess.run(_compose("down"), cwd=REPO_ROOT, check=True)
+    _compose_down(remove_volumes=False)
     return 0
 
 
 def reset() -> int:
     """Stop the stack, drop its volumes, and remove local state (.local/)."""
     _require_tools("docker")
-    subprocess.run(_compose("down", "-v"), cwd=REPO_ROOT, check=True)
-    if LOCAL_STATE_DIR.exists():
-        shutil.rmtree(LOCAL_STATE_DIR)
+    _compose_down(remove_volumes=True)
+    _clear_local_caches()
     return 0
+
+
+def rebuild() -> int:
+    """Reset local Docker/state/caches, free local FraudLens ports, then boot the stack."""
+    _require_tools("docker", "uv", "npm")
+    ports = (_env("POSTGRES_PORT"), _env("BACKEND_PORT"), _env("FRONTEND_PORT"))
+    print(">> stopping FraudLens local Docker stack and dropping volumes")
+    _compose_down(remove_volumes=True)
+    print(">> clearing local generated state and caches")
+    _clear_local_caches()
+    print(">> freeing FraudLens-owned local ports")
+    _free_fraudlens_ports(ports)
+    return up()
 
 
 def smoke() -> int:
@@ -255,10 +408,17 @@ def smoke() -> int:
         backend.terminate()
         with contextlib.suppress(subprocess.TimeoutExpired):
             backend.wait(timeout=10)
-        subprocess.run(_compose("down"), cwd=REPO_ROOT, check=False)
+        subprocess.run(_compose("down", "--remove-orphans"), cwd=REPO_ROOT, check=False)
 
 
-_COMMANDS = {"up": up, "down": down, "reset": reset, "smoke": smoke}
+_COMMANDS = {
+    "up": up,
+    "down": down,
+    "rebuild": rebuild,
+    "reset": reset,
+    "run": rebuild,
+    "smoke": smoke,
+}
 
 
 def main(argv: list[str] | None = None) -> int:

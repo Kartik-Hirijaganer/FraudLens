@@ -13,7 +13,7 @@
  * Notes:
  * - Intentionally dependency-free (no clsx) for such a small helper.
  */
-export type ClassValue = string | false | null | undefined;
+type ClassValue = string | false | null | undefined;
 
 export function cx(...parts: ClassValue[]): string {
   return parts.filter(Boolean).join(" ");

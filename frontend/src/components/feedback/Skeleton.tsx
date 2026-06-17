@@ -5,18 +5,18 @@
  * no JS) — the WCAG-friendly default.
  *
  * Key classes:
- * - SkeletonProps: props (optional className to size the block).
+ * - (none)
  *
  * Key functions:
  * - Skeleton: render a pulsing placeholder block.
  *
  * Notes:
  * - It is decorative (`aria-hidden`) so screen readers announce the eventual content, not
- *   the placeholder.
+ * the placeholder.
  */
 import { cx } from "../../lib/cx";
 
-export interface SkeletonProps {
+interface SkeletonProps {
   className?: string;
 }
 

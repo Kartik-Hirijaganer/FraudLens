@@ -98,7 +98,9 @@ async def test_ingest_endpoints_write_audit_rows(
         f"{_CSV_HEADER}\nAUDIT-C1,10.00,usd,2026-01-01T00:00:00+00:00,4111111111111111,9,wire,us"
     )
     async with _client(app) as client:
-        assert (await client.post("/api/v1/transactions", json=_txn())).status_code == 201
+        created = await client.post("/api/v1/transactions", json=_txn())
+        assert created.status_code == 201
+        transaction_id = created.json()["transactionId"]
         batch = await client.post(
             "/api/v1/transactions/batch", json={"transactions": [_txn(externalId="AUDIT-B1")]}
         )
@@ -107,10 +109,16 @@ async def test_ingest_endpoints_write_audit_rows(
             "/api/v1/transactions/upload", content=csv_body, headers={"Content-Type": "text/csv"}
         )
         assert upload.status_code == 202
+        assert (await client.get("/api/v1/transactions")).status_code == 200
+        assert (await client.get(f"/api/v1/transactions/{transaction_id}")).status_code == 200
     rows = await _audit_rows(db_sessionmaker)
-    assert {"transaction.ingest", "transaction.batch_ingest", "transaction.csv_import"} <= _actions(
-        rows
-    )
+    assert {
+        "transaction.ingest",
+        "transaction.batch_ingest",
+        "transaction.csv_import",
+        "phi_mask",
+        "phi_access",
+    } <= _actions(rows)
     _assert_no_phi(rows)
 
 
