@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import local_demo
@@ -24,6 +26,7 @@ def test_demo_environment_selects_local_backends_and_mock_llm() -> None:
     assert env["FRAUDLENS_STORAGE_BACKEND"] == "local"
     assert env["FRAUDLENS_QUEUE_BACKEND"] == "local"
     assert env["FRAUDLENS_LLM_MODE"] == "mock"
+    assert env["VITE_API_BASE_URL"] == "http://localhost:8000"
     assert env["DATABASE_URL"].startswith("postgresql+asyncpg://")
 
 
@@ -40,11 +43,12 @@ def test_base_url_is_built_from_host_and_port() -> None:
 
 def test_main_dispatches_to_the_named_command(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
-    for name in ("up", "down", "reset", "smoke"):
+    for name in ("up", "down", "rebuild", "reset", "run", "smoke"):
         monkeypatch.setitem(local_demo._COMMANDS, name, lambda n=name: calls.append(n) or 0)
     assert local_demo.main(["down"]) == 0
     assert local_demo.main(["smoke"]) == 0
-    assert calls == ["down", "smoke"]
+    assert local_demo.main(["run"]) == 0
+    assert calls == ["down", "smoke", "run"]
 
 
 def test_require_tools_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,6 +73,38 @@ def test_maybe_build_rag_index_skips_when_script_absent(
     local_demo._maybe_build_rag_index({})
     assert ran == []
     assert "rag index: skipped" in capsys.readouterr().out
+
+
+def test_clear_local_caches_removes_files_and_directories(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cache_dir = tmp_path / "cache-dir"
+    cache_file = tmp_path / "cache-file"
+    cache_dir.mkdir()
+    cache_file.write_text("cache", encoding="utf-8")
+    monkeypatch.setattr(local_demo, "_LOCAL_CACHE_PATHS", (cache_dir, cache_file))
+    local_demo._clear_local_caches()
+    assert not cache_dir.exists()
+    assert not cache_file.exists()
+
+
+def test_rebuild_resets_caches_ports_then_boots(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(local_demo, "_require_tools", lambda *tools: calls.append(f"tools:{tools}"))
+    monkeypatch.setattr(
+        local_demo, "_compose_down", lambda *, remove_volumes: calls.append("compose-down")
+    )
+    monkeypatch.setattr(local_demo, "_clear_local_caches", lambda: calls.append("clear-caches"))
+    monkeypatch.setattr(local_demo, "_free_fraudlens_ports", lambda ports: calls.append("ports"))
+    monkeypatch.setattr(local_demo, "up", lambda: calls.append("up") or 0)
+    assert local_demo.rebuild() == 0
+    assert calls == [
+        "tools:('docker', 'uv', 'npm')",
+        "compose-down",
+        "clear-caches",
+        "ports",
+        "up",
+    ]
 
 
 class _FakeProc:
