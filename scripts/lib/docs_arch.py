@@ -22,7 +22,8 @@ Notes:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 from fastapi.routing import APIRoute
 
@@ -37,15 +38,27 @@ if TYPE_CHECKING:
 _DOCS_PATHS = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
 
 
+def _iter_api_routes(routes: Iterable[Any], prefix: str = "") -> Iterator[tuple[str, APIRoute]]:
+    """Yield APIRoutes recursively across FastAPI's nested included-router structure."""
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield f"{prefix}{route.path}", route
+            continue
+        context = getattr(route, "include_context", None)
+        router = getattr(route, "original_router", None)
+        if context is not None and router is not None:
+            yield from _iter_api_routes(router.routes, f"{prefix}{context.prefix}")
+
+
 def render_endpoints(app: FastAPI) -> str:
     """Return a Markdown table of the application's HTTP routes, sorted by path."""
     rows: list[tuple[str, str, str]] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or route.path in _DOCS_PATHS:
+    for path, route in _iter_api_routes(app.routes):
+        if path in _DOCS_PATHS:
             continue
-        methods = sorted(route.methods - {"HEAD", "OPTIONS"})
+        methods = sorted((route.methods or set()) - {"HEAD", "OPTIONS"})
         for method in methods:
-            rows.append((route.path, method, route.name))
+            rows.append((path, method, route.name))
     rows.sort()
     lines = ["| Method | Path | Handler |", "| --- | --- | --- |"]
     lines += [f"| {method} | `{path}` | `{name}` |" for path, method, name in rows]
@@ -79,7 +92,7 @@ def render_module_map() -> str:
             "graph TD",
             '    core["fraudlens-core<br/>(domain types, tenancy)"]',
             '    llm["fraudlens-llm<br/>(catalog client, guardrails)"]',
-            '    ml["fraudlens-ml<br/>(scoring/RAG; placeholder)"]',
+            '    ml["fraudlens-ml<br/>(scoring, RAG, SAR protocols)"]',
             '    backend["fraudlens-backend<br/>(FastAPI service)"]',
             "    ml --> core",
             "    backend --> core",

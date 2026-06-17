@@ -7,14 +7,14 @@
  * error/retry flow through AsyncBoundary.
  *
  * Key classes:
- * - TransactionsProps: props (an injectable ApiClient for tests).
+ * - (none)
  *
  * Key functions:
  * - Transactions: render the import control, filter, model selector, and table.
  *
  * Notes:
  * - The CSV is read in-browser and posted as text/csv; the in-flight Investigate button is
- *   disabled to guard against double-submits.
+ * disabled to guard against double-submits.
  */
 import { useCallback, useState, type ChangeEvent } from "react";
 
@@ -50,7 +50,7 @@ const RISK_OPTIONS = [
   { value: "critical", label: "Critical" },
 ];
 
-export interface TransactionsProps {
+interface TransactionsProps {
   client?: ApiClient;
 }
 
