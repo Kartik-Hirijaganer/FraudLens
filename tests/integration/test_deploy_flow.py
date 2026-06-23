@@ -174,3 +174,30 @@ def test_blob_lifecycle_policy_present() -> None:
     hcl = (TERRAFORM / "modules" / "blob" / "main.tf").read_text()
     assert "azurerm_storage_management_policy" in hcl
     assert "tier_to_cool_after_days_since_modification_greater_than" in hcl
+
+
+def test_azure_runtime_backends_receive_required_env() -> None:
+    """Gateway + jobs receive non-secret Azure runtime config for Blob and Job REST backends."""
+    gateway_hcl = (TERRAFORM / "modules" / "gateway_app" / "main.tf").read_text()
+    jobs_hcl = (TERRAFORM / "modules" / "jobs" / "main.tf").read_text()
+    shared_env = {
+        "FRAUDLENS_AZURE_MANAGED_IDENTITY_CLIENT_ID",
+        "FRAUDLENS_AZURE_SUBSCRIPTION_ID",
+        "FRAUDLENS_AZURE_RESOURCE_GROUP_NAME",
+        "FRAUDLENS_AZURE_STORAGE_ACCOUNT_NAME",
+        "FRAUDLENS_AZURE_STORAGE_CONTAINER_NAME",
+        "FRAUDLENS_AZURE_STORAGE_SAR_PDF_CONTAINER_NAME",
+    }
+    for name in shared_env:
+        assert name in gateway_hcl
+        assert name in jobs_hcl
+    assert "FRAUDLENS_AZURE_CONTAINER_APPS_RETRAIN_JOB_NAME" in gateway_hcl
+    assert "FRAUDLENS_AZURE_CONTAINER_APPS_BATCH_SCORE_JOB_NAME" in gateway_hcl
+    for env in ("dev", "prod"):
+        hcl = (TERRAFORM / "environments" / env / "main.tf").read_text()
+        assert "identity_client_id" in hcl
+        assert "storage_account_name" in hcl
+        assert "storage_container_name" in hcl
+        assert "sar_pdf_container_name" in hcl
+        assert "retrain_job_name" in hcl
+        assert "batch_score_job_name" in hcl

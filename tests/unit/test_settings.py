@@ -76,6 +76,9 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.rate_limit_requests == 120
     assert settings.storage_backend == "local"
     assert settings.queue_backend == "local"
+    assert settings.local_job_execute_on_submit is False
+    assert settings.azure_arm_endpoint == ""
+    assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
     assert settings.database_url is None
     assert set(settings.security_headers) >= {"X-Content-Type-Options", "X-Frame-Options"}
@@ -96,6 +99,10 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.storage_backend == "azure_blob"
     assert settings.queue_backend == "container_apps_jobs"
     assert settings.llm_mode == "live"
+    assert settings.azure_managed_identity_token_url.startswith("http://")
+    assert settings.azure_arm_endpoint.startswith("https://")
+    assert settings.azure_arm_token_resource.startswith("https://")
+    assert settings.azure_storage_token_resource.startswith("https://")
 
 
 def test_database_url_read_from_unprefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:
