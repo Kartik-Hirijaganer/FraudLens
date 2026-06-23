@@ -156,6 +156,11 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="A model training run is already in progress.",
         ),
         ErrorSpec(
+            code="job_submission_failed",
+            http_status=503,
+            message="The background job could not be started. Retry shortly.",
+        ),
+        ErrorSpec(
             code="invalid_model_transition",
             http_status=409,
             message="That action is not allowed from the model version's current status.",

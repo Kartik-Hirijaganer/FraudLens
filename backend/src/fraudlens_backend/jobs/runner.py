@@ -7,8 +7,8 @@ SSE stream, no `RunManager` background task — over a set of transactions, then
 sweep produces exactly the same durable results/events/alerts an interactive run would. Runs are
 sequential on one session (the store commits incrementally), so a mid-batch failure leaves prior
 runs durable. `main` is the dev/demo entry point that scores the demo agency's un-investigated
-transactions; the Container Apps Jobs trigger that schedules it lands in Phase 14 (the
-local-vs-cloud seam is `backends/jobs.py`).
+transactions; the Container Apps Jobs trigger is wired by Terraform, and the local-vs-cloud seam is
+`backends/jobs.py`.
 
 Key classes:
 - BatchScoreResult: the PHI-free outcome counts of a batch run (requested/completed/failed/skipped).

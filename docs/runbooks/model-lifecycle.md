@@ -117,13 +117,16 @@ the API). The candidate trains on the same deterministic synthetic dataset as Ph
 real volume is tiny in a demo), is gated against the §10.5.1 metrics **+ the active model (no
 regression) + the per-tenant slice gate**, and is recorded as a `CANDIDATE` `model_versions` row
 with overall + per-slice metrics in `model_evaluations`. **It never touches the active pointer.**
-The API trigger submits the Job through the config-driven backend (local runner / Container Apps
-Job) and acknowledges 202. The retrain Job also accepts `--trigger scheduled`; the **monthly** cron
-that fires it is the Container Apps Jobs schedule wired with the deploy IaC in Phase 14 (the v1
-code — the script, the `scheduled` trigger, and the job-backend seam — is complete and tested).
+The API trigger submits the Job through the config-driven backend and acknowledges 202. Plain
+`queue_backend=local` returns a local job id only; `make run` / `make local-demo` also sets
+`FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT=true`, so the Model Admin retrain button executes
+`uv run python scripts/retrain.py` synchronously and creates a real local candidate for browser
+UAT. In production, the same trigger starts the configured Container Apps Job through Azure ARM
+using managed identity. The retrain Job also accepts `--trigger scheduled`; the **monthly** cron
+that fires it is the Container Apps Jobs schedule wired with the deploy IaC.
 
-The `make local-demo` seed ships a balanced set of **pre-matured** labels, so `make retrain` is
-eligible immediately for the demo.
+The `make local-demo` seed ships a balanced set of **pre-matured** labels, so `make retrain` and
+the Model Admin retrain button are eligible immediately for the demo.
 
 ### 2 · Shadow → approve → canary → active
 
