@@ -1,12 +1,25 @@
-"""Config-driven infrastructure backends (plan §12.3): storage + background jobs.
+"""Summary: Config-driven infrastructure backends (plan §12.3): storage + background jobs.
 
 A `local` selection makes `make local-demo` run with no cloud and no keys; the cloud
-selections (Azure Blob / Container Apps Jobs) are placeholders until Phase 14. Re-exports
-are intentional (see members).
+selections use managed-identity Azure REST clients so production can upload SAR PDFs and start
+Container Apps Jobs without long-lived credentials. Re-exports are intentional (see members).
+
+Key classes:
+- LocalFsStorage / AzureBlobStorage: artifact and SAR-PDF blob stores.
+- LocalJobBackend / ContainerAppsJobBackend: job submission backends.
+- BackendConfigurationError / BackendRequestError: PHI-free backend failure types.
+
+Key functions:
+- get_storage_backend: resolve the configured storage backend.
+- get_job_backend: resolve the configured job backend.
+
+Notes:
+- Secrets still come from Infisical/runtime identity; only non-secret resource names are settings.
 """
 
 from __future__ import annotations
 
+from fraudlens_backend.backends.azure import BackendConfigurationError, BackendRequestError
 from fraudlens_backend.backends.jobs import (
     ContainerAppsJobBackend,
     JobBackend,
@@ -22,6 +35,8 @@ from fraudlens_backend.backends.storage import (
 
 __all__ = [
     "AzureBlobStorage",
+    "BackendConfigurationError",
+    "BackendRequestError",
     "ContainerAppsJobBackend",
     "JobBackend",
     "LocalFsStorage",

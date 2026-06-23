@@ -35,6 +35,41 @@ variable "identity_id" {
   description = "User-assigned managed identity id (Blob + Infisical OIDC)."
 }
 
+variable "identity_client_id" {
+  type        = string
+  description = "User-assigned managed identity client id for runtime managed-identity token calls."
+}
+
+variable "environment" {
+  type        = string
+  description = "FraudLens runtime environment name."
+}
+
+variable "subscription_id" {
+  type        = string
+  description = "Azure subscription id for runtime ARM calls."
+}
+
+variable "azure_resource_group_name" {
+  type        = string
+  description = "Resource group containing FraudLens Container Apps resources."
+}
+
+variable "storage_account_name" {
+  type        = string
+  description = "Storage account name for Azure Blob runtime calls."
+}
+
+variable "storage_container_name" {
+  type        = string
+  description = "Blob container for model/artifact keys."
+}
+
+variable "sar_pdf_container_name" {
+  type        = string
+  description = "Blob container for SAR PDF keys."
+}
+
 variable "registry_server" {
   type        = string
   description = "Image registry login server. Empty => public GHCR (anonymous pull)."
@@ -143,6 +178,35 @@ resource "azurerm_container_app_job" "this" {
       cpu     = var.cpu
       memory  = var.memory
       command = var.command
+
+      env {
+        name  = "FRAUDLENS_ENVIRONMENT"
+        value = var.environment
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_MANAGED_IDENTITY_CLIENT_ID"
+        value = var.identity_client_id
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_SUBSCRIPTION_ID"
+        value = var.subscription_id
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_RESOURCE_GROUP_NAME"
+        value = var.azure_resource_group_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.storage_account_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_CONTAINER_NAME"
+        value = var.storage_container_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_SAR_PDF_CONTAINER_NAME"
+        value = var.sar_pdf_container_name
+      }
     }
   }
 }

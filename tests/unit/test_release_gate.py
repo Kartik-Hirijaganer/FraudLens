@@ -45,7 +45,14 @@ _DEPUP_YML = (
 )
 _MAKEFILE = "\n".join(
     f"{t}:\n\t@echo {t}"
-    for t in ("ci", "docs-check", "tf-validate", "docker-build", "local-demo-smoke")
+    for t in (
+        "ci",
+        "docs-check",
+        "tf-validate",
+        "docker-build",
+        "local-demo-smoke",
+        "local-release-check",
+    )
 )
 
 _VERSION_PATHS = (

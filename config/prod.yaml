@@ -15,6 +15,13 @@ storage_backend: azure_blob
 queue_backend: container_apps_jobs
 llm_mode: live
 
+# Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,
+# job names, storage account, managed-identity client id) are injected by Terraform as env vars.
+azure_managed_identity_token_url: "http://169.254.169.254/metadata/identity/oauth2/token"
+azure_arm_endpoint: "https://management.azure.com"
+azure_arm_token_resource: "https://management.azure.com/"
+azure_storage_token_resource: "https://storage.azure.com/"
+
 # The FinCEN/BSA RAG index is baked into the image; require it at readiness so a broken
 # deploy (missing/empty index) fails /readyz instead of serving without citations (§10.6).
 rag_index_required: true

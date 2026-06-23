@@ -44,18 +44,21 @@ This lower-level command keeps existing local data/volumes and runs
    for its healthcheck;
 3. applies migrations + seed **when they exist** (they land in Phase 2 and are skipped, not
    failed, until then);
-4. starts the gateway+services (`uvicorn` on `:8000`) and the frontend (Vite on `:5173`)
-   with `FRAUDLENS_ENVIRONMENT=dev`, local storage/queue backends, and `LLM_MODE=mock`;
+4. starts the gateway+services (`uvicorn`) and the frontend (Vite) with
+   `FRAUDLENS_ENVIRONMENT=dev`, local storage/queue backends,
+   `FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT=true`, and `FRAUDLENS_LLM_MODE=mock`;
 5. waits for `GET /healthz`, prints the URL, and blocks until `Ctrl-C`, then shuts the child
    processes down cleanly.
 
-Open **http://localhost:5173** (the gateway/API is at **http://localhost:8000**).
+Open the URL printed by the command. Preferred defaults are **http://localhost:5173** for the app
+and **http://localhost:8000** for the gateway/API; if another project already owns those ports,
+the script automatically selects free fallbacks and prints the actual URLs.
 
 ```mermaid
 flowchart LR
     dev["make local-demo"] --> pg[("Postgres<br/>docker-compose")]
-    dev --> be["gateway+services<br/>uvicorn :8000"]
-    dev --> fe["frontend<br/>Vite :5173"]
+    dev --> be["gateway+services<br/>uvicorn default :8000"]
+    dev --> fe["frontend<br/>Vite default :5173"]
     be -->|asyncpg| pg
     fe -->|REST + SSE| be
 ```
@@ -78,8 +81,11 @@ flowchart LR
   table). Boot-critical edge config (CORS allowlist, rate limits, security headers, gateway
   routes) is loaded at startup and never depends on the database.
 - **Backends** are config-driven (`FRAUDLENS_STORAGE_BACKEND`, `FRAUDLENS_QUEUE_BACKEND`):
-  `local` uses the filesystem (`.local/artifacts`) and an in-process job runner; the cloud
-  backends (Azure Blob / Container Apps Jobs) activate in production (Phase 14).
+  `local` uses the filesystem (`.local/artifacts`) and a local job runner. In `make run` /
+  `make local-demo`, the Model Admin retrain button executes `uv run python scripts/retrain.py`
+  synchronously via `FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT=true`, so local browser UAT creates a
+  real candidate model instead of only acknowledging a job id. The cloud backends (Azure Blob /
+  Container Apps Jobs) activate in production.
 - **LLM** runs in `mock` mode locally (`FRAUDLENS_LLM_MODE=mock`) — a deterministic, keyless
   SAR drafter. Live providers are opt-in via Infisical in deployed environments.
 - Copy [`.env.example`](../../.env.example) to `.env` to override the non-secret local
@@ -96,12 +102,14 @@ These targets wrap the canonical commands; the scripts they invoke arrive with t
 | `make import-ieee` | Import the synthetic IEEE-CIS sample | Phase 3 |
 | `make ingest-rag` | Build the FinCEN/BSA RAG index | Phase 6 |
 | `make train-model` | Train + register an XGBoost model | Phase 5 |
+| `make retrain` | Matured reviewed labels → gated candidate model | Phase 10 |
 
 ## Troubleshooting
 
 - **Docker not running** → `make local-demo` exits with a clear "missing required tools" /
   daemon error; start Docker and retry.
-- **Port already in use** → set `BACKEND_PORT` / `FRONTEND_PORT` / `POSTGRES_PORT` in `.env`.
+- **Port already in use** → unset `BACKEND_PORT` / `FRONTEND_PORT` to let the script choose free
+  fallbacks, or set `BACKEND_PORT` / `FRONTEND_PORT` / `POSTGRES_PORT` in `.env` explicitly.
 - **`/readyz` reports the database as `down`** → Postgres is not up yet or `DATABASE_URL` is
   wrong; `make local-demo-down` then `make local-demo`. With no `DATABASE_URL` the database
   check reports `skipped` (the app still boots).

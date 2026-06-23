@@ -7,12 +7,12 @@ CHANGELOG carries a section for that version, and the §20 maintenance automatio
 WIRED — the release workflow re-runs the CI gate so a tag only ships from green
 (rule 9), git-cliff drives the changelog, Renovate keeps majors human-reviewed, the
 dependency-update gate runs CI on `renovate/*` branches, and the umbrella gate targets
-(`ci` / `docs-check` / `tf-validate` / `docker-build` / `local-demo-smoke`) exist. It
-NEVER tags, commits, or pushes (Golden Rule 1) and it does NOT run the CI gate (that is
-CI's job and would be circular) — it asserts the gate's STRUCTURE plus version
-readiness, then prints the human-only gate items (clean-checkout `make local-demo`,
-browser UAT incl. model retrain/promote/rollback, the `v1.0.0` tag approval) so none is
-silently skipped.
+(`ci` / `docs-check` / `tf-validate` / `docker-build` / `local-demo-smoke` /
+`local-release-check`) exist. It NEVER tags, commits, or pushes (Golden Rule 1) and it
+does NOT run the CI gate (that is CI's job and would be circular) — it asserts the
+gate's STRUCTURE plus version readiness, then prints the human-only gate items
+(clean-checkout `make local-release-check`, browser UAT incl. model
+retrain/promote/rollback, the `v1.0.0` tag approval) so none is silently skipped.
 
 Key classes:
 - (none)
@@ -25,13 +25,13 @@ Key functions:
 - check_renovate: assert Renovate keeps major updates human-reviewed.
 - check_dependency_update: assert the dependency-update gate re-runs CI on renovate branches.
 - check_changelog_config: assert git-cliff parses Conventional Commits.
-- check_make_targets: assert the §20 umbrella gate targets exist in the Makefile.
+- check_make_targets: assert the §20 umbrella gate + local release targets exist in the Makefile.
 - evaluate: assemble the full gate result (automatable checks + the manual checklist).
 - main: CLI entry; print the gate result and exit non-zero if any automatable check fails.
 
 Notes:
 - Automatable checks gate the exit code; MANUAL items are reported as required-human and
-  never auto-passed — a clean-checkout boot, a browser UAT, and the human tag approval
+  never auto-passed — a browser UAT and the human tag approval
   cannot be proven from repository state and are out-of-band by design.
 - IO is injected (a repo-relative reader returning '' for missing files) so the logic is
   unit-tested against fixtures without touching the real tree; the script only ever READS.
@@ -72,6 +72,7 @@ _REQUIRED_MAKE_TARGETS: tuple[str, ...] = (
     "tf-validate",
     "docker-build",
     "local-demo-smoke",
+    "local-release-check",
 )
 
 _DUNDER_VERSION_RE = re.compile(r"""__version__\s*=\s*["']([^"']+)["']""")
@@ -79,8 +80,8 @@ _DUNDER_VERSION_RE = re.compile(r"""__version__\s*=\s*["']([^"']+)["']""")
 # The release-gate items that CANNOT be proven from repository state and stay human-owned
 # (Phase 15 acceptance / §20). Reported, never auto-passed.
 MANUAL_GATE_ITEMS: tuple[str, ...] = (
-    "`make local-demo` on a clean checkout boots the stack and prints the URL",
-    "`make local-demo-smoke` passes on a clean checkout",
+    "`make local-release-check` passes on a clean checkout",
+    "`make local-demo` boots the stack and prints the URL for browser UAT",
     "full browser UAT, including model retrain -> promote -> rollback",
     "human approves the `v<version>` tag/push (Golden Rule 1 — no autonomous tagging)",
 )
@@ -207,7 +208,7 @@ def check_make_targets(read: Reader) -> dict[str, Any]:
         target for target in _REQUIRED_MAKE_TARGETS if not re.search(rf"(?m)^{target}:", text)
     ]
     ok = not missing
-    detail = "ci/docs-check/tf-validate/docker-build/local-demo-smoke defined"
+    detail = "ci/docs-check/tf-validate/docker-build/local-demo-smoke/local-release-check defined"
     return _check("make gate targets", ok, detail if ok else f"missing targets: {missing}")
 
 

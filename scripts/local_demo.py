@@ -1,14 +1,15 @@
 """Summary: The one-command local demo orchestrator (plan §3.4 / §16 Phase 1). It
 boots the full stack with NO cloud and NO secrets: a docker-compose Postgres, then the
-gateway+services (uvicorn :8000) and the frontend (Vite :5173), wired to local backends
-and the keyless mock SAR drafter via dev config. `up` waits for /healthz, prints the
-demo URL, and blocks until Ctrl-C, then tears the child processes down cleanly; `down`
-/`reset` stop the stack (reset also drops volumes + .local state); `rebuild` performs a
-clean local reset, clears generated caches, frees FraudLens-owned listeners, then boots;
-`smoke` is the headless gate — boot Postgres + backend, assert /healthz and /readyz, tear down. The
-database migrate + seed + RAG-index-build steps are guarded so they run once their phases
-land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase 6), and are skipped (not
-failed) until then, keeping `make local-demo` green and shipping a fixture RAG index.
+gateway+services (uvicorn) and the frontend (Vite), wired to local backends and the keyless mock
+SAR drafter via dev config. The preferred ports are :8000/:5173, but unset ports move to free
+fallbacks when another project owns them. `up` waits for /healthz, prints the demo URL, and blocks
+until Ctrl-C, then tears the child processes down cleanly; `down` /`reset` stop the stack (reset
+also drops volumes + .local state); `rebuild` performs a clean local reset, clears generated caches,
+frees FraudLens-owned listeners, then boots; `smoke` is the headless gate — boot Postgres + backend,
+assert /healthz and /readyz, tear down. The database migrate + seed + RAG-index-build steps are
+guarded so they run once their phases land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase
+6), and are skipped (not failed) until then, keeping `make local-demo` green and shipping a fixture
+RAG index.
 
 Key classes:
 - (none)
@@ -32,9 +33,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -58,6 +61,14 @@ _DEFAULTS: dict[str, str] = {
     "BACKEND_PORT": "8000",
     "FRONTEND_PORT": "5173",
 }
+_AUTO_PORT_STARTS: dict[str, int] = {
+    "POSTGRES_PORT": 55432,
+    "BACKEND_PORT": 18000,
+    "FRONTEND_PORT": 15173,
+}
+_AUTO_PORT_SEARCH_SPAN = 100
+_MIN_TCP_PORT = 1
+_MAX_TCP_PORT = 65535
 _HEALTH_TIMEOUT_SECONDS = 60.0
 _HEALTH_POLL_SECONDS = 1.0
 _HTTP_OK = 200
@@ -84,6 +95,50 @@ def _env(name: str) -> str:
     return os.environ.get(name, _DEFAULTS[name])
 
 
+def _parse_port(port: str) -> int | None:
+    """Parse and validate a TCP port string."""
+    if not port.isdigit():
+        return None
+    value = int(port)
+    return value if _MIN_TCP_PORT <= value <= _MAX_TCP_PORT else None
+
+
+def _is_port_available(port: str) -> bool:
+    """Return True when a local TCP port can be bound by the demo."""
+    parsed = _parse_port(port)
+    if parsed is None:
+        return False
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((_env("DEMO_HOST"), parsed))
+    except OSError:
+        return False
+    return True
+
+
+def _first_available_port(name: str) -> str:
+    """Find the first available fallback port for a known local-demo port variable."""
+    start = _AUTO_PORT_STARTS[name]
+    for port in range(start, start + _AUTO_PORT_SEARCH_SPAN):
+        candidate = str(port)
+        if _is_port_available(candidate):
+            return candidate
+    raise RuntimeError(f"no available fallback port found for {name}")
+
+
+def _assign_available_default_ports(names: tuple[str, ...]) -> None:
+    """Move unset default ports to free fallbacks when another project owns the common ports."""
+    for name in names:
+        if name in os.environ:
+            continue
+        requested = _DEFAULTS[name]
+        if _is_port_available(requested):
+            continue
+        selected = _first_available_port(name)
+        os.environ[name] = selected
+        print(f">> {name} default {requested} is unavailable; using {selected}", flush=True)
+
+
 def local_database_url() -> str:
     """Build the local async (asyncpg) database URL from env/defaults."""
     user, password = _env("POSTGRES_USER"), _env("POSTGRES_PASSWORD")
@@ -99,16 +154,21 @@ def _base_url(port: str) -> str:
 def demo_environment() -> dict[str, str]:
     """Return the child-process environment: dev config, local backends, mock LLM."""
     env = dict(os.environ)
+    for name in ("POSTGRES_PORT", "BACKEND_PORT", "FRONTEND_PORT"):
+        env.setdefault(name, _env(name))
     env.update(
         {
             "FRAUDLENS_ENVIRONMENT": "dev",
             "DATABASE_URL": local_database_url(),
             "FRAUDLENS_STORAGE_BACKEND": "local",
             "FRAUDLENS_QUEUE_BACKEND": "local",
+            "FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT": "true",
             "FRAUDLENS_LLM_MODE": "mock",
         }
     )
-    env.setdefault("VITE_API_BASE_URL", _base_url(env.get("BACKEND_PORT", _env("BACKEND_PORT"))))
+    frontend_origin = _base_url(env["FRONTEND_PORT"])
+    env.setdefault("FRAUDLENS_CORS_ALLOW_ORIGINS", json.dumps([frontend_origin]))
+    env.setdefault("VITE_API_BASE_URL", _base_url(env["BACKEND_PORT"]))
     return env
 
 
@@ -218,17 +278,19 @@ def _wait_for_ports_to_drain(ports: tuple[str, ...]) -> bool:
     return not any(_listening_pids(port) for port in ports)
 
 
-def _free_fraudlens_ports(ports: tuple[str, ...]) -> None:
-    """Terminate FraudLens-owned listeners and fail clearly on unrelated port owners."""
+def _free_fraudlens_ports(ports: tuple[str, ...], *, fail_on_blockers: bool = True) -> list[str]:
+    """Terminate FraudLens-owned listeners and optionally report unrelated port owners."""
     blockers: list[str] = []
     to_terminate: set[int] = set()
+    ports_to_drain: set[str] = set()
     for port in ports:
         for pid in _listening_pids(port):
             if _is_fraudlens_listener(pid):
                 to_terminate.add(pid)
+                ports_to_drain.add(port)
             else:
                 blockers.append(f"{port}: pid {pid} ({_process_command(pid) or 'unknown'})")
-    if blockers:
+    if blockers and fail_on_blockers:
         details = "; ".join(blockers)
         raise RuntimeError(
             "local demo port(s) are occupied by non-FraudLens processes: "
@@ -237,12 +299,14 @@ def _free_fraudlens_ports(ports: tuple[str, ...]) -> None:
     for pid in to_terminate:
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
-    if to_terminate and not _wait_for_ports_to_drain(ports):
+    drain_ports = tuple(sorted(ports_to_drain))
+    if to_terminate and not _wait_for_ports_to_drain(drain_ports):
         for pid in to_terminate:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)
-        if not _wait_for_ports_to_drain(ports):
+        if not _wait_for_ports_to_drain(drain_ports):
             raise RuntimeError("FraudLens local listeners did not release their ports in time")
+    return blockers
 
 
 def _http_ok(url: str) -> bool:
@@ -333,17 +397,35 @@ def _backend_command(env: dict[str, str]) -> list[str]:
     ]
 
 
+def _frontend_command(env: dict[str, str]) -> list[str]:
+    """Build the Vite command for the SPA, pinning the selected local port."""
+    return [
+        "npm",
+        "--prefix",
+        "frontend",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        env.get("DEMO_HOST", _DEFAULTS["DEMO_HOST"]),
+        "--port",
+        env.get("FRONTEND_PORT", _DEFAULTS["FRONTEND_PORT"]),
+        "--strictPort",
+    ]
+
+
 def up() -> int:
     """Boot Postgres + backend + frontend, print the demo URL, wait for Ctrl-C."""
     _require_tools("docker", "uv", "npm")
+    _assign_available_default_ports(("POSTGRES_PORT", "BACKEND_PORT", "FRONTEND_PORT"))
     env = demo_environment()
-    backend_port, frontend_port = _env("BACKEND_PORT"), _env("FRONTEND_PORT")
+    backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
     _start_postgres(env)
     _maybe_migrate_and_seed(env)
     _maybe_build_rag_index(env)
     procs = [
         subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
-        subprocess.Popen(["npm", "--prefix", "frontend", "run", "dev"], cwd=REPO_ROOT, env=env),
+        subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
     ]
     try:
         if not _wait_for_http(f"{_base_url(backend_port)}/healthz"):
@@ -387,6 +469,9 @@ def rebuild() -> int:
     print(">> clearing local generated state and caches")
     _clear_local_caches()
     print(">> freeing FraudLens-owned local ports")
+    _free_fraudlens_ports(ports, fail_on_blockers=False)
+    _assign_available_default_ports(("BACKEND_PORT", "FRONTEND_PORT"))
+    ports = (_env("POSTGRES_PORT"), _env("BACKEND_PORT"), _env("FRONTEND_PORT"))
     _free_fraudlens_ports(ports)
     return up()
 
@@ -394,8 +479,9 @@ def rebuild() -> int:
 def smoke() -> int:
     """Headless gate: boot Postgres + backend, assert /healthz + /readyz, tear down."""
     _require_tools("docker", "uv")
+    _assign_available_default_ports(("POSTGRES_PORT", "BACKEND_PORT"))
     env = demo_environment()
-    backend_port = _env("BACKEND_PORT")
+    backend_port = env["BACKEND_PORT"]
     _start_postgres(env)
     _maybe_migrate_and_seed(env)
     _maybe_build_rag_index(env)
