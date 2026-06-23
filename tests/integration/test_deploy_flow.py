@@ -15,6 +15,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 TERRAFORM = REPO_ROOT / "infra" / "terraform"
+LOWERCASE_OWNER_SCRIPT = (
+    "owner=\"$(printf '%s' \"$GITHUB_REPOSITORY_OWNER\" | tr '[:upper:]' '[:lower:]')\""
+)
 
 
 def _load_yaml(path: Path) -> dict:
@@ -28,6 +31,11 @@ def _deploy_backend() -> dict:
 def _deploy_backend_flat() -> str:
     """Whitespace-normalized workflow text — robust to YAML line-wrapping for content checks."""
     return re.sub(r"\s+", " ", (WORKFLOWS / "deploy-backend.yml").read_text())
+
+
+def _build_base_flat() -> str:
+    """Whitespace-normalized base-image workflow text for GHCR reference checks."""
+    return re.sub(r"\s+", " ", (WORKFLOWS / "build-base.yml").read_text())
 
 
 def _job_script(job: dict) -> str:
@@ -56,8 +64,18 @@ def test_image_is_built_exactly_once_and_reused() -> None:
 def test_image_tagged_by_commit_sha() -> None:
     """The single image is immutable, tagged by the deployed commit SHA (build-once identity)."""
     flat = _deploy_backend_flat()
-    assert "IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/fraudlens-backend" in flat
-    assert "image=${IMAGE_NAME}:${{ github.event.workflow_run.head_sha }}" in flat
+    assert LOWERCASE_OWNER_SCRIPT in flat
+    assert 'image_name="ghcr.io/${owner}/fraudlens-backend"' in flat
+    assert "image=${image_name}:${{ github.event.workflow_run.head_sha }}" in flat
+
+
+def test_ghcr_image_references_are_lowercase() -> None:
+    """GHCR/Docker repository names must be lowercase even when the GitHub owner has caps."""
+    flat = _build_base_flat()
+    assert LOWERCASE_OWNER_SCRIPT in flat
+    assert "base_image=ghcr.io/${owner}/fraudlens-base" in flat
+    assert "${{ steps.image.outputs.base_image }}:latest" in flat
+    assert "github.event_name == 'pull_request' && 'type=gha,mode=max'" in flat
 
 
 # --- Revision @0% -> gated migration -> smoke -> promote-or-abort ------------------------------
