@@ -7,6 +7,7 @@ in-memory engine; candidates are set up via a direct session the handlers then s
 
 from __future__ import annotations
 
+import sys
 import uuid
 from collections.abc import Callable
 
@@ -143,6 +144,27 @@ async def test_trigger_retrain_submits_job(
     assert body["jobId"]
     assert body["status"] == "submitted"
     assert body["labelTotal"] == 12
+
+
+async def test_trigger_retrain_reports_job_submission_failure(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed(db_sessionmaker)
+    app = _build_app(
+        make_settings(
+            auth_dev_bypass=True,
+            local_job_execute_on_submit=True,
+            local_retrain_command=[sys.executable, "-c", "raise SystemExit(1)"],
+        ),
+        db_engine,
+        db_sessionmaker,
+    )
+    async with _client(app) as client:
+        resp = await client.post("/api/v1/training-runs", json={"trigger": "manual"})
+    assert resp.status_code == 503
+    assert resp.json()["code"] == "job_submission_failed"
 
 
 async def test_trigger_insufficient_matured_labels(
