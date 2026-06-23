@@ -19,6 +19,21 @@ no code rewrite (ADR-004). Container Apps Jobs run the **retrain cron** + the **
 batch-score** job. State is Supabase Postgres; artifacts/SAR-PDFs are Azure Blob; the ChromaDB index
 is **baked into the image**; observability flows to Log Analytics + Application Insights.
 
+The gateway runtime uses managed identity for both operational backends:
+
+- **Azure Blob artifacts/SAR PDFs:** `FRAUDLENS_AZURE_STORAGE_ACCOUNT_NAME`,
+  `FRAUDLENS_AZURE_STORAGE_CONTAINER_NAME`, and
+  `FRAUDLENS_AZURE_STORAGE_SAR_PDF_CONTAINER_NAME` are injected by Terraform; the app derives the
+  Blob endpoint and requests a `https://storage.azure.com/` token from managed identity.
+- **Container Apps Jobs:** `FRAUDLENS_AZURE_SUBSCRIPTION_ID`,
+  `FRAUDLENS_AZURE_RESOURCE_GROUP_NAME`,
+  `FRAUDLENS_AZURE_CONTAINER_APPS_RETRAIN_JOB_NAME`, and
+  `FRAUDLENS_AZURE_CONTAINER_APPS_BATCH_SCORE_JOB_NAME` are injected by Terraform; the app starts
+  jobs through ARM with a `https://management.azure.com/` token.
+
+The same managed-identity client id and Blob settings are also injected into the Job containers,
+so retrain/batch work can read/write artifacts without stored credentials.
+
 ```mermaid
 flowchart LR
     CI["CI: make ci + build ONE image (SHA)<br/>FROM fraudlens-base + cached layers"] --> PUSH["push thin image to GHCR"]

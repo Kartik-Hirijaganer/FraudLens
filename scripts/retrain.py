@@ -9,7 +9,8 @@ duplicated training logic), while the matured labels drive eligibility and the i
 dataset manifest (label window + aggregate counts — never PHI or `agency_id`, ADR-015). The
 candidate is gated against the §10.5.1 metric gates AND the active model (no regression) AND the
 per-tenant slice gate (§9.4), recorded overall + per-slice in `model_evaluations`, then registered
-as a CANDIDATE `model_versions` row (+ training run + job) — prod untouched.
+as a CANDIDATE `model_versions` row (+ training run + job) — the active deployment pointer remains
+untouched.
 
 Key classes:
 - (none)
@@ -18,15 +19,15 @@ Key functions:
 - read_active_pr_auc: the current active model's recorded PR-AUC (the regression baseline).
 - tenant_slice_pr_aucs: per-tenant slice PR-AUCs over deterministic holdout partitions (§9.4).
 - register_retrained_candidate: idempotently register the dataset/run/version/evaluation/job rows.
-- main: CLI — eligibility → train → gate (overall + active + per-tenant) → register (dev/demo only).
+- main: CLI — eligibility → train → gate (overall + active + per-tenant) → register candidate.
 
 Notes:
 - Candidate-only by construction: the active/canary `model_deployments` pointer is never written
   here; the API's shadow/approve/canary/rollback flow promotes it (human-gated, plan §10.5).
 - Registration is idempotent by version label (label = hash of feature-spec + seed + matured-label
   counts), so re-running with the same labels is a no-op (mirrors `train_model`).
-- Exit codes: 0 ok, 1 fatal (no DB / prod refusal), 2 gates failed (candidate still registered for
-  audit), 3 insufficient matured labels (nothing trained).
+- Exit codes: 0 ok, 1 fatal (no DB / unexpected failure), 2 gates failed (candidate still
+  registered for audit), 3 insufficient matured labels (nothing trained).
 """
 
 from __future__ import annotations
@@ -258,11 +259,8 @@ def _print_report(
 
 
 async def _amain(trigger: ModelTrigger, rows: int, seed: int) -> int:
-    """Gate eligibility, train + gate a candidate from matured labels, register it (dev only)."""
+    """Gate eligibility, train + gate a candidate from matured labels, register it."""
     settings = get_settings()
-    if settings.environment == "prod":
-        print("retrain refused: never trains the demo model in prod (FraudLens governance)")
-        return 1
     engine = create_engine_from_settings(settings)
     if engine is None:
         print("retrain failed: DATABASE_URL is not configured")
@@ -338,7 +336,7 @@ async def _amain(trigger: ModelTrigger, rows: int, seed: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point: retrain a candidate from matured reviewed labels (dev/demo only)."""
+    """CLI entry point: retrain a candidate from matured reviewed labels."""
     parser = argparse.ArgumentParser(description="Retrain a candidate model from matured labels.")
     parser.add_argument(
         "--trigger",
