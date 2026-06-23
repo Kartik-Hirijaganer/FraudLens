@@ -49,6 +49,7 @@ from fraudlens_backend.api.deps import (
     require_actor,
 )
 from fraudlens_backend.api.v1.model_versions import to_version_response
+from fraudlens_backend.backends.azure import BackendConfigurationError, BackendRequestError
 from fraudlens_backend.backends.jobs import get_job_backend
 from fraudlens_backend.db.models import (
     DriftReport,
@@ -163,7 +164,10 @@ async def trigger_training_run(
     ):
         raise AppError("insufficient_matured_labels")
     actor = require_actor(tenant)
-    job_id = get_job_backend(settings).submit(JobType.RETRAIN.value, {"trigger": body.trigger})
+    try:
+        job_id = get_job_backend(settings).submit(JobType.RETRAIN.value, {"trigger": body.trigger})
+    except (BackendConfigurationError, BackendRequestError, RuntimeError) as exc:
+        raise AppError("job_submission_failed") from exc
     await audit_writer(tenant, session, request).record(
         actor_id=actor,
         action="model.retrain_triggered",
