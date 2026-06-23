@@ -20,13 +20,18 @@ def test_local_database_url_honors_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "@db.internal:6543/" in local_demo.local_database_url()
 
 
-def test_demo_environment_selects_local_backends_and_mock_llm() -> None:
+def test_demo_environment_selects_local_backends_and_mock_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.delenv("FRONTEND_PORT", raising=False)
     env = local_demo.demo_environment()
     assert env["FRAUDLENS_ENVIRONMENT"] == "dev"
     assert env["FRAUDLENS_STORAGE_BACKEND"] == "local"
     assert env["FRAUDLENS_QUEUE_BACKEND"] == "local"
     assert env["FRAUDLENS_LLM_MODE"] == "mock"
     assert env["VITE_API_BASE_URL"] == "http://localhost:8000"
+    assert env["FRAUDLENS_CORS_ALLOW_ORIGINS"] == '["http://localhost:5173"]'
     assert env["DATABASE_URL"].startswith("postgresql+asyncpg://")
 
 
@@ -39,6 +44,29 @@ def test_compose_command_targets_the_local_file() -> None:
 
 def test_base_url_is_built_from_host_and_port() -> None:
     assert local_demo._base_url("8000") == "http://localhost:8000"
+
+
+def test_assign_available_default_ports_uses_fallback_when_default_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.setattr(local_demo, "_is_port_available", lambda port: port == "18000")
+    local_demo._assign_available_default_ports(("BACKEND_PORT",))
+    assert local_demo._env("BACKEND_PORT") == "18000"
+
+
+def test_assign_available_default_ports_honors_explicit_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BACKEND_PORT", "19000")
+    monkeypatch.setattr(local_demo, "_is_port_available", lambda _port: False)
+    local_demo._assign_available_default_ports(("BACKEND_PORT",))
+    assert local_demo._env("BACKEND_PORT") == "19000"
+
+
+def test_frontend_command_pins_selected_port() -> None:
+    cmd = local_demo._frontend_command({"DEMO_HOST": "localhost", "FRONTEND_PORT": "15173"})
+    assert cmd[-5:] == ["--host", "localhost", "--port", "15173", "--strictPort"]
 
 
 def test_main_dispatches_to_the_named_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,13 +123,20 @@ def test_rebuild_resets_caches_ports_then_boots(monkeypatch: pytest.MonkeyPatch)
         local_demo, "_compose_down", lambda *, remove_volumes: calls.append("compose-down")
     )
     monkeypatch.setattr(local_demo, "_clear_local_caches", lambda: calls.append("clear-caches"))
-    monkeypatch.setattr(local_demo, "_free_fraudlens_ports", lambda ports: calls.append("ports"))
+    monkeypatch.setattr(
+        local_demo, "_free_fraudlens_ports", lambda ports, **_kw: calls.append("ports")
+    )
+    monkeypatch.setattr(
+        local_demo, "_assign_available_default_ports", lambda names: calls.append("auto-ports")
+    )
     monkeypatch.setattr(local_demo, "up", lambda: calls.append("up") or 0)
     assert local_demo.rebuild() == 0
     assert calls == [
         "tools:('docker', 'uv', 'npm')",
         "compose-down",
         "clear-caches",
+        "ports",
+        "auto-ports",
         "ports",
         "up",
     ]
