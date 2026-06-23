@@ -35,19 +35,19 @@ Automatable (gate the exit code):
 - **Renovate** keeps major updates human-reviewed (`renovate.json`).
 - **Dependency-update gate** runs the same CI on `renovate/*` PR branches.
 - **Makefile** defines the umbrella gate targets (`ci`, `docs-check`, `tf-validate`,
-  `docker-build`, `local-demo-smoke`).
+  `docker-build`, `local-demo-smoke`, `local-release-check`).
 
 Human-owned (verified out of band — never auto-passed):
 
-- `make local-demo` on a **clean checkout** boots the stack and prints the URL.
-- `make local-demo-smoke` passes on a clean checkout.
+- `make local-release-check` passes on a **clean checkout**.
+- `make local-demo` boots the stack and prints the URL for browser UAT.
 - Full **browser UAT**, including model **retrain → promote → rollback**.
 - A human **approves the `v<version>` tag/push**.
 
-The full per-PR gate (`make ci` + `make docs-check` + `make tf-validate`) and the docs
-freshness check (`make docs-check` covers OpenAPI / ERD / architecture / README /
-runbooks / cost) run in CI; the release gate asserts they are **wired**, it does not
-re-run them.
+`make local-release-check` runs the automatable local release/UAT checks in one command:
+`make ci`, `make tf-validate`, `make docker-build`, `make local-demo-smoke`, then
+`make release-gate`. The release gate itself only asserts the wiring; use
+`make local-release-check` when preparing a real tag.
 
 ## Changelog
 
@@ -62,6 +62,7 @@ re-run them.
 ```
 make pre-pr            → fmt → docs → ci (the only writer in the loop)
 make release-gate      → version consistency + CHANGELOG + automation wired (read-only)
+make local-release-check → ci + tf-validate + docker-build + local smoke + release-gate
 <human> git tag vX.Y.Z → push tag (explicit approval; Golden Rule 1)
    → release.yml: verify (re-runs make ci via _ci-reusable) → git-cliff notes
                   → publish GitHub release → version stamps for build/deploy
@@ -74,12 +75,13 @@ promote-or-abort) and rollback are in [`deploy-rollback.md`](deploy-rollback.md)
 ## Cutting `v1.0.0` (the steps)
 
 1. `make pre-pr` green on the release commit.
-2. `make release-gate` (or `make release-gate` with `scripts/release_gate.py --expect 1.0.0`)
-   — all automatable checks PASS.
-3. Walk the human-owned items: clean-checkout `make local-demo` + `make local-demo-smoke`;
-   browser UAT including a model retrain → promote → rollback.
-4. A human cuts and pushes the tag: `git tag v1.0.0 && git push origin v1.0.0`.
-5. `release.yml` re-verifies the gate, generates notes, and publishes the release.
+2. `make local-release-check` passes on a clean checkout.
+3. Optionally run `uv run python scripts/release_gate.py --expect 1.0.0 --format text` to verify
+   the intended version explicitly.
+4. Walk the human-owned browser UAT in `make local-demo`, including a model retrain → promote →
+   rollback.
+5. A human cuts and pushes the tag: `git tag v1.0.0 && git push origin v1.0.0`.
+6. `release.yml` re-verifies the gate, generates notes, and publishes the release.
 
 ## Maintenance automation
 

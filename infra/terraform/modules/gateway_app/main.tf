@@ -38,6 +38,46 @@ variable "identity_id" {
   description = "User-assigned managed identity id (registry pull + Blob + Infisical OIDC)."
 }
 
+variable "identity_client_id" {
+  type        = string
+  description = "User-assigned managed identity client id for runtime managed-identity token calls."
+}
+
+variable "subscription_id" {
+  type        = string
+  description = "Azure subscription id for Container Apps Jobs ARM calls."
+}
+
+variable "azure_resource_group_name" {
+  type        = string
+  description = "Resource group containing the gateway and Container Apps Jobs."
+}
+
+variable "storage_account_name" {
+  type        = string
+  description = "Storage account name for Azure Blob runtime calls."
+}
+
+variable "storage_container_name" {
+  type        = string
+  description = "Blob container for model/artifact keys."
+}
+
+variable "sar_pdf_container_name" {
+  type        = string
+  description = "Blob container for SAR PDF keys."
+}
+
+variable "retrain_job_name" {
+  type        = string
+  description = "Container Apps Job name for retraining."
+}
+
+variable "batch_score_job_name" {
+  type        = string
+  description = "Container Apps Job name for batch scoring."
+}
+
 variable "registry_server" {
   type        = string
   description = "Image registry login server. Empty => public GHCR (anonymous pull, no registry block)."
@@ -172,6 +212,38 @@ resource "azurerm_container_app" "this" {
       env {
         name  = "FRAUDLENS_CORS_ALLOW_ORIGINS"
         value = join(",", var.cors_allow_origins)
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_MANAGED_IDENTITY_CLIENT_ID"
+        value = var.identity_client_id
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_SUBSCRIPTION_ID"
+        value = var.subscription_id
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_RESOURCE_GROUP_NAME"
+        value = var.azure_resource_group_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.storage_account_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_CONTAINER_NAME"
+        value = var.storage_container_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_STORAGE_SAR_PDF_CONTAINER_NAME"
+        value = var.sar_pdf_container_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_CONTAINER_APPS_RETRAIN_JOB_NAME"
+        value = var.retrain_job_name
+      }
+      env {
+        name  = "FRAUDLENS_AZURE_CONTAINER_APPS_BATCH_SCORE_JOB_NAME"
+        value = var.batch_score_job_name
       }
       dynamic "env" {
         for_each = var.app_insights_connection_string == "" ? [] : [var.app_insights_connection_string]
