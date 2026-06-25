@@ -3,8 +3,8 @@
  * sidebar (DESIGN.md app-shell), switches the main content on the hash route
  * (`useHashRoute`), and mounts the Sonner `<Toaster/>` once so any page can raise a toast.
  * Each page owns its own data + states; the shell only routes and frames them. Surfaces
- * cycle sage canvas → white cards, and the active nav row uses an ink indicator (the brand
- * green stays reserved for primary CTAs per DESIGN.md).
+ * cycle sage canvas → white cards, and the active nav row uses the approved green
+ * indicator stripe from DESIGN.md's app-shell example.
  *
  * Key classes:
  * - (none)
@@ -76,10 +76,10 @@ export function App() {
         </a>
         <span className="text-caption text-mute">AML investigation</span>
       </header>
-      <div className="max-w-container gap-xl px-xl py-xl mx-auto flex flex-col sm:flex-row">
+      <div className="max-w-container gap-xl px-xl py-xl mx-auto flex flex-col md:flex-row">
         <nav
           aria-label="Primary"
-          className="gap-xs flex shrink-0 flex-row sm:w-[200px] sm:flex-col"
+          className="gap-xs flex shrink-0 flex-row overflow-x-auto md:w-[200px] md:flex-col"
         >
           {NAV_ITEMS.map((item) => {
             const active = isActive(route, item.match);
@@ -89,8 +89,10 @@ export function App() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cx(
-                  "rounded-md px-lg py-md text-body-sm font-semibold",
-                  active ? "border-l-4 border-ink bg-canvas-soft text-ink" : "text-body",
+                  "rounded-md border-l-4 px-lg py-md text-body-sm font-semibold",
+                  active
+                    ? "border-primary bg-canvas-soft text-ink"
+                    : "border-transparent text-body",
                 )}
               >
                 {item.label}
