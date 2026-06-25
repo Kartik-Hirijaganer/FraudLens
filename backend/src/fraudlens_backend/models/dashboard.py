@@ -7,7 +7,7 @@ input value). The counts are surfaced as explicit named fields per enum member (
 so the API contract is self-documenting and the frontend types are exact.
 
 Key classes:
-- AlertMetrics: open/in-review/resolved/dismissed alert counts + total.
+- AlertMetrics: open/pending-review/in-review/escalated/resolved/dismissed alert counts + total.
 - TransactionMetrics: total transactions + a count per risk band (unscored bucketed).
 - RunMetrics: investigation-run counts by status (pending/running/completed/failed) + total.
 - SarMetrics: SAR-draft counts by status (draft/reviewed/approved/rejected/failed) + total.
@@ -36,7 +36,9 @@ class AlertMetrics(CamelModel):
     """Tenant alert counts by status (plan §9.1 `alerts`)."""
 
     open: int = Field(..., ge=0, description="Alerts awaiting triage.")
+    pending_review: int = Field(..., ge=0, description="Alerts forced into human review.")
     in_review: int = Field(..., ge=0, description="Alerts currently in review.")
+    escalated: int = Field(..., ge=0, description="Alerts escalated for heightened review.")
     resolved: int = Field(..., ge=0, description="Alerts resolved (a label was written).")
     dismissed: int = Field(..., ge=0, description="Alerts dismissed as not actionable.")
     total: int = Field(..., ge=0, description="All alerts for the tenant.")
