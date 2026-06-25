@@ -11,6 +11,7 @@ reused by the pipeline alert-raise seam.
 
 Key classes:
 - AlertRepository: agency-scoped persistence + lookup for alerts, their actions, and labels.
+- AlertSummaryRow: joined alert + transaction fields used by the API summary projection.
 
 Key functions:
 - next_alert_status: the centralized legal-transition function (None when the action is illegal).
@@ -30,7 +31,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +47,7 @@ from fraudlens_backend.db.models import (
     SystemConfig,
     TrainingLabel,
     TrainingLabelType,
+    Transaction,
     User,
 )
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
@@ -54,7 +58,8 @@ from fraudlens_core import RiskBand
 _LABEL_MATURITY_KEY = "labelMaturityDays"
 _DEFAULT_LABEL_MATURITY_DAYS = 30
 
-# Statuses from which no further triage action is legal (the alert is closed).
+# Statuses from which no further triage action is legal (the alert is closed). `pending_review` and
+# `escalated` are intentionally non-terminal.
 _TERMINAL_ALERT_STATUSES: frozenset[AlertStatus] = frozenset(
     {AlertStatus.RESOLVED, AlertStatus.DISMISSED}
 )
@@ -63,7 +68,7 @@ _TERMINAL_ALERT_STATUSES: frozenset[AlertStatus] = frozenset(
 # `comment` is intentionally absent — it never changes status (it records an audit-trail note).
 _ACTION_TARGET: dict[AlertActionType, AlertStatus] = {
     AlertActionType.ASSIGN: AlertStatus.IN_REVIEW,
-    AlertActionType.ESCALATE: AlertStatus.IN_REVIEW,
+    AlertActionType.ESCALATE: AlertStatus.ESCALATED,
     AlertActionType.RESOLVE: AlertStatus.RESOLVED,
     AlertActionType.DISMISS: AlertStatus.DISMISSED,
 }
@@ -83,11 +88,21 @@ _FLAG_SAR_UNAVAILABLE = {
 }
 
 
+@dataclass(frozen=True)
+class AlertSummaryRow:
+    """Joined alert row plus linked transaction money fields for API summary views."""
+
+    alert: Alert
+    amount: Decimal
+    currency: str
+
+
 def next_alert_status(current: AlertStatus, action: AlertActionType) -> AlertStatus | None:
     """Return the alert status after `action`, or None when the action is illegal (plan §5.4).
 
-    `comment` leaves the status unchanged; the other actions move an open/in-review alert per the
-    centralized state machine. A terminal (resolved/dismissed) alert admits no action.
+    `comment` leaves the status unchanged; the other actions move an open/pending/in-review/
+    escalated alert per the centralized state machine. A terminal (resolved/dismissed) alert admits
+    no action.
     """
     if current in _TERMINAL_ALERT_STATUSES:
         return None
@@ -153,13 +168,37 @@ class AlertRepository(TenantScopedRepository[Alert]):
 
     async def list_alerts(
         self, *, limit: int = 50, offset: int = 0, status: AlertStatus | None = None
-    ) -> Sequence[Alert]:
-        """Return the agency's alerts (newest first), optionally filtered by status."""
-        stmt = select(Alert).where(Alert.agency_id == self._agency_id)
+    ) -> Sequence[AlertSummaryRow]:
+        """Return the agency's alert summaries (newest first), optionally filtered by status."""
+        stmt = (
+            select(Alert, Transaction.amount, Transaction.currency)
+            .join(Transaction, Alert.transaction_id == Transaction.id)
+            .where(Alert.agency_id == self._agency_id, Transaction.agency_id == self._agency_id)
+        )
         if status is not None:
             stmt = stmt.where(Alert.status == status)
         stmt = stmt.order_by(Alert.created_at.desc(), Alert.id.desc()).limit(limit).offset(offset)
-        return (await self._session.execute(stmt)).scalars().all()
+        return [
+            AlertSummaryRow(alert=alert, amount=amount, currency=currency)
+            for alert, amount, currency in await self._session.execute(stmt)
+        ]
+
+    async def get_alert_summary(self, alert_id: uuid.UUID) -> AlertSummaryRow | None:
+        """Return one joined alert summary row, or None when missing/cross-tenant."""
+        stmt = (
+            select(Alert, Transaction.amount, Transaction.currency)
+            .join(Transaction, Alert.transaction_id == Transaction.id)
+            .where(
+                Alert.id == alert_id,
+                Alert.agency_id == self._agency_id,
+                Transaction.agency_id == self._agency_id,
+            )
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        if row is None:
+            return None
+        alert, amount, currency = row
+        return AlertSummaryRow(alert=alert, amount=amount, currency=currency)
 
     async def list_actions(self, alert_id: uuid.UUID) -> Sequence[AlertAction]:
         """Return the alert's append-only action trail, newest first (agency-scoped)."""
