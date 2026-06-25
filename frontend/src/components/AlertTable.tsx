@@ -1,23 +1,25 @@
 /**
- * Summary: The alerts queue table (plan §16 Phase 11 AlertTable). Each row shows the
- * severity (as a semantic badge), status, the count of force-review flags, and when the
- * alert was raised, with an Open action that selects it for detail/review. Renders an
- * EmptyState when there are no alerts.
+ * Summary: The alerts queue table wrapper (plan §16 Phase 11 AlertTable). It defines
+ * the alert-specific columns over the shared DataTable primitive: risk dot, status
+ * badge, amount, force-review flags, age, and a Review action that opens detail/review.
  *
  * Key classes:
  * - (none)
  *
  * Key functions:
- * - AlertTable: render the alerts table (or an empty state).
+ * - AlertTable: render the alerts DataTable wrapper (or an empty state).
  *
  * Notes:
- * - Severity uses `riskTone` so it matches the gauge/badge colouring across the app.
+ * - AlertTable intentionally stays as a thin domain wrapper rather than duplicating
+ *   table chrome in pages.
  */
-import type { AlertView } from "../lib/api";
-import { formatDateTime, humanize } from "../lib/format";
+import { STATUS_LABELS, type AlertView } from "../lib/api";
+import { formatAge, formatCurrency } from "../lib/format";
 import { riskTone } from "../lib/risk";
+import { RiskDot } from "./RiskDot";
 import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
+import { DataTable, type Column } from "./ui/DataTable";
 import { EmptyState } from "./feedback/EmptyState";
 
 interface AlertTableProps {
@@ -26,54 +28,62 @@ interface AlertTableProps {
 }
 
 export function AlertTable({ alerts, onSelect }: AlertTableProps) {
-  if (alerts.length === 0) {
-    return (
-      <EmptyState
-        title="No alerts"
-        description="Alerts appear when an investigation crosses the alert threshold."
-      />
-    );
-  }
+  const columns: Column<AlertView>[] = [
+    {
+      id: "severity",
+      header: "Severity",
+      cell: (alert) => <RiskDot band={alert.severity} showLabel />,
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (alert) => <Badge tone={riskTone(alert.severity)}>{STATUS_LABELS[alert.status]}</Badge>,
+    },
+    {
+      id: "amount",
+      header: "Amount",
+      align: "right",
+      cell: (alert) => (
+        <span className="text-body-sm text-ink">
+          {formatCurrency(alert.amount, alert.currency)}
+        </span>
+      ),
+    },
+    {
+      id: "flags",
+      header: "Flags",
+      cell: (alert) => <span className="text-body text-body-sm">{alert.reviewFlags.length}</span>,
+    },
+    {
+      id: "age",
+      header: "Age",
+      cell: (alert) => <span className="text-body text-body-sm">{formatAge(alert.createdAt)}</span>,
+    },
+    {
+      id: "action",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (alert) => (
+        <Button variant="secondary" onClick={() => onSelect(alert.alertId)}>
+          Review
+        </Button>
+      ),
+    },
+  ];
+
   return (
-    <table className="w-full border-collapse text-left">
-      <thead>
-        <tr className="text-caption text-mute">
-          <th scope="col" className="px-lg py-md font-semibold">
-            Severity
-          </th>
-          <th scope="col" className="px-lg py-md font-semibold">
-            Status
-          </th>
-          <th scope="col" className="px-lg py-md font-semibold">
-            Flags
-          </th>
-          <th scope="col" className="px-lg py-md font-semibold">
-            Raised
-          </th>
-          <th scope="col" className="px-lg py-md">
-            <span className="sr-only">Actions</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {alerts.map((alert) => (
-          <tr key={alert.alertId} className="border-canvas-soft border-t">
-            <td className="px-lg py-md">
-              <Badge tone={riskTone(alert.severity)}>{humanize(alert.severity)}</Badge>
-            </td>
-            <td className="px-lg py-md text-body-sm text-ink">{humanize(alert.status)}</td>
-            <td className="px-lg py-md text-body-sm text-body">{alert.reviewFlags.length}</td>
-            <td className="px-lg py-md text-body-sm text-body">
-              {formatDateTime(alert.createdAt)}
-            </td>
-            <td className="px-lg py-md">
-              <Button variant="secondary" onClick={() => onSelect(alert.alertId)}>
-                Open
-              </Button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      caption="Alerts"
+      columns={columns}
+      rows={alerts}
+      rowKey={(alert) => alert.alertId}
+      onRowClick={(alert) => onSelect(alert.alertId)}
+      empty={
+        <EmptyState
+          title="No alerts"
+          description="Alerts appear when an investigation crosses the alert threshold."
+        />
+      }
+    />
   );
 }
