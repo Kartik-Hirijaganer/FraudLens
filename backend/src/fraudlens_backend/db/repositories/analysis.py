@@ -198,18 +198,19 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         severity: Severity,
         review_flags: list[dict[str, Any]] | None = None,
     ) -> Alert:
-        """Insert an open `alerts` row for the run (raised when the threshold is crossed).
+        """Insert an `alerts` row for the run (raised when the threshold is crossed).
 
         `review_flags` are the PHI-free force-review reasons computed at investigation time
         (critical band / low model confidence / SAR unavailable, plan §8.5, Phase 9).
         """
+        flags = review_flags or []
         alert = Alert(
             agency_id=self._agency_id,
             transaction_id=transaction_id,
             run_id=run_id,
-            status=AlertStatus.OPEN,
+            status=AlertStatus.PENDING_REVIEW if flags else AlertStatus.OPEN,
             severity=severity,
-            review_flags=review_flags or [],
+            review_flags=flags,
         )
         self._session.add(alert)
         await self._session.flush()

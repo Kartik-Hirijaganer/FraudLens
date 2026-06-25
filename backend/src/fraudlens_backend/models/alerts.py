@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import Field, model_validator
@@ -64,9 +65,14 @@ class AlertView(CamelModel):
     transaction_id: str = Field(..., description="The flagged transaction's id.")
     run_id: str = Field(..., description="The investigation run that raised the alert.")
     status: AlertStatus = Field(
-        ..., description="Lifecycle status (open|in_review|resolved|dismissed)."
+        ...,
+        description=(
+            "Lifecycle status (open|pending_review|in_review|escalated|resolved|dismissed)."
+        ),
     )
     severity: Severity = Field(..., description="Alert severity derived from the run's risk band.")
+    amount: Decimal = Field(..., description="Amount from the linked flagged transaction.")
+    currency: str = Field(..., min_length=3, max_length=3, description="Linked ISO-4217 currency.")
     assigned_to: str | None = Field(
         default=None, description="User id the alert is currently assigned to, if any."
     )
