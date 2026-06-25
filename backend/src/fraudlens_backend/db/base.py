@@ -58,11 +58,12 @@ NAMING_CONVENTION: dict[str, str] = {
 JSONB_TYPE = JSON().with_variant(JSONB(), "postgresql")
 
 
-def str_enum(enum_cls: type[enum.Enum]) -> SAEnum:
+def str_enum(enum_cls: type[enum.Enum], *, create_constraint: bool = False) -> SAEnum:
     """Return a portable enum column type that stores the member VALUE (not its name)."""
     return SAEnum(
         enum_cls,
         native_enum=False,
+        create_constraint=create_constraint,
         values_callable=lambda members: [str(member.value) for member in members],
     )
 
