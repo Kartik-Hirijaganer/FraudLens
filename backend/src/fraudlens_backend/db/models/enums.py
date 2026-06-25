@@ -67,7 +67,9 @@ class AlertStatus(StrEnum):
     """Lifecycle status of an alert (plan §9.1 `alerts`)."""
 
     OPEN = "open"
+    PENDING_REVIEW = "pending_review"
     IN_REVIEW = "in_review"
+    ESCALATED = "escalated"
     RESOLVED = "resolved"
     DISMISSED = "dismissed"
 

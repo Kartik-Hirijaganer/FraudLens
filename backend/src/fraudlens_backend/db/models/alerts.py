@@ -62,7 +62,7 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
     )
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
     status: Mapped[AlertStatus] = mapped_column(
-        str_enum(AlertStatus), nullable=False, default=AlertStatus.OPEN
+        str_enum(AlertStatus, create_constraint=True), nullable=False, default=AlertStatus.OPEN
     )
     severity: Mapped[Severity] = mapped_column(str_enum(Severity), nullable=False)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(

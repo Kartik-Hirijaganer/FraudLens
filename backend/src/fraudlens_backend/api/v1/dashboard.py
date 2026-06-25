@@ -55,7 +55,9 @@ def _to_response(data: DashboardData) -> DashboardMetricsResponse:
     return DashboardMetricsResponse(
         alerts=AlertMetrics(
             open=alerts.get(AlertStatus.OPEN.value, 0),
+            pending_review=alerts.get(AlertStatus.PENDING_REVIEW.value, 0),
             in_review=alerts.get(AlertStatus.IN_REVIEW.value, 0),
+            escalated=alerts.get(AlertStatus.ESCALATED.value, 0),
             resolved=alerts.get(AlertStatus.RESOLVED.value, 0),
             dismissed=alerts.get(AlertStatus.DISMISSED.value, 0),
             total=sum(alerts.values()),

@@ -45,14 +45,18 @@ from fraudlens_backend.api.deps import (
     require_actor,
 )
 from fraudlens_backend.backends.storage import get_storage_backend
-from fraudlens_backend.db.models import Alert, AlertAction, AlertActionType, AlertStatus, SarDraft
+from fraudlens_backend.db.models import AlertAction, AlertActionType, AlertStatus, SarDraft
 from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import (
     AlertRepository,
     AuditLogRepository,
     SarDraftRepository,
 )
-from fraudlens_backend.db.repositories.alerts import load_label_maturity_days, next_alert_status
+from fraudlens_backend.db.repositories.alerts import (
+    AlertSummaryRow,
+    load_label_maturity_days,
+    next_alert_status,
+)
 from fraudlens_backend.models.alerts import (
     AlertActionRequest,
     AlertActionView,
@@ -89,14 +93,17 @@ def _sar_repo(tenant: TenantContext, session: AsyncSession) -> SarDraftRepositor
     return SarDraftRepository(session, uuid.UUID(tenant.agency_id))
 
 
-def _to_alert_view(alert: Alert) -> AlertView:
-    """Project a persisted Alert row onto the API summary view (PHI-free)."""
+def _to_alert_view(row: AlertSummaryRow) -> AlertView:
+    """Project a joined Alert summary row onto the API summary view (PHI-free)."""
+    alert = row.alert
     return AlertView(
         alert_id=str(alert.id),
         transaction_id=str(alert.transaction_id),
         run_id=str(alert.run_id),
         status=alert.status,
         severity=alert.severity,
+        amount=row.amount,
+        currency=row.currency,
         assigned_to=str(alert.assigned_to) if alert.assigned_to is not None else None,
         review_flags=[dict(flag) for flag in (alert.review_flags or [])],
         created_at=alert.created_at,
@@ -200,8 +207,8 @@ async def list_alerts(
     status: Annotated[AlertStatus | None, Query()] = None,
 ) -> AlertListResponse:
     """Return a page of the agency's alerts (newest first), optionally filtered by status."""
-    alerts = await _repo(tenant, session).list_alerts(limit=limit, offset=offset, status=status)
-    return AlertListResponse(alerts=[_to_alert_view(alert) for alert in alerts])
+    rows = await _repo(tenant, session).list_alerts(limit=limit, offset=offset, status=status)
+    return AlertListResponse(alerts=[_to_alert_view(row) for row in rows])
 
 
 @router.get("/alerts/{alertId}", response_model=AlertDetailResponse)
@@ -212,13 +219,13 @@ async def get_alert(
 ) -> AlertDetailResponse:
     """Return an alert's detail (latest SAR draft + action history); 404 if missing/cross-tenant."""
     repo = _repo(tenant, session)
-    alert = await repo.get(alert_id)
-    if alert is None:
+    row = await repo.get_alert_summary(alert_id)
+    if row is None:
         raise AppError("alert_not_found")
-    draft = await _sar_repo(tenant, session).get_for_run(alert.run_id)
+    draft = await _sar_repo(tenant, session).get_for_run(row.alert.run_id)
     actions = await repo.list_actions(alert_id)
     return AlertDetailResponse(
-        alert=_to_alert_view(alert),
+        alert=_to_alert_view(row),
         sar_draft=_to_sar_view(draft) if draft is not None else None,
         actions=[_to_action_view(action) for action in actions],
     )
@@ -287,8 +294,11 @@ async def act_on_alert(
     # Refresh so the server-side `updated_at` (onupdate) is loaded before projection (else a
     # post-commit attribute access would lazy-load in a sync context); mirrors the rules handler.
     await session.refresh(alert)
+    row = await repo.get_alert_summary(alert_id)
+    if row is None:
+        raise AppError("alert_not_found")
     await session.commit()
-    return _to_alert_view(alert)
+    return _to_alert_view(row)
 
 
 @router.post("/alerts/{alertId}/sar/review", response_model=SarDraftView)
