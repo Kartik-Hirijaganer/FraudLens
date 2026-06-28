@@ -24,13 +24,13 @@ import type {
   ModelVersionResponse,
 } from "../lib/api";
 import { formatDateTime, humanize } from "../lib/format";
+import { CANARY_RAMP_STEPS, MODEL_METRIC_DEFINITIONS, extractModelMetrics } from "../lib/options";
 import { riskTone } from "../lib/risk";
 import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
+import { StatTile } from "./ui/StatTile";
 import { EmptyState } from "./feedback/EmptyState";
-
-const CANARY_STEPS: CanaryPercent[] = [5, 25, 50, 100];
 
 interface ModelLifecyclePanelProps {
   versions: ModelVersionResponse[];
@@ -46,8 +46,12 @@ interface ModelLifecyclePanelProps {
 }
 
 function metricText(metrics: Record<string, unknown>): string | null {
-  const prAuc = metrics.prAuc;
-  return typeof prAuc === "number" ? `PR-AUC ${prAuc.toFixed(3)}` : null;
+  const extracted = extractModelMetrics(metrics);
+  const displayed = MODEL_METRIC_DEFINITIONS.map((definition) => {
+    const value = extracted[definition.key];
+    return value === null ? null : `${definition.label} ${definition.format(value)}`;
+  }).filter((value): value is string => value !== null);
+  return displayed.length > 0 ? displayed.join(" · ") : null;
 }
 
 export function ModelLifecyclePanel({
@@ -63,7 +67,7 @@ export function ModelLifecyclePanel({
   onEvaluateCanary,
 }: ModelLifecyclePanelProps) {
   const canaryActions = (versionId: string) =>
-    CANARY_STEPS.map((percent) => (
+    CANARY_RAMP_STEPS.map((percent: CanaryPercent) => (
       <Button
         key={percent}
         variant="tertiary"
@@ -113,26 +117,23 @@ export function ModelLifecyclePanel({
         </div>
         {deployment ? (
           <dl className="gap-xl flex flex-wrap">
-            <div className="gap-xxs flex flex-col">
-              <dt className="text-caption text-mute">Active</dt>
-              <dd className="text-body-md text-ink font-semibold">
-                {deployment.activeVersionLabel}
-              </dd>
-            </div>
-            <div className="gap-xxs flex flex-col">
-              <dt className="text-caption text-mute">Canary</dt>
-              <dd className="text-body-md text-ink">
-                {deployment.canaryVersionLabel
+            <StatTile as="dl" label="Active" value={deployment.activeVersionLabel} emphasis="md" />
+            <StatTile
+              as="dl"
+              label="Canary"
+              value={
+                deployment.canaryVersionLabel
                   ? `${deployment.canaryVersionLabel} @ ${deployment.canaryPercent}%`
-                  : "—"}
-              </dd>
-            </div>
-            <div className="gap-xxs flex flex-col">
-              <dt className="text-caption text-mute">Previous</dt>
-              <dd className="text-body-md text-ink">
-                {deployment.previousActiveVersionLabel ?? "—"}
-              </dd>
-            </div>
+                  : "—"
+              }
+              emphasis="md"
+            />
+            <StatTile
+              as="dl"
+              label="Previous"
+              value={deployment.previousActiveVersionLabel ?? "—"}
+              emphasis="md"
+            />
           </dl>
         ) : (
           <p className="text-body-md text-body">No deployment is configured yet.</p>
