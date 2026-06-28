@@ -13,6 +13,7 @@
  * - formatCurrency: render an amount + ISO-4217 currency as a localized money string.
  * - formatPercent: render a 0..1 fraction as a percentage (e.g. 0.873 -> "87.3%").
  * - formatDateTime: render an ISO timestamp as a short localized date-time.
+ * - formatAge: render an ISO timestamp as a compact relative age.
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
  * Notes:
@@ -53,6 +54,24 @@ export function formatDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+export function formatAge(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const elapsedMs = now.getTime() - date.getTime();
+  if (Number.isNaN(date.getTime()) || Number.isNaN(elapsedMs)) {
+    return PLACEHOLDER;
+  }
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h`;
+  }
+  return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
 export function humanize(code: string): string {

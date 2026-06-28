@@ -150,7 +150,15 @@ describe("createApiClient", () => {
 
   it("returns the dashboard metrics aggregate verbatim (camelCase passthrough)", async () => {
     const metrics = {
-      alerts: { open: 3, inReview: 1, resolved: 5, dismissed: 2, total: 11 },
+      alerts: {
+        open: 3,
+        pendingReview: 1,
+        inReview: 1,
+        escalated: 2,
+        resolved: 5,
+        dismissed: 2,
+        total: 14,
+      },
       transactions: { total: 50, byRiskBand: { unscored: 44, high: 6 } },
       runs: { pending: 0, running: 1, completed: 12, failed: 1, total: 14 },
       sar: { draft: 4, reviewed: 1, approved: 3, rejected: 1, failed: 0, total: 9 },
