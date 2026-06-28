@@ -11,6 +11,7 @@
  *
  * Key functions:
  * - riskTone: map a band/severity string onto a semantic StatusTone.
+ * - severityRank: return a sortable severity rank for risk-first ordering.
  *
  * Notes:
  * - `StatusTone` is the single tone vocabulary consumed by Badge and the gauge, so a new
@@ -26,6 +27,17 @@ const BAND_TONES: Record<string, StatusTone> = {
   critical: "negative",
 };
 
+const SEVERITY_RANKS: Record<string, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
 export function riskTone(value: string): StatusTone {
   return BAND_TONES[value.toLowerCase()] ?? "neutral";
+}
+
+export function severityRank(value: string | null | undefined): number {
+  return value ? (SEVERITY_RANKS[value.toLowerCase()] ?? 0) : 0;
 }
