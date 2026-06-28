@@ -18,26 +18,23 @@
  */
 import { useCallback, useState } from "react";
 
+import { DecisionRail } from "../components/DecisionRail";
 import { RagPanel } from "../components/RagPanel";
+import { Timeline } from "../components/Timeline";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { EmptyState } from "../components/feedback/EmptyState";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { PageHeader } from "../components/ui/PageHeader";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { apiClient, type ApiClient, type TrainingLabel } from "../lib/api";
+import { apiClient, statusLabel, type ApiClient, type TrainingLabel } from "../lib/api";
 import { formatDateTime, humanize } from "../lib/format";
+import { TRAINING_LABEL_OPTIONS } from "../lib/options";
 import { riskTone, type StatusTone } from "../lib/risk";
 import { useAsync } from "../lib/useAsync";
 import { useAsyncAction } from "../lib/useAsyncAction";
-
-const LABEL_OPTIONS = [
-  { value: "confirmed_fraud", label: "Confirmed fraud" },
-  { value: "false_positive", label: "False positive" },
-  { value: "false_negative", label: "False negative" },
-  { value: "benign", label: "Benign" },
-];
 
 const SAR_STATUS_TONES: Record<string, StatusTone> = {
   approved: "positive",
@@ -62,53 +59,83 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="text-display-md text-ink">Alert review</h1>
-        <p className="text-body-sm text-mute">Alert {alertId}</p>
-      </header>
+      <PageHeader title="Alert review" description={`Alert ${alertId}`} />
       <AsyncBoundary state={state}>
         {(detail) => (
-          <div className="gap-xl flex flex-col">
-            <Card className="gap-lg flex flex-wrap items-center">
-              <Badge tone={riskTone(detail.alert.severity)}>
-                {humanize(detail.alert.severity)}
-              </Badge>
-              <span className="text-body-md text-ink">{humanize(detail.alert.status)}</span>
-              {detail.alert.reviewFlags.map((flag) => (
-                <Badge key={flag.flag} tone="warning">
-                  {flag.reason}
+          <div className="gap-xl grid grid-cols-1 lg:grid-cols-[1fr_320px]">
+            <div className="gap-xl flex flex-col">
+              <Card className="gap-lg flex flex-wrap items-center">
+                <Badge tone={riskTone(detail.alert.severity)}>
+                  {humanize(detail.alert.severity)}
                 </Badge>
-              ))}
-            </Card>
-
-            <Card className="gap-md flex flex-col">
-              <div className="gap-md flex items-center justify-between">
-                <h2 className="text-display-xs text-ink">SAR draft</h2>
-                {detail.sarDraft ? (
-                  <Badge tone={SAR_STATUS_TONES[detail.sarDraft.status] ?? "neutral"}>
-                    {humanize(detail.sarDraft.status)}
+                <span className="text-body-md text-ink">{statusLabel(detail.alert.status)}</span>
+                {detail.alert.reviewFlags.map((flag) => (
+                  <Badge key={flag.flag} tone="warning">
+                    {flag.reason}
                   </Badge>
-                ) : null}
-              </div>
+                ))}
+              </Card>
+
+              <Card className="gap-md flex flex-col">
+                <div className="gap-md flex items-center justify-between">
+                  <h2 className="text-display-xs text-ink">SAR draft</h2>
+                  {detail.sarDraft ? (
+                    <Badge tone={SAR_STATUS_TONES[detail.sarDraft.status] ?? "neutral"}>
+                      {humanize(detail.sarDraft.status)}
+                    </Badge>
+                  ) : null}
+                </div>
+                {detail.sarDraft ? (
+                  <>
+                    <pre className="bg-canvas-soft p-lg text-body-sm text-ink whitespace-pre-wrap break-words rounded-lg font-sans">
+                      {detail.sarDraft.content}
+                    </pre>
+                    <RagPanel citations={detail.sarDraft.citations} />
+                  </>
+                ) : (
+                  <EmptyState
+                    title="No SAR draft"
+                    description="This alert's investigation did not produce a SAR draft."
+                  />
+                )}
+              </Card>
+
+              <Card className="gap-md flex flex-col">
+                <h2 className="text-display-xs text-ink">Activity</h2>
+                {detail.actions.length === 0 ? (
+                  <EmptyState title="No actions yet" />
+                ) : (
+                  <Timeline
+                    items={detail.actions.map((action) => ({
+                      id: action.actionId,
+                      title: humanize(action.action),
+                      meta: `${
+                        action.fromStatus && action.toStatus
+                          ? `${statusLabel(action.fromStatus)} → ${statusLabel(action.toStatus)} · `
+                          : ""
+                      }${formatDateTime(action.createdAt)}`,
+                      body: action.note,
+                    }))}
+                  />
+                )}
+              </Card>
+            </div>
+
+            <DecisionRail title="Actions">
               {detail.sarDraft ? (
-                <>
-                  <pre className="bg-canvas-soft p-lg text-body-sm text-ink whitespace-pre-wrap break-words rounded-lg font-sans">
-                    {detail.sarDraft.content}
-                  </pre>
-                  <RagPanel citations={detail.sarDraft.citations} />
-                  <div className="gap-sm flex flex-wrap">
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(
-                          () => client.reviewSar(alertId, { decision: "approve" }),
-                          "SAR approved",
-                        )
-                      }
-                    >
-                      Approve
-                    </Button>
-                  </div>
+                <div className="gap-md flex flex-col">
+                  <h3 className="text-body-md text-ink font-semibold">SAR review</h3>
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () => client.reviewSar(alertId, { decision: "approve" }),
+                        "SAR approved",
+                      )
+                    }
+                  >
+                    Approve
+                  </Button>
                   <Textarea
                     label="Rejection reason"
                     value={reason}
@@ -145,73 +172,73 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                   >
                     Save edit
                   </Button>
-                </>
-              ) : (
-                <EmptyState
-                  title="No SAR draft"
-                  description="This alert's investigation did not produce a SAR draft."
-                />
-              )}
-            </Card>
-
-            <Card className="gap-md flex flex-col">
-              <h2 className="text-display-xs text-ink">Triage</h2>
-              <Textarea
-                label="Note (optional)"
-                value={note}
-                rows={2}
-                onChange={(event) => setNote(event.target.value)}
-              />
-              <div className="gap-sm flex flex-wrap">
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        client.actOnAlert(alertId, { action: "comment", note: note || undefined }),
-                      "Comment added",
-                    )
-                  }
-                >
-                  Comment
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        client.actOnAlert(alertId, { action: "escalate", note: note || undefined }),
-                      "Alert escalated",
-                    )
-                  }
-                >
-                  Escalate
-                </Button>
-                <Button
-                  variant="tertiary"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        client.actOnAlert(alertId, { action: "dismiss", note: note || undefined }),
-                      "Alert dismissed",
-                    )
-                  }
-                >
-                  Dismiss
-                </Button>
-              </div>
-              <div className="gap-md flex flex-wrap items-end">
-                <div className="grow">
-                  <Select
-                    label="Resolution label"
-                    options={LABEL_OPTIONS}
-                    value={label}
-                    onChange={(event) => setLabel(event.target.value as TrainingLabel)}
-                  />
                 </div>
+              ) : null}
+
+              <div className="gap-md flex flex-col">
+                <h3 className="text-body-md text-ink font-semibold">Triage</h3>
+                <Textarea
+                  label="Note (optional)"
+                  value={note}
+                  rows={2}
+                  onChange={(event) => setNote(event.target.value)}
+                />
+                <div className="gap-sm flex flex-col">
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () =>
+                          client.actOnAlert(alertId, {
+                            action: "comment",
+                            note: note || undefined,
+                          }),
+                        "Comment added",
+                      )
+                    }
+                  >
+                    Comment
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () =>
+                          client.actOnAlert(alertId, {
+                            action: "escalate",
+                            note: note || undefined,
+                          }),
+                        "Alert escalated",
+                      )
+                    }
+                  >
+                    Escalate
+                  </Button>
+                  <Button
+                    variant="tertiary"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () =>
+                          client.actOnAlert(alertId, {
+                            action: "dismiss",
+                            note: note || undefined,
+                          }),
+                        "Alert dismissed",
+                      )
+                    }
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+                <Select
+                  label="Resolution label"
+                  options={TRAINING_LABEL_OPTIONS}
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value as TrainingLabel)}
+                />
                 <Button
                   disabled={busy}
                   onClick={() =>
@@ -229,36 +256,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                   Resolve
                 </Button>
               </div>
-            </Card>
-
-            <Card className="gap-md flex flex-col">
-              <h2 className="text-display-xs text-ink">Activity</h2>
-              {detail.actions.length === 0 ? (
-                <EmptyState title="No actions yet" />
-              ) : (
-                <ul className="gap-sm flex flex-col">
-                  {detail.actions.map((action) => (
-                    <li
-                      key={action.actionId}
-                      className="gap-xxs border-canvas-soft pt-sm flex flex-col border-t first:border-0 first:pt-0"
-                    >
-                      <span className="text-body-sm text-ink font-semibold">
-                        {humanize(action.action)}
-                      </span>
-                      <span className="text-caption text-mute">
-                        {action.fromStatus && action.toStatus
-                          ? `${humanize(action.fromStatus)} → ${humanize(action.toStatus)} · `
-                          : ""}
-                        {formatDateTime(action.createdAt)}
-                      </span>
-                      {action.note ? (
-                        <span className="text-body-sm text-body">{action.note}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            </DecisionRail>
           </div>
         )}
       </AsyncBoundary>
