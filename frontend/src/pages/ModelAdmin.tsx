@@ -20,6 +20,7 @@ import { useCallback } from "react";
 
 import { ModelLifecyclePanel } from "../components/ModelLifecyclePanel";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
+import { PageHeader } from "../components/ui/PageHeader";
 import {
   ApiError,
   apiClient,
@@ -81,12 +82,10 @@ export function ModelAdmin({ client = apiClient }: ModelAdminProps) {
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="text-display-md text-ink">Model administration</h1>
-        <p className="text-body-lg text-body">
-          Retrain, promote, and roll back the scoring model — human-gated, no redeploy.
-        </p>
-      </header>
+      <PageHeader
+        title="Model administration"
+        description="Retrain, promote, and roll back the scoring model — human-gated, no redeploy."
+      />
       <AsyncBoundary state={state}>
         {(data) => (
           <ModelLifecyclePanel
