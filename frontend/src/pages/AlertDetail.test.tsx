@@ -17,11 +17,11 @@ describe("AlertDetail", () => {
             actions: [
               {
                 actionId: "act-1",
-                action: "escalate",
+                action: "resolve",
                 actorId: "u1",
                 note: "needs a closer look",
-                fromStatus: "open",
-                toStatus: "in_review",
+                fromStatus: "in_review",
+                toStatus: "resolved",
                 createdAt: "2026-06-11T11:00:00Z",
               },
             ],
@@ -32,6 +32,7 @@ describe("AlertDetail", () => {
     render(<AlertDetail alertId="alert-1" client={client} />);
     expect(await screen.findByText(/Suspicious structuring activity observed/)).toBeInTheDocument();
     expect(screen.getByText("needs a closer look")).toBeInTheDocument();
+    expect(screen.getByText(/In Review → Completed/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() =>
