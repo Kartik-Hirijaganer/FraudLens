@@ -19,6 +19,7 @@
  */
 import { useEffect, useState } from "react";
 
+import { DecisionRail } from "../components/DecisionRail";
 import { FraudGauge } from "../components/FraudGauge";
 import { ProgressSteps } from "../components/ProgressSteps";
 import { RagPanel } from "../components/RagPanel";
@@ -29,6 +30,7 @@ import { ErrorState } from "../components/feedback/ErrorState";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { PageHeader } from "../components/ui/PageHeader";
 import { apiClient, type ApiClient, type InvestigationSnapshot } from "../lib/api";
 import { humanize } from "../lib/format";
 import {
@@ -142,16 +144,11 @@ export function Investigation({
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <div className="gap-md flex flex-wrap items-center justify-between">
-          <h1 className="text-display-md text-ink">Investigation</h1>
-          <Badge tone={statusTone}>{humanize(state.status)}</Badge>
-        </div>
-        <p className="text-body-sm text-mute">
-          Run {runId}
-          {state.modelVersion ? ` · model ${state.modelVersion}` : ""}
-        </p>
-      </header>
+      <PageHeader
+        title="Investigation"
+        description={`Run ${runId}${state.modelVersion ? ` · model ${state.modelVersion}` : ""}`}
+        aside={<Badge tone={statusTone}>{humanize(state.status)}</Badge>}
+      />
 
       {connectionError && !terminal ? (
         <Card>
@@ -171,41 +168,53 @@ export function Investigation({
         />
       ) : null}
 
-      <div className="gap-xl grid lg:grid-cols-[2fr_3fr]">
-        <div className="gap-xl flex flex-col">
-          <Card className="gap-lg flex flex-col">
-            <h2 className="text-display-xs text-ink">Progress</h2>
-            {showColdStart ? <ColdStartProgress /> : null}
-            <ProgressSteps completedSteps={state.completedSteps} status={state.status} />
-          </Card>
-          {gaugeValue !== undefined ? (
-            <Card className="gap-md flex flex-col items-center">
-              <h2 className="text-display-xs text-ink">Risk</h2>
-              <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} />
+      <div className="gap-xl grid grid-cols-1 lg:grid-cols-[1fr_320px]">
+        <div className="gap-xl grid lg:grid-cols-[2fr_3fr]">
+          <div className="gap-xl flex flex-col">
+            <Card className="gap-lg flex flex-col">
+              <h2 className="text-display-xs text-ink">Progress</h2>
+              {showColdStart ? <ColdStartProgress /> : null}
+              <ProgressSteps completedSteps={state.completedSteps} status={state.status} />
             </Card>
-          ) : null}
-        </div>
-        <div className="gap-xl flex flex-col">
-          <Card className="gap-md flex flex-col">
-            <h2 className="text-display-xs text-ink">Top drivers</h2>
-            <ShapBarChart features={state.topFeatures} />
-          </Card>
-          <Card className="gap-md flex flex-col">
-            <h2 className="text-display-xs text-ink">Regulatory citations</h2>
-            <RagPanel citations={state.citations} mode={state.ragMode} />
-          </Card>
-          <Card className="gap-md flex flex-col">
-            <div className="gap-md flex items-center justify-between">
+            {gaugeValue !== undefined ? (
+              <Card className="gap-md flex flex-col items-center">
+                <h2 className="text-display-xs text-ink">Risk</h2>
+                <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} />
+              </Card>
+            ) : null}
+          </div>
+          <div className="gap-xl flex flex-col">
+            <Card className="gap-md flex flex-col">
+              <h2 className="text-display-xs text-ink">Top drivers</h2>
+              <ShapBarChart features={state.topFeatures} />
+            </Card>
+            <Card className="gap-md flex flex-col">
+              <h2 className="text-display-xs text-ink">Regulatory citations</h2>
+              <RagPanel citations={state.citations} mode={state.ragMode} />
+            </Card>
+            <Card className="gap-md flex flex-col">
               <h2 className="text-display-xs text-ink">SAR draft</h2>
-              {state.status === "completed" ? (
-                <Button variant="secondary" onClick={() => navigate(paths.alerts)}>
-                  View alerts
-                </Button>
-              ) : null}
-            </div>
-            <SarStream text={state.sarText} streaming={streaming} />
-          </Card>
+              <SarStream text={state.sarText} streaming={streaming} />
+            </Card>
+          </div>
         </div>
+        <DecisionRail title="Decision">
+          <div className="gap-xs flex flex-col">
+            <span className="text-caption text-mute">Status</span>
+            <span className="text-body-md text-ink">{humanize(state.status)}</span>
+          </div>
+          {state.riskBand ? (
+            <div className="gap-xs flex flex-col">
+              <span className="text-caption text-mute">Risk band</span>
+              <span className="text-body-md text-ink">{humanize(state.riskBand)}</span>
+            </div>
+          ) : null}
+          {state.status === "completed" ? (
+            <Button variant="secondary" onClick={() => navigate(paths.alerts)}>
+              View alerts
+            </Button>
+          ) : null}
+        </DecisionRail>
       </div>
     </section>
   );
