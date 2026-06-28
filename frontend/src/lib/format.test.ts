@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCurrency, formatDateTime, formatPercent, humanize } from "./format";
+import { formatAge, formatCurrency, formatDateTime, formatPercent, humanize } from "./format";
 
 describe("formatCurrency", () => {
   it("formats a numeric or string amount with the currency", () => {
@@ -38,6 +38,20 @@ describe("formatDateTime", () => {
 
   it("returns a dash for an unparseable date", () => {
     expect(formatDateTime("nope")).toBe("—");
+  });
+});
+
+describe("formatAge", () => {
+  const now = new Date("2026-06-13T12:00:00Z");
+
+  it("renders compact minutes, hours, and days", () => {
+    expect(formatAge("2026-06-13T11:38:00Z", now)).toBe("22m");
+    expect(formatAge("2026-06-13T09:00:00Z", now)).toBe("3h");
+    expect(formatAge("2026-06-01T12:00:00Z", now)).toBe("12d ago");
+  });
+
+  it("returns a dash for an unparseable date", () => {
+    expect(formatAge("nope", now)).toBe("—");
   });
 });
 
