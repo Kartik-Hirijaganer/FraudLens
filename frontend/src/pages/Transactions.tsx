@@ -19,12 +19,15 @@
 import { useCallback, useState, type ChangeEvent } from "react";
 
 import { ModelSelector } from "../components/ModelSelector";
+import { RiskDot } from "../components/RiskDot";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { EmptyState } from "../components/feedback/EmptyState";
-import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { Select } from "../components/ui/Select";
+import { DataTable, type Column } from "../components/ui/DataTable";
+import { PageHeader } from "../components/ui/PageHeader";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
+import { TextInput } from "../components/ui/TextInput";
 import {
   apiClient,
   type ApiClient,
@@ -32,7 +35,7 @@ import {
   type TransactionResponse,
 } from "../lib/api";
 import { formatCurrency, formatDateTime, humanize } from "../lib/format";
-import { riskTone } from "../lib/risk";
+import { RISK_BAND_OPTIONS } from "../lib/options";
 import { navigate, paths } from "../lib/router";
 import { notify, notifyError } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
@@ -42,20 +45,13 @@ interface TransactionsData {
   models: ModelVersionListResponse;
 }
 
-const RISK_OPTIONS = [
-  { value: "", label: "All risk bands" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "critical", label: "Critical" },
-];
-
 interface TransactionsProps {
   client?: ApiClient;
 }
 
 export function Transactions({ client = apiClient }: TransactionsProps) {
   const [riskBand, setRiskBand] = useState("");
+  const [search, setSearch] = useState("");
   const [override, setOverride] = useState<string | undefined>(undefined);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
 
@@ -103,12 +99,10 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="text-display-md text-ink">Transactions</h1>
-        <p className="text-body-lg text-body">
-          Import flagged transactions and start an investigation.
-        </p>
-      </header>
+      <PageHeader
+        title="Transactions"
+        description="Import flagged transactions and start an investigation."
+      />
       <Card className="gap-lg flex flex-col">
         <div className="gap-lg flex flex-wrap items-end">
           <div className="gap-xs flex flex-col">
@@ -123,102 +117,142 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
               className="text-body-sm text-ink"
             />
           </div>
-          <div className="grow">
-            <Select
-              label="Filter by risk band"
-              options={RISK_OPTIONS}
+          <div className="gap-xs flex grow flex-col">
+            <span className="text-body-sm text-body">Filter by risk band</span>
+            <SegmentedControl
+              ariaLabel="Filter by risk band"
+              options={RISK_BAND_OPTIONS}
               value={riskBand}
-              onChange={(event) => setRiskBand(event.target.value)}
+              onChange={setRiskBand}
             />
           </div>
         </div>
         <AsyncBoundary state={state}>
-          {(data) => (
-            <div className="gap-lg flex flex-col">
-              <ModelSelector
-                versions={data.models.versions}
-                activeLabel={data.models.activeVersionLabel}
-                value={override}
-                onChange={setOverride}
-              />
-              {data.transactions.length === 0 ? (
-                <EmptyState
-                  title="No transactions"
-                  description="Import a CSV to start investigating."
+          {(data) => {
+            const filteredTransactions = filterTransactions(data.transactions, search);
+            const columns = transactionColumns(investigatingId, investigate);
+            return (
+              <div className="gap-lg flex flex-col">
+                <ModelSelector
+                  versions={data.models.versions}
+                  activeLabel={data.models.activeVersionLabel}
+                  value={override}
+                  onChange={setOverride}
                 />
-              ) : (
-                <table className="w-full border-collapse text-left">
-                  <thead>
-                    <tr className="text-caption text-mute">
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        External id
-                      </th>
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        Amount
-                      </th>
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        Country
-                      </th>
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        Channel
-                      </th>
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        Risk
-                      </th>
-                      <th scope="col" className="px-lg py-md font-semibold">
-                        Occurred
-                      </th>
-                      <th scope="col" className="px-lg py-md">
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.transactions.map((transaction) => (
-                      <tr key={transaction.transactionId} className="border-canvas-soft border-t">
-                        <td className="px-lg py-md text-body-sm text-ink">
-                          {transaction.externalId}
-                        </td>
-                        <td className="px-lg py-md text-body-sm text-ink">
-                          {formatCurrency(transaction.amount, transaction.currency)}
-                        </td>
-                        <td className="px-lg py-md text-body-sm text-body">
-                          {transaction.country}
-                        </td>
-                        <td className="px-lg py-md text-body-sm text-body">
-                          {humanize(transaction.channel)}
-                        </td>
-                        <td className="px-lg py-md">
-                          {transaction.riskBand ? (
-                            <Badge tone={riskTone(transaction.riskBand)}>
-                              {humanize(transaction.riskBand)}
-                            </Badge>
-                          ) : (
-                            <span className="text-caption text-mute">unscored</span>
-                          )}
-                        </td>
-                        <td className="px-lg py-md text-body-sm text-body">
-                          {formatDateTime(transaction.occurredAt)}
-                        </td>
-                        <td className="px-lg py-md">
-                          <Button
-                            onClick={() => void investigate(transaction.transactionId)}
-                            disabled={investigatingId !== null}
-                          >
-                            {investigatingId === transaction.transactionId
-                              ? "Starting…"
-                              : "Investigate"}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
+                <TextInput
+                  label="Search transactions"
+                  placeholder="Search by ID, amount, or counterparty…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <DataTable
+                  caption="Transactions"
+                  columns={columns}
+                  rows={filteredTransactions}
+                  rowKey={(transaction) => transaction.transactionId}
+                  empty={
+                    <EmptyState
+                      title={data.transactions.length === 0 ? "No transactions" : "No matches"}
+                      description={
+                        data.transactions.length === 0
+                          ? "Import a CSV to start investigating."
+                          : "Adjust the search query or risk filter."
+                      }
+                    />
+                  }
+                />
+              </div>
+            );
+          }}
         </AsyncBoundary>
       </Card>
     </section>
   );
+}
+
+function filterTransactions(
+  transactions: TransactionResponse[],
+  search: string,
+): TransactionResponse[] {
+  const query = search.trim().toLowerCase();
+  if (!query) {
+    return transactions;
+  }
+  return transactions.filter((transaction) =>
+    [
+      transaction.externalId,
+      transaction.amount,
+      transaction.currency,
+      transaction.originAccount,
+      transaction.destAccount,
+      transaction.channel,
+      transaction.country,
+      transaction.riskBand ?? "unscored",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query),
+  );
+}
+
+function transactionColumns(
+  investigatingId: string | null,
+  investigate: (transactionId: string) => Promise<void>,
+): Column<TransactionResponse>[] {
+  return [
+    {
+      id: "externalId",
+      header: "External id",
+      cell: (transaction) => (
+        <div className="gap-xxs flex flex-col">
+          <span className="text-ink">{transaction.externalId}</span>
+          <span className="text-caption text-mute">
+            {transaction.originAccount} → {transaction.destAccount}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "amount",
+      header: "Amount",
+      cell: (transaction) => (
+        <span className="text-ink">{formatCurrency(transaction.amount, transaction.currency)}</span>
+      ),
+    },
+    {
+      id: "country",
+      header: "Country",
+      cell: (transaction) => <span className="text-body">{transaction.country}</span>,
+    },
+    {
+      id: "channel",
+      header: "Channel",
+      cell: (transaction) => <span className="text-body">{humanize(transaction.channel)}</span>,
+    },
+    {
+      id: "risk",
+      header: "Risk",
+      cell: (transaction) => <RiskDot band={transaction.riskBand} showLabel />,
+    },
+    {
+      id: "occurred",
+      header: "Occurred",
+      cell: (transaction) => (
+        <span className="text-body">{formatDateTime(transaction.occurredAt)}</span>
+      ),
+    },
+    {
+      id: "action",
+      header: "Actions",
+      srOnlyHeader: true,
+      cell: (transaction) => (
+        <Button
+          onClick={() => void investigate(transaction.transactionId)}
+          disabled={investigatingId !== null}
+        >
+          {investigatingId === transaction.transactionId ? "Starting…" : "Investigate"}
+        </Button>
+      ),
+    },
+  ];
 }
