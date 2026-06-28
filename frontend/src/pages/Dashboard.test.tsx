@@ -18,7 +18,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("50")).toBeInTheDocument(); // recent transactions total
     expect(screen.getByText("12")).toBeInTheDocument(); // completed investigations
     expect(screen.getByText("High")).toBeInTheDocument(); // open-alert severity badge
-    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(window.location.hash).toBe("#/alerts/alert-1");
   });
 

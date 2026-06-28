@@ -14,7 +14,7 @@ describe("Alerts", () => {
   it("lists alerts and opens one", async () => {
     render(<Alerts client={makeClient()} />);
     expect(await screen.findByText("High")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(window.location.hash).toBe("#/alerts/alert-1");
   });
 
@@ -22,8 +22,12 @@ describe("Alerts", () => {
     const listAlerts = vi.fn(() => Promise.resolve({ alerts: [alertView()] }));
     render(<Alerts client={makeClient({ listAlerts })} />);
     await screen.findByText("High");
-    await userEvent.selectOptions(screen.getByLabelText("Filter by status"), "open");
+    await userEvent.click(screen.getByRole("radio", { name: "Open" }));
     await waitFor(() => expect(listAlerts).toHaveBeenCalledWith({ status: "open", limit: 100 }));
+    await userEvent.click(screen.getByRole("radio", { name: "Pending Review" }));
+    await waitFor(() =>
+      expect(listAlerts).toHaveBeenCalledWith({ status: "pending_review", limit: 100 }),
+    );
   });
 
   it("shows an error state on failure", async () => {
