@@ -17,18 +17,12 @@ import { useCallback, useState } from "react";
 import { AlertTable } from "../components/AlertTable";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { Card } from "../components/ui/Card";
-import { Select } from "../components/ui/Select";
+import { PageHeader } from "../components/ui/PageHeader";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { apiClient, type AlertStatus, type ApiClient } from "../lib/api";
+import { ALERT_STATUS_OPTIONS } from "../lib/options";
 import { navigate, paths } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
-
-const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
-  { value: "open", label: "Open" },
-  { value: "in_review", label: "In review" },
-  { value: "resolved", label: "Resolved" },
-  { value: "dismissed", label: "Dismissed" },
-];
 
 interface AlertsProps {
   client?: ApiClient;
@@ -44,17 +38,15 @@ export function Alerts({ client = apiClient }: AlertsProps) {
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="text-display-md text-ink">Alerts</h1>
-        <p className="text-body-lg text-body">Review and resolve flagged investigations.</p>
-      </header>
+      <PageHeader title="Alerts" description="Review and resolve flagged investigations." />
       <Card className="gap-lg flex flex-col">
-        <div className="max-w-xs">
-          <Select
-            label="Filter by status"
-            options={STATUS_OPTIONS}
+        <div className="gap-xs flex flex-col">
+          <span className="text-body-sm text-body">Filter by status</span>
+          <SegmentedControl
+            ariaLabel="Filter by status"
+            options={ALERT_STATUS_OPTIONS}
             value={status}
-            onChange={(event) => setStatus(event.target.value)}
+            onChange={setStatus}
           />
         </div>
         <AsyncBoundary state={state}>
