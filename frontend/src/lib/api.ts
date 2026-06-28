@@ -38,7 +38,7 @@
  * - TrainingRunTriggerResponse: the 202 retrain acknowledgement + label counts.
  * - DriftReportView: one advisory drift report.
  * - DriftReportListResponse: advisory drift reports.
- * - AlertMetrics: alert counts by status (open/in-review/resolved/dismissed + total).
+ * - AlertMetrics: alert counts by status (open/pending/in-review/escalated/resolved/dismissed).
  * - TransactionMetrics: total transactions + a count per risk band.
  * - RunMetrics: investigation-run counts by status + total.
  * - SarMetrics: SAR-draft counts by review status + total.
@@ -48,6 +48,8 @@
  * - ApiClient: the interface of all endpoint methods (injected into pages for testing).
  *
  * Key functions:
+ * - STATUS_LABELS: display labels for alert lifecycle statuses.
+ * - statusLabel: display a known alert status or humanize an unknown fallback.
  * - fetchApiHealth: standalone GET /api/v1/health (the walking-skeleton heartbeat).
  * - createApiClient: build an ApiClient bound to an injectable fetch.
  * - apiClient: the default ApiClient for app use.
@@ -57,10 +59,17 @@
  * is built here too so every path lives in one place (rule 5).
  */
 import { config } from "./config";
+import { humanize } from "./format";
 import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
 
 export type Severity = "low" | "medium" | "high" | "critical";
-export type AlertStatus = "open" | "in_review" | "resolved" | "dismissed";
+export type AlertStatus =
+  | "open"
+  | "pending_review"
+  | "in_review"
+  | "escalated"
+  | "resolved"
+  | "dismissed";
 type AlertActionType = "assign" | "comment" | "escalate" | "resolve" | "dismiss";
 export type TrainingLabel = "confirmed_fraud" | "false_positive" | "false_negative" | "benign";
 export type SarStatus = "draft" | "reviewed" | "approved" | "rejected" | "failed";
@@ -73,6 +82,19 @@ export type ModelVersionStatus =
   | "archived"
   | "rejected";
 export type CanaryPercent = 5 | 25 | 50 | 100;
+
+export const STATUS_LABELS: Record<AlertStatus, string> = {
+  open: humanize("open"),
+  pending_review: humanize("pending_review"),
+  in_review: humanize("in_review"),
+  escalated: humanize("escalated"),
+  resolved: "Completed",
+  dismissed: "Archived",
+};
+
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status as AlertStatus] ?? humanize(status);
+}
 
 export class ApiError extends Error {
   constructor(
@@ -192,6 +214,8 @@ export interface AlertView {
   runId: string;
   status: AlertStatus;
   severity: Severity;
+  amount: string;
+  currency: string;
   assignedTo: string | null;
   reviewFlags: { flag: string; reason: string }[];
   createdAt: string;
@@ -213,8 +237,8 @@ export interface AlertActionView {
   action: AlertActionType;
   actorId: string;
   note: string | null;
-  fromStatus: string | null;
-  toStatus: string | null;
+  fromStatus: AlertStatus | null;
+  toStatus: AlertStatus | null;
   createdAt: string;
 }
 
@@ -332,7 +356,9 @@ export interface DriftReportListResponse {
 
 export interface AlertMetrics {
   open: number;
+  pendingReview: number;
   inReview: number;
+  escalated: number;
   resolved: number;
   dismissed: number;
   total: number;
