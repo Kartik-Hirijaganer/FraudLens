@@ -59,7 +59,7 @@ describe("ModelLifecyclePanel", () => {
         {...callbacks}
       />,
     );
-    expect(screen.getByText(/PR-AUC 0\.840/)).toBeInTheDocument();
+    expect(screen.getByText(/AUC 0\.840/)).toBeInTheDocument();
     expect(screen.getByText("Low")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Promote to shadow" }));
     expect(callbacks.onPromoteShadow).toHaveBeenCalledWith("v-cand");
