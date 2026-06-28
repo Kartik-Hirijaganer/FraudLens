@@ -26,7 +26,7 @@ interface SelectOption {
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
-  options: SelectOption[];
+  options: ReadonlyArray<SelectOption>;
 }
 
 export function Select({ label, id, className, options, ...rest }: SelectProps) {
