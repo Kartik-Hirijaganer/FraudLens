@@ -43,6 +43,8 @@ export function alertView(overrides: Partial<AlertView> = {}): AlertView {
     runId: "run-1",
     status: "open",
     severity: "high",
+    amount: "9500.00",
+    currency: "USD",
     assignedTo: null,
     reviewFlags: [{ flag: "critical_band", reason: "Risk band is critical" }],
     createdAt: "2026-06-11T10:00:00Z",
@@ -163,7 +165,15 @@ export function driftReport(overrides: Partial<DriftReportView> = {}): DriftRepo
 
 export function dashboardMetrics(overrides: Partial<DashboardMetrics> = {}): DashboardMetrics {
   return {
-    alerts: { open: 3, inReview: 1, resolved: 5, dismissed: 2, total: 11 },
+    alerts: {
+      open: 3,
+      pendingReview: 1,
+      inReview: 1,
+      escalated: 2,
+      resolved: 5,
+      dismissed: 2,
+      total: 14,
+    },
     transactions: { total: 50, byRiskBand: { unscored: 44, high: 6 } },
     runs: { pending: 0, running: 1, completed: 12, failed: 1, total: 14 },
     sar: { draft: 4, reviewed: 1, approved: 3, rejected: 1, failed: 0, total: 9 },

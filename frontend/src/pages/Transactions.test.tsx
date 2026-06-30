@@ -46,10 +46,35 @@ describe("Transactions", () => {
     );
     render(<Transactions client={makeClient({ listTransactions })} />);
     await screen.findByText("ext-1");
-    await userEvent.selectOptions(screen.getByLabelText("Filter by risk band"), "high");
+    await userEvent.click(screen.getByRole("radio", { name: "High" }));
     await waitFor(() =>
       expect(listTransactions).toHaveBeenCalledWith({ riskBand: "high", limit: 50 }),
     );
+  });
+
+  it("filters loaded rows with the transaction search box", async () => {
+    const client = makeClient({
+      listTransactions: vi.fn(() =>
+        Promise.resolve({
+          transactions: [
+            transaction({ transactionId: "tx-1", externalId: "ext-1", amount: "12500.00" }),
+            transaction({
+              transactionId: "tx-2",
+              externalId: "other-2",
+              amount: "900.00",
+              destAccount: "****5555",
+            }),
+          ],
+          nextCursor: null,
+        }),
+      ),
+    });
+    render(<Transactions client={client} />);
+    expect(await screen.findByText("ext-1")).toBeInTheDocument();
+    expect(screen.getByText("other-2")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Search transactions"), "5555");
+    expect(screen.queryByText("ext-1")).not.toBeInTheDocument();
+    expect(screen.getByText("other-2")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no transactions", async () => {

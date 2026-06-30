@@ -17,6 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.db.models import (
+    Alert,
+    AlertStatus,
     AnalysisRun,
     DriftReport,
     JobStatus,
@@ -76,6 +78,8 @@ async def test_metrics_endpoint_reflects_seeded_activity(
     assert body["runs"]["completed"] == 12
     assert body["runs"]["total"] == 12
     assert body["alerts"]["total"] == 0
+    assert body["alerts"]["pendingReview"] == 0
+    assert body["alerts"]["escalated"] == 0
     assert body["sar"]["total"] == 0
     assert body["llmCost"]["totalUsd"] == "0"
     assert body["llmCost"]["draftCount"] == 0
@@ -119,6 +123,52 @@ async def test_metrics_are_tenant_scoped(
     # Model health (active pointer) is global, so BOTH tenants see the shared active version.
     assert demo.active_version_label == "v0-fixture"
     assert other.active_version_label == "v0-fixture"
+
+
+async def test_metrics_endpoint_maps_new_alert_status_counts(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed(db_sessionmaker)
+    async with db_sessionmaker() as session:
+        run_id = (
+            await session.execute(
+                select(AnalysisRun.id).where(AnalysisRun.agency_id == _DEMO_AGENCY_ID).limit(1)
+            )
+        ).scalar_one()
+        transaction_id = (
+            await session.execute(
+                select(Transaction.id).where(Transaction.agency_id == _DEMO_AGENCY_ID).limit(1)
+            )
+        ).scalar_one()
+        session.add_all(
+            [
+                Alert(
+                    agency_id=_DEMO_AGENCY_ID,
+                    transaction_id=transaction_id,
+                    run_id=run_id,
+                    status=AlertStatus.PENDING_REVIEW,
+                    severity=Severity.HIGH,
+                    review_flags=[{"flag": "low_model_confidence", "reason": "Review required."}],
+                ),
+                Alert(
+                    agency_id=_DEMO_AGENCY_ID,
+                    transaction_id=transaction_id,
+                    run_id=run_id,
+                    status=AlertStatus.ESCALATED,
+                    severity=Severity.CRITICAL,
+                    review_flags=[],
+                ),
+            ]
+        )
+        await session.commit()
+    app = _build_app(make_settings(auth_dev_bypass=True), db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.get("/api/v1/dashboard/metrics")
+    assert resp.status_code == 200
+    assert resp.json()["alerts"]["pendingReview"] == 1
+    assert resp.json()["alerts"]["escalated"] == 1
 
 
 async def test_metrics_aggregate_all_signals(
