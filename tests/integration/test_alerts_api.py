@@ -201,14 +201,22 @@ async def test_list_alerts_scoped_and_status_filter(
 ) -> None:
     await _seed_alert(db_sessionmaker, status=AlertStatus.OPEN, external_id="A1")
     await _seed_alert(db_sessionmaker, status=AlertStatus.RESOLVED, external_id="A2")
+    await _seed_alert(db_sessionmaker, status=AlertStatus.PENDING_REVIEW, external_id="A4")
+    await _seed_alert(db_sessionmaker, status=AlertStatus.ESCALATED, external_id="A5")
     await _seed_alert(db_sessionmaker, agency_id=_OTHER_AGENCY_ID, external_id="A3")  # cross-tenant
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         all_resp = await client.get("/api/v1/alerts")
         open_resp = await client.get("/api/v1/alerts", params={"status": "open"})
+        pending_resp = await client.get("/api/v1/alerts", params={"status": "pending_review"})
+        escalated_resp = await client.get("/api/v1/alerts", params={"status": "escalated"})
     assert all_resp.status_code == 200
-    assert len(all_resp.json()["alerts"]) == 2  # only the demo agency's alerts
+    assert len(all_resp.json()["alerts"]) == 4  # only the demo agency's alerts
     assert [a["status"] for a in open_resp.json()["alerts"]] == ["open"]
+    assert [a["status"] for a in pending_resp.json()["alerts"]] == ["pending_review"]
+    assert [a["status"] for a in escalated_resp.json()["alerts"]] == ["escalated"]
+    assert all_resp.json()["alerts"][0]["amount"] == "9500.00"
+    assert all_resp.json()["alerts"][0]["currency"] == "USD"
 
 
 async def test_get_alert_detail_surfaces_sar_and_flags(
@@ -224,6 +232,8 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     assert resp.status_code == 200
     body = resp.json()
     assert body["alert"]["reviewFlags"][0]["flag"] == "critical_risk_band"
+    assert body["alert"]["amount"] == "9500.00"
+    assert body["alert"]["currency"] == "USD"
     assert body["sarDraft"]["citations"][0]["citation"] == "31 CFR 1010.314"
     assert body["actions"] == []
 
@@ -337,7 +347,7 @@ async def test_resolve_without_label_is_422(
 
 @pytest.mark.parametrize(
     ("action", "expected"),
-    [("escalate", "in_review"), ("dismiss", "dismissed")],
+    [("escalate", "escalated"), ("dismiss", "dismissed")],
 )
 async def test_escalate_and_dismiss_transitions(
     make_settings: Callable[..., AppSettings],
@@ -628,8 +638,25 @@ async def test_raise_alert_persists_computed_review_flags(
         )
     raised = [a for a in alerts if a.severity is Severity.CRITICAL]
     assert len(raised) == 1
+    assert raised[0].status is AlertStatus.PENDING_REVIEW
     flags = {item["flag"] for item in raised[0].review_flags}
     assert flags == {"critical_risk_band", "sar_unavailable"}
+
+
+async def test_raise_alert_without_review_flags_stays_open(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker)
+    async with db_sessionmaker() as session:
+        repo = AnalysisRunRepository(session, DEMO_AGENCY_ID)
+        alert = await repo.raise_alert(
+            run_id=ids["run_id"],
+            transaction_id=ids["transaction_id"],
+            severity=Severity.HIGH,
+            review_flags=[],
+        )
+        await session.commit()
+        assert alert.status is AlertStatus.OPEN
 
 
 # --------------------------------------------------------------------------------------------------
