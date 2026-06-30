@@ -20,6 +20,8 @@ import { useCallback } from "react";
 import { AlertTable } from "../components/AlertTable";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { Card } from "../components/ui/Card";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatTile } from "../components/ui/StatTile";
 import { apiClient, type AlertView, type ApiClient, type DashboardMetrics } from "../lib/api";
 import { navigate, paths } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
@@ -45,41 +47,31 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
 
   return (
     <section className="gap-xl flex flex-col">
-      <header className="gap-sm bg-canvas-soft p-3xl flex flex-col rounded-xl">
-        <h1 className="text-display-md text-ink">Investigations</h1>
-        <p className="text-body-lg text-body">
-          Triage flagged transactions, review SAR drafts, and operate the scoring model.
-        </p>
-      </header>
+      <PageHeader
+        title="Investigations"
+        description="Triage flagged transactions, review SAR drafts, and operate the scoring model."
+      />
       <AsyncBoundary state={state}>
         {({ metrics, openAlerts }) => (
           <div className="gap-xl flex flex-col">
-            <div className="gap-lg grid sm:grid-cols-4">
-              <Card className="gap-xs flex flex-col">
-                <span className="text-caption text-mute">Open alerts</span>
-                <span className="text-display-sm text-ink">{metrics.alerts.open}</span>
-              </Card>
-              <Card className="gap-xs flex flex-col">
-                <span className="text-caption text-mute">Investigations</span>
-                <span className="text-display-sm text-ink">{metrics.runs.completed}</span>
-                <span className="text-caption text-mute">{metrics.runs.total} total runs</span>
-              </Card>
-              <Card className="gap-xs flex flex-col">
-                <span className="text-caption text-mute">Active model</span>
-                <span className="text-display-xs text-ink">
-                  {metrics.modelHealth.activeVersionLabel ?? "—"}
-                </span>
-                {metrics.modelHealth.canaryVersionLabel ? (
-                  <span className="text-caption text-mute">
-                    canary {metrics.modelHealth.canaryVersionLabel} @{" "}
-                    {metrics.modelHealth.canaryPercent}%
-                  </span>
-                ) : null}
-              </Card>
-              <Card className="gap-xs flex flex-col">
-                <span className="text-caption text-mute">Recent transactions</span>
-                <span className="text-display-sm text-ink">{metrics.transactions.total}</span>
-              </Card>
+            <div className="gap-lg grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+              <StatTile label="Open alerts" value={metrics.alerts.open} />
+              <StatTile
+                label="Investigations"
+                value={metrics.runs.completed}
+                hint={`${metrics.runs.total} total runs`}
+              />
+              <StatTile
+                label="Active model"
+                value={metrics.modelHealth.activeVersionLabel ?? "—"}
+                hint={
+                  metrics.modelHealth.canaryVersionLabel
+                    ? `canary ${metrics.modelHealth.canaryVersionLabel} @ ${metrics.modelHealth.canaryPercent}%`
+                    : undefined
+                }
+                emphasis="md"
+              />
+              <StatTile label="Recent transactions" value={metrics.transactions.total} />
             </div>
             <Card className="gap-md flex flex-col">
               <h2 className="text-display-xs text-ink">Open alerts</h2>
