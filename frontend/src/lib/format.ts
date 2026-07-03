@@ -15,7 +15,8 @@
  * - formatDateTime: render an ISO timestamp as a short localized date-time.
  * - formatAge: render an ISO timestamp as a compact relative age.
  * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
- * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4821").
+ * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4E18").
+ * - formatModelVersion: render a model version label human-friendly (drops "-fixture").
  * - greeting: pick a time-of-day greeting ("Good morning/afternoon/evening").
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
@@ -94,18 +95,28 @@ export function formatAgo(iso: string, now: Date = new Date()): string {
   return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
+const _ALERT_REF_LENGTH = 4;
+
 export function formatAlertRef(alertId: string): string {
   const trimmed = alertId.trim();
   if (!trimmed) {
     return PLACEHOLDER;
   }
-  // Already an AL-style code — normalize casing/separators and keep it as-is.
-  if (/^al[-_]/i.test(trimmed)) {
-    return trimmed.toUpperCase().replace(/_/g, "-");
+  // Strip a leading "alert"/"al" prefix + separator, then keep only the identifying tail
+  // (list "alert" before "al" so the longer prefix wins, e.g. "alert_1" → tail "1").
+  const tail = /^(?:alert|al)[-_](.+)$/i.exec(trimmed)?.[1] ?? trimmed;
+  const alnum = tail.replace(/[^a-zA-Z0-9]/g, "") || tail;
+  // A compact, glanceable code (the full id is used for navigation) — e.g. a raw UUID
+  // "267ad722-…-46245a094e18" reads "AL-4E18", matching the design's short reference style.
+  return `AL-${alnum.slice(-_ALERT_REF_LENGTH).toUpperCase()}`;
+}
+
+export function formatModelVersion(label: string | null | undefined): string {
+  if (!label) {
+    return PLACEHOLDER;
   }
-  // Strip a leading "alert-"/"alert_" prefix so ids like "alert-4821" read "AL-4821".
-  const tail = /^alert[-_]?(.+)$/i.exec(trimmed)?.[1] ?? trimmed;
-  return `AL-${tail.toUpperCase()}`;
+  // Drop the internal "-fixture" tag so seeded/demo models read as a clean version (e.g. "v0").
+  return label.replace(/-fixture$/i, "");
 }
 
 export function greeting(now: Date = new Date()): string {

@@ -63,6 +63,36 @@ describe("Dashboard", () => {
     expect(window.location.hash).toBe("#/alerts/alert-1");
   });
 
+  it("humanizes the active model label (drops the -fixture tag)", async () => {
+    const client = makeClient({
+      getDashboardMetrics: vi.fn(() =>
+        Promise.resolve(
+          dashboardMetrics({
+            modelHealth: {
+              activeVersionLabel: "v0-fixture",
+              canaryVersionLabel: null,
+              canaryPercent: 0,
+              recentInferenceCount: 1,
+              latestDriftSeverity: null,
+            },
+          }),
+        ),
+      ),
+    });
+    render(<Dashboard client={client} />);
+    expect(await screen.findByText("v0")).toBeInTheDocument();
+    expect(screen.queryByText("v0-fixture")).not.toBeInTheDocument();
+  });
+
+  it("shows the dashboard skeleton while data is loading", () => {
+    const pending = (): Promise<never> => new Promise<never>(() => undefined);
+    render(
+      <Dashboard client={makeClient({ getDashboardMetrics: pending, listAlerts: pending })} />,
+    );
+    // The skeleton is decorative (aria-hidden) and pulses via motion-safe.
+    expect(document.querySelector(".motion-safe\\:animate-pulse")).toBeInTheDocument();
+  });
+
   it("shows a canary rollout in the active-model card", async () => {
     const client = makeClient({
       getDashboardMetrics: vi.fn(() =>

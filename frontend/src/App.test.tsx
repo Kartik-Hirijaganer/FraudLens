@@ -37,20 +37,20 @@ afterEach(() => {
 });
 
 describe("App shell", () => {
-  it("renders the brand and both nav landmarks", () => {
+  it("renders the brand and the single Workspace/Admin nav (no top pill nav)", () => {
     render(<App />);
     expect(screen.getByRole("link", { name: "FraudLens" })).toBeInTheDocument();
-    const primary = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(primary).getByRole("link", { name: "Alert review" })).toBeInTheDocument();
-    expect(within(primary).getByRole("link", { name: "Investigation" })).toBeInTheDocument();
+    // The top pill nav was removed — the sidebar is the sole primary navigation.
+    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
     const workspace = screen.getByRole("navigation", { name: "Workspace" });
     expect(within(workspace).getByRole("link", { name: "Model admin" })).toBeInTheDocument();
+    expect(within(workspace).getByRole("link", { name: "Transactions" })).toBeInTheDocument();
   });
 
-  it("routes the dashboard by default and marks its nav active", () => {
+  it("routes the dashboard by default and marks its sidebar nav active", () => {
     render(<App />);
-    const primary = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(primary).getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Dashboard" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -66,11 +66,11 @@ describe("App shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("marks the Alert review pill active on an alert-detail route", () => {
+  it("marks the Alerts sidebar nav active on an alert-detail route", () => {
     render(<App />);
     goTo("#/alerts/alert-1");
-    const primary = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(primary).getByRole("link", { name: "Alert review" })).toHaveAttribute(
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Alerts" })).toHaveAttribute(
       "aria-current",
       "page",
     );
