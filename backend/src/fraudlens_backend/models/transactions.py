@@ -15,7 +15,7 @@ Key classes:
 - IngestRejection: a single PHI-free per-row rejection (index, code, message).
 - BatchIngestResponse: batch outcome (counts + created rows + bounded sampleErrors).
 - CsvUploadResponse: CSV upload outcome (jobId + counts + bounded sampleErrors).
-- TransactionListResponse: a page of transactions plus the opaque nextCursor.
+- TransactionListResponse: a page of transactions plus the opaque nextCursor + total count.
 - ClientErrorReport: the frontend client-error sink body (message + safe context).
 
 Key functions:
@@ -137,13 +137,16 @@ class CsvUploadResponse(CamelModel):
 
 
 class TransactionListResponse(CamelModel):
-    """A page of transactions plus the opaque cursor for the next page (null at the end)."""
+    """A page of transactions plus the opaque next-page cursor and the total matching count."""
 
     transactions: list[TransactionResponse] = Field(
         default_factory=list, description="The transactions on this page (masked)."
     )
     next_cursor: str | None = Field(
         default=None, description="Opaque cursor for the next page, or null when exhausted."
+    )
+    total: int = Field(
+        default=0, ge=0, description="Total rows matching the filters, across all pages."
     )
 
 

@@ -5,8 +5,9 @@ API endpoint and the IEEE-CIS importer: it dedups by `(agency_id, external_id)` 
 the existing row with `created=False` instead of raising), masks the account identifiers +
 computes the `feature_hash` via the injected `PhiMasker`, and persists ONLY the masked form
 (raw PHI is never written, ADR-014). `page` returns keyset-paginated, newest-first results
-with an opaque cursor, optionally filtered by risk band, so the list endpoint never scans
-or offsets the whole table.
+with an opaque cursor — optionally filtered by risk band and a free-text `search` — plus the
+total matching count (for the "X of N" footer), so the list endpoint windows rows by keyset
+rather than offsetting the whole table.
 
 Key classes:
 - IngestOutcome: the result of an ingest — the row and whether it was newly created.
@@ -21,8 +22,12 @@ Notes:
   async lazy-load/refresh round-trip; the column's server default remains the fallback.
 - The keyset orders by (ingested_at DESC, id DESC); a malformed cursor is ignored (the
   caller simply gets the first page) rather than erroring.
-- Cursor timestamps are normalized to naive-UTC so the keyset behaves identically on
-  Postgres (asyncpg reads tz-aware) and SQLite tests (which drop tzinfo on read).
+- Cursor timestamps are ENCODED naive-UTC (a compact, stable cursor string) but DECODED
+  back to tz-aware UTC, because the keyset predicate compares against `ingested_at`, a
+  tz-aware `timestamptz` column. Binding a naive value makes Postgres/asyncpg read it in
+  the session timezone (not UTC), so `ingested_at < after_ts` is true for every row and
+  page 2 repeats page 1 forever (an infinite loop). Aware-UTC compares correctly on
+  Postgres and remains correct on SQLite (its DateTime formats UTC wall-clock either way).
 """
 
 from __future__ import annotations
@@ -32,9 +37,9 @@ import binascii
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import Transaction
@@ -68,11 +73,18 @@ def encode_cursor(ingested_at: datetime, entity_id: uuid.UUID) -> str:
 
 
 def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID] | None:
-    """Decode an opaque cursor back to (ingested_at, id); return None when malformed."""
+    """Decode an opaque cursor back to (tz-aware-UTC ingested_at, id); None when malformed.
+
+    The timestamp is returned tz-aware UTC (not naive) so the keyset predicate compares
+    correctly against the tz-aware `ingested_at` column — see the module docstring for why a
+    naive value silently breaks pagination on Postgres.
+    """
     try:
         raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
         timestamp, hex_id = raw.split(_CURSOR_SEP, 1)
-        return datetime.fromisoformat(timestamp), uuid.UUID(hex_id)
+        parsed = datetime.fromisoformat(timestamp)
+        aware = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        return aware, uuid.UUID(hex_id)
     except (binascii.Error, ValueError, UnicodeDecodeError):
         return None
 
@@ -145,17 +157,50 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         )
         return (await self._session.execute(stmt)).scalars().all()
 
+    def _list_filters(self, risk_band: RiskBand | None, search: str | None) -> list[Any]:
+        """Build the shared tenant + riskBand + search filters used by the page + count queries."""
+        filters: list[Any] = [Transaction.agency_id == self._agency_id]
+        if risk_band is not None:
+            filters.append(Transaction.risk_band == risk_band)
+        term = search.strip() if search else ""
+        if term:
+            # Case-insensitive contains across the columns the analyst searches by (TXN id, the
+            # masked counterparty accounts, amount-as-text). LIKE wildcards in the term are escaped
+            # so a literal "%"/"_" matches itself; `.ilike` compiles per-dialect (ILIKE on PG).
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = f"%{escaped}%"
+            filters.append(
+                or_(
+                    Transaction.external_id.ilike(like, escape="\\"),
+                    Transaction.origin_account.ilike(like, escape="\\"),
+                    Transaction.dest_account.ilike(like, escape="\\"),
+                    Transaction.country.ilike(like, escape="\\"),
+                    Transaction.channel.ilike(like, escape="\\"),
+                    cast(Transaction.amount, String).ilike(like, escape="\\"),
+                )
+            )
+        return filters
+
     async def page(
         self,
         *,
         limit: int,
         cursor: str | None = None,
         risk_band: RiskBand | None = None,
-    ) -> tuple[Sequence[Transaction], str | None]:
-        """Return one keyset page (newest first) + the next cursor (None when exhausted)."""
-        stmt = select(Transaction).where(Transaction.agency_id == self._agency_id)
-        if risk_band is not None:
-            stmt = stmt.where(Transaction.risk_band == risk_band)
+        search: str | None = None,
+    ) -> tuple[Sequence[Transaction], str | None, int]:
+        """Return one keyset page (newest first) + the next cursor + the total matching count.
+
+        `total` counts every row matching the tenant/riskBand/search filters (ignoring the cursor)
+        so callers can render the "X of N" footer; the page rows themselves are keyset-windowed.
+        """
+        filters = self._list_filters(risk_band, search)
+        total = (
+            await self._session.execute(
+                select(func.count()).select_from(Transaction).where(*filters)
+            )
+        ).scalar_one()
+        stmt = select(Transaction).where(*filters)
         decoded = decode_cursor(cursor) if cursor else None
         if decoded is not None:
             after_ts, after_id = decoded
@@ -169,5 +214,5 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         rows = list((await self._session.execute(stmt)).scalars().all())
         if len(rows) > limit:
             last = rows[limit - 1]
-            return rows[:limit], encode_cursor(last.ingested_at, last.id)
-        return rows, None
+            return rows[:limit], encode_cursor(last.ingested_at, last.id), int(total)
+        return rows, None, int(total)

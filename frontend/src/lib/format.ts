@@ -14,6 +14,10 @@
  * - formatPercent: render a 0..1 fraction as a percentage (e.g. 0.873 -> "87.3%").
  * - formatDateTime: render an ISO timestamp as a short localized date-time.
  * - formatAge: render an ISO timestamp as a compact relative age.
+ * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
+ * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4E18").
+ * - formatModelVersion: render a model version label human-friendly (drops "-fixture").
+ * - greeting: pick a time-of-day greeting ("Good morning/afternoon/evening").
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
  * Notes:
@@ -72,6 +76,58 @@ export function formatAge(iso: string, now: Date = new Date()): string {
     return `${elapsedHours}h`;
   }
   return `${Math.floor(elapsedHours / 24)}d ago`;
+}
+
+export function formatAgo(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const elapsedMs = now.getTime() - date.getTime();
+  if (Number.isNaN(date.getTime()) || Number.isNaN(elapsedMs)) {
+    return PLACEHOLDER;
+  }
+  const elapsedMinutes = Math.floor(Math.max(0, elapsedMs) / 60000);
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+  return `${Math.floor(elapsedHours / 24)}d ago`;
+}
+
+const _ALERT_REF_LENGTH = 4;
+
+export function formatAlertRef(alertId: string): string {
+  const trimmed = alertId.trim();
+  if (!trimmed) {
+    return PLACEHOLDER;
+  }
+  // Strip a leading "alert"/"al" prefix + separator, then keep only the identifying tail
+  // (list "alert" before "al" so the longer prefix wins, e.g. "alert_1" → tail "1").
+  const tail = /^(?:alert|al)[-_](.+)$/i.exec(trimmed)?.[1] ?? trimmed;
+  const alnum = tail.replace(/[^a-zA-Z0-9]/g, "") || tail;
+  // A compact, glanceable code (the full id is used for navigation) — e.g. a raw UUID
+  // "267ad722-…-46245a094e18" reads "AL-4E18", matching the design's short reference style.
+  return `AL-${alnum.slice(-_ALERT_REF_LENGTH).toUpperCase()}`;
+}
+
+export function formatModelVersion(label: string | null | undefined): string {
+  if (!label) {
+    return PLACEHOLDER;
+  }
+  // Drop the internal "-fixture" tag so seeded/demo models read as a clean version (e.g. "v0").
+  return label.replace(/-fixture$/i, "");
+}
+
+export function greeting(now: Date = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 12) {
+    return "Good morning";
+  }
+  if (hour < 18) {
+    return "Good afternoon";
+  }
+  return "Good evening";
 }
 
 export function humanize(code: string): string {

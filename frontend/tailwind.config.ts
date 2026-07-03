@@ -64,6 +64,9 @@ const config: Config = {
       maxWidth: {
         // DESIGN.md: the marketing container centres at ~1200px.
         container: "1200px",
+        // The analyst app shell uses a wider working area than the marketing
+        // container so dense triage screens fill large displays.
+        shell: "1600px",
       },
       fontSize: {
         "display-mega": ["126px", { lineHeight: "107.1px", fontWeight: "900" }],

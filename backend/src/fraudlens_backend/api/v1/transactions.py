@@ -68,6 +68,7 @@ TenantDep = Annotated[TenantContext, Depends(get_tenant)]
 
 _DEFAULT_PAGE_LIMIT = 50
 _MAX_PAGE_LIMIT = 200
+_MAX_SEARCH_LEN = 128
 _CSV_CONTENT_TYPES = ("text/csv", "application/csv", "application/vnd.ms-excel")
 # The canonical camelCase keys every ingest path (single/batch/CSV) expects; any other
 # key in a row is folded into the masked features JSONB rather than dropped.
@@ -376,10 +377,13 @@ async def list_transactions(  # noqa: PLR0913 - FastAPI handler: request + injec
     limit: Annotated[int, Query(ge=1, le=_MAX_PAGE_LIMIT)] = _DEFAULT_PAGE_LIMIT,
     cursor: Annotated[str | None, Query()] = None,
     risk_band: Annotated[RiskBand | None, Query(alias="riskBand")] = None,
+    search: Annotated[str | None, Query(alias="search", max_length=_MAX_SEARCH_LEN)] = None,
 ) -> TransactionListResponse:
-    """Return a keyset page of the agency's transactions (newest first), optional riskBand."""
+    """Return a keyset page (newest first) + total; optional riskBand + free-text search."""
     repo = _repo(tenant, session)
-    rows, next_cursor = await repo.page(limit=limit, cursor=cursor, risk_band=risk_band)
+    rows, next_cursor, total = await repo.page(
+        limit=limit, cursor=cursor, risk_band=risk_band, search=search
+    )
     await _record_phi_access(
         audit_writer(tenant, session, request),
         actor_id=optional_actor(tenant),
@@ -391,7 +395,7 @@ async def list_transactions(  # noqa: PLR0913 - FastAPI handler: request + injec
     if rows:
         await session.commit()
     return TransactionListResponse(
-        transactions=[_to_response(row) for row in rows], next_cursor=next_cursor
+        transactions=[_to_response(row) for row in rows], next_cursor=next_cursor, total=total
     )
 
 

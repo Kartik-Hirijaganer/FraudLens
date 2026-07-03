@@ -73,6 +73,8 @@ describe("createSseClient", () => {
       onopen: ((event: Event) => void) | null = null;
       onerror: ((event: Event) => void) | null = null;
     }
+    // Assign the class itself (constructable) — `createSseClient` calls `new EventSource(url)`,
+    // and a `vi.fn` wrapping an arrow function is not a constructor under Vitest 4.
     (globalThis as { EventSource?: unknown }).EventSource = GlobalFake;
     try {
       const handle = createSseClient({

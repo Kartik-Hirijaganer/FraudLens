@@ -13,6 +13,8 @@
  *
  * Notes:
  * - Defaults to the positive tone; pass a `StatusTone` for warning/negative/neutral.
+ * - Content is centered, so a caller can pass a fixed-width `className` (e.g. `w-20`) to
+ *   line badges up into a column without the label length changing the pill width.
  */
 import type { ReactNode } from "react";
 
@@ -28,12 +30,19 @@ const TONE_CLASSES: Record<StatusTone, string> = {
 
 interface BadgeProps {
   tone?: StatusTone;
+  className?: string;
   children: ReactNode;
 }
 
-export function Badge({ tone = "positive", children }: BadgeProps) {
+export function Badge({ tone = "positive", className, children }: BadgeProps) {
   return (
-    <span className={cx("rounded-pill px-md py-xs text-body-sm font-semibold", TONE_CLASSES[tone])}>
+    <span
+      className={cx(
+        "rounded-pill px-md py-xs text-body-sm inline-flex items-center justify-center font-semibold",
+        TONE_CLASSES[tone],
+        className,
+      )}
+    >
       {children}
     </span>
   );

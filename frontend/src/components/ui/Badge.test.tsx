@@ -17,4 +17,11 @@ describe("Badge", () => {
     rerender(<Badge tone="neutral">MEH</Badge>);
     expect(screen.getByText("MEH")).toHaveClass("bg-canvas-soft");
   });
+
+  it("centers content and applies a caller className for fixed-width alignment", () => {
+    render(<Badge className="w-20">Critical</Badge>);
+    const badge = screen.getByText("Critical");
+    expect(badge).toHaveClass("w-20");
+    expect(badge).toHaveClass("justify-center");
+  });
 });

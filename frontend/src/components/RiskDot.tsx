@@ -13,15 +13,8 @@
  * - Wise green is not used as a risk tone; this follows `lib/risk.ts`.
  */
 import { humanize } from "../lib/format";
-import { riskTone, type StatusTone } from "../lib/risk";
+import { riskTone, toneDotClass } from "../lib/risk";
 import { cx } from "../lib/cx";
-
-const DOT_CLASSES: Record<StatusTone, string> = {
-  positive: "bg-positive",
-  warning: "bg-warning",
-  negative: "bg-negative",
-  neutral: "bg-mute",
-};
 
 interface RiskDotProps {
   band: string | null;
@@ -34,7 +27,7 @@ export function RiskDot({ band, showLabel = false }: RiskDotProps) {
     <span className="gap-sm inline-flex items-center">
       <span
         aria-hidden="true"
-        className={cx("h-sm w-sm rounded-full", DOT_CLASSES[riskTone(band ?? "")])}
+        className={cx("h-sm w-sm rounded-full", toneDotClass(riskTone(band ?? "")))}
       />
       <span className={showLabel ? "text-body-sm text-ink" : "sr-only"}>{label}</span>
     </span>

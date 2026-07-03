@@ -35,7 +35,7 @@ describe("fetchApiHealth", () => {
 
 describe("createApiClient", () => {
   it("lists transactions with no query string", async () => {
-    const page: TransactionListResponse = { transactions: [], nextCursor: null };
+    const page: TransactionListResponse = { transactions: [], nextCursor: null, total: 0 };
     const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(true, 200, page)));
     const result = await createApiClient(fetchMock).listTransactions();
     expect(result).toEqual(page);
@@ -44,7 +44,7 @@ describe("createApiClient", () => {
 
   it("encodes list params into the query string", async () => {
     const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse(true, 200, { transactions: [], nextCursor: null })),
+      Promise.resolve(fakeResponse(true, 200, { transactions: [], nextCursor: null, total: 0 })),
     );
     await createApiClient(fetchMock).listTransactions({ limit: 10, riskBand: "high" });
     const [url] = fetchMock.mock.calls[0] as unknown as [string];
