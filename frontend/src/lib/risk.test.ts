@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { riskTone, severityRank } from "./risk";
+import { riskTone, severityCounts, severityRank, toneDotClass } from "./risk";
 
 describe("riskTone", () => {
   it("maps each band/severity onto the semantic palette", () => {
@@ -29,5 +29,29 @@ describe("severityRank", () => {
   it("returns zero for missing or unknown values", () => {
     expect(severityRank(null)).toBe(0);
     expect(severityRank("unknown")).toBe(0);
+  });
+});
+
+describe("severityCounts", () => {
+  it("tallies severities and folds critical into high", () => {
+    expect(severityCounts(["high", "critical", "medium", "low", "low", "HIGH"])).toEqual({
+      high: 3,
+      medium: 1,
+      low: 2,
+    });
+  });
+
+  it("ignores unknown values and returns zeros for an empty list", () => {
+    expect(severityCounts(["mystery"])).toEqual({ high: 0, medium: 0, low: 0 });
+    expect(severityCounts([])).toEqual({ high: 0, medium: 0, low: 0 });
+  });
+});
+
+describe("toneDotClass", () => {
+  it("maps each tone onto its indicator-dot background class", () => {
+    expect(toneDotClass("positive")).toBe("bg-positive");
+    expect(toneDotClass("warning")).toBe("bg-warning");
+    expect(toneDotClass("negative")).toBe("bg-negative");
+    expect(toneDotClass("neutral")).toBe("bg-mute");
   });
 });

@@ -19,7 +19,7 @@ describe("Transactions", () => {
     const client = makeClient();
     render(<Transactions client={client} />);
     expect(await screen.findByText("ext-1")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await userEvent.click(screen.getByRole("button", { name: /Investigate transaction/ }));
     expect(client.startInvestigation).toHaveBeenCalledWith({
       transactionId: "tx-1",
       modelOverride: undefined,
@@ -35,54 +35,97 @@ describe("Transactions", () => {
     Object.defineProperty(file, "text", {
       value: () => Promise.resolve("externalId,amount\nx,1"),
     });
-    await userEvent.upload(screen.getByLabelText("Import transactions (CSV)"), file);
+    await userEvent.upload(screen.getByLabelText("Import CSV"), file);
     await waitFor(() => expect(client.uploadCsv).toHaveBeenCalledWith("externalId,amount\nx,1"));
     expect(notify).toHaveBeenCalled();
   });
 
-  it("re-queries when the risk-band filter changes", async () => {
+  it("re-queries the server when the risk-band filter changes", async () => {
     const listTransactions = vi.fn(() =>
-      Promise.resolve({ transactions: [transaction()], nextCursor: null }),
+      Promise.resolve({ transactions: [transaction()], nextCursor: null, total: 1 }),
     );
     render(<Transactions client={makeClient({ listTransactions })} />);
     await screen.findByText("ext-1");
     await userEvent.click(screen.getByRole("radio", { name: "High" }));
     await waitFor(() =>
-      expect(listTransactions).toHaveBeenCalledWith({ riskBand: "high", limit: 50 }),
+      expect(listTransactions).toHaveBeenCalledWith({
+        riskBand: "high",
+        search: undefined,
+        limit: 10,
+        cursor: undefined,
+      }),
     );
   });
 
-  it("filters loaded rows with the transaction search box", async () => {
-    const client = makeClient({
-      listTransactions: vi.fn(() =>
-        Promise.resolve({
-          transactions: [
-            transaction({ transactionId: "tx-1", externalId: "ext-1", amount: "12500.00" }),
-            transaction({
-              transactionId: "tx-2",
-              externalId: "other-2",
-              amount: "900.00",
-              destAccount: "****5555",
-            }),
-          ],
-          nextCursor: null,
-        }),
-      ),
-    });
-    render(<Transactions client={client} />);
+  it("re-queries the server with a debounced search term", async () => {
+    const listTransactions = vi.fn(({ search }: { search?: string }) =>
+      search === "5555"
+        ? Promise.resolve({
+            transactions: [transaction({ transactionId: "tx-2", externalId: "other-2" })],
+            nextCursor: null,
+            total: 1,
+          })
+        : Promise.resolve({
+            transactions: [
+              transaction({ transactionId: "tx-1", externalId: "ext-1" }),
+              transaction({ transactionId: "tx-2", externalId: "other-2" }),
+            ],
+            nextCursor: null,
+            total: 2,
+          }),
+    );
+    render(<Transactions client={makeClient({ listTransactions })} />);
     expect(await screen.findByText("ext-1")).toBeInTheDocument();
-    expect(screen.getByText("other-2")).toBeInTheDocument();
+
     await userEvent.type(screen.getByLabelText("Search transactions"), "5555");
-    expect(screen.queryByText("ext-1")).not.toBeInTheDocument();
+    // The server is queried with the (debounced) search term, and the results replace the list.
+    await waitFor(() =>
+      expect(listTransactions).toHaveBeenCalledWith(expect.objectContaining({ search: "5555" })),
+    );
+    await waitFor(() => expect(screen.queryByText("ext-1")).not.toBeInTheDocument());
     expect(screen.getByText("other-2")).toBeInTheDocument();
+  });
+
+  it("pages forward and back with server-side keyset cursors", async () => {
+    const rows = Array.from({ length: 12 }, (_, index) =>
+      transaction({ transactionId: `tx-${index}`, externalId: `txn-${index}` }),
+    );
+    const listTransactions = vi.fn(({ cursor }: { cursor?: string }) =>
+      cursor
+        ? Promise.resolve({ transactions: rows.slice(10), nextCursor: null, total: 12 })
+        : Promise.resolve({ transactions: rows.slice(0, 10), nextCursor: "c1", total: 12 }),
+    );
+    render(<Transactions client={makeClient({ listTransactions })} />);
+
+    // Page 1: first 10 rows, Prev disabled.
+    expect(await screen.findByText("txn-0")).toBeInTheDocument();
+    expect(screen.getByText("txn-9")).toBeInTheDocument();
+    expect(screen.queryByText("txn-10")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "← Prev" })).toBeDisabled();
+
+    // Page 2: fetched with the returned cursor; the remaining 2 rows, Next disabled.
+    await userEvent.click(screen.getByRole("button", { name: "Next →" }));
+    expect(await screen.findByText("txn-10")).toBeInTheDocument();
+    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next →" })).toBeDisabled();
+    expect(listTransactions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "c1", limit: 10 }),
+    );
+
+    // Back to page 1 (cursor popped).
+    await userEvent.click(screen.getByRole("button", { name: "← Prev" }));
+    expect(await screen.findByText("txn-0")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no transactions", async () => {
     const client = makeClient({
-      listTransactions: vi.fn(() => Promise.resolve({ transactions: [], nextCursor: null })),
+      listTransactions: vi.fn(() =>
+        Promise.resolve({ transactions: [], nextCursor: null, total: 0 }),
+      ),
     });
     render(<Transactions client={client} />);
-    expect(await screen.findByText("No transactions")).toBeInTheDocument();
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
   });
 
   it("shows an error state when loading fails", async () => {

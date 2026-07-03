@@ -1,9 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Keep the shell test focused on routing: stub the data calls the rendered pages make so
-// they stay in their loading state (no post-test async updates); page headers render
-// outside the data boundary, which is what we assert here.
+// Keep the shell test focused on routing + chrome: stub the data calls the rendered pages
+// make so they stay in their loading state (no post-test async updates). Page headers /
+// nav render outside the data boundary, which is what we assert here.
 vi.mock("./lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/api")>();
   const pending = (): Promise<never> => new Promise<never>(() => undefined);
@@ -12,7 +12,10 @@ vi.mock("./lib/api", async (importOriginal) => {
     apiClient: {
       ...actual.createApiClient(),
       listAlerts: pending,
+      getAlert: pending,
       getDeployment: pending,
+      getDashboardMetrics: pending,
+      getInvestigation: pending,
       listTransactions: pending,
       listModelVersions: pending,
       listDriftReports: pending,
@@ -34,17 +37,23 @@ afterEach(() => {
 });
 
 describe("App shell", () => {
-  it("renders the brand and primary nav", () => {
+  it("renders the brand and the single Workspace/Admin nav (no top pill nav)", () => {
     render(<App />);
     expect(screen.getByRole("link", { name: "FraudLens" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Model admin" })).toBeInTheDocument();
+    // The top pill nav was removed — the sidebar is the sole primary navigation.
+    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Model admin" })).toBeInTheDocument();
+    expect(within(workspace).getByRole("link", { name: "Transactions" })).toBeInTheDocument();
   });
 
-  it("routes the dashboard by default and marks its nav active", () => {
+  it("routes the dashboard by default and marks its sidebar nav active", () => {
     render(<App />);
-    expect(screen.getByRole("heading", { level: 1, name: "Investigations" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("switches pages on hash navigation", () => {
@@ -55,6 +64,16 @@ describe("App shell", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Model administration" }),
     ).toBeInTheDocument();
+  });
+
+  it("marks the Alerts sidebar nav active on an alert-detail route", () => {
+    render(<App />);
+    goTo("#/alerts/alert-1");
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Alerts" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("renders a not-found state for an unknown route", () => {

@@ -16,4 +16,31 @@ describe("Pagination", () => {
     await userEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(onMore).toHaveBeenCalled();
   });
+
+  it("renders a range and drives Prev/Next when handlers are supplied", async () => {
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    render(
+      <Pagination
+        total={8142}
+        rangeStart={11}
+        rangeEnd={20}
+        hasPrev
+        hasNext
+        onPrev={onPrev}
+        onNext={onNext}
+      />,
+    );
+    expect(screen.getByText("Showing 11–20 of 8,142")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "← Prev" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next →" }));
+    expect(onPrev).toHaveBeenCalled();
+    expect(onNext).toHaveBeenCalled();
+  });
+
+  it("disables Prev/Next at the ends of the range", () => {
+    render(<Pagination total={5} rangeStart={1} rangeEnd={5} onPrev={vi.fn()} onNext={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "← Prev" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next →" })).toBeDisabled();
+  });
 });

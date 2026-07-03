@@ -2297,7 +2297,7 @@
       },
       "TransactionListResponse": {
         "additionalProperties": false,
-        "description": "A page of transactions plus the opaque cursor for the next page (null at the end).",
+        "description": "A page of transactions plus the opaque next-page cursor and the total matching count.",
         "properties": {
           "nextCursor": {
             "anyOf": [
@@ -2310,6 +2310,13 @@
             ],
             "description": "Opaque cursor for the next page, or null when exhausted.",
             "title": "Nextcursor"
+          },
+          "total": {
+            "default": 0,
+            "description": "Total rows matching the filters, across all pages.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
           },
           "transactions": {
             "description": "The transactions on this page (masked).",
@@ -3890,7 +3897,7 @@
     },
     "/api/v1/transactions": {
       "get": {
-        "description": "Return a keyset page of the agency's transactions (newest first), optional riskBand.",
+        "description": "Return a keyset page (newest first) + total; optional riskBand + free-text search.",
         "operationId": "list_transactions_api_v1_transactions_get",
         "parameters": [
           {
@@ -3935,6 +3942,23 @@
                 }
               ],
               "title": "Riskband"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
             }
           }
         ],

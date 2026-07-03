@@ -12,8 +12,8 @@
  * - ApiError: thrown on a non-2xx response (carries status + envelope code + requestId).
  * - ApiHealth: shape of GET /api/v1/health.
  * - TransactionResponse: a persisted transaction (masked accounts).
- * - ListTransactionsParams: query params for the transactions list (limit/cursor/riskBand).
- * - TransactionListResponse: a page of transactions + nextCursor.
+ * - ListTransactionsParams: query params for the transactions list (limit/cursor/riskBand/search).
+ * - TransactionListResponse: a page of transactions + nextCursor + total matching count.
  * - TransactionIngestRequest: a single transaction-ingest body.
  * - BatchIngestRequest: a batch-ingest body (+ dryRun).
  * - BatchIngestResponse: batch-ingest outcome (counts + rows + sample errors).
@@ -135,11 +135,13 @@ export interface ListTransactionsParams {
   limit?: number;
   cursor?: string;
   riskBand?: string;
+  search?: string;
 }
 
 export interface TransactionListResponse {
   transactions: TransactionResponse[];
   nextCursor: string | null;
+  total: number;
 }
 
 export interface TransactionIngestRequest {

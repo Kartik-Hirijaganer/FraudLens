@@ -4,7 +4,7 @@ keyset pagination + riskBand filter, agency scoping, and cursor encode/decode.""
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,14 +60,45 @@ async def test_page_paginates_with_cursor(db_session: AsyncSession) -> None:
     repo = TransactionRepository(db_session, await _agency(db_session))
     for index in range(3):
         await repo.ingest(_canonical(f"T{index}"))
-    first_page, cursor = await repo.page(limit=2)
+    first_page, cursor, total = await repo.page(limit=2)
     assert len(first_page) == 2
     assert cursor is not None
-    second_page, end_cursor = await repo.page(limit=2, cursor=cursor)
+    assert total == 3  # total counts ALL matching rows, not just this page
+    second_page, end_cursor, total2 = await repo.page(limit=2, cursor=cursor)
     assert len(second_page) == 1
     assert end_cursor is None
-    seen = {row.external_id for row in (*first_page, *second_page)}
-    assert seen == {"T0", "T1", "T2"}
+    assert total2 == 3  # unchanged across pages
+    # Pages must be DISJOINT — the cursor bug returned page 1 again on page 2.
+    first_ids = {row.external_id for row in first_page}
+    second_ids = {row.external_id for row in second_page}
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == {"T0", "T1", "T2"}
+
+
+async def test_page_walks_every_row_without_looping(db_session: AsyncSession) -> None:
+    """Follow the cursor to exhaustion: each page is distinct and paging terminates.
+
+    Guards the keyset-loop regression end to end — with the old naive cursor, page 2
+    repeated page 1 and `nextCursor` never advanced, so this walk would never terminate
+    (and would re-see ids). All rows share a near-identical ingested_at, exercising the
+    (ingested_at, id) tiebreak.
+    """
+    repo = TransactionRepository(db_session, await _agency(db_session))
+    total = 5
+    for index in range(total):
+        await repo.ingest(_canonical(f"T{index}"))
+
+    seen: list[str] = []
+    cursor: str | None = None
+    for _ in range(total + 2):  # bounded so a looping cursor fails instead of hanging
+        rows, cursor, count = await repo.page(limit=2, cursor=cursor)
+        assert count == total  # the total is stable on every page
+        seen.extend(row.external_id for row in rows)
+        if cursor is None:
+            break
+
+    assert cursor is None, "cursor never exhausted — pagination is looping"
+    assert len(seen) == len(set(seen)) == total  # every row seen exactly once
 
 
 async def test_page_filters_by_risk_band(db_session: AsyncSession) -> None:
@@ -76,16 +107,35 @@ async def test_page_filters_by_risk_band(db_session: AsyncSession) -> None:
     await repo.ingest(_canonical("UNSCORED"))
     high.risk_band = RiskBand.HIGH
     await db_session.flush()
-    rows, _ = await repo.page(limit=10, risk_band=RiskBand.HIGH)
+    rows, _, total = await repo.page(limit=10, risk_band=RiskBand.HIGH)
     assert [row.external_id for row in rows] == ["HIGH"]
+    assert total == 1  # the total reflects the risk-band filter, not the whole table
     assert (await repo.page(limit=10, risk_band=RiskBand.LOW))[0] == []
 
 
 async def test_page_ignores_malformed_cursor(db_session: AsyncSession) -> None:
     repo = TransactionRepository(db_session, await _agency(db_session))
     await repo.ingest(_canonical("T1"))
-    rows, _ = await repo.page(limit=10, cursor="!!not-base64!!")
+    rows, _, _ = await repo.page(limit=10, cursor="!!not-base64!!")
     assert len(rows) == 1
+
+
+async def test_page_search_matches_id_amount_and_counterparty(db_session: AsyncSession) -> None:
+    repo = TransactionRepository(db_session, await _agency(db_session))
+    await repo.ingest(_canonical("ALPHA", origin="4111111111111111"))
+    await repo.ingest(_canonical("BRAVO", origin="5500000000000004"))
+
+    # External id (case-insensitive).
+    rows, _, total = await repo.page(limit=10, search="alpha")
+    assert [r.external_id for r in rows] == ["ALPHA"]
+    assert total == 1
+    # Amount-as-text: both share amount 10.00; "10" is a dialect-stable substring
+    # (SQLite renders the numeric "10.0", Postgres "10.00" — both contain "10").
+    _, _, total = await repo.page(limit=10, search="10")
+    assert total == 2
+    # A LIKE wildcard in the term is escaped and treated literally (nothing contains a bare "%").
+    _, _, total = await repo.page(limit=10, search="%")
+    assert total == 0
 
 
 async def test_ingest_is_agency_scoped(db_session: AsyncSession) -> None:
@@ -100,7 +150,23 @@ async def test_ingest_is_agency_scoped(db_session: AsyncSession) -> None:
 def test_cursor_roundtrip_and_malformed() -> None:
     when = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     entity_id = uuid.uuid4()
-    # The cursor normalizes the timestamp to naive-UTC (dialect-stable keyset).
+    # The cursor decodes back to the same instant, tz-aware UTC (see below for why).
     decoded = decode_cursor(encode_cursor(when, entity_id))
-    assert decoded == (when.replace(tzinfo=None), entity_id)
+    assert decoded == (when, entity_id)
     assert decode_cursor("not-valid-base64!") is None
+
+
+def test_cursor_decodes_to_utc_aware() -> None:
+    """Regression: the decoded cursor MUST be tz-aware UTC.
+
+    The keyset compares the cursor against the tz-aware `ingested_at` (timestamptz) column.
+    A naive value is read by Postgres in the session timezone, landing ahead of every stored
+    UTC row so page 2 repeats page 1 forever. SQLite drops tzinfo on read and hides this, so
+    this dialect-agnostic assertion — not a SQLite paging test — is what guards the fix.
+    """
+    cursor = encode_cursor(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), uuid.uuid4())
+    decoded = decode_cursor(cursor)
+    assert decoded is not None
+    timestamp, _ = decoded
+    assert timestamp.tzinfo is not None
+    assert timestamp.utcoffset() == timedelta(0)

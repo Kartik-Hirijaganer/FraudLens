@@ -21,4 +21,13 @@ describe("Button", () => {
     rerender(<Button variant="tertiary">x</Button>);
     expect(screen.getByRole("button")).toHaveClass("border-ink");
   });
+
+  it("defaults to the md size and applies compact classes for size=sm", () => {
+    const { rerender } = render(<Button>x</Button>);
+    expect(screen.getByRole("button")).toHaveClass("py-md");
+    rerender(<Button size="sm">x</Button>);
+    const button = screen.getByRole("button");
+    expect(button).toHaveClass("py-sm");
+    expect(button).toHaveClass("text-body-sm");
+  });
 });

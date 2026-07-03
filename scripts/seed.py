@@ -7,8 +7,11 @@ model** (a training dataset → training run → ACTIVE model version → the si
 pointer), the curated synthetic IEEE-CIS transactions (masked at ingest via the shared importer)
 so `make local-demo` shows real, listable transactions, and — added in Phase 10 — a balanced set
 of **pre-matured reviewed `training_labels`** (each backed by a completed run) so `make retrain`
-is immediately eligible for the lifecycle demo (§9.4). The run itself is recorded in
-`job_executions`. The six global baseline AML rules (`agency_id`
+is immediately eligible for the lifecycle demo (§9.4). It also seeds a PHI-free set of
+**alerts across the lifecycle** (an open triage queue + in-review/escalated/resolved/dismissed),
+each backed by a completed run with canonical `compute_review_flags`, plus attached **SAR drafts**
+(some filed/approved), so the analyst dashboard renders populated locally instead of all-zero. The
+run itself is recorded in `job_executions`. The six global baseline AML rules (`agency_id`
 NULL) come from the one canonical `fraudlens_core.DEFAULT_RULE_DEFINITIONS` (Phase 4). RAG,
 runs, and real model artifacts are seeded by their own phases, which extend this script.
 Refuses to run when `environment == "prod"`.
@@ -37,6 +40,7 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +50,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Agency,
+    Alert,
+    AlertAction,
+    AlertActionType,
+    AlertStatus,
     AmlRule,
     AnalysisRun,
     JobExecution,
@@ -58,6 +66,8 @@ from fraudlens_backend.db.models import (
     ModelVersion,
     ModelVersionStatus,
     RunStatus,
+    SarDraft,
+    SarStatus,
     Severity,
     SystemConfig,
     TrainingDataset,
@@ -66,6 +76,7 @@ from fraudlens_backend.db.models import (
     Transaction,
     User,
 )
+from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.demo import (
     DEMO_AGENCY_ID,
@@ -75,7 +86,7 @@ from fraudlens_backend.demo import (
     DEMO_USERS,
 )
 from fraudlens_backend.settings import get_settings
-from fraudlens_core import DEFAULT_RULE_DEFINITIONS
+from fraudlens_core import DEFAULT_RULE_DEFINITIONS, RiskBand
 from fraudlens_ml.scoring import ModelGates, current_feature_spec
 from import_ieee import seed_sample_transactions
 
@@ -127,6 +138,68 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "featureFlags": {"phiNerMasking": False},
 }
 
+# --- Synthetic open-alert queue + SAR drafts (dev/demo only) ---------------------------------
+# A deterministic, PHI-free set of alerts across the lifecycle so `make local-demo` shows a
+# populated dashboard (an open triage queue, in-review/escalated load, and filed SARs) rather than
+# an all-zero one. Each alert is backed by a completed analysis run over a seeded transaction, and
+# its force-review flags come from the ONE canonical `compute_review_flags` (rule 5), so seeded
+# rows read exactly like alerts the pipeline raises in production.
+_LOW_CONFIDENCE_MARGIN = 0.1
+_DEMO_SAR_PROMPT_VERSION = "sar-v1"
+_DEMO_SAR_CONTENT = (
+    "Synthetic demo SAR narrative (local demo only): a structuring pattern of rapid, "
+    "sub-threshold transfers to a newly onboarded counterparty. Contains no real PHI."
+)
+_DEMO_SAR_CITATIONS: list[Any] = [
+    {
+        "citation": "31 CFR 1020.320",
+        "title": "Reports by banks of suspicious transactions",
+        "source": "FinCEN",
+        "snippet": "A bank shall file a SAR for a transaction it knows or suspects is suspicious.",
+    }
+]
+
+# Model risk signal per severity → (risk band, probability). The probabilities are chosen so
+# `compute_review_flags` yields varied, realistic flags: critical band flags mandatory review, and
+# near-0.5 probabilities flag low model confidence.
+_SEVERITY_SIGNAL: dict[Severity, tuple[RiskBand, float]] = {
+    Severity.CRITICAL: (RiskBand.CRITICAL, 0.93),
+    Severity.HIGH: (RiskBand.HIGH, 0.55),
+    Severity.MEDIUM: (RiskBand.MEDIUM, 0.50),
+    Severity.LOW: (RiskBand.LOW, 0.16),
+}
+
+# Alert lifecycle plan — (status, severity, count, sar_status | None) — expanded in order into
+# individual alerts. Open alerts are listed first, so they get the freshest timestamps and lead the
+# risk-then-recency queue on the dashboard.
+_ALERT_PLAN: tuple[tuple[AlertStatus, Severity, int, SarStatus | None], ...] = (
+    (AlertStatus.OPEN, Severity.CRITICAL, 2, SarStatus.DRAFT),
+    (AlertStatus.OPEN, Severity.HIGH, 3, SarStatus.DRAFT),
+    (AlertStatus.OPEN, Severity.MEDIUM, 6, None),
+    (AlertStatus.OPEN, Severity.LOW, 5, None),
+    (AlertStatus.IN_REVIEW, Severity.HIGH, 2, SarStatus.REVIEWED),
+    (AlertStatus.IN_REVIEW, Severity.MEDIUM, 2, SarStatus.REVIEWED),
+    (AlertStatus.ESCALATED, Severity.CRITICAL, 1, SarStatus.APPROVED),
+    (AlertStatus.ESCALATED, Severity.HIGH, 2, SarStatus.APPROVED),
+    (AlertStatus.RESOLVED, Severity.HIGH, 1, SarStatus.APPROVED),
+    (AlertStatus.RESOLVED, Severity.MEDIUM, 2, SarStatus.APPROVED),
+    (AlertStatus.RESOLVED, Severity.LOW, 1, SarStatus.APPROVED),
+    (AlertStatus.DISMISSED, Severity.MEDIUM, 1, None),
+    (AlertStatus.DISMISSED, Severity.LOW, 1, None),
+)
+_ASSIGNED_STATUSES = frozenset({AlertStatus.IN_REVIEW, AlertStatus.ESCALATED})
+_REVIEWED_SAR_STATUSES = frozenset({SarStatus.REVIEWED, SarStatus.APPROVED, SarStatus.REJECTED})
+_ACTION_FOR_STATUS: dict[AlertStatus, AlertActionType] = {
+    AlertStatus.IN_REVIEW: AlertActionType.ASSIGN,
+    AlertStatus.ESCALATED: AlertActionType.ESCALATE,
+    AlertStatus.RESOLVED: AlertActionType.RESOLVE,
+    AlertStatus.DISMISSED: AlertActionType.DISMISS,
+}
+_FIRST_ALERT_MINUTES_AGO = 2
+_ALERT_SPACING_MINUTES = 6
+# The demo reviewer (matched by role, not a duplicated id) reviews/approves the seeded SARs.
+_DEMO_REVIEWER_ID = next(spec.user_id for spec in DEMO_USERS if spec.role.value == "reviewer")
+
 
 def _fixture_metrics() -> dict[str, Any]:
     """Read the committed fixture bundle's holdout metrics so the seeded row matches reality."""
@@ -149,6 +222,8 @@ class SeedSummary(BaseModel):
     deployments: int = Field(..., description="Model deployment pointers ensured (1).")
     transactions: int = Field(..., description="Synthetic IEEE-CIS transactions ensured.")
     training_labels: int = Field(..., description="Pre-matured demo training labels ensured.")
+    alerts: int = Field(..., description="Synthetic demo alerts ensured across the lifecycle.")
+    sar_drafts: int = Field(..., description="Demo SAR drafts ensured (some filed/approved).")
 
 
 def _feature_spec_hash(spec: dict[str, Any]) -> str:
@@ -315,6 +390,125 @@ async def _ensure_training_labels(session: AsyncSession) -> int:
     return len(transaction_ids)
 
 
+async def _ensure_alerts(session: AsyncSession) -> tuple[int, int]:
+    """Seed a PHI-free open-alert queue + SAR drafts so local-demo shows a populated dashboard.
+
+    Idempotent: if the demo agency already has alerts, leave everything untouched. Otherwise expand
+    `_ALERT_PLAN` into alerts — each backed by a completed `analysis_runs` row over a seeded
+    transaction, with force-review flags from the canonical `compute_review_flags` — attach a SAR
+    draft per the plan (some filed/approved), and record one triage action per non-open alert.
+    Returns `(alerts, sar_drafts)` ensured. All entities are scoped to the demo agency.
+    """
+    existing_alerts = (
+        await session.execute(
+            select(func.count()).select_from(Alert).where(Alert.agency_id == DEMO_AGENCY_ID)
+        )
+    ).scalar_one()
+    if existing_alerts:
+        existing_sars = (
+            await session.execute(
+                select(func.count())
+                .select_from(SarDraft)
+                .where(SarDraft.agency_id == DEMO_AGENCY_ID)
+            )
+        ).scalar_one()
+        return int(existing_alerts), int(existing_sars)
+
+    transaction_ids = list(
+        (
+            await session.execute(
+                select(Transaction.id)
+                .where(Transaction.agency_id == DEMO_AGENCY_ID)
+                .order_by(Transaction.ingested_at.asc(), Transaction.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not transaction_ids:
+        return 0, 0
+
+    now = datetime.now(UTC)
+    prompt_hash = hashlib.sha256(_DEMO_SAR_CONTENT.encode("utf-8")).hexdigest()
+    alert_count = 0
+    sar_count = 0
+    index = 0
+    for status, severity, count, sar_status in _ALERT_PLAN:
+        risk_band, probability = _SEVERITY_SIGNAL[severity]
+        for _ in range(count):
+            transaction_id = transaction_ids[index % len(transaction_ids)]
+            created_at = now - timedelta(
+                minutes=_FIRST_ALERT_MINUTES_AGO + index * _ALERT_SPACING_MINUTES
+            )
+            index += 1
+            run = AnalysisRun(
+                agency_id=DEMO_AGENCY_ID,
+                transaction_id=transaction_id,
+                status=RunStatus.COMPLETED,
+                risk_score=probability,
+                risk_band=risk_band,
+                model_version=_FIXTURE_MODEL_LABEL,
+            )
+            session.add(run)
+            await session.flush()  # need run.id for the alert + SAR FKs
+            flags = compute_review_flags(
+                risk_band=risk_band,
+                fraud_probability=probability,
+                sar_status=sar_status.value if sar_status is not None else None,
+                low_confidence_margin=_LOW_CONFIDENCE_MARGIN,
+            )
+            alert = Alert(
+                agency_id=DEMO_AGENCY_ID,
+                transaction_id=transaction_id,
+                run_id=run.id,
+                status=status,
+                severity=severity,
+                assigned_to=DEMO_USER_ID if status in _ASSIGNED_STATUSES else None,
+                review_flags=flags,
+                created_at=created_at,
+            )
+            session.add(alert)
+            await session.flush()  # need alert.id for the SAR + action FKs
+            alert_count += 1
+            if sar_status is not None:
+                session.add(
+                    SarDraft(
+                        agency_id=DEMO_AGENCY_ID,
+                        run_id=run.id,
+                        alert_id=alert.id,
+                        version=1,
+                        model_id=_FIXTURE_MODEL_LABEL,
+                        prompt_version=_DEMO_SAR_PROMPT_VERSION,
+                        prompt_hash=prompt_hash,
+                        content=_DEMO_SAR_CONTENT,
+                        structured={"summary": _DEMO_SAR_CONTENT},
+                        citations=list(_DEMO_SAR_CITATIONS),
+                        status=sar_status,
+                        cost_usd=Decimal("0.0"),
+                        created_by=DEMO_USER_ID,
+                        reviewed_by=(
+                            _DEMO_REVIEWER_ID if sar_status in _REVIEWED_SAR_STATUSES else None
+                        ),
+                        created_at=created_at,
+                    )
+                )
+                sar_count += 1
+            action = _ACTION_FOR_STATUS.get(status)
+            if action is not None:
+                session.add(
+                    AlertAction(
+                        agency_id=DEMO_AGENCY_ID,
+                        alert_id=alert.id,
+                        actor_id=DEMO_USER_ID,
+                        action=action,
+                        from_status=AlertStatus.OPEN.value,
+                        to_status=status.value,
+                        created_at=created_at,
+                    )
+                )
+    return alert_count, sar_count
+
+
 async def _record_seed_job(session: AsyncSession, summary: SeedSummary) -> None:
     """Upsert the single seed job_executions row (idempotent audit of the seed run)."""
     job = await session.get(JobExecution, _SEED_JOB_ID)
@@ -348,6 +542,7 @@ async def seed(session: AsyncSession) -> SeedSummary:
     transaction_count = await seed_sample_transactions(session, DEMO_AGENCY_ID)
     await session.flush()  # transactions must exist before their labels' runs reference them
     label_count = await _ensure_training_labels(session)
+    alert_count, sar_count = await _ensure_alerts(session)
     summary = SeedSummary(
         agencies=1,
         users=user_count,
@@ -357,6 +552,8 @@ async def seed(session: AsyncSession) -> SeedSummary:
         deployments=1,
         transactions=transaction_count,
         training_labels=label_count,
+        alerts=alert_count,
+        sar_drafts=sar_count,
     )
     await _record_seed_job(session, summary)
     await session.flush()
@@ -384,7 +581,8 @@ async def _amain() -> int:
         "seed OK: "
         f"{summary.agencies} agency, {summary.users} users, {summary.config_keys} config keys, "
         f"{summary.rules} baseline rules, {summary.model_versions} active fixture model, "
-        f"{summary.transactions} transactions, {summary.training_labels} matured labels"
+        f"{summary.transactions} transactions, {summary.training_labels} matured labels, "
+        f"{summary.alerts} alerts, {summary.sar_drafts} SAR drafts"
     )
     return 0
 
