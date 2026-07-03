@@ -51,7 +51,7 @@ export function Button({
     <button
       type={type}
       className={cx(
-        "rounded-xl font-semibold",
+        "rounded-xl font-semibold disabled:cursor-not-allowed disabled:opacity-50",
         SIZE_CLASSES[size],
         VARIANT_CLASSES[variant],
         className,
