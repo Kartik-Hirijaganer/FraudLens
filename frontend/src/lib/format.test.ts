@@ -6,6 +6,7 @@ import {
   formatAlertRef,
   formatCurrency,
   formatDateTime,
+  formatModelVersion,
   formatPercent,
   greeting,
   humanize,
@@ -92,9 +93,26 @@ describe("formatAlertRef", () => {
     expect(formatAlertRef("al_4821")).toBe("AL-4821");
   });
 
-  it("prefixes an unrecognized id and returns a dash for empty input", () => {
+  it("shortens a long id (e.g. a UUID) to a compact 4-char code", () => {
+    expect(formatAlertRef("267ad722-718b-4095-9a7a-46245a094e18")).toBe("AL-4E18");
     expect(formatAlertRef("9f3c")).toBe("AL-9F3C");
+  });
+
+  it("returns a dash for empty input", () => {
     expect(formatAlertRef("   ")).toBe("—");
+  });
+});
+
+describe("formatModelVersion", () => {
+  it("drops the internal -fixture tag and leaves clean labels untouched", () => {
+    expect(formatModelVersion("v0-fixture")).toBe("v0");
+    expect(formatModelVersion("v2.4")).toBe("v2.4");
+    expect(formatModelVersion("model-v1")).toBe("model-v1");
+  });
+
+  it("returns a dash for a missing label", () => {
+    expect(formatModelVersion(null)).toBe("—");
+    expect(formatModelVersion(undefined)).toBe("—");
   });
 });
 

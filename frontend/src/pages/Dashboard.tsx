@@ -21,10 +21,11 @@
 import { useCallback } from "react";
 
 import { AlertQueue } from "../components/AlertQueue";
+import { DashboardSkeleton } from "../components/DashboardSkeleton";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { MetricCard } from "../components/MetricCard";
 import { apiClient, type AlertView, type ApiClient, type DashboardMetrics } from "../lib/api";
-import { greeting } from "../lib/format";
+import { formatModelVersion, greeting } from "../lib/format";
 import { riskTone, severityCounts, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
 import { currentAnalyst } from "../lib/session";
@@ -75,7 +76,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
   const state = useAsync(load, [client]);
 
   return (
-    <AsyncBoundary state={state}>
+    <AsyncBoundary state={state} skeleton={<DashboardSkeleton />}>
       {({ metrics, openAlerts }) => {
         const counts = severityCounts(openAlerts.map((alert) => alert.severity));
         const open = metrics.alerts.open;
@@ -107,7 +108,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
               />
               <MetricCard
                 label="Active model"
-                value={metrics.modelHealth.activeVersionLabel ?? "—"}
+                value={formatModelVersion(metrics.modelHealth.activeVersionLabel)}
                 hint={model.text}
                 hintTone={model.tone}
               />

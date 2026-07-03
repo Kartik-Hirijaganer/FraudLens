@@ -78,7 +78,12 @@ export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
                     </p>
                   </div>
                 </div>
-                <Button variant="primary" onClick={() => onSelect(alert.alertId)}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => onSelect(alert.alertId)}
+                >
                   Review
                 </Button>
               </li>

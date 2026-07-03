@@ -1,10 +1,9 @@
 /**
- * Summary: The FraudLens app shell (plan §16 Phase 11, redesigned). It frames the app as
- * a floating pill "section" nav over the sage canvas, wrapped around a white app-window
- * card: a branded header (wordmark + analyst avatar), a grouped Workspace/Admin sidebar,
- * and a sage content panel that switches on the hash route (`useHashRoute`). Each page
- * owns its own data + states; the shell only routes and frames them. The Sonner
- * `<Toaster/>` mounts once so any page can raise a toast.
+ * Summary: The FraudLens app shell (plan §16 Phase 11, redesigned). It frames the app as a
+ * white app-window card over the sage canvas: a branded header (wordmark + analyst avatar), a
+ * grouped Workspace/Admin sidebar (the sole primary nav), and a sage content panel that switches
+ * on the hash route (`useHashRoute`). Each page owns its own data + states; the shell only routes
+ * and frames them. The Sonner `<Toaster/>` mounts once so any page can raise a toast.
  *
  * Key classes:
  * - (none)
@@ -13,8 +12,8 @@
  * - App: render the shell + route the current page.
  *
  * Notes:
- * - The top pill nav mirrors the full screen set; the two contextual screens (Alert
- *   review, Investigation) enter through their parent list, so no link ever dead-ends.
+ * - The sidebar is the only nav; contextual screens (alert review, investigation) are reached by
+ *   selecting a record from a list, so they need no standalone nav entry.
  * - Unknown ids deep-link straight to the relevant page (which resolves existence); an
  *   unrecognized route renders a not-found empty state.
  */
@@ -36,19 +35,6 @@ interface NavItem {
   href: string;
   isActive: (route: Route) => boolean;
 }
-
-const TOP_NAV: NavItem[] = [
-  { label: "Dashboard", href: paths.dashboard, isActive: (r) => r.name === "dashboard" },
-  { label: "Transactions", href: paths.transactions, isActive: (r) => r.name === "transactions" },
-  { label: "Alerts", href: paths.alerts, isActive: (r) => r.name === "alerts" },
-  { label: "Alert review", href: paths.alerts, isActive: (r) => r.name === "alertDetail" },
-  {
-    label: "Investigation",
-    href: paths.transactions,
-    isActive: (r) => r.name === "investigation",
-  },
-  { label: "Model admin", href: paths.modelAdmin, isActive: (r) => r.name === "modelAdmin" },
-];
 
 interface NavGroup {
   heading: string;
@@ -105,26 +91,7 @@ export function App() {
   const route = useHashRoute();
   return (
     <div className="bg-canvas-soft text-ink min-h-screen">
-      <div className="max-w-shell gap-lg px-xl py-xl mx-auto flex flex-col">
-        <nav aria-label="Primary" className="gap-sm flex flex-row flex-wrap overflow-x-auto">
-          {TOP_NAV.map((item) => {
-            const active = item.isActive(route);
-            return (
-              <a
-                key={item.label}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cx(
-                  "rounded-pill px-lg py-sm text-body-sm shrink-0 font-semibold",
-                  active ? "bg-primary text-on-primary" : "bg-canvas text-ink",
-                )}
-              >
-                {item.label}
-              </a>
-            );
-          })}
-        </nav>
-
+      <div className="max-w-shell px-xl py-xl mx-auto flex flex-col">
         <div className="bg-canvas overflow-hidden rounded-xl">
           <header className="gap-md px-xl py-lg flex items-center justify-between">
             <a href={paths.dashboard} className="gap-sm flex items-center">
