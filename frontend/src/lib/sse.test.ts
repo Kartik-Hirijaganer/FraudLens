@@ -73,7 +73,7 @@ describe("createSseClient", () => {
       onopen: ((event: Event) => void) | null = null;
       onerror: ((event: Event) => void) | null = null;
     }
-    (globalThis as { EventSource?: unknown }).EventSource = vi.fn(() => new GlobalFake());
+    (globalThis as { EventSource?: unknown }).EventSource = GlobalFake;
     try {
       const handle = createSseClient({
         url: "/stream",
