@@ -4,7 +4,7 @@ keyset pagination + riskBand filter, agency scoping, and cursor encode/decode.""
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,8 +66,36 @@ async def test_page_paginates_with_cursor(db_session: AsyncSession) -> None:
     second_page, end_cursor = await repo.page(limit=2, cursor=cursor)
     assert len(second_page) == 1
     assert end_cursor is None
-    seen = {row.external_id for row in (*first_page, *second_page)}
-    assert seen == {"T0", "T1", "T2"}
+    # Pages must be DISJOINT — the cursor bug returned page 1 again on page 2.
+    first_ids = {row.external_id for row in first_page}
+    second_ids = {row.external_id for row in second_page}
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == {"T0", "T1", "T2"}
+
+
+async def test_page_walks_every_row_without_looping(db_session: AsyncSession) -> None:
+    """Follow the cursor to exhaustion: each page is distinct and paging terminates.
+
+    Guards the keyset-loop regression end to end — with the old naive cursor, page 2
+    repeated page 1 and `nextCursor` never advanced, so this walk would never terminate
+    (and would re-see ids). All rows share a near-identical ingested_at, exercising the
+    (ingested_at, id) tiebreak.
+    """
+    repo = TransactionRepository(db_session, await _agency(db_session))
+    total = 5
+    for index in range(total):
+        await repo.ingest(_canonical(f"T{index}"))
+
+    seen: list[str] = []
+    cursor: str | None = None
+    for _ in range(total + 2):  # bounded so a looping cursor fails instead of hanging
+        rows, cursor = await repo.page(limit=2, cursor=cursor)
+        seen.extend(row.external_id for row in rows)
+        if cursor is None:
+            break
+
+    assert cursor is None, "cursor never exhausted — pagination is looping"
+    assert len(seen) == len(set(seen)) == total  # every row seen exactly once
 
 
 async def test_page_filters_by_risk_band(db_session: AsyncSession) -> None:
@@ -100,7 +128,23 @@ async def test_ingest_is_agency_scoped(db_session: AsyncSession) -> None:
 def test_cursor_roundtrip_and_malformed() -> None:
     when = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     entity_id = uuid.uuid4()
-    # The cursor normalizes the timestamp to naive-UTC (dialect-stable keyset).
+    # The cursor decodes back to the same instant, tz-aware UTC (see below for why).
     decoded = decode_cursor(encode_cursor(when, entity_id))
-    assert decoded == (when.replace(tzinfo=None), entity_id)
+    assert decoded == (when, entity_id)
     assert decode_cursor("not-valid-base64!") is None
+
+
+def test_cursor_decodes_to_utc_aware() -> None:
+    """Regression: the decoded cursor MUST be tz-aware UTC.
+
+    The keyset compares the cursor against the tz-aware `ingested_at` (timestamptz) column.
+    A naive value is read by Postgres in the session timezone, landing ahead of every stored
+    UTC row so page 2 repeats page 1 forever. SQLite drops tzinfo on read and hides this, so
+    this dialect-agnostic assertion — not a SQLite paging test — is what guards the fix.
+    """
+    cursor = encode_cursor(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), uuid.uuid4())
+    decoded = decode_cursor(cursor)
+    assert decoded is not None
+    timestamp, _ = decoded
+    assert timestamp.tzinfo is not None
+    assert timestamp.utcoffset() == timedelta(0)

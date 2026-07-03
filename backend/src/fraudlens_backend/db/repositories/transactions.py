@@ -21,8 +21,12 @@ Notes:
   async lazy-load/refresh round-trip; the column's server default remains the fallback.
 - The keyset orders by (ingested_at DESC, id DESC); a malformed cursor is ignored (the
   caller simply gets the first page) rather than erroring.
-- Cursor timestamps are normalized to naive-UTC so the keyset behaves identically on
-  Postgres (asyncpg reads tz-aware) and SQLite tests (which drop tzinfo on read).
+- Cursor timestamps are ENCODED naive-UTC (a compact, stable cursor string) but DECODED
+  back to tz-aware UTC, because the keyset predicate compares against `ingested_at`, a
+  tz-aware `timestamptz` column. Binding a naive value makes Postgres/asyncpg read it in
+  the session timezone (not UTC), so `ingested_at < after_ts` is true for every row and
+  page 2 repeats page 1 forever (an infinite loop). Aware-UTC compares correctly on
+  Postgres and remains correct on SQLite (its DateTime formats UTC wall-clock either way).
 """
 
 from __future__ import annotations
@@ -68,11 +72,18 @@ def encode_cursor(ingested_at: datetime, entity_id: uuid.UUID) -> str:
 
 
 def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID] | None:
-    """Decode an opaque cursor back to (ingested_at, id); return None when malformed."""
+    """Decode an opaque cursor back to (tz-aware-UTC ingested_at, id); None when malformed.
+
+    The timestamp is returned tz-aware UTC (not naive) so the keyset predicate compares
+    correctly against the tz-aware `ingested_at` column — see the module docstring for why a
+    naive value silently breaks pagination on Postgres.
+    """
     try:
         raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
         timestamp, hex_id = raw.split(_CURSOR_SEP, 1)
-        return datetime.fromisoformat(timestamp), uuid.UUID(hex_id)
+        parsed = datetime.fromisoformat(timestamp)
+        aware = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        return aware, uuid.UUID(hex_id)
     except (binascii.Error, ValueError, UnicodeDecodeError):
         return None
 
