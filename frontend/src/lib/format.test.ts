@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAge, formatCurrency, formatDateTime, formatPercent, humanize } from "./format";
+import {
+  formatAge,
+  formatAgo,
+  formatAlertRef,
+  formatCurrency,
+  formatDateTime,
+  formatPercent,
+  greeting,
+  humanize,
+} from "./format";
 
 describe("formatCurrency", () => {
   it("formats a numeric or string amount with the currency", () => {
@@ -52,6 +61,48 @@ describe("formatAge", () => {
 
   it("returns a dash for an unparseable date", () => {
     expect(formatAge("nope", now)).toBe("—");
+  });
+});
+
+describe("formatAgo", () => {
+  const now = new Date("2026-06-13T12:00:00Z");
+
+  it("renders a consistent 'N... ago' phrase for minutes, hours, and days", () => {
+    expect(formatAgo("2026-06-13T11:58:00Z", now)).toBe("2m ago");
+    expect(formatAgo("2026-06-13T09:00:00Z", now)).toBe("3h ago");
+    expect(formatAgo("2026-06-10T12:00:00Z", now)).toBe("3d ago");
+  });
+
+  it("clamps a future timestamp to '0m ago' rather than going negative", () => {
+    expect(formatAgo("2026-06-13T12:05:00Z", now)).toBe("0m ago");
+  });
+
+  it("returns a dash for an unparseable date", () => {
+    expect(formatAgo("nope", now)).toBe("—");
+  });
+});
+
+describe("formatAlertRef", () => {
+  it("turns an alert-prefixed id into an AL- reference", () => {
+    expect(formatAlertRef("alert-4821")).toBe("AL-4821");
+    expect(formatAlertRef("alert_1")).toBe("AL-1");
+  });
+
+  it("normalizes an id already in AL form", () => {
+    expect(formatAlertRef("al_4821")).toBe("AL-4821");
+  });
+
+  it("prefixes an unrecognized id and returns a dash for empty input", () => {
+    expect(formatAlertRef("9f3c")).toBe("AL-9F3C");
+    expect(formatAlertRef("   ")).toBe("—");
+  });
+});
+
+describe("greeting", () => {
+  it("picks the greeting by time of day", () => {
+    expect(greeting(new Date("2026-06-13T08:00:00"))).toBe("Good morning");
+    expect(greeting(new Date("2026-06-13T13:00:00"))).toBe("Good afternoon");
+    expect(greeting(new Date("2026-06-13T20:00:00"))).toBe("Good evening");
   });
 });
 
