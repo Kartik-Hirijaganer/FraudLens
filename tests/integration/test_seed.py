@@ -11,10 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Agency,
+    Alert,
+    AlertAction,
+    AlertStatus,
     AmlRule,
     JobExecution,
     ModelDeployment,
     ModelVersion,
+    SarDraft,
+    SarStatus,
+    Severity,
     SystemConfig,
     TrainingLabel,
     User,
@@ -22,7 +28,18 @@ from fraudlens_backend.db.models import (
 from fraudlens_backend.db.repositories import ModelLifecycleRepository
 from seed import seed
 
-_COUNTED = (Agency, User, AmlRule, SystemConfig, ModelVersion, ModelDeployment, JobExecution)
+_COUNTED = (
+    Agency,
+    User,
+    AmlRule,
+    SystemConfig,
+    ModelVersion,
+    ModelDeployment,
+    JobExecution,
+    Alert,
+    AlertAction,
+    SarDraft,
+)
 
 
 async def _count(session: AsyncSession, model: type) -> int:
@@ -82,3 +99,29 @@ async def test_seed_creates_balanced_matured_labels(db_session: AsyncSession) ->
     assert counts.total == 12
     assert counts.positives == 6 and counts.negatives == 6
     assert await _count(db_session, TrainingLabel) == 12
+
+
+async def _count_where(session: AsyncSession, model: type, *conditions: object) -> int:
+    """Return the row count for a model restricted by the given SQL conditions."""
+    stmt = select(func.count()).select_from(model).where(*conditions)
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def test_seed_creates_populated_alert_queue(db_session: AsyncSession) -> None:
+    summary = await seed(db_session)
+    # The seed populates a lifecycle of alerts + SAR drafts so the dashboard renders non-empty.
+    assert summary.alerts == 29
+    assert summary.sar_drafts == 16
+    # A real open queue spanning severities → the queue card + severity-mix hint render.
+    assert await _count_where(db_session, Alert, Alert.status == AlertStatus.OPEN) == 16
+    for severity in (Severity.HIGH, Severity.MEDIUM, Severity.LOW):
+        assert (
+            await _count_where(
+                db_session, Alert, Alert.status == AlertStatus.OPEN, Alert.severity == severity
+            )
+            >= 1
+        )
+    # Some SARs are filed (approved) so the "SARs filed" KPI is non-zero.
+    assert await _count_where(db_session, SarDraft, SarDraft.status == SarStatus.APPROVED) == 7
+    # Non-open alerts carry an append-only triage action (in-review/escalated/resolved/dismissed).
+    assert await _count(db_session, AlertAction) == 13
