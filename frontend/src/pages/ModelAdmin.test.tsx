@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
+import { notify } from "../lib/toast";
 import { deployment, makeClient, modelVersion } from "../test/factories";
 import { ModelAdmin } from "./ModelAdmin";
 
@@ -46,6 +47,45 @@ describe("ModelAdmin", () => {
     await waitFor(() => expect(client.evaluateCanary).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Roll back" }));
     await waitFor(() => expect(client.rollbackDeployment).toHaveBeenCalled());
+  });
+
+  it("warns when canary evaluation auto-aborts", async () => {
+    const client = makeClient({
+      getDeployment: vi.fn(() =>
+        Promise.resolve(deployment({ canaryVersionLabel: "model-v2", canaryPercent: 25 })),
+      ),
+      evaluateCanary: vi.fn(() =>
+        Promise.resolve({
+          aborted: true,
+          activeCount: 10,
+          activeMean: 0.2,
+          canaryCount: 10,
+          canaryMean: 0.31,
+          deviation: 0.11,
+          deployment: deployment(),
+        }),
+      ),
+    });
+    render(<ModelAdmin client={client} />);
+    await screen.findByText(/model-v2 @ 25%/);
+    await userEvent.click(screen.getByRole("button", { name: "Evaluate canary" }));
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith({
+        tone: "warning",
+        title: "Canary auto-aborted",
+        description: "deviation 0.110",
+      }),
+    );
+  });
+
+  it("shows an unconfigured deployment when the deployment pointer is missing", async () => {
+    const client = makeClient({
+      getDeployment: vi.fn(() =>
+        Promise.reject(new ApiError(404, "deployment_not_found", "missing")),
+      ),
+    });
+    render(<ModelAdmin client={client} />);
+    expect(await screen.findByText("No deployment is configured yet.")).toBeInTheDocument();
   });
 
   it("shows an error state when the registry fails to load", async () => {
