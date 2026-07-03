@@ -2,10 +2,10 @@
  * Summary: The transactions page (plan §16 Phase 11; FR-1 ingest, the entry to the
  * investigate flow), redesigned to the dashboard chrome. It lists the agency's scored
  * transactions in a scannable card — pill search, a risk-band filter, and a compact model
- * selector — over a paginated table (Prev/Next, newest first). Opening a row (or its
- * chevron) starts an investigation and deep-links to the live run. A design-system Import
- * CSV control (the masked-only ingest endpoint) sits in the header. Loading / empty /
- * error+retry flow through AsyncBoundary; outcomes surface as toasts.
+ * selector — over a TRUE server-side keyset-paginated table (Prev/Next via a cursor stack,
+ * newest first). Opening a row (or its chevron) starts an investigation and deep-links to
+ * the live run. A design-system Import CSV control (the masked-only ingest endpoint) sits in
+ * the header. Loading / empty / error+retry flow through AsyncBoundary; outcomes are toasts.
  *
  * Key classes:
  * - (none)
@@ -14,14 +14,13 @@
  * - Transactions: render the import action, filters, model selector, table, and pagination.
  *
  * Notes:
- * - Pagination, search, and the "Showing X–Y of Z" total all derive from ONE loaded window
- *   (a single risk-filtered request, backend-capped at MAX_ROWS) so the numbers never
- *   diverge and search+paging stay consistent. Server-side keyset paging is intentionally
- *   not used here (its cursor is unreliable on Postgres); the demo tenant is well under the
- *   window, and larger-scale server paging is tracked separately.
- * - The in-flight Investigate affordance is guarded against double-submits.
+ * - Paging, search, and the risk filter are all SERVER-side: each page is one keyset request
+ *   (limit + cursor), search is a debounced `search` query, and the "Showing X–Y of Z" total
+ *   comes from the list response so it stays exact under any filter without scanning client-side.
+ * - The cursor stack records each visited page's cursor so Prev pops and Next pushes; changing
+ *   the filter or search resets it to the first page. The in-flight Investigate is guarded.
  */
-import { useCallback, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 
 import { ModelSelector } from "../components/ModelSelector";
 import { RiskDot } from "../components/RiskDot";
@@ -45,12 +44,12 @@ import { notify, notifyError } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
 
 const PAGE_SIZE = 10;
-// One loaded window per risk filter (the backend caps a page at 200); the page then slices
-// this window client-side so search + Prev/Next stay consistent with the "of N" total.
-const MAX_ROWS = 200;
+const SEARCH_DEBOUNCE_MS = 300;
 
 interface TransactionsData {
   transactions: TransactionResponse[];
+  nextCursor: string | null;
+  total: number;
   models: ModelVersionListResponse;
 }
 
@@ -60,28 +59,48 @@ interface TransactionsProps {
 
 export function Transactions({ client = apiClient }: TransactionsProps) {
   const [riskBand, setRiskBand] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [override, setOverride] = useState<string | undefined>(undefined);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  // A stack of page cursors, one per visited page (index 0 = the first page, no cursor).
+  // Prev pops, Next pushes the server's nextCursor — so keyset paging works both ways.
+  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
+  const pageIndex = cursorStack.length - 1;
+  const cursor = cursorStack[pageIndex];
+
+  // Debounce the search box, and reset to the first page when the applied query changes
+  // (both state writes happen together so the list refetches once, not twice).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setCursorStack([undefined]);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const load = useCallback(async (): Promise<TransactionsData> => {
-    const [transactions, models] = await Promise.all([
-      client.listTransactions({ riskBand: riskBand || undefined, limit: MAX_ROWS }),
+    const [page, models] = await Promise.all([
+      client.listTransactions({
+        riskBand: riskBand || undefined,
+        search: search || undefined,
+        limit: PAGE_SIZE,
+        cursor,
+      }),
       client.listModelVersions(),
     ]);
-    return { transactions: transactions.transactions, models };
-  }, [client, riskBand]);
-  const state = useAsync(load, [client, riskBand]);
+    return {
+      transactions: page.transactions,
+      nextCursor: page.nextCursor,
+      total: page.total,
+      models,
+    };
+  }, [client, riskBand, search, cursor]);
+  const state = useAsync(load, [client, riskBand, search, cursor]);
 
   function changeRiskBand(next: string): void {
     setRiskBand(next);
-    setPage(0); // a new filter restarts paging at the first page
-  }
-
-  function changeSearch(next: string): void {
-    setSearch(next);
-    setPage(0); // a new query can shrink the result set below the current page
+    setCursorStack([undefined]); // a new filter restarts paging at the first page
   }
 
   async function investigate(transactionId: string): Promise<void> {
@@ -106,7 +125,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
         title: "Import complete",
         description: `${result.accepted} added · ${result.duplicates} duplicate · ${result.rejected} rejected`,
       });
-      setPage(0);
+      setCursorStack([undefined]);
       state.reload();
     } catch (caught) {
       notifyError(caught);
@@ -129,25 +148,21 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
         actions={<ImportButton onFileChange={onFileChange} />}
       />
       <Card className="gap-lg flex flex-col">
+        <div className="gap-md flex flex-col lg:flex-row lg:items-center lg:justify-between">
+          <SearchInput value={searchInput} onChange={setSearchInput} />
+          <SegmentedControl
+            ariaLabel="Filter by risk band"
+            options={RISK_BAND_OPTIONS}
+            value={riskBand}
+            onChange={changeRiskBand}
+          />
+        </div>
         <AsyncBoundary state={state}>
           {(data) => {
-            const filtered = filterTransactions(data.transactions, search);
-            const total = filtered.length;
-            const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
-            const current = Math.min(page, lastPage);
-            const pageRows = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
             const columns = transactionColumns(investigatingId, investigate);
+            const rangeEnd = pageIndex * PAGE_SIZE + data.transactions.length;
             return (
               <>
-                <div className="gap-md flex flex-col lg:flex-row lg:items-center lg:justify-between">
-                  <SearchInput value={search} onChange={changeSearch} />
-                  <SegmentedControl
-                    ariaLabel="Filter by risk band"
-                    options={RISK_BAND_OPTIONS}
-                    value={riskBand}
-                    onChange={changeRiskBand}
-                  />
-                </div>
                 <div className="max-w-sm">
                   <ModelSelector
                     versions={data.models.versions}
@@ -159,29 +174,33 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
                 <DataTable
                   caption="Transactions"
                   columns={columns}
-                  rows={pageRows}
+                  rows={data.transactions}
                   rowKey={(transaction) => transaction.transactionId}
                   onRowClick={(transaction) => void investigate(transaction.transactionId)}
                   empty={
                     <EmptyState
-                      title={data.transactions.length === 0 ? "No transactions yet" : "No matches"}
+                      title={search || riskBand ? "No matches" : "No transactions yet"}
                       description={
-                        data.transactions.length === 0
-                          ? "Import a CSV to start scoring and investigating transactions."
-                          : "Try a different search term or risk filter."
+                        search || riskBand
+                          ? "Try a different search term or risk filter."
+                          : "Import a CSV to start scoring and investigating transactions."
                       }
                     />
                   }
                 />
-                {total > 0 ? (
+                {data.total > 0 ? (
                   <Pagination
-                    total={total}
-                    rangeStart={current * PAGE_SIZE + 1}
-                    rangeEnd={current * PAGE_SIZE + pageRows.length}
-                    hasPrev={current > 0}
-                    hasNext={current < lastPage}
-                    onPrev={() => setPage((value) => Math.max(0, value - 1))}
-                    onNext={() => setPage((value) => Math.min(lastPage, value + 1))}
+                    total={data.total}
+                    rangeStart={pageIndex * PAGE_SIZE + 1}
+                    rangeEnd={rangeEnd}
+                    hasPrev={pageIndex > 0}
+                    hasNext={Boolean(data.nextCursor)}
+                    onPrev={() => setCursorStack((stack) => stack.slice(0, -1))}
+                    onNext={() =>
+                      setCursorStack((stack) =>
+                        data.nextCursor ? [...stack, data.nextCursor] : stack,
+                      )
+                    }
                   />
                 ) : null}
               </>
@@ -236,31 +255,6 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
   );
 }
 
-function filterTransactions(
-  transactions: TransactionResponse[],
-  search: string,
-): TransactionResponse[] {
-  const query = search.trim().toLowerCase();
-  if (!query) {
-    return transactions;
-  }
-  return transactions.filter((transaction) =>
-    [
-      transaction.externalId,
-      transaction.amount,
-      transaction.currency,
-      transaction.originAccount,
-      transaction.destAccount,
-      transaction.channel,
-      transaction.country,
-      transaction.riskBand ?? "unscored",
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(query),
-  );
-}
-
 function transactionColumns(
   investigatingId: string | null,
   investigate: (transactionId: string) => Promise<void>,
@@ -299,7 +293,9 @@ function transactionColumns(
       id: "occurred",
       header: "Time",
       cell: (transaction) => (
-        <span className="text-body whitespace-nowrap">{formatDateTime(transaction.occurredAt)}</span>
+        <span className="text-body whitespace-nowrap">
+          {formatDateTime(transaction.occurredAt)}
+        </span>
       ),
     },
     {

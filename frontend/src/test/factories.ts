@@ -195,7 +195,7 @@ export function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
       Promise.resolve({ status: "ok", service: "FraudLens", version: "0", environment: "dev" }),
     ),
     listTransactions: vi.fn(() =>
-      Promise.resolve({ transactions: [transaction()], nextCursor: null }),
+      Promise.resolve({ transactions: [transaction()], nextCursor: null, total: 1 }),
     ),
     getTransaction: vi.fn(() => Promise.resolve(transaction())),
     ingestTransaction: vi.fn(() => Promise.resolve(transaction())),

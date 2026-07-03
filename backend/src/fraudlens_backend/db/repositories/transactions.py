@@ -5,8 +5,9 @@ API endpoint and the IEEE-CIS importer: it dedups by `(agency_id, external_id)` 
 the existing row with `created=False` instead of raising), masks the account identifiers +
 computes the `feature_hash` via the injected `PhiMasker`, and persists ONLY the masked form
 (raw PHI is never written, ADR-014). `page` returns keyset-paginated, newest-first results
-with an opaque cursor, optionally filtered by risk band, so the list endpoint never scans
-or offsets the whole table.
+with an opaque cursor — optionally filtered by risk band and a free-text `search` — plus the
+total matching count (for the "X of N" footer), so the list endpoint windows rows by keyset
+rather than offsetting the whole table.
 
 Key classes:
 - IngestOutcome: the result of an ingest — the row and whether it was newly created.
@@ -36,9 +37,9 @@ import binascii
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import Transaction
@@ -156,17 +157,50 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         )
         return (await self._session.execute(stmt)).scalars().all()
 
+    def _list_filters(self, risk_band: RiskBand | None, search: str | None) -> list[Any]:
+        """Build the shared tenant + riskBand + search filters used by the page + count queries."""
+        filters: list[Any] = [Transaction.agency_id == self._agency_id]
+        if risk_band is not None:
+            filters.append(Transaction.risk_band == risk_band)
+        term = search.strip() if search else ""
+        if term:
+            # Case-insensitive contains across the columns the analyst searches by (TXN id, the
+            # masked counterparty accounts, amount-as-text). LIKE wildcards in the term are escaped
+            # so a literal "%"/"_" matches itself; `.ilike` compiles per-dialect (ILIKE on PG).
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = f"%{escaped}%"
+            filters.append(
+                or_(
+                    Transaction.external_id.ilike(like, escape="\\"),
+                    Transaction.origin_account.ilike(like, escape="\\"),
+                    Transaction.dest_account.ilike(like, escape="\\"),
+                    Transaction.country.ilike(like, escape="\\"),
+                    Transaction.channel.ilike(like, escape="\\"),
+                    cast(Transaction.amount, String).ilike(like, escape="\\"),
+                )
+            )
+        return filters
+
     async def page(
         self,
         *,
         limit: int,
         cursor: str | None = None,
         risk_band: RiskBand | None = None,
-    ) -> tuple[Sequence[Transaction], str | None]:
-        """Return one keyset page (newest first) + the next cursor (None when exhausted)."""
-        stmt = select(Transaction).where(Transaction.agency_id == self._agency_id)
-        if risk_band is not None:
-            stmt = stmt.where(Transaction.risk_band == risk_band)
+        search: str | None = None,
+    ) -> tuple[Sequence[Transaction], str | None, int]:
+        """Return one keyset page (newest first) + the next cursor + the total matching count.
+
+        `total` counts every row matching the tenant/riskBand/search filters (ignoring the cursor)
+        so callers can render the "X of N" footer; the page rows themselves are keyset-windowed.
+        """
+        filters = self._list_filters(risk_band, search)
+        total = (
+            await self._session.execute(
+                select(func.count()).select_from(Transaction).where(*filters)
+            )
+        ).scalar_one()
+        stmt = select(Transaction).where(*filters)
         decoded = decode_cursor(cursor) if cursor else None
         if decoded is not None:
             after_ts, after_id = decoded
@@ -180,5 +214,5 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         rows = list((await self._session.execute(stmt)).scalars().all())
         if len(rows) > limit:
             last = rows[limit - 1]
-            return rows[:limit], encode_cursor(last.ingested_at, last.id)
-        return rows, None
+            return rows[:limit], encode_cursor(last.ingested_at, last.id), int(total)
+        return rows, None, int(total)
