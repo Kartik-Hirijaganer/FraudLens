@@ -105,7 +105,7 @@ export function App() {
   const route = useHashRoute();
   return (
     <div className="bg-canvas-soft text-ink min-h-screen">
-      <div className="max-w-container gap-lg px-xl py-xl mx-auto flex flex-col">
+      <div className="max-w-shell gap-lg px-xl py-xl mx-auto flex flex-col">
         <nav aria-label="Primary" className="gap-sm flex flex-row flex-wrap overflow-x-auto">
           {TOP_NAV.map((item) => {
             const active = item.isActive(route);
