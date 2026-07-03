@@ -66,8 +66,10 @@ export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
                 className="gap-lg bg-canvas-soft px-lg py-md flex flex-wrap items-center justify-between rounded-lg"
               >
                 <div className="gap-lg flex min-w-0 items-center">
-                  <Badge tone={riskTone(alert.severity)}>{humanize(alert.severity)}</Badge>
-                  <span className="text-body-sm text-ink font-semibold">
+                  <Badge tone={riskTone(alert.severity)} className="w-20 shrink-0">
+                    {humanize(alert.severity)}
+                  </Badge>
+                  <span className="text-body-sm text-ink w-16 shrink-0 font-semibold">
                     {formatAlertRef(alert.alertId)}
                   </span>
                   <div className="min-w-0">

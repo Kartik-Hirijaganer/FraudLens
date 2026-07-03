@@ -25,6 +25,9 @@ describe("AlertQueue", () => {
     expect(screen.getByText("Cross-border wire · new counterparty")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /View all 24 alerts/ })).toBeInTheDocument();
+    // The severity badge and reference are fixed-width so rows align into columns.
+    expect(screen.getByText("High")).toHaveClass("w-20");
+    expect(screen.getByText("AL-4821")).toHaveClass("w-16");
   });
 
   it("orders rows risk-first then most-recent and caps the visible rows", () => {
