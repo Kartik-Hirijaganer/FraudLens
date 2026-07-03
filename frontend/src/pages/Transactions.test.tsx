@@ -19,7 +19,7 @@ describe("Transactions", () => {
     const client = makeClient();
     render(<Transactions client={client} />);
     expect(await screen.findByText("ext-1")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await userEvent.click(screen.getByRole("button", { name: /Investigate transaction/ }));
     expect(client.startInvestigation).toHaveBeenCalledWith({
       transactionId: "tx-1",
       modelOverride: undefined,
@@ -35,7 +35,7 @@ describe("Transactions", () => {
     Object.defineProperty(file, "text", {
       value: () => Promise.resolve("externalId,amount\nx,1"),
     });
-    await userEvent.upload(screen.getByLabelText("Import transactions (CSV)"), file);
+    await userEvent.upload(screen.getByLabelText("Import CSV"), file);
     await waitFor(() => expect(client.uploadCsv).toHaveBeenCalledWith("externalId,amount\nx,1"));
     expect(notify).toHaveBeenCalled();
   });
@@ -48,7 +48,7 @@ describe("Transactions", () => {
     await screen.findByText("ext-1");
     await userEvent.click(screen.getByRole("radio", { name: "High" }));
     await waitFor(() =>
-      expect(listTransactions).toHaveBeenCalledWith({ riskBand: "high", limit: 50 }),
+      expect(listTransactions).toHaveBeenCalledWith({ riskBand: "high", limit: 200 }),
     );
   });
 
@@ -77,12 +77,41 @@ describe("Transactions", () => {
     expect(screen.getByText("other-2")).toBeInTheDocument();
   });
 
+  it("paginates the loaded window with Prev/Next", async () => {
+    const rows = Array.from({ length: 12 }, (_, index) =>
+      transaction({ transactionId: `tx-${index}`, externalId: `txn-${index}` }),
+    );
+    const client = makeClient({
+      listTransactions: vi.fn(() => Promise.resolve({ transactions: rows, nextCursor: null })),
+    });
+    render(<Transactions client={client} />);
+
+    // Page 1: first 10 rows, Prev disabled.
+    expect(await screen.findByText("txn-0")).toBeInTheDocument();
+    expect(screen.getByText("txn-9")).toBeInTheDocument();
+    expect(screen.queryByText("txn-10")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "← Prev" })).toBeDisabled();
+
+    // Page 2: the remaining 2 rows, Next disabled.
+    await userEvent.click(screen.getByRole("button", { name: "Next →" }));
+    expect(await screen.findByText("txn-10")).toBeInTheDocument();
+    expect(screen.getByText("txn-11")).toBeInTheDocument();
+    expect(screen.queryByText("txn-0")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next →" })).toBeDisabled();
+
+    // Back to page 1.
+    await userEvent.click(screen.getByRole("button", { name: "← Prev" }));
+    expect(await screen.findByText("txn-0")).toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no transactions", async () => {
     const client = makeClient({
       listTransactions: vi.fn(() => Promise.resolve({ transactions: [], nextCursor: null })),
     });
     render(<Transactions client={client} />);
-    expect(await screen.findByText("No transactions")).toBeInTheDocument();
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
   });
 
   it("shows an error state when loading fails", async () => {

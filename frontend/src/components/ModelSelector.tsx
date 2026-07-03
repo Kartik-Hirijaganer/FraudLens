@@ -15,6 +15,7 @@
  * - Wraps the `Select` primitive; the empty value maps to "use the active/canary routing".
  */
 import type { ModelVersionResponse } from "../lib/api";
+import { formatModelVersion } from "../lib/format";
 import { Select } from "./ui/Select";
 
 interface ModelSelectorProps {
@@ -32,12 +33,17 @@ export function ModelSelector({
   onChange,
   disabled,
 }: ModelSelectorProps) {
-  const activeText = activeLabel ? `Active model — ${activeLabel}` : "Active model (default)";
+  // Display the model version the SAME way every page does (formatModelVersion drops the
+  // internal "-fixture" tag) so the selector and the Dashboard never show different labels
+  // for the same model; the submitted `modelOverride` value stays the raw registry label.
+  const activeText = activeLabel
+    ? `Active model — ${formatModelVersion(activeLabel)}`
+    : "Active model (default)";
   const options = [
     { value: "", label: activeText },
     ...versions.map((version) => ({
       value: version.versionLabel,
-      label: `${version.versionLabel} (${version.status})`,
+      label: `${formatModelVersion(version.versionLabel)} (${version.status})`,
     })),
   ];
   return (
