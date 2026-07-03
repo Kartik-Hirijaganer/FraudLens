@@ -14,6 +14,9 @@
  * - formatPercent: render a 0..1 fraction as a percentage (e.g. 0.873 -> "87.3%").
  * - formatDateTime: render an ISO timestamp as a short localized date-time.
  * - formatAge: render an ISO timestamp as a compact relative age.
+ * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
+ * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4821").
+ * - greeting: pick a time-of-day greeting ("Good morning/afternoon/evening").
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
  * Notes:
@@ -72,6 +75,48 @@ export function formatAge(iso: string, now: Date = new Date()): string {
     return `${elapsedHours}h`;
   }
   return `${Math.floor(elapsedHours / 24)}d ago`;
+}
+
+export function formatAgo(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const elapsedMs = now.getTime() - date.getTime();
+  if (Number.isNaN(date.getTime()) || Number.isNaN(elapsedMs)) {
+    return PLACEHOLDER;
+  }
+  const elapsedMinutes = Math.floor(Math.max(0, elapsedMs) / 60000);
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+  return `${Math.floor(elapsedHours / 24)}d ago`;
+}
+
+export function formatAlertRef(alertId: string): string {
+  const trimmed = alertId.trim();
+  if (!trimmed) {
+    return PLACEHOLDER;
+  }
+  // Already an AL-style code — normalize casing/separators and keep it as-is.
+  if (/^al[-_]/i.test(trimmed)) {
+    return trimmed.toUpperCase().replace(/_/g, "-");
+  }
+  // Strip a leading "alert-"/"alert_" prefix so ids like "alert-4821" read "AL-4821".
+  const tail = /^alert[-_]?(.+)$/i.exec(trimmed)?.[1] ?? trimmed;
+  return `AL-${tail.toUpperCase()}`;
+}
+
+export function greeting(now: Date = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 12) {
+    return "Good morning";
+  }
+  if (hour < 18) {
+    return "Good afternoon";
+  }
+  return "Good evening";
 }
 
 export function humanize(code: string): string {
