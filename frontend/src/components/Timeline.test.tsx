@@ -21,4 +21,20 @@ describe("Timeline", () => {
     expect(screen.getByText("Open to In review")).toBeInTheDocument();
     expect(screen.getByText("Needs review")).toBeInTheDocument();
   });
+
+  it("renders items without optional body text", () => {
+    render(
+      <Timeline
+        items={[
+          {
+            id: "a1",
+            title: "Opened",
+            meta: "Created",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Opened")).toBeInTheDocument();
+    expect(screen.getByText("Created")).toBeInTheDocument();
+  });
 });
