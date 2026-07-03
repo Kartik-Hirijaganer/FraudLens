@@ -13,4 +13,9 @@ describe("RiskDot", () => {
     render(<RiskDot band="low" />);
     expect(screen.getByText("Low")).toHaveClass("sr-only");
   });
+
+  it("labels null risk as unscored", () => {
+    render(<RiskDot band={null} showLabel />);
+    expect(screen.getByText("Unscored")).not.toHaveClass("sr-only");
+  });
 });
