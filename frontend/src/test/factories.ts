@@ -53,7 +53,7 @@ export function alertView(overrides: Partial<AlertView> = {}): AlertView {
   };
 }
 
-function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
+export function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
   return {
     sarDraftId: "sar-1",
     runId: "run-1",
@@ -220,6 +220,7 @@ export function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     ),
     startInvestigation: vi.fn(() => Promise.resolve({ runId: "run-1" })),
     getInvestigation: vi.fn(() => Promise.resolve(snapshot())),
+    regenerateSar: vi.fn(() => Promise.resolve(sarDraft({ version: 2 }))),
     investigationStreamUrl: vi.fn((runId: string) => `/api/v1/investigations/${runId}/stream`),
     listAlerts: vi.fn(() => Promise.resolve({ alerts: [alertView()] })),
     getAlert: vi.fn(() => Promise.resolve(alertDetail())),

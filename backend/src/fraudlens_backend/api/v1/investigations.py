@@ -15,6 +15,7 @@ Key classes:
 Key functions:
 - start_investigation: POST /investigations — create + own the run (202; Idempotency-Key dedupe).
 - get_investigation: GET /investigations/{runId} — the authoritative run snapshot (404 if absent).
+- regenerate_investigation_sar: POST /investigations/{runId}/sar/regenerate — re-draft the SAR.
 - stream_investigation: GET /investigations/{runId}/stream — SSE replay-from-Last-Event-ID + tail.
 
 Notes:
@@ -59,7 +60,9 @@ from fraudlens_backend.models.investigations import (
     InvestigationStartRequest,
     InvestigationStartResponse,
 )
+from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_input
+from fraudlens_backend.services.sar_regeneration import regenerate_sar_for_run, sar_draft_to_view
 from fraudlens_backend.settings import AppSettings
 
 router = APIRouter(tags=["investigations"])
@@ -209,6 +212,39 @@ async def get_investigation(
     result = await repo.get_result(run_id)
     sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
     return _snapshot(run, result, sar)
+
+
+@router.post("/investigations/{runId}/sar/regenerate", response_model=SarDraftView)
+async def regenerate_investigation_sar(
+    run_id: Annotated[uuid.UUID, Path(alias="runId")],
+    request: Request,
+    tenant: TenantDep,
+    session: DbSessionDep,
+    settings: SettingsDep,
+) -> SarDraftView:
+    """Re-draft the run's SAR from its persisted evidence and persist the next version (§7, §10.4).
+
+    404 when the run is missing/cross-tenant; 409 when the run has no completed result to draft from
+    or its latest draft is already approved/rejected.
+    """
+    agency_id = uuid.UUID(tenant.agency_id)
+    actor_id = optional_actor(tenant)
+    draft = await regenerate_sar_for_run(
+        session=session,
+        agency_id=agency_id,
+        run_id=run_id,
+        settings=settings,
+        created_by=actor_id,
+    )
+    await audit_writer(tenant, session, request).record(
+        actor_id=actor_id,
+        action="sar.regenerate",
+        resource_type="sar_draft",
+        resource_id=str(draft.id),
+        metadata={"runId": str(run_id), "version": str(draft.version)},
+    )
+    await session.commit()
+    return sar_draft_to_view(draft)
 
 
 def _parse_last_event_id(request: Request) -> int:

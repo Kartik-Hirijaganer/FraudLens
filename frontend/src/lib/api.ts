@@ -423,6 +423,7 @@ export interface ApiClient {
     idempotencyKey?: string,
   ): Promise<InvestigationStartResponse>;
   getInvestigation(runId: string): Promise<InvestigationSnapshot>;
+  regenerateSar(runId: string): Promise<SarDraftView>;
   investigationStreamUrl(runId: string): string;
   listAlerts(params?: ListAlertsParams): Promise<AlertListResponse>;
   getAlert(alertId: string): Promise<AlertDetailResponse>;
@@ -526,6 +527,8 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
         jsonInit("POST", body, idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined),
       ),
     getInvestigation: (runId) => send<InvestigationSnapshot>(`/api/v1/investigations/${runId}`),
+    regenerateSar: (runId) =>
+      send<SarDraftView>(`/api/v1/investigations/${runId}/sar/regenerate`, jsonInit("POST")),
     investigationStreamUrl: (runId) => `${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`,
     listAlerts: (params = {}) => send<AlertListResponse>(`/api/v1/alerts${query({ ...params })}`),
     getAlert: (alertId) => send<AlertDetailResponse>(`/api/v1/alerts/${alertId}`),
