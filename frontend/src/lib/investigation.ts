@@ -17,11 +17,15 @@
  * - initialInvestigationState: the empty starting state for a run.
  * - reduceInvestigation: fold one SSE message into the next state (pure).
  * - INVESTIGATION_EVENTS: the named server-sent events to subscribe to.
- * - INVESTIGATION_STEPS: the ordered pipeline steps (key + label) for the progress UI.
+ * - CASE_STEPS: the ordered "build the case" wizard steps (Risk → … → Submit).
+ * - caseStepReady: whether a wizard step's evidence has arrived in the streamed state (pure).
  *
  * Notes:
  * - Every payload field is read defensively from `unknown` (a malformed frame degrades to
  *   safe defaults), so a bad event can never throw inside the live render path.
+ * - The five auto-run pipeline stages (rules/scoring/shap/rag/sar, from the SSE events)
+ *   are collapsed by `caseStepReady` into the analyst-facing wizard steps in `CASE_STEPS`,
+ *   so the page and stepper share one definition of the step order (rule 5).
  */
 import type { SseMessage } from "./sse";
 
@@ -84,13 +88,42 @@ export const INVESTIGATION_EVENTS = [
   "run.failed",
 ] as const;
 
-export const INVESTIGATION_STEPS = [
-  { key: "rules", label: "Rules" },
-  { key: "scoring", label: "Scoring" },
-  { key: "shap", label: "Explain (SHAP)" },
-  { key: "rag", label: "Regulations" },
+export const CASE_STEPS = [
+  { key: "risk", label: "Risk" },
+  { key: "drivers", label: "Drivers" },
+  { key: "citations", label: "Citations" },
   { key: "sar", label: "SAR draft" },
+  { key: "submit", label: "Submit" },
 ] as const;
+
+export type CaseStepKey = (typeof CASE_STEPS)[number]["key"];
+
+/**
+ * Whether the evidence a wizard step displays has arrived in the streamed state. The
+ * auto-run pipeline (rules → scoring → shap → rag → sar) drives the underlying
+ * `completedSteps`; this collapses those stages onto the analyst-facing wizard steps so
+ * the page can gate "continue" until the next step actually has something to show.
+ */
+export function caseStepReady(state: InvestigationState, key: CaseStepKey): boolean {
+  switch (key) {
+    case "risk":
+      return (
+        state.completedSteps.includes("scoring") ||
+        state.riskBand !== undefined ||
+        state.fraudProbability !== undefined
+      );
+    case "drivers":
+      return state.topFeatures.length > 0 || state.completedSteps.includes("shap");
+    case "citations":
+      return state.completedSteps.includes("rag");
+    case "sar":
+      return state.sarStarted || state.sarText.length > 0 || state.completedSteps.includes("sar");
+    case "submit":
+      return state.status === "completed";
+    default:
+      return false;
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
