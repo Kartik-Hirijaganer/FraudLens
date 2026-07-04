@@ -130,6 +130,11 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="That review decision is not allowed from the SAR draft's current status.",
         ),
         ErrorSpec(
+            code="sar_not_regenerable",
+            http_status=409,
+            message="This run has no completed analysis to regenerate a SAR draft from.",
+        ),
+        ErrorSpec(
             code="assignee_not_in_agency",
             http_status=403,
             message="The requested assignee does not belong to this agency.",

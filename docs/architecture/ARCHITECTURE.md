@@ -223,6 +223,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |
 | GET | `/api/v1/investigations/{runId}` | `get_investigation` |
+| POST | `/api/v1/investigations/{runId}/sar/regenerate` | `regenerate_investigation_sar` |
 | GET | `/api/v1/investigations/{runId}/stream` | `stream_investigation` |
 | GET | `/api/v1/model-deployment` | `get_deployment` |
 | POST | `/api/v1/model-deployment/canary/evaluate` | `evaluate_canary` |

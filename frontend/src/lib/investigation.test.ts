@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CASE_STEPS,
   INVESTIGATION_EVENTS,
-  INVESTIGATION_STEPS,
+  caseStepReady,
   initialInvestigationState,
   reduceInvestigation,
   type InvestigationState,
@@ -18,16 +19,53 @@ function fold(messages: SseMessage[]): InvestigationState {
 }
 
 describe("investigation constants", () => {
-  it("subscribes to all nine stream events and five steps", () => {
+  it("subscribes to all nine stream events and five wizard steps", () => {
     expect(INVESTIGATION_EVENTS).toContain("sar.token");
     expect(INVESTIGATION_EVENTS).toHaveLength(9);
-    expect(INVESTIGATION_STEPS.map((step) => step.key)).toEqual([
-      "rules",
-      "scoring",
-      "shap",
-      "rag",
+    expect(CASE_STEPS.map((step) => step.key)).toEqual([
+      "risk",
+      "drivers",
+      "citations",
       "sar",
+      "submit",
     ]);
+  });
+});
+
+describe("caseStepReady", () => {
+  it("maps the auto-run pipeline stages onto wizard-step readiness", () => {
+    const empty = initialInvestigationState();
+    expect(caseStepReady(empty, "risk")).toBe(false);
+    expect(caseStepReady(empty, "submit")).toBe(false);
+
+    const scored = fold([
+      msg("run.started", { transactionId: "tx-1" }),
+      msg("step.scoring.completed", { fraudProbability: 0.9, modelVersion: "m1" }),
+    ]);
+    expect(caseStepReady(scored, "risk")).toBe(true);
+    expect(caseStepReady(scored, "drivers")).toBe(false);
+
+    const done = fold([
+      msg("step.shap.completed", { topFeatures: [{ feature: "amount", value: 1, shapValue: 1 }] }),
+      msg("step.rag.completed", { mode: "vector", citations: [] }),
+      msg("sar.started", {}),
+      msg("run.completed", { riskScore: 0.8, riskBand: "high", sarDraftId: "s1" }),
+    ]);
+    expect(caseStepReady(done, "drivers")).toBe(true);
+    expect(caseStepReady(done, "citations")).toBe(true);
+    expect(caseStepReady(done, "sar")).toBe(true);
+    expect(caseStepReady(done, "submit")).toBe(true);
+  });
+
+  it("treats each evidence signal as sufficient for its wizard step", () => {
+    const base = initialInvestigationState();
+    // Risk is ready from the band or the probability alone (not only from a completed step).
+    expect(caseStepReady({ ...base, riskBand: "high" }, "risk")).toBe(true);
+    expect(caseStepReady({ ...base, fraudProbability: 0.5 }, "risk")).toBe(true);
+    // Drivers/sar are ready via the completed-step marker too, not only their data.
+    expect(caseStepReady({ ...base, completedSteps: ["shap"] }, "drivers")).toBe(true);
+    expect(caseStepReady({ ...base, sarText: "x" }, "sar")).toBe(true);
+    expect(caseStepReady({ ...base, completedSteps: ["sar"] }, "sar")).toBe(true);
   });
 });
 
