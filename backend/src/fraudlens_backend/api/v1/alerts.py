@@ -45,7 +45,7 @@ from fraudlens_backend.api.deps import (
     require_actor,
 )
 from fraudlens_backend.backends.storage import get_storage_backend
-from fraudlens_backend.db.models import AlertAction, AlertActionType, AlertStatus, SarDraft
+from fraudlens_backend.db.models import AlertAction, AlertActionType, AlertStatus
 from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import (
     AlertRepository,
@@ -70,6 +70,7 @@ from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.sar.pdf import generate_sar_pdf
+from fraudlens_backend.services.sar_regeneration import sar_draft_to_view
 from fraudlens_core.phi import MaskingReport, mask_text
 
 router = APIRouter(tags=["alerts"])
@@ -124,24 +125,7 @@ def _to_action_view(action: AlertAction) -> AlertActionView:
     )
 
 
-def _to_sar_view(draft: SarDraft) -> SarDraftView:
-    """Project a persisted SAR draft row onto the API view (the Phase 9 ORM→view mapping)."""
-    return SarDraftView(
-        sar_draft_id=str(draft.id),
-        run_id=str(draft.run_id),
-        alert_id=str(draft.alert_id) if draft.alert_id is not None else None,
-        version=draft.version,
-        status=draft.status,
-        content=draft.content,
-        structured=dict(draft.structured or {}),
-        citations=[dict(citation) for citation in (draft.citations or [])],
-        model_id=draft.model_id,
-        prompt_version=draft.prompt_version,
-        prompt_hash=draft.prompt_hash,
-        token_usage=dict(draft.token_usage or {}),
-        cost_usd=draft.cost_usd,
-        created_at=draft.created_at,
-    )
+_to_sar_view = sar_draft_to_view  # single ORM→view mapping shared with the regeneration service.
 
 
 def sar_decision_allowed(status: SarStatus, decision: SarReviewDecision, *, has_edit: bool) -> bool:
