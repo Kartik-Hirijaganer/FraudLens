@@ -3157,6 +3157,55 @@
         ]
       }
     },
+    "/api/v1/investigations/{runId}/sar/regenerate": {
+      "post": {
+        "description": "Re-draft the run's SAR from its persisted evidence and persist the next version (\u00a77, \u00a710.4).\n\n404 when the run is missing/cross-tenant; 409 when the run has no completed result to draft from\nor its latest draft is already approved/rejected.",
+        "operationId": "regenerate_investigation_sar_api_v1_investigations__runId__sar_regenerate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Runid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SarDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Regenerate Investigation Sar",
+        "tags": [
+          "investigations"
+        ]
+      }
+    },
     "/api/v1/investigations/{runId}/stream": {
       "get": {
         "description": "Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens.",
