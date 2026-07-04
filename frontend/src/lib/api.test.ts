@@ -90,6 +90,16 @@ describe("createApiClient", () => {
     expect(createApiClient().investigationStreamUrl("r9")).toBe("/api/v1/investigations/r9/stream");
   });
 
+  it("POSTs to the SAR regenerate endpoint for a run", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse(true, 200, { sarDraftId: "s2", version: 2 })),
+    );
+    await createApiClient(fetchMock).regenerateSar("r9");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/investigations/r9/sar/regenerate");
+    expect(init.method).toBe("POST");
+  });
+
   it("raises ApiError carrying the envelope code on a non-2xx response", async () => {
     const envelope = { code: "duplicate_external_id", message: "dup", requestId: "req-1" };
     const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(false, 409, envelope)));
