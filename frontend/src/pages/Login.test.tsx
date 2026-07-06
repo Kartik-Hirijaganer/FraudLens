@@ -74,7 +74,7 @@ describe("Login", () => {
     const submit = screen.getByRole("button", { name: /Sign in/ });
     expect(submit).toBeDisabled();
 
-    await user.type(screen.getByLabelText("Work email"), "analyst@fraudlens.demo");
+    await user.type(screen.getByLabelText("Work email"), "analyst@demo-agency.test");
     await user.type(screen.getByLabelText("Password"), "demo-access-2026");
     expect(submit).toBeEnabled();
   });
@@ -99,7 +99,7 @@ describe("Login", () => {
     await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[0].name) }));
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
-    expect(getSession()).toEqual({ email: DEMO_ROLES[0].email });
+    expect(getSession()).toMatchObject({ email: DEMO_ROLES[0].email, role: DEMO_ROLES[0].role });
   });
 
   it("persists the session to localStorage only when 'keep me signed in' is checked", async () => {
