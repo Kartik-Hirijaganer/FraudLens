@@ -68,6 +68,10 @@ const CODE_UX: Record<string, CodeUx> = {
     title: "Admin only",
     description: "This action requires the admin role.",
   },
+  role_permission_required: {
+    title: "Permission required",
+    description: "Your current role can't perform this action.",
+  },
   insufficient_matured_labels: {
     title: "Not enough labels",
     description: "Resolve more alerts before retraining a candidate model.",

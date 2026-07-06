@@ -1,7 +1,7 @@
 """Summary: Idempotent dev/demo seed (plan §9.3). Re-runnable safely — every entity is
 upserted by its natural key (or a fixed id), so `make db-seed` (and `make local-demo`) can
 run repeatedly without creating duplicates. It seeds the foundation the schema can hold: the
-demo agency + its analyst/reviewer/admin users (shared with the auth dev-bypass via
+demo agency + its auditor/analyst/reviewer/admin users (shared with the auth dev-bypass via
 fraudlens_backend.demo), the default global `system_config` tunables, the **active fixture
 model** (a training dataset → training run → ACTIVE model version → the single deployment
 pointer), the curated synthetic IEEE-CIS transactions (masked at ingest via the shared importer)

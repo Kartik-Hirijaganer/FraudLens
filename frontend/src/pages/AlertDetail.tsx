@@ -33,6 +33,7 @@ import { apiClient, statusLabel, type ApiClient, type TrainingLabel } from "../l
 import { formatDateTime, humanize } from "../lib/format";
 import { TRAINING_LABEL_OPTIONS } from "../lib/options";
 import { riskTone, type StatusTone } from "../lib/risk";
+import { hasPermission, useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
 import { useAsyncAction } from "../lib/useAsyncAction";
 
@@ -56,6 +57,12 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
   const load = useCallback(() => client.getAlert(alertId), [client, alertId]);
   const state = useAsync(load, [client, alertId]);
   const { busy, run } = useAsyncAction(state.reload);
+  const session = useSession();
+  const canTriage = hasPermission(session, "triageAlert");
+  const canDismiss = hasPermission(session, "dismissAlert");
+  const canReviewSar = hasPermission(session, "reviewSar");
+  const canFinalize = hasPermission(session, "finalizeAlert");
+  const hasAlertActions = canTriage || canDismiss || canFinalize;
 
   return (
     <section className="gap-xl flex flex-col">
@@ -122,7 +129,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
             </div>
 
             <DecisionRail title="Actions">
-              {detail.sarDraft ? (
+              {detail.sarDraft && canReviewSar ? (
                 <div className="gap-md flex flex-col">
                   <h3 className="text-body-md text-ink font-semibold">SAR review</h3>
                   <Button
@@ -174,88 +181,110 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                   </Button>
                 </div>
               ) : null}
-
-              <div className="gap-md flex flex-col">
-                <h3 className="text-body-md text-ink font-semibold">Triage</h3>
-                <Textarea
-                  label="Note (optional)"
-                  value={note}
-                  rows={2}
-                  onChange={(event) => setNote(event.target.value)}
-                />
-                <div className="gap-sm flex flex-col">
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () =>
-                          client.actOnAlert(alertId, {
-                            action: "comment",
-                            note: note || undefined,
-                          }),
-                        "Comment added",
-                      )
-                    }
-                  >
-                    Comment
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () =>
-                          client.actOnAlert(alertId, {
-                            action: "escalate",
-                            note: note || undefined,
-                          }),
-                        "Alert escalated",
-                      )
-                    }
-                  >
-                    Escalate
-                  </Button>
-                  <Button
-                    variant="tertiary"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () =>
-                          client.actOnAlert(alertId, {
-                            action: "dismiss",
-                            note: note || undefined,
-                          }),
-                        "Alert dismissed",
-                      )
-                    }
-                  >
-                    Dismiss
-                  </Button>
+              {detail.sarDraft && !canReviewSar ? (
+                <div className="gap-xs flex flex-col">
+                  <h3 className="text-body-md text-ink font-semibold">SAR review</h3>
+                  <p className="text-body-sm text-mute">Awaiting reviewer approval.</p>
                 </div>
-                <Select
-                  label="Resolution label"
-                  options={TRAINING_LABEL_OPTIONS}
-                  value={label}
-                  onChange={(event) => setLabel(event.target.value as TrainingLabel)}
-                />
-                <Button
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        client.actOnAlert(alertId, {
-                          action: "resolve",
-                          label,
-                          note: note || undefined,
-                        }),
-                      "Alert resolved",
-                    )
-                  }
-                >
-                  Resolve
-                </Button>
-              </div>
+              ) : null}
+
+              {hasAlertActions ? (
+                <div className="gap-md flex flex-col">
+                  <h3 className="text-body-md text-ink font-semibold">Triage</h3>
+                  <Textarea
+                    label="Note (optional)"
+                    value={note}
+                    rows={2}
+                    onChange={(event) => setNote(event.target.value)}
+                  />
+                  <div className="gap-sm flex flex-col">
+                    {canTriage ? (
+                      <>
+                        <Button
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(
+                              () =>
+                                client.actOnAlert(alertId, {
+                                  action: "comment",
+                                  note: note || undefined,
+                                }),
+                              "Comment added",
+                            )
+                          }
+                        >
+                          Comment
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(
+                              () =>
+                                client.actOnAlert(alertId, {
+                                  action: "escalate",
+                                  note: note || undefined,
+                                }),
+                              "Alert escalated",
+                            )
+                          }
+                        >
+                          {canReviewSar ? "Escalate" : "Send for review"}
+                        </Button>
+                      </>
+                    ) : null}
+                    {canDismiss ? (
+                      <Button
+                        variant="tertiary"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              client.actOnAlert(alertId, {
+                                action: "dismiss",
+                                note: note || undefined,
+                              }),
+                            "Alert dismissed",
+                          )
+                        }
+                      >
+                        Dismiss
+                      </Button>
+                    ) : null}
+                  </div>
+                  {canFinalize ? (
+                    <>
+                      <Select
+                        label="Resolution label"
+                        options={TRAINING_LABEL_OPTIONS}
+                        value={label}
+                        onChange={(event) => setLabel(event.target.value as TrainingLabel)}
+                      />
+                      <Button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              client.actOnAlert(alertId, {
+                                action: "resolve",
+                                label,
+                                note: note || undefined,
+                              }),
+                            "Alert resolved",
+                          )
+                        }
+                      >
+                        Resolve
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-body-sm text-mute">
+                  Read-only access. Review the SAR, notes, and timeline without changing this alert.
+                </p>
+              )}
             </DecisionRail>
           </div>
         )}

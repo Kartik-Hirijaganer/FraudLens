@@ -79,7 +79,7 @@ export function Login() {
     if (!canSubmit) {
       return;
     }
-    signIn(email.trim(), remember);
+    signIn(email.trim(), remember, selectedRole?.role);
   }
 
   return (
@@ -201,7 +201,9 @@ export function Login() {
                 onChange={(e) => setRemember(e.target.checked)}
                 className="accent-auth-panel size-lg cursor-pointer"
               />
-              <span className="text-body-sm text-auth-strong">Keep me signed in on this device</span>
+              <span className="text-body-sm text-auth-strong">
+                Keep me signed in on this device
+              </span>
             </label>
 
             <button
@@ -215,7 +217,10 @@ export function Login() {
           </form>
 
           {/* Demo role picker */}
-          <div ref={pickerRef} className="border-auth-border gap-sm mt-xl pt-xl flex flex-col border-t border-dashed">
+          <div
+            ref={pickerRef}
+            className="border-auth-border gap-sm mt-xl pt-xl flex flex-col border-t border-dashed"
+          >
             <div className="flex items-center justify-between">
               <span
                 id="login-role-label"
@@ -279,9 +284,13 @@ export function Login() {
                         i < DEMO_ROLES.length - 1 && "border-b",
                       )}
                     >
-                      <span className={cx("size-[8px] shrink-0 rounded-full", ACCENT_DOT[role.accent])} />
+                      <span
+                        className={cx("size-[8px] shrink-0 rounded-full", ACCENT_DOT[role.accent])}
+                      />
                       <span className="gap-xxs flex grow flex-col">
-                        <span className="text-body-sm text-auth-panel font-medium">{role.name}</span>
+                        <span className="text-body-sm text-auth-panel font-medium">
+                          {role.name}
+                        </span>
                         <span className="text-auth-faint font-mono text-[11px]">{role.email}</span>
                       </span>
                       <span className="text-auth-muted bg-auth-divider px-sm py-xxs rounded-full text-[9px] font-semibold uppercase tracking-wide">
@@ -316,11 +325,41 @@ const MOTIF_LINES = [
 
 // Pulse-nodes positioned over the grid; each breathes on its own duration/phase.
 const MOTIF_NODES = [
-  { pos: "right-[80px] top-1/4", size: "size-[10px]", tone: "bg-auth-cyan shadow-node-cyan", dur: "2.4s", delay: "0s" },
-  { pos: "right-[180px] top-[56%]", size: "size-[8px]", tone: "bg-auth-amber shadow-node-amber", dur: "3s", delay: "0.5s" },
-  { pos: "left-[140px] top-[33%]", size: "size-[7px]", tone: "bg-canvas/70", dur: "3.1s", delay: "0.9s" },
-  { pos: "left-[220px] top-[70%]", size: "size-[8px]", tone: "bg-auth-green shadow-node-green", dur: "2.7s", delay: "1.3s" },
-  { pos: "right-[300px] top-[80%]", size: "size-[6px]", tone: "bg-canvas/50", dur: "3.4s", delay: "0.3s" },
+  {
+    pos: "right-[80px] top-1/4",
+    size: "size-[10px]",
+    tone: "bg-auth-cyan shadow-node-cyan",
+    dur: "2.4s",
+    delay: "0s",
+  },
+  {
+    pos: "right-[180px] top-[56%]",
+    size: "size-[8px]",
+    tone: "bg-auth-amber shadow-node-amber",
+    dur: "3s",
+    delay: "0.5s",
+  },
+  {
+    pos: "left-[140px] top-[33%]",
+    size: "size-[7px]",
+    tone: "bg-canvas/70",
+    dur: "3.1s",
+    delay: "0.9s",
+  },
+  {
+    pos: "left-[220px] top-[70%]",
+    size: "size-[8px]",
+    tone: "bg-auth-green shadow-node-green",
+    dur: "2.7s",
+    delay: "1.3s",
+  },
+  {
+    pos: "right-[300px] top-[80%]",
+    size: "size-[6px]",
+    tone: "bg-canvas/50",
+    dur: "3.4s",
+    delay: "0.3s",
+  },
 ] as const;
 
 function BrandMotif() {
@@ -344,7 +383,10 @@ function BrandMotif() {
             strokeWidth="1.5"
             strokeOpacity={i === 0 ? "0.42" : "0.22"}
             strokeDasharray="1700"
-            style={{ animationDuration: i === 0 ? "3s" : "3.2s", animationDelay: i === 0 ? "0.4s" : "0.7s" }}
+            style={{
+              animationDuration: i === 0 ? "3s" : "3.2s",
+              animationDelay: i === 0 ? "0.4s" : "0.7s",
+            }}
           />
         ))}
       </svg>

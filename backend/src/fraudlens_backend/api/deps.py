@@ -11,6 +11,7 @@ of the flag, so production can never be bypassed.
 Key classes:
 - AccessClaims: validated claims extracted from a verified token.
 - CredentialsError: raised by a TokenVerifier when a token is not acceptable.
+- Permission: API-boundary permissions granted by role.
 - TokenVerifier: protocol for pluggable token verification.
 - JwksTokenVerifier:
 
@@ -22,6 +23,9 @@ Key functions:
 - enforce_tenant: validate a claim's agency_id against the requested agency_id.
 - get_tenant_for_path: dependency enforcing tenancy for /agencies/{agencyId}.
 - get_tenant: dependency resolving tenant scope from the verified claim alone.
+- role_has_permission: return whether a role grants a permission.
+- enforce_permission: fail closed unless the tenant role grants a permission.
+- require_permission: dependency factory for permission-gated routes.
 - get_admin_tenant: dependency that additionally requires the admin role (403 otherwise).
 - require_actor: return the verified acting user id for an audited mutation (401 when absent).
 - optional_actor: return the acting user id when present, else None (audited non-gated mutations).
@@ -41,9 +45,11 @@ value ever appears in the raised message (FraudLens tenant/PHI hygiene).
 - The dev-bypass agency id is the shared demo tenant (fraudlens_backend.demo), so a
 bypassed identity resolves to the seeded demo agency in local-demo (still inert in prod);
 the bypass mints the CONFIGURED role (settings.auth_dev_bypass_role, default admin so local-demo
-can exercise the admin-only model lifecycle, Phase 10) while the audited actor stays DEMO_USER_ID.
+can exercise the admin-only model lifecycle, Phase 10). A dev-only header/query param can vary
+that role for the portfolio demo login; production ignores it because the bypass is disabled.
 - RBAC is claim-based (§6.3): the role rides the verified claim and is re-checked in services
-via get_admin_tenant; a non-admin on an admin route fails closed with admin_role_required (403).
+via permission dependencies; a non-admin on an admin route fails closed with
+admin_role_required (403).
 - get_db_session yields from app.state.db_sessionmaker; when no DATABASE_URL is configured
 the sessionmaker is None and the dependency fails closed with 503 (the app still boots).
 - Observability (plan §11.4/§11.7, Phase 12): enforce_tenant binds the verified agency_id/user_id
@@ -57,6 +63,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
+from enum import StrEnum
 from typing import Annotated, Protocol, cast
 
 import jwt
@@ -70,7 +77,7 @@ from starlette.requests import Request
 
 from fraudlens_backend.db.models.enums import UserRole
 from fraudlens_backend.db.repositories import AuditLogRepository
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID
+from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID, DEMO_USERS
 from fraudlens_backend.middleware.logging import bind_identity
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
@@ -81,7 +88,48 @@ from fraudlens_core import TenantIsolationError, require_agency_id
 DEV_BYPASS_AGENCY_ID = str(DEMO_AGENCY_ID)
 DEV_BYPASS_USER_ID = str(DEMO_USER_ID)
 # The dev-bypass role is config-driven (settings.auth_dev_bypass_role, default admin so local-demo
-# can drive the model lifecycle); it is honored only when the bypass is enabled (prod-inert).
+# can drive the model lifecycle); a dev-only request header can override it for the demo login.
+DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role"
+DEMO_ROLE_QUERY_PARAM = "demoRole"
+
+
+class Permission(StrEnum):
+    """Application permissions enforced at API boundaries."""
+
+    VIEW = "view"
+    INGEST_TRANSACTIONS = "ingest_transactions"
+    START_INVESTIGATION = "start_investigation"
+    TRIAGE_ALERT = "triage_alert"
+    DISMISS_ALERT = "dismiss_alert"
+    FINALIZE_ALERT = "finalize_alert"
+    REVIEW_SAR = "review_sar"
+    MANAGE_RULES = "manage_rules"
+
+
+_ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
+    UserRole.AUDITOR: frozenset({Permission.VIEW}),
+    UserRole.ANALYST: frozenset(
+        {
+            Permission.VIEW,
+            Permission.INGEST_TRANSACTIONS,
+            Permission.START_INVESTIGATION,
+            Permission.TRIAGE_ALERT,
+            Permission.DISMISS_ALERT,
+        }
+    ),
+    UserRole.REVIEWER: frozenset(
+        {
+            Permission.VIEW,
+            Permission.INGEST_TRANSACTIONS,
+            Permission.START_INVESTIGATION,
+            Permission.TRIAGE_ALERT,
+            Permission.DISMISS_ALERT,
+            Permission.FINALIZE_ALERT,
+            Permission.REVIEW_SAR,
+        }
+    ),
+    UserRole.ADMIN: frozenset(set(Permission)),
+}
 
 
 def get_app_settings(request: Request) -> AppSettings:
@@ -110,7 +158,9 @@ class AccessClaims(BaseModel):
     )
     role: str = Field(
         default=UserRole.ANALYST.value,
-        description="RBAC role claim (analyst|reviewer|admin); least privilege when absent.",
+        description=(
+            "RBAC role claim (auditor|analyst|reviewer|admin); least privilege when absent."
+        ),
     )
 
 
@@ -132,6 +182,39 @@ class _UnconfiguredTokenVerifier:
     def __call__(self, token: str) -> AccessClaims:
         """Always raise — real verification (Infisical key) is added later."""
         raise CredentialsError("token verification is not configured")
+
+
+def _parse_role(value: object) -> UserRole | None:
+    """Return a UserRole from an untrusted claim/header value, or None when invalid."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return UserRole(value)
+    except ValueError:
+        return None
+
+
+def _dev_bypass_claims(request: Request, settings: AppSettings) -> AccessClaims:
+    """Mint dev-only claims, optionally varying by the selected demo login role."""
+    requested = request.headers.get(DEMO_ROLE_HEADER) or request.query_params.get(
+        DEMO_ROLE_QUERY_PARAM
+    )
+    if requested:
+        role = _parse_role(requested)
+        if role is None:
+            raise HTTPException(status_code=401, detail="invalid demo role")
+        demo_user = next((spec for spec in DEMO_USERS if spec.role is role), None)
+        user_id = str(demo_user.user_id) if demo_user is not None else DEV_BYPASS_USER_ID
+        return AccessClaims(
+            agency_id=DEV_BYPASS_AGENCY_ID,
+            user_id=user_id,
+            role=role.value,
+        )
+    return AccessClaims(
+        agency_id=DEV_BYPASS_AGENCY_ID,
+        user_id=DEV_BYPASS_USER_ID,
+        role=settings.auth_dev_bypass_role,
+    )
 
 
 class JwksTokenVerifier:
@@ -169,7 +252,7 @@ class JwksTokenVerifier:
         if not isinstance(agency_id, str) or not agency_id:
             raise CredentialsError("missing agency claim")
         role = payload.get(self._role_claim, UserRole.ANALYST.value)
-        if role not in {member.value for member in UserRole}:
+        if _parse_role(role) is None:
             raise CredentialsError("invalid role claim")
         subject = payload.get("sub")
         user_id = subject if isinstance(subject, str) and subject else None
@@ -191,17 +274,14 @@ CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_s
 
 
 async def authenticate(
+    request: Request,
     settings: SettingsDep,
     verifier: VerifierDep,
     credentials: CredentialsDep,
 ) -> AccessClaims:
     """Resolve AccessClaims, applying the prod-inert dev bypass; else verify the token."""
     if settings.is_dev_bypass_enabled:
-        return AccessClaims(
-            agency_id=DEV_BYPASS_AGENCY_ID,
-            user_id=DEV_BYPASS_USER_ID,
-            role=settings.auth_dev_bypass_role,
-        )
+        return _dev_bypass_claims(request, settings)
     if credentials is None or not credentials.credentials:
         log_security_event("auth_fail", reason="missing_token")
         raise HTTPException(status_code=401, detail="missing bearer token")
@@ -247,6 +327,32 @@ async def get_tenant(claims: AuthenticatedClaims) -> TenantContext:
     return enforce_tenant(claims, None)
 
 
+def role_has_permission(role: str, permission: Permission) -> bool:
+    """Return True when a role value grants the requested permission."""
+    parsed = _parse_role(role)
+    return parsed is not None and permission in _ROLE_PERMISSIONS[parsed]
+
+
+def enforce_permission(tenant: TenantContext, permission: Permission) -> TenantContext:
+    """Fail closed unless the tenant's role grants `permission`."""
+    if not role_has_permission(tenant.role, permission):
+        raise AppError(
+            "role_permission_required",
+            details=[{"field": "permission", "message": permission.value}],
+        )
+    return tenant
+
+
+def require_permission(permission: Permission) -> Callable[..., Awaitable[TenantContext]]:
+    """Build a dependency that authenticates, scopes the tenant, then checks permission."""
+
+    async def _dependency(claims: AuthenticatedClaims) -> TenantContext:
+        tenant = enforce_tenant(claims, None)
+        return enforce_permission(tenant, permission)
+
+    return _dependency
+
+
 async def get_admin_tenant(claims: AuthenticatedClaims) -> TenantContext:
     """Tenant scope that additionally requires the admin role (plan §6.3); else 403 fail-closed.
 
@@ -274,9 +380,9 @@ def require_actor(tenant: TenantContext) -> uuid.UUID:
 def optional_actor(tenant: TenantContext) -> uuid.UUID | None:
     """Return the acting user id when the token carries a subject, else None (plan §8.4).
 
-    Used by audited but NOT human-gated mutations (ingest, investigate, rules CRUD): the action
-    is still recorded with the tenant + request correlation, but a subject-less token stays valid
-    (unlike `require_actor`, which fails closed for the human-review / model-lifecycle gates).
+    Used by audited but NOT human-gated mutations (ingest, investigate): the action is still
+    recorded with the tenant + request correlation, but a subject-less token stays valid (unlike
+    `require_actor`, which fails closed for rule/config/human-review/model-lifecycle gates).
     """
     return uuid.UUID(tenant.user_id) if tenant.user_id else None
 

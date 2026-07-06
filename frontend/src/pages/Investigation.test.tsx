@@ -1,14 +1,29 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SarDraftView } from "../lib/api";
+import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
 import type { SseClientOptions, SseHandle } from "../lib/sse";
 import { makeClient, sarDraft, snapshot } from "../test/factories";
 import { Investigation } from "./Investigation";
 
+function signInAs(role: UserRole): void {
+  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
+  if (!demoRole) {
+    throw new Error(`Missing demo role: ${role}`);
+  }
+  signIn(demoRole.email, false, demoRole.role);
+}
+
+beforeEach(() => {
+  signInAs("analyst");
+});
+
 afterEach(() => {
   window.location.hash = "";
+  signOut();
+  vi.clearAllMocks();
 });
 
 function streamHarness() {
@@ -172,6 +187,38 @@ describe("Investigation", () => {
     // The draft is preserved and the button returns to its idle, clickable state.
     expect(screen.getByText(/Original narrative under review\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
+  });
+
+  it("hides Regenerate from auditor sessions", async () => {
+    signOut();
+    signInAs("auditor");
+    const harness = streamHarness();
+    const regenerateSar = vi.fn(() => Promise.resolve(sarDraft({ version: 2 })));
+    render(
+      <Investigation
+        runId="run-1"
+        client={makeClient({ regenerateSar })}
+        createStream={harness.factory}
+      />,
+    );
+    runToCompletion(harness);
+    harness.emit("step.shap.completed", {
+      topFeatures: [{ feature: "amount", value: 1, shapValue: 0.5 }],
+    });
+    harness.emit("step.rag.completed", {
+      mode: "vector",
+      citations: [{ citation: "c", title: "t", source: "FinCEN", snippet: "s" }],
+    });
+    harness.emit("sar.started", {}, "6");
+    harness.emit("sar.token", { token: "Original narrative under review." });
+    harness.emit("run.completed", { riskScore: 0.8, riskBand: "high", sarDraftId: "s1" }, "7");
+
+    await userEvent.click(screen.getByRole("button", { name: /continue to drivers/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to citations/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to sar draft/i }));
+
+    expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+    expect(regenerateSar).not.toHaveBeenCalled();
   });
 
   it("shows the failed state and blocks submit when the auto-run fails", () => {

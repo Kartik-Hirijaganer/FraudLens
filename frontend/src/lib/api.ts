@@ -60,7 +60,11 @@
  */
 import { config } from "./config";
 import { humanize } from "./format";
+import { getSession } from "./session";
 import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
+
+const DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role";
+const DEMO_ROLE_QUERY_PARAM = "demoRole";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type AlertStatus =
@@ -480,6 +484,43 @@ function query(params: Record<string, string | number | undefined>): string {
   return rendered ? `?${rendered}` : "";
 }
 
+function headersToRecord(headers?: HeadersInit): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+  return { ...headers };
+}
+
+function withSessionHeaders(init?: RequestInit): RequestInit | undefined {
+  const session = getSession();
+  if (!session) {
+    return init;
+  }
+  const headers = headersToRecord(init?.headers);
+  if (session.accessToken && !("Authorization" in headers)) {
+    headers.Authorization = `Bearer ${session.accessToken}`;
+  }
+  if (session.demoRole && !(DEMO_ROLE_HEADER in headers)) {
+    headers[DEMO_ROLE_HEADER] = session.demoRole;
+  }
+  return { ...init, headers };
+}
+
+function withDemoRoleQuery(url: string): string {
+  const role = getSession()?.demoRole;
+  if (!role) {
+    return url;
+  }
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}${DEMO_ROLE_QUERY_PARAM}=${encodeURIComponent(role)}`;
+}
+
 export async function fetchApiHealth(fetchImpl: typeof fetch = fetch): Promise<ApiHealth> {
   const response = await fetchImpl(`${config.apiBaseUrl}/api/v1/health`);
   if (!response.ok) {
@@ -490,7 +531,7 @@ export async function fetchApiHealth(fetchImpl: typeof fetch = fetch): Promise<A
 
 export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
   async function send<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetchImpl(`${config.apiBaseUrl}${path}`, init);
+    const response = await fetchImpl(`${config.apiBaseUrl}${path}`, withSessionHeaders(init));
     if (!response.ok) {
       throw await errorFromResponse(response);
     }
@@ -529,7 +570,8 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
     getInvestigation: (runId) => send<InvestigationSnapshot>(`/api/v1/investigations/${runId}`),
     regenerateSar: (runId) =>
       send<SarDraftView>(`/api/v1/investigations/${runId}/sar/regenerate`, jsonInit("POST")),
-    investigationStreamUrl: (runId) => `${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`,
+    investigationStreamUrl: (runId) =>
+      withDemoRoleQuery(`${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`),
     listAlerts: (params = {}) => send<AlertListResponse>(`/api/v1/alerts${query({ ...params })}`),
     getAlert: (alertId) => send<AlertDetailResponse>(`/api/v1/alerts/${alertId}`),
     actOnAlert: (alertId, body) =>

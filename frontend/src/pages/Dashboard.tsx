@@ -28,7 +28,7 @@ import { apiClient, type AlertView, type ApiClient, type DashboardMetrics } from
 import { formatModelVersion, greeting } from "../lib/format";
 import { riskTone, severityCounts, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
-import { currentAnalyst } from "../lib/session";
+import { currentAnalyst, useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
 
 interface DashboardData {
@@ -66,6 +66,7 @@ function modelHint(metrics: DashboardMetrics): { text: string; tone: StatusTone 
 }
 
 export function Dashboard({ client = apiClient }: DashboardProps) {
+  const session = useSession();
   const load = useCallback(async (): Promise<DashboardData> => {
     const [metrics, alerts] = await Promise.all([
       client.getDashboardMetrics(),
@@ -85,7 +86,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
           <section className="gap-2xl flex flex-col">
             <header className="gap-sm flex flex-col">
               <h1 className="text-display-sm md:text-display-md text-ink">
-                {greeting()}, {currentAnalyst.name}
+                {greeting()}, {session?.analyst.name ?? currentAnalyst.name}
               </h1>
               <p className="text-body-lg text-body">{subtitle(open, counts.high)}</p>
             </header>

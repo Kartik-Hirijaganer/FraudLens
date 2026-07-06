@@ -38,7 +38,7 @@ drift.
 | Table | Purpose | Notes |
 |---|---|---|
 | `agencies` | Tenant root | `slug` UNIQUE; the only table with no `agency_id`. |
-| `users` | Analyst/reviewer/admin per agency | `email` UNIQUE; idx `(agency_id, email)`. |
+| `users` | Auditor/analyst/reviewer/admin per agency | `email` UNIQUE; idx `(agency_id, email)`. |
 | `transactions` | Financial transactions (masked) | Account ids stored **masked** + `feature_hash`; no raw PHI (ADR-014). UNIQUE `(agency_id, external_id)`; `latest_run_id` is a denormalized pointer (no FK). |
 | `aml_rules` | Deterministic AML rule definitions | `agency_id` NULL ⇒ global default rule. |
 | `analysis_runs` | Persisted investigation runs | Status + per-step version provenance. |

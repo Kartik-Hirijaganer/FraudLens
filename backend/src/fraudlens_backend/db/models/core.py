@@ -9,7 +9,7 @@ nullable so a row can be a global default rule or a per-agency override.
 
 Key classes:
 - Agency: platform tenant record (id/name/slug); the root of tenant isolation.
-- User: an analyst/reviewer/admin scoped to one agency.
+- User: an auditor/analyst/reviewer/admin scoped to one agency.
 - Transaction: a tenant-scoped financial transaction (masked identifiers + features).
 - AmlRule: a deterministic AML rule definition (global when agency_id is NULL).
 
@@ -71,7 +71,7 @@ class Agency(IdMixin, Base):
 
 
 class User(AgencyScopedMixin, TimestampMixin, Base):
-    """An analyst/reviewer/admin scoped to exactly one agency (plan §9.1)."""
+    """An auditor/analyst/reviewer/admin scoped to exactly one agency (plan §9.1)."""
 
     __tablename__ = "users"
     __table_args__ = (
