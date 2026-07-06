@@ -53,6 +53,7 @@ import {
 } from "../lib/investigation";
 import { riskTone, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
+import { hasPermission, useSession } from "../lib/session";
 import { createSseClient, type SseHandle } from "../lib/sse";
 import { notify, notifyError } from "../lib/toast";
 
@@ -193,6 +194,8 @@ export function Investigation({
   const [connectionError, setConnectionError] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [regenerating, setRegenerating] = useState(false);
+  const session = useSession();
+  const canStartInvestigation = hasPermission(session, "startInvestigation");
 
   useEffect(() => {
     setState(initialInvestigationState());
@@ -422,7 +425,7 @@ export function Investigation({
 
           <div className="gap-md flex flex-col">
             <div className="gap-md flex flex-col sm:flex-row">
-              {stepKey === "sar" ? (
+              {stepKey === "sar" && canStartInvestigation ? (
                 <Button
                   variant="secondary"
                   onClick={() => void handleRegenerate()}
