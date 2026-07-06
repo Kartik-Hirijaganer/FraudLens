@@ -1,15 +1,17 @@
 /**
- * Summary: The FraudLens app shell (plan §16 Phase 11, redesigned). It frames the app as a
- * white app-window card over the sage canvas: a branded header (wordmark + analyst avatar), a
- * grouped Workspace/Admin sidebar (the sole primary nav), and a sage content panel that switches
- * on the hash route (`useHashRoute`). Each page owns its own data + states; the shell only routes
- * and frames them. The Sonner `<Toaster/>` mounts once so any page can raise a toast.
+ * Summary: The FraudLens app shell (plan §16 Phase 11, redesigned). It gates on the session
+ * (`useSession`): with no session it renders the <Login/> screen, otherwise it frames the app as
+ * a white app-window card over the sage canvas — a branded header (wordmark + analyst avatar +
+ * sign-out), a grouped Workspace/Admin sidebar (the sole primary nav), and a sage content panel
+ * that switches on the hash route (`useHashRoute`). Each page owns its own data + states; the
+ * shell only routes and frames them. The Sonner `<Toaster/>` mounts once (across both the login
+ * and signed-in states) so any screen can raise a toast.
  *
  * Key classes:
  * - (none)
  *
  * Key functions:
- * - App: render the shell + route the current page.
+ * - App: gate on the session, then render either <Login/> or the shell + routed page.
  *
  * Notes:
  * - The sidebar is the only nav; contextual screens (alert review, investigation) are reached by
@@ -24,11 +26,12 @@ import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
 import { Investigation } from "./pages/Investigation";
+import { Login } from "./pages/Login";
 import { ModelAdmin } from "./pages/ModelAdmin";
 import { Transactions } from "./pages/Transactions";
 import { cx } from "./lib/cx";
 import { paths, useHashRoute, type Route } from "./lib/router";
-import { currentAnalyst } from "./lib/session";
+import { currentAnalyst, signOut, useSession } from "./lib/session";
 
 interface NavItem {
   label: string;
@@ -88,7 +91,16 @@ function renderRoute(route: Route) {
 }
 
 export function App() {
+  const session = useSession();
   const route = useHashRoute();
+  if (!session) {
+    return (
+      <>
+        <Login />
+        <Toaster richColors position="bottom-right" />
+      </>
+    );
+  }
   return (
     <div className="bg-canvas-soft text-ink min-h-screen">
       <div className="max-w-shell px-xl py-xl mx-auto flex flex-col">
@@ -103,6 +115,13 @@ export function App() {
               <span className="h-2xl w-2xl bg-primary-neutral text-ink-deep text-caption flex items-center justify-center rounded-full font-semibold">
                 {currentAnalyst.initials}
               </span>
+              <button
+                type="button"
+                onClick={signOut}
+                className="text-body-sm text-body font-semibold"
+              >
+                Sign out
+              </button>
             </div>
           </header>
 
