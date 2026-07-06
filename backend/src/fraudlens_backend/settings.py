@@ -111,7 +111,7 @@ class AppSettings(BaseSettings):
         default=False,
         description="Dev-only auth bypass; honored only when environment != 'prod'.",
     )
-    auth_dev_bypass_role: Literal["analyst", "reviewer", "admin"] = Field(
+    auth_dev_bypass_role: Literal["auditor", "analyst", "reviewer", "admin"] = Field(
         default="admin",
         description="RBAC role the dev bypass mints (default admin so local-demo can drive the "
         "model lifecycle); honored only when the bypass is enabled, so it is prod-inert.",

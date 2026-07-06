@@ -1,31 +1,43 @@
 /**
- * Summary: The analyst identity and sign-in session for the app (plan §16 Phase 11).
- * FraudLens has no server auth yet, so this is a clearly-labelled pre-auth layer living
- * in one place (rule 5: no duplication): `DEMO_ROLES` are the synthetic demo identities
- * the login screen can auto-fill, and a tiny storage-backed store (`signIn` / `signOut` /
- * `useSession`) gates the shell. When real JWT auth lands, the store is replaced by the
- * token-derived identity and every consumer (`useSession`, `currentAnalyst`) keeps working.
+ * Summary: The signed-in identity and demo-session store for the app (plan §16 Phase 11,
+ * RBAC hardening Phase 1). `DEMO_ROLES` are synthetic portfolio/demo personas mapped to
+ * canonical backend roles, and `signIn` persists the selected role so local-demo API calls can
+ * send the dev-only role header. Real auth can later pass an access token while preserving the
+ * same `Session` shape for shell, API, and permission helpers.
  *
  * Key classes:
- * - Analyst: the display identity of an analyst (name + avatar initials).
- * - DemoRole: a selectable demo role plus the synthetic credentials it auto-fills.
- * - Session: the authenticated session state (the signed-in email).
+ * - Analyst: display identity for the shell and dashboard.
+ * - DemoRole: selectable demo persona plus its canonical backend role.
+ * - Session: authenticated session state (email, role, display identity, optional token).
  *
  * Key functions:
- * - DEMO_ROLES: the demo roles offered by the login "Sign in as" dropdown.
- * - currentAnalyst: the placeholder analyst rendered by the shell until JWT auth lands.
+ * - DEMO_ROLES: portfolio/demo personas offered by the login picker.
+ * - currentAnalyst: fallback display identity when a non-demo email signs in.
+ * - roleHasPermission: role-level permission helper used for UX gating.
+ * - hasPermission: session-level permission helper used by the shell.
  * - signIn: start a session (persisted per the "keep signed in" choice).
  * - signOut: clear the session from memory and both storages.
  * - getSession: read the current session synchronously (null when signed out).
  * - useSession: subscribe to the session so a component re-renders on change.
  *
  * Notes:
- * - `DEMO_ROLES` credentials are synthetic demo values (no PHI, no real secret) — the whole
- *   point of the demo dropdown is that they are shown and auto-filled client-side.
- * - "Keep me signed in" persists to localStorage; otherwise the session lives in
- *   sessionStorage and is dropped when the tab closes.
+ * - Demo credentials are synthetic (no PHI, no real secret). The client-sent demo role is honored
+ *   only by the backend's non-prod dev bypass; production auth ignores it and uses verified JWTs.
  */
 import { useSyncExternalStore } from "react";
+
+export type UserRole = "auditor" | "analyst" | "reviewer" | "admin";
+
+export type SessionPermission =
+  | "view"
+  | "ingestTransactions"
+  | "startInvestigation"
+  | "triageAlert"
+  | "dismissAlert"
+  | "finalizeAlert"
+  | "reviewSar"
+  | "manageRules"
+  | "manageAdmin";
 
 export interface Analyst {
   name: string;
@@ -37,53 +49,98 @@ export type RoleAccent = "green" | "cyan" | "amber" | "slate";
 
 export interface DemoRole {
   id: string;
+  role: UserRole;
   name: string;
   tag: string;
   accent: RoleAccent;
   analyst: Analyst;
   email: string;
+  legacyEmails?: readonly string[];
   demoPassword: string;
 }
 
+export interface Session {
+  email: string;
+  role: UserRole;
+  analyst: Analyst;
+  demoRole?: UserRole;
+  accessToken?: string;
+}
+
+const USER_ROLES: readonly UserRole[] = ["auditor", "analyst", "reviewer", "admin"];
+
+const ROLE_PERMISSIONS: Record<UserRole, readonly SessionPermission[]> = {
+  auditor: ["view"],
+  analyst: ["view", "ingestTransactions", "startInvestigation", "triageAlert", "dismissAlert"],
+  reviewer: [
+    "view",
+    "ingestTransactions",
+    "startInvestigation",
+    "triageAlert",
+    "dismissAlert",
+    "finalizeAlert",
+    "reviewSar",
+  ],
+  admin: [
+    "view",
+    "ingestTransactions",
+    "startInvestigation",
+    "triageAlert",
+    "dismissAlert",
+    "finalizeAlert",
+    "reviewSar",
+    "manageRules",
+    "manageAdmin",
+  ],
+};
+
 // Synthetic, non-secret demo passphrase shared by every demo role. Displayed and
-// auto-filled purely client-side for the personal demo build — never a real credential.
+// auto-filled purely client-side for the personal demo build -- never a real credential.
 const DEMO_PASSWORD = "demo-access-2026";
 
 export const DEMO_ROLES: readonly DemoRole[] = [
   {
     id: "analyst",
+    role: "analyst",
     name: "Fraud Analyst",
     tag: "Queue",
     accent: "green",
     analyst: { name: "Alex Rivera", initials: "AR" },
-    email: "analyst@fraudlens.demo",
+    email: "analyst@demo-agency.test",
+    legacyEmails: ["analyst@fraudlens.demo"],
     demoPassword: DEMO_PASSWORD,
   },
   {
-    id: "senior",
-    name: "Senior Analyst",
+    id: "reviewer",
+    role: "reviewer",
+    name: "Reviewer",
     tag: "Approve",
     accent: "cyan",
     analyst: { name: "Morgan Diaz", initials: "MD" },
-    email: "senior@fraudlens.demo",
+    email: "reviewer@demo-agency.test",
+    legacyEmails: ["senior@fraudlens.demo"],
     demoPassword: DEMO_PASSWORD,
   },
   {
     id: "admin",
+    role: "admin",
     name: "Compliance Admin",
     tag: "Model",
     accent: "amber",
     analyst: { name: "Priya Shah", initials: "PS" },
-    email: "admin@fraudlens.demo",
+    email: "admin@demo-agency.test",
+    legacyEmails: ["admin@fraudlens.demo"],
     demoPassword: DEMO_PASSWORD,
   },
   {
     id: "auditor",
+    role: "auditor",
     name: "Auditor",
     tag: "Read-only",
     accent: "slate",
     analyst: { name: "Jordan Lee", initials: "JL" },
-    email: "auditor@fraudlens.demo",
+    email: "auditor@demo-agency.test",
+    legacyEmails: ["auditor@fraudlens.demo"],
     demoPassword: DEMO_PASSWORD,
   },
 ];
@@ -93,11 +150,46 @@ export const currentAnalyst: Analyst = {
   initials: "AR",
 };
 
-export interface Session {
-  email: string;
+const STORAGE_KEY = "fraudlens.session";
+
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === "string" && USER_ROLES.includes(value as UserRole);
 }
 
-const STORAGE_KEY = "fraudlens.session";
+function demoRoleByEmail(email: string): DemoRole | undefined {
+  const normalized = email.toLowerCase();
+  return DEMO_ROLES.find(
+    (role) =>
+      role.email.toLowerCase() === normalized ||
+      role.legacyEmails?.some((legacyEmail) => legacyEmail.toLowerCase() === normalized),
+  );
+}
+
+function demoRoleByRole(role: UserRole): DemoRole | undefined {
+  return DEMO_ROLES.find((demoRole) => demoRole.role === role);
+}
+
+function buildSession(email: string, role?: UserRole, accessToken?: string): Session {
+  const demoRole = role ? demoRoleByRole(role) : demoRoleByEmail(email);
+  const resolvedRole = demoRole?.role ?? role ?? "analyst";
+  return {
+    email,
+    role: resolvedRole,
+    analyst: demoRole?.analyst ?? currentAnalyst,
+    ...(accessToken ? { accessToken } : { demoRole: resolvedRole }),
+  };
+}
+
+export function roleHasPermission(role: UserRole, permission: SessionPermission): boolean {
+  return ROLE_PERMISSIONS[role].includes(permission);
+}
+
+export function hasPermission(
+  session: Pick<Session, "role"> | null,
+  permission: SessionPermission,
+): boolean {
+  return session !== null && roleHasPermission(session.role, permission);
+}
 
 function safeStorage(store: Storage): Storage | null {
   try {
@@ -120,12 +212,21 @@ function readStoredSession(): Session | null {
       continue;
     }
     try {
-      const parsed = JSON.parse(raw) as { email?: unknown };
+      const parsed = JSON.parse(raw) as {
+        email?: unknown;
+        role?: unknown;
+        accessToken?: unknown;
+      };
       if (typeof parsed.email === "string" && parsed.email.length > 0) {
-        return { email: parsed.email };
+        const role = isUserRole(parsed.role) ? parsed.role : undefined;
+        const accessToken =
+          typeof parsed.accessToken === "string" && parsed.accessToken.length > 0
+            ? parsed.accessToken
+            : undefined;
+        return buildSession(parsed.email, role, accessToken);
       }
     } catch {
-      // Malformed entry — ignore and fall through to a signed-out state.
+      // Malformed entry -- ignore and fall through to a signed-out state.
     }
   }
   return null;
@@ -141,8 +242,13 @@ function emit(): void {
   }
 }
 
-export function signIn(email: string, remember = false): Session {
-  currentSession = { email };
+export function signIn(
+  email: string,
+  remember = false,
+  role?: UserRole,
+  accessToken?: string,
+): Session {
+  currentSession = buildSession(email, role, accessToken);
   const target = safeStorage(remember ? window.localStorage : window.sessionStorage);
   const other = safeStorage(remember ? window.sessionStorage : window.localStorage);
   target?.setItem(STORAGE_KEY, JSON.stringify(currentSession));

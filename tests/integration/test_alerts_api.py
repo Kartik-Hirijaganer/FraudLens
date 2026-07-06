@@ -305,6 +305,23 @@ async def test_assign_cross_tenant_assignee_returns_403(
     assert resp.json()["code"] == "assignee_not_in_agency"
 
 
+async def test_auditor_cannot_mutate_alerts(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="auditor")
+    async with _client(app) as client:
+        detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
+        resp = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment"}
+        )
+    assert detail.status_code == 200
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "role_permission_required"
+
+
 async def test_resolve_writes_training_label(
     make_settings: Callable[..., AppSettings],
     db_engine: AsyncEngine,
@@ -326,6 +343,7 @@ async def test_resolve_writes_training_label(
             )
         ).scalar_one()
         assert label.label.value == "confirmed_fraud"
+        assert label.source.value == "analyst_review"
         assert label.created_by == DEMO_USER_ID
         assert label.transaction_id == ids["transaction_id"]
         assert label.matured_at is not None  # a future maturity is stamped for the retrain job
@@ -379,6 +397,46 @@ async def test_illegal_transition_on_terminal_alert_is_409(
         )
     assert resp.status_code == 409
     assert resp.json()["code"] == "invalid_alert_transition"
+
+
+async def test_analyst_cannot_finalize_alert_or_review_sar(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker)
+    dismiss_ids = await _seed_alert(db_sessionmaker)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="analyst")
+    async with _client(app) as client:
+        comment = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment"}
+        )
+        dismiss = await client.post(
+            f"/api/v1/alerts/{dismiss_ids['alert_id']}/actions", json={"action": "dismiss"}
+        )
+        resolve = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "resolve", "label": "confirmed_fraud"},
+        )
+        review = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/sar/review", json={"decision": "approve"}
+        )
+    assert comment.status_code == 200
+    assert dismiss.status_code == 200
+    assert dismiss.json()["status"] == "dismissed"
+    assert resolve.status_code == 403
+    assert review.status_code == 403
+    assert resolve.json()["code"] == "role_permission_required"
+    assert review.json()["code"] == "role_permission_required"
+    async with db_sessionmaker() as session:
+        label = (
+            await session.execute(
+                select(TrainingLabel).where(TrainingLabel.run_id == dismiss_ids["run_id"])
+            )
+        ).scalar_one()
+    assert label.label.value == "false_positive"
+    assert label.source.value == "analyst_dismiss"
+    assert label.created_by == DEMO_USER_ID
 
 
 async def test_comment_note_is_phi_masked(

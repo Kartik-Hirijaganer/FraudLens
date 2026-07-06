@@ -1,16 +1,30 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
+import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
 import { notify } from "../lib/toast";
 import { makeClient, transaction } from "../test/factories";
 import { Transactions } from "./Transactions";
 
+function signInAs(role: UserRole): void {
+  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
+  if (!demoRole) {
+    throw new Error(`Missing demo role: ${role}`);
+  }
+  signIn(demoRole.email, false, demoRole.role);
+}
+
+beforeEach(() => {
+  signInAs("analyst");
+});
+
 afterEach(() => {
   window.location.hash = "";
+  signOut();
   vi.clearAllMocks();
 });
 
@@ -38,6 +52,21 @@ describe("Transactions", () => {
     await userEvent.upload(screen.getByLabelText("Import CSV"), file);
     await waitFor(() => expect(client.uploadCsv).toHaveBeenCalledWith("externalId,amount\nx,1"));
     expect(notify).toHaveBeenCalled();
+  });
+
+  it("hides import and investigation actions from auditor sessions", async () => {
+    signOut();
+    signInAs("auditor");
+    const client = makeClient();
+    render(<Transactions client={client} />);
+    expect(await screen.findByText("ext-1")).toBeInTheDocument();
+
+    expect(screen.queryByLabelText("Import CSV")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Investigate transaction/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("ext-1"));
+    expect(client.startInvestigation).not.toHaveBeenCalled();
   });
 
   it("re-queries the server when the risk-band filter changes", async () => {

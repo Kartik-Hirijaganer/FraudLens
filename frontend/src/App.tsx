@@ -31,11 +31,18 @@ import { ModelAdmin } from "./pages/ModelAdmin";
 import { Transactions } from "./pages/Transactions";
 import { cx } from "./lib/cx";
 import { paths, useHashRoute, type Route } from "./lib/router";
-import { currentAnalyst, signOut, useSession } from "./lib/session";
+import {
+  hasPermission,
+  signOut,
+  useSession,
+  type Session,
+  type SessionPermission,
+} from "./lib/session";
 
 interface NavItem {
   label: string;
   href: string;
+  permission?: SessionPermission;
   isActive: (route: Route) => boolean;
 }
 
@@ -64,12 +71,26 @@ const SIDEBAR: NavGroup[] = [
   {
     heading: "Admin",
     items: [
-      { label: "Model admin", href: paths.modelAdmin, isActive: (r) => r.name === "modelAdmin" },
+      {
+        label: "Model admin",
+        href: paths.modelAdmin,
+        permission: "manageAdmin",
+        isActive: (r) => r.name === "modelAdmin",
+      },
     ],
   },
 ];
 
-function renderRoute(route: Route) {
+function roleLabel(role: Session["role"]): string {
+  return {
+    auditor: "Auditor",
+    analyst: "Fraud Analyst",
+    reviewer: "Reviewer",
+    admin: "Compliance Admin",
+  }[role];
+}
+
+function renderRoute(route: Route, session: Session) {
   switch (route.name) {
     case "dashboard":
       return <Dashboard />;
@@ -82,6 +103,9 @@ function renderRoute(route: Route) {
     case "alertDetail":
       return <AlertDetail alertId={route.alertId} />;
     case "modelAdmin":
+      if (!hasPermission(session, "manageAdmin")) {
+        return <EmptyState title="Admin only" description="This page requires the admin role." />;
+      }
       return <ModelAdmin />;
     default:
       return (
@@ -111,9 +135,9 @@ export function App() {
               <span className="font-display text-display-xs text-ink">FraudLens</span>
             </a>
             <div className="gap-md flex items-center">
-              <span className="text-caption text-mute">AML investigation</span>
+              <span className="text-caption text-mute">{roleLabel(session.role)}</span>
               <span className="h-2xl w-2xl bg-primary-neutral text-ink-deep text-caption flex items-center justify-center rounded-full font-semibold">
-                {currentAnalyst.initials}
+                {session.analyst.initials}
               </span>
               <button
                 type="button"
@@ -130,33 +154,40 @@ export function App() {
               aria-label="Workspace"
               className="gap-lg px-lg pb-lg flex shrink-0 flex-col md:w-[220px]"
             >
-              {SIDEBAR.map((group) => (
-                <div key={group.heading} className="gap-xxs flex flex-col">
-                  <p className="text-caption text-mute px-lg py-xs font-semibold uppercase tracking-wide">
-                    {group.heading}
-                  </p>
-                  {group.items.map((item) => {
-                    const active = item.isActive(route);
-                    return (
-                      <a
-                        key={item.label}
-                        href={item.href}
-                        aria-current={active ? "page" : undefined}
-                        className={cx(
-                          "rounded-md px-lg py-md text-body-sm font-semibold",
-                          active ? "bg-canvas-soft text-ink" : "text-body",
-                        )}
-                      >
-                        {item.label}
-                      </a>
-                    );
-                  })}
-                </div>
-              ))}
+              {SIDEBAR.map((group) => ({
+                ...group,
+                items: group.items.filter(
+                  (item) => !item.permission || hasPermission(session, item.permission),
+                ),
+              }))
+                .filter((group) => group.items.length > 0)
+                .map((group) => (
+                  <div key={group.heading} className="gap-xxs flex flex-col">
+                    <p className="text-caption text-mute px-lg py-xs font-semibold uppercase tracking-wide">
+                      {group.heading}
+                    </p>
+                    {group.items.map((item) => {
+                      const active = item.isActive(route);
+                      return (
+                        <a
+                          key={item.label}
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={cx(
+                            "rounded-md px-lg py-md text-body-sm font-semibold",
+                            active ? "bg-canvas-soft text-ink" : "text-body",
+                          )}
+                        >
+                          {item.label}
+                        </a>
+                      );
+                    })}
+                  </div>
+                ))}
             </nav>
 
             <main className="bg-canvas-soft p-xl md:p-2xl grow md:rounded-tl-xl">
-              {renderRoute(route)}
+              {renderRoute(route, session)}
             </main>
           </div>
         </div>

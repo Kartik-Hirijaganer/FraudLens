@@ -88,3 +88,19 @@ def test_jwks_token_verifier_rejects_invalid_role(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(CredentialsError, match="invalid role claim"):
         verifier(token)
+
+
+def test_jwks_token_verifier_accepts_auditor_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    key = _rsa_key()
+    verifier = _verifier_with_key(monkeypatch, key.public_key())
+    token = jwt.encode(
+        {
+            "sub": "22222222-2222-4222-8222-222222222222",
+            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "role": "auditor",
+        },
+        key,
+        algorithm="RS256",
+    )
+
+    assert verifier(token).role == "auditor"

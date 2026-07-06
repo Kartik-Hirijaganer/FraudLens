@@ -1,15 +1,30 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
+import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
 import { alertDetail, makeClient } from "../test/factories";
 import { AlertDetail } from "./AlertDetail";
 
+function signInAs(role: UserRole): void {
+  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
+  if (!demoRole) {
+    throw new Error(`Missing demo role: ${role}`);
+  }
+  signIn(demoRole.email, false, demoRole.role);
+}
+
+afterEach(() => {
+  signOut();
+  vi.clearAllMocks();
+});
+
 describe("AlertDetail", () => {
   it("runs the SAR review decisions and shows the activity history", async () => {
+    signInAs("reviewer");
     const client = makeClient({
       getAlert: vi.fn(() =>
         Promise.resolve(
@@ -59,6 +74,7 @@ describe("AlertDetail", () => {
   });
 
   it("runs the triage actions including resolve-with-label", async () => {
+    signInAs("reviewer");
     const client = makeClient();
     render(<AlertDetail alertId="alert-1" client={client} />);
     await screen.findByText(/Suspicious structuring activity observed/);
@@ -78,6 +94,12 @@ describe("AlertDetail", () => {
       }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() =>
+      expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
+        action: "dismiss",
+        note: undefined,
+      }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
     await waitFor(() =>
       expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
@@ -88,7 +110,39 @@ describe("AlertDetail", () => {
     );
   });
 
+  it("shows only analyst-permitted actions", async () => {
+    signInAs("analyst");
+    const client = makeClient();
+    render(<AlertDetail alertId="alert-1" client={client} />);
+    await screen.findByText(/Suspicious structuring activity observed/);
+
+    expect(screen.getByRole("button", { name: "Comment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send for review" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+    expect(screen.getByText("Awaiting reviewer approval.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resolve" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Resolution label")).not.toBeInTheDocument();
+  });
+
+  it("shows a read-only action rail for auditor sessions", async () => {
+    signInAs("auditor");
+    const client = makeClient();
+    render(<AlertDetail alertId="alert-1" client={client} />);
+    await screen.findByText(/Suspicious structuring activity observed/);
+
+    expect(screen.getByText(/Read-only access/)).toBeInTheDocument();
+    expect(screen.getByText("Awaiting reviewer approval.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Note (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Comment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
   it("shows an empty SAR state when there is no draft", async () => {
+    signInAs("reviewer");
     const client = makeClient({
       getAlert: vi.fn(() => Promise.resolve(alertDetail({ sarDraft: null }))),
     });
@@ -97,6 +151,7 @@ describe("AlertDetail", () => {
   });
 
   it("shows an error state when the alert fails to load", async () => {
+    signInAs("reviewer");
     const client = makeClient({
       getAlert: vi.fn(() => Promise.reject(new ApiError(404, "alert_not_found", "missing"))),
     });

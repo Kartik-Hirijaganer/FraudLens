@@ -151,6 +151,11 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="This action requires the admin role.",
         ),
         ErrorSpec(
+            code="role_permission_required",
+            http_status=403,
+            message="This action is not allowed for the current role.",
+        ),
+        ErrorSpec(
             code="insufficient_matured_labels",
             http_status=422,
             message="Not enough matured reviewed labels to train a candidate model yet.",

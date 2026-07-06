@@ -8,7 +8,7 @@ training policy (ADR-015): models are global while labels/inference stay per-ten
 no artifact, metric, dataset, or inference log carries a tenant identifier or raw PHI.
 
 Key classes:
-- TrainingLabel: a tenant-scoped outcome label from a matured reviewed decision.
+- TrainingLabel: a tenant-scoped outcome label from a matured reviewed/dismiss decision.
 - TrainingDataset: an immutable, content-hashed training dataset manifest (no PHI).
 - ModelTrainingRun: one training run (trigger/params/metrics/artifact).
 - ModelVersion: a registry entry with a lifecycle status (candidate→active→archived).
@@ -68,7 +68,7 @@ from fraudlens_backend.db.models.enums import (
 
 
 class TrainingLabel(AgencyScopedMixin, CreatedAtMixin, Base):
-    """A tenant-scoped outcome label sourced from a matured reviewed decision (§9.2)."""
+    """A tenant-scoped outcome label sourced from a matured reviewed/dismiss decision."""
 
     __tablename__ = "training_labels"
     __table_args__ = (Index("ix_training_labels_agency_id", "agency_id"),)

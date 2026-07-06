@@ -147,6 +147,26 @@ async def test_no_token_fails_closed_401(
     assert resp.status_code == 401
 
 
+async def test_auditor_can_list_transactions_but_not_ingest(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed_agency(db_sessionmaker, Agency(id=DEMO_AGENCY_ID, name="Demo", slug="demo"))
+    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="auditor")
+    async with _client(app) as client:
+        listing = await client.get("/api/v1/transactions")
+        created = await client.post("/api/v1/transactions", json=_txn())
+        uploaded = await client.post(
+            "/api/v1/transactions/upload",
+            content=f"{CSV_HEADER}\nT1,1,USD,2026-01-01T00:00:00Z,a,b,wire,US",
+        )
+    assert listing.status_code == 200
+    assert created.status_code == 403
+    assert uploaded.status_code == 403
+    assert created.json()["code"] == "role_permission_required"
+
+
 async def test_batch_partial_accept(
     make_settings: Callable[..., AppSettings],
     db_engine: AsyncEngine,

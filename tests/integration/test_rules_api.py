@@ -46,9 +46,14 @@ def _build_app(settings: AppSettings, engine: AsyncEngine, sm: async_sessionmake
     return app
 
 
-def _accept(agency_id: str) -> Callable[[], TokenVerifier]:
-    """Override factory: a verifier accepting any token as the given agency claim."""
-    return lambda: lambda _token: AccessClaims(agency_id=agency_id)
+def _accept(
+    agency_id: str,
+    *,
+    role: str = "admin",
+    user_id: str = "22222222-2222-4222-8222-222222222222",
+) -> Callable[[], TokenVerifier]:
+    """Override factory: a verifier accepting any token as the given agency/role claim."""
+    return lambda: lambda _token: AccessClaims(agency_id=agency_id, role=role, user_id=user_id)
 
 
 def _client(app: object) -> httpx.AsyncClient:
@@ -67,9 +72,10 @@ def _demo_app(
     make_settings: Callable[..., AppSettings],
     engine: AsyncEngine,
     sm: async_sessionmaker[AsyncSession],
+    **settings_overrides: Any,
 ):
     """Build a dev-bypass app whose tenant resolves to the seeded demo agency."""
-    settings = make_settings(environment="dev", auth_dev_bypass=True)
+    settings = make_settings(environment="dev", auth_dev_bypass=True, **settings_overrides)
     return _build_app(settings, engine, sm)
 
 
@@ -191,6 +197,21 @@ async def test_no_token_fails_closed_401(
     async with _client(app) as client:
         resp = await client.post("/api/v1/rules", json=_rule())
     assert resp.status_code == 401
+
+
+async def test_auditor_can_read_rules_but_not_manage_them(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed_agency(db_sessionmaker, Agency(id=DEMO_AGENCY_ID, name="Demo", slug="demo"))
+    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="auditor")
+    async with _client(app) as client:
+        listing = await client.get("/api/v1/rules")
+        created = await client.post("/api/v1/rules", json=_rule())
+    assert listing.status_code == 200
+    assert created.status_code == 403
+    assert created.json()["code"] == "role_permission_required"
 
 
 async def test_invalid_body_is_422(

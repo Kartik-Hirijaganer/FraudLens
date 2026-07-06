@@ -40,6 +40,7 @@ from enum import StrEnum
 class UserRole(StrEnum):
     """A user's RBAC role within an agency (plan §6.3)."""
 
+    AUDITOR = "auditor"
     ANALYST = "analyst"
     REVIEWER = "reviewer"
     ADMIN = "admin"
@@ -156,6 +157,7 @@ class TrainingLabelType(StrEnum):
 
 
 class LabelSource(StrEnum):
-    """Provenance of a training label (only matured reviewed decisions, plan §9.2)."""
+    """Provenance of a training label (review decision or analyst dismiss)."""
 
     ANALYST_REVIEW = "analyst_review"
+    ANALYST_DISMISS = "analyst_dismiss"

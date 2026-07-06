@@ -41,10 +41,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
+    Permission,
     SettingsDep,
     audit_writer,
     get_tenant,
     optional_actor,
+    require_permission,
 )
 from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, SarDraft
 from fraudlens_backend.db.repositories import (
@@ -68,6 +70,9 @@ from fraudlens_backend.settings import AppSettings
 router = APIRouter(tags=["investigations"])
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant)]
+InvestigationWriteDep = Annotated[
+    TenantContext, Depends(require_permission(Permission.START_INVESTIGATION))
+]
 
 _IDEMPOTENCY_HEADER = "Idempotency-Key"
 _LAST_EVENT_ID_HEADER = "Last-Event-ID"
@@ -136,7 +141,7 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
 async def start_investigation(
     payload: InvestigationStartRequest,
     request: Request,
-    tenant: TenantDep,
+    tenant: InvestigationWriteDep,
     session: DbSessionDep,
     settings: SettingsDep,
 ) -> InvestigationStartResponse:
@@ -218,7 +223,7 @@ async def get_investigation(
 async def regenerate_investigation_sar(
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     request: Request,
-    tenant: TenantDep,
+    tenant: InvestigationWriteDep,
     session: DbSessionDep,
     settings: SettingsDep,
 ) -> SarDraftView:
