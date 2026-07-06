@@ -5,10 +5,11 @@ operates only on the agency's own rows via `AlertRepository`, so a cross-tenant 
 detail surfaces the latest SAR draft + the append-only action trail). `POST /alerts/{id}/actions`
 applies a centralized, validated status transition (assign/comment/escalate/resolve/dismiss; an
 illegal transition is 409), masks the free-text note, validates an assignee belongs to the agency
-(cross-tenant assignee → 403), and — on `resolve` — writes the `training_labels` row the model
-lifecycle consumes. `POST /alerts/{id}/sar/review` approves/rejects/edits the latest SAR draft (an
-edit is a new masked version; approve schedules a deferred PDF that never blocks approval). Every
-action and review writes a PHI-free `audit_logs` row (plan §8.4 "every action audited").
+(cross-tenant assignee → 403), and — on `resolve` / `dismiss` — writes the `training_labels` row
+the model lifecycle consumes. `POST /alerts/{id}/sar/review` approves/rejects/edits the latest SAR
+draft (an edit is a new masked version; approve schedules a deferred PDF that never blocks
+approval). Every action and review writes a PHI-free `audit_logs` row (plan §8.4 "every action
+audited").
 
 Key classes:
 - (none)
@@ -16,7 +17,7 @@ Key classes:
 Key functions:
 - list_alerts: GET /alerts — the agency's alerts (newest first), optional status filter.
 - get_alert: GET /alerts/{alertId} — alert detail (latest SAR draft + action history).
-- act_on_alert: POST /alerts/{alertId}/actions — a validated triage action (resolve writes a label).
+- act_on_alert: POST /alerts/{alertId}/actions — validated triage; terminal actions write labels.
 - review_sar: POST /alerts/{alertId}/sar/review — approve/reject/edit the latest SAR draft.
 - sar_decision_allowed: pure check of whether a review decision is legal from a draft's status.
 
@@ -39,14 +40,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
+    Permission,
     SettingsDep,
     audit_writer,
+    enforce_permission,
     get_tenant,
     require_actor,
+    require_permission,
 )
 from fraudlens_backend.backends.storage import get_storage_backend
 from fraudlens_backend.db.models import AlertAction, AlertActionType, AlertStatus
-from fraudlens_backend.db.models.enums import SarStatus
+from fraudlens_backend.db.models.enums import LabelSource, SarStatus, TrainingLabelType
 from fraudlens_backend.db.repositories import (
     AlertRepository,
     AuditLogRepository,
@@ -76,6 +80,7 @@ from fraudlens_core.phi import MaskingReport, mask_text
 router = APIRouter(tags=["alerts"])
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant)]
+SarReviewDep = Annotated[TenantContext, Depends(require_permission(Permission.REVIEW_SAR))]
 
 _DEFAULT_PAGE_LIMIT = 50
 _MAX_PAGE_LIMIT = 200
@@ -126,6 +131,15 @@ def _to_action_view(action: AlertAction) -> AlertActionView:
 
 
 _to_sar_view = sar_draft_to_view  # single ORM→view mapping shared with the regeneration service.
+
+
+def _permission_for_action(action: AlertActionType) -> Permission:
+    """Map each alert action to its API-boundary permission."""
+    if action == AlertActionType.DISMISS:
+        return Permission.DISMISS_ALERT
+    if action == AlertActionType.RESOLVE:
+        return Permission.FINALIZE_ALERT
+    return Permission.TRIAGE_ALERT
 
 
 def sar_decision_allowed(status: SarStatus, decision: SarReviewDecision, *, has_edit: bool) -> bool:
@@ -224,6 +238,7 @@ async def act_on_alert(
     session: DbSessionDep,
 ) -> AlertView:
     """Apply a validated triage action; illegal transition → 409, cross-tenant assignee → 403."""
+    enforce_permission(tenant, _permission_for_action(payload.action))
     repo = _repo(tenant, session)
     actor_id = require_actor(tenant)
     alert = await repo.get(alert_id)
@@ -246,6 +261,16 @@ async def act_on_alert(
             transaction_id=alert.transaction_id,
             run_id=alert.run_id,
             label=payload.label,
+            created_by=actor_id,
+            matured_at=datetime.now(UTC) + timedelta(days=maturity_days),
+        )
+    elif payload.action == AlertActionType.DISMISS:
+        maturity_days = await load_label_maturity_days(session)
+        await repo.create_training_label(
+            transaction_id=alert.transaction_id,
+            run_id=alert.run_id,
+            label=TrainingLabelType.FALSE_POSITIVE,
+            source=LabelSource.ANALYST_DISMISS,
             created_by=actor_id,
             matured_at=datetime.now(UTC) + timedelta(days=maturity_days),
         )
@@ -290,7 +315,7 @@ async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request 
     alert_id: Annotated[uuid.UUID, Path(alias="alertId")],
     payload: SarReviewRequest,
     request: Request,
-    tenant: TenantDep,
+    tenant: SarReviewDep,
     session: DbSessionDep,
     settings: SettingsDep,
     background_tasks: BackgroundTasks,
