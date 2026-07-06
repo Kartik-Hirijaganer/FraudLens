@@ -218,7 +218,7 @@ def upgrade() -> None:
         sa.Column("display_name", sa.String(length=255), nullable=False),
         sa.Column(
             "role",
-            sa.Enum("analyst", "reviewer", "admin", name="userrole", native_enum=False),
+            sa.Enum("auditor", "analyst", "reviewer", "admin", name="userrole", native_enum=False),
             nullable=False,
         ),
         sa.Column("agency_id", sa.Uuid(), nullable=False),

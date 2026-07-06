@@ -13,7 +13,7 @@ Key functions:
 
 Notes:
 - `DEMO_AGENCY_ID` / `DEMO_USER_ID` are fixed UUIDs (not random) so the dev bypass, the seed,
-  and tests all reference the same tenant + acting user deterministically across runs.
+  and tests all reference the same tenant + default acting user deterministically across runs.
 - This module holds identity constants ONLY; the rest of the seed payload (config, fixture
   model) lives in `scripts/seed.py` so the runtime image carries no demo data.
 """
@@ -49,8 +49,14 @@ class DemoUserSpec(BaseModel):
 
 
 # The demo agency's users: one of each role, seeded idempotently by (agency_id, email). The
-# analyst carries the fixed DEMO_USER_ID so the dev-bypass acting user maps to a real row.
+# analyst carries the fixed DEMO_USER_ID so the no-header dev-bypass acting user maps to a real row.
 DEMO_USERS: tuple[DemoUserSpec, ...] = (
+    DemoUserSpec(
+        user_id=uuid.UUID("55555555-5555-4555-8555-555555555555"),
+        email="auditor@demo-agency.test",
+        display_name="Demo Auditor",
+        role=UserRole.AUDITOR,
+    ),
     DemoUserSpec(
         user_id=DEMO_USER_ID,
         email="analyst@demo-agency.test",
