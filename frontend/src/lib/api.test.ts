@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
@@ -7,6 +7,11 @@ import {
   type ApiHealth,
   type TransactionListResponse,
 } from "./api";
+import { DEMO_ROLES, signIn, signOut } from "./session";
+
+afterEach(() => {
+  signOut();
+});
 
 const HEALTH: ApiHealth = {
   status: "ok",
@@ -88,6 +93,23 @@ describe("createApiClient", () => {
 
   it("builds the SSE stream URL", () => {
     expect(createApiClient().investigationStreamUrl("r9")).toBe("/api/v1/investigations/r9/stream");
+  });
+
+  it("attaches the selected demo role to API requests and stream URLs", async () => {
+    const role = DEMO_ROLES.find((candidate) => candidate.role === "auditor");
+    if (!role) {
+      throw new Error("auditor demo role missing");
+    }
+    signIn(role.email, false, role.role);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse(true, 200, { transactions: [], nextCursor: null, total: 0 })),
+    );
+    await createApiClient(fetchMock).listTransactions();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["X-FraudLens-Demo-Role"]).toBe("auditor");
+    expect(createApiClient().investigationStreamUrl("r9")).toBe(
+      "/api/v1/investigations/r9/stream?demoRole=auditor",
+    );
   });
 
   it("POSTs to the SAR regenerate endpoint for a run", async () => {
