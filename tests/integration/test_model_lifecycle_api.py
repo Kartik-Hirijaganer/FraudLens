@@ -127,6 +127,21 @@ async def test_non_admin_is_forbidden(
     assert resp.json()["code"] == "admin_role_required"
 
 
+async def test_dev_demo_role_header_overrides_default_admin_bypass(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed(db_sessionmaker)
+    app = _build_app(make_settings(auth_dev_bypass=True), db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.get(
+            "/api/v1/training-runs", headers={"X-FraudLens-Demo-Role": "auditor"}
+        )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "admin_role_required"
+
+
 # --- retrain trigger --------------------------------------------------------------------------
 
 
