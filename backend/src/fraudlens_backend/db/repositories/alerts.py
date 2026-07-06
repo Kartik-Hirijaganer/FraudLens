@@ -50,6 +50,7 @@ from fraudlens_backend.db.models import (
     Transaction,
     User,
 )
+from fraudlens_backend.db.models.enums import LabelSource
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_core import RiskBand
 
@@ -245,7 +246,7 @@ class AlertRepository(TenantScopedRepository[Alert]):
         await self._session.flush()
         return entry
 
-    async def create_training_label(
+    async def create_training_label(  # noqa: PLR0913 - label provenance fields stay explicit.
         self,
         *,
         transaction_id: uuid.UUID,
@@ -253,13 +254,15 @@ class AlertRepository(TenantScopedRepository[Alert]):
         label: TrainingLabelType,
         created_by: uuid.UUID,
         matured_at: datetime,
+        source: LabelSource = LabelSource.ANALYST_REVIEW,
     ) -> TrainingLabel:
-        """Write the `training_labels` row a resolution produces (analyst-review source, §10.4)."""
+        """Write the `training_labels` row a reviewed/dismissed decision produces."""
         row = TrainingLabel(
             agency_id=self._agency_id,
             transaction_id=transaction_id,
             run_id=run_id,
             label=label,
+            source=source,
             matured_at=matured_at,
             created_by=created_by,
         )

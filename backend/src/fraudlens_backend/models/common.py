@@ -64,7 +64,7 @@ class TenantContext(CamelModel):
     )
     role: str = Field(
         default="analyst",
-        description="RBAC role from the verified claim (analyst|reviewer|admin); gates "
+        description="RBAC role from the verified claim (auditor|analyst|reviewer|admin); gates "
         "admin-only routes (e.g. model lifecycle). Defaults to least privilege.",
     )
 

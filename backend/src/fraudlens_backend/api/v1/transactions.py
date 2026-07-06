@@ -41,10 +41,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
+    Permission,
     SettingsDep,
     audit_writer,
     get_tenant,
     optional_actor,
+    require_permission,
 )
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
 from fraudlens_backend.db.repositories import AuditLogRepository, TransactionRepository
@@ -65,6 +67,9 @@ from fraudlens_core.phi import MaskingReport
 router = APIRouter(tags=["transactions"])
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant)]
+IngestTenantDep = Annotated[
+    TenantContext, Depends(require_permission(Permission.INGEST_TRANSACTIONS))
+]
 
 _DEFAULT_PAGE_LIMIT = 50
 _MAX_PAGE_LIMIT = 200
@@ -206,7 +211,10 @@ async def _record_phi_access(  # noqa: PLR0913 - explicit audit fields keep call
 
 @router.post("/transactions", response_model=TransactionResponse, status_code=201)
 async def ingest_transaction(
-    payload: TransactionIngestRequest, request: Request, tenant: TenantDep, session: DbSessionDep
+    payload: TransactionIngestRequest,
+    request: Request,
+    tenant: IngestTenantDep,
+    session: DbSessionDep,
 ) -> TransactionResponse:
     """Ingest one transaction (201); 409 when its externalId already exists for the agency."""
     repo = _repo(tenant, session)
@@ -237,7 +245,7 @@ async def ingest_transaction(
 async def ingest_batch(
     payload: BatchIngestRequest,
     request: Request,
-    tenant: TenantDep,
+    tenant: IngestTenantDep,
     session: DbSessionDep,
     settings: SettingsDep,
 ) -> BatchIngestResponse:
@@ -303,7 +311,7 @@ async def ingest_batch(
 
 @router.post("/transactions/upload", response_model=CsvUploadResponse, status_code=202)
 async def upload_csv(
-    request: Request, tenant: TenantDep, session: DbSessionDep, settings: SettingsDep
+    request: Request, tenant: IngestTenantDep, session: DbSessionDep, settings: SettingsDep
 ) -> CsvUploadResponse:
     """Ingest a text/csv upload (partial-accept); enforce size/row caps; record a job."""
     rows = await _read_csv(request, settings.ingest_csv_max_bytes, settings.ingest_csv_max_rows)
