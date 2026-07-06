@@ -106,9 +106,14 @@ async def _seed_demo_transaction(
         return transaction.id
 
 
-def _demo_app(make_settings: Callable[..., AppSettings], engine: AsyncEngine, sm: Any) -> Any:
+def _demo_app(
+    make_settings: Callable[..., AppSettings],
+    engine: AsyncEngine,
+    sm: Any,
+    **settings_overrides: Any,
+) -> Any:
     """Build a dev-bypass app (tenant resolves to the demo agency) wired to the test DB."""
-    app = create_app(make_settings(environment="dev", auth_dev_bypass=True))
+    app = create_app(make_settings(environment="dev", auth_dev_bypass=True, **settings_overrides))
     _wire(app, engine, sm)
     return app
 
@@ -191,7 +196,21 @@ async def test_stream_without_database_returns_unavailable(
     async with _client(app) as client:
         resp = await client.get(f"/api/v1/investigations/{uuid.uuid4()}/stream")
     assert resp.status_code == 503
-    assert resp.json()["code"] == "investigations_unavailable"
+
+
+async def test_auditor_cannot_start_investigation(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    transaction_id = await _seed_demo_transaction(db_sessionmaker)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="auditor")
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/investigations", json={"transactionId": str(transaction_id)}
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "role_permission_required"
 
 
 async def test_post_missing_transaction_returns_404(

@@ -20,7 +20,7 @@ from fraudlens_backend.api.v1.rules import (
     list_rules,
     update_rule,
 )
-from fraudlens_backend.db.models import Agency, AmlRuleType, Severity
+from fraudlens_backend.db.models import Agency, AmlRuleType, Severity, User, UserRole
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.rules import RuleCreateRequest, RuleUpdateRequest
@@ -36,9 +36,19 @@ def _request() -> Request:
 async def _tenant(session: AsyncSession) -> TenantContext:
     """Insert an agency and return its tenant context (the handler scope)."""
     agency = Agency(id=uuid.uuid4(), name="Acme", slug=f"a-{uuid.uuid4().hex[:8]}")
+    actor_id = uuid.uuid4()
     session.add(agency)
+    session.add(
+        User(
+            id=actor_id,
+            agency_id=agency.id,
+            email=f"admin-{actor_id.hex[:8]}@example.test",
+            display_name="Admin",
+            role=UserRole.ADMIN,
+        )
+    )
     await session.flush()
-    return TenantContext(agency_id=str(agency.id))
+    return TenantContext(agency_id=str(agency.id), user_id=str(actor_id), role=UserRole.ADMIN.value)
 
 
 def _create(**overrides: object) -> RuleCreateRequest:
