@@ -1,5 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { signIn, signOut } from "./lib/session";
 
 // Keep the shell test focused on routing + chrome: stub the data calls the rendered pages
 // make so they stay in their loading state (no post-test async updates). Page headers /
@@ -34,9 +36,39 @@ function goTo(hash: string): void {
 
 afterEach(() => {
   window.location.hash = "";
+  signOut();
+});
+
+describe("App gate", () => {
+  it("renders the login screen when there is no session", () => {
+    render(<App />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
+  });
+
+  it("swaps the shell for the login screen after signing out", () => {
+    render(<App />);
+    act(() => {
+      signIn("analyst@agency.gov");
+    });
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    act(() => {
+      screen.getByRole("button", { name: "Sign out" }).click();
+    });
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
+    ).toBeInTheDocument();
+    expect(workspace).not.toBeInTheDocument();
+  });
 });
 
 describe("App shell", () => {
+  beforeEach(() => {
+    signIn("analyst@agency.gov");
+  });
+
   it("renders the brand and the single Workspace/Admin nav (no top pill nav)", () => {
     render(<App />);
     expect(screen.getByRole("link", { name: "FraudLens" })).toBeInTheDocument();
