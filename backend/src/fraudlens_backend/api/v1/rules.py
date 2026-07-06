@@ -36,9 +36,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
+    Permission,
     audit_writer,
     get_tenant,
-    optional_actor,
+    require_actor,
+    require_permission,
 )
 from fraudlens_backend.db.models import AmlRule
 from fraudlens_backend.db.repositories import RuleRepository
@@ -54,6 +56,7 @@ from fraudlens_backend.models.rules import (
 router = APIRouter(tags=["rules"])
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant)]
+ManageRulesDep = Annotated[TenantContext, Depends(require_permission(Permission.MANAGE_RULES))]
 
 
 def _repo(tenant: TenantContext, session: AsyncSession) -> RuleRepository:
@@ -90,7 +93,7 @@ async def list_rules(tenant: TenantDep, session: DbSessionDep) -> RuleListRespon
 
 @router.post("/rules", response_model=RuleResponse, status_code=201)
 async def create_rule(
-    payload: RuleCreateRequest, request: Request, tenant: TenantDep, session: DbSessionDep
+    payload: RuleCreateRequest, request: Request, tenant: ManageRulesDep, session: DbSessionDep
 ) -> RuleResponse:
     """Create an agency-scoped rule (201); 409 when its code already exists for the agency."""
     repo = _repo(tenant, session)
@@ -110,7 +113,7 @@ async def create_rule(
     await repo.add(rule)
     await session.refresh(rule)
     await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
+        actor_id=require_actor(tenant),
         action="rule.create",
         resource_type="aml_rule",
         resource_id=str(rule.id),
@@ -139,7 +142,7 @@ async def update_rule(
     rule_id: Annotated[uuid.UUID, Path(alias="ruleId")],
     payload: RuleUpdateRequest,
     request: Request,
-    tenant: TenantDep,
+    tenant: ManageRulesDep,
     session: DbSessionDep,
 ) -> RuleResponse:
     """Apply a partial update (incl. enable/disable) to the agency's rule; bumps version."""
@@ -163,7 +166,7 @@ async def update_rule(
     await session.flush()
     await session.refresh(rule)
     await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
+        actor_id=require_actor(tenant),
         action="rule.update",
         resource_type="aml_rule",
         resource_id=str(rule.id),
@@ -177,7 +180,7 @@ async def update_rule(
 async def delete_rule(
     rule_id: Annotated[uuid.UUID, Path(alias="ruleId")],
     request: Request,
-    tenant: TenantDep,
+    tenant: ManageRulesDep,
     session: DbSessionDep,
 ) -> None:
     """Delete the agency's rule (204); 404 when missing, global, or cross-tenant."""
@@ -186,7 +189,7 @@ async def delete_rule(
     if rule is None:
         raise AppError("rule_not_found")
     await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
+        actor_id=require_actor(tenant),
         action="rule.delete",
         resource_type="aml_rule",
         resource_id=str(rule.id),
