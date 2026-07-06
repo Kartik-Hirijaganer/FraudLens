@@ -40,6 +40,7 @@ import {
 import { formatCurrency, formatDateTime } from "../lib/format";
 import { RISK_BAND_OPTIONS } from "../lib/options";
 import { navigate, paths } from "../lib/router";
+import { hasPermission, useSession } from "../lib/session";
 import { notify, notifyError } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
 
@@ -63,6 +64,9 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   const [search, setSearch] = useState("");
   const [override, setOverride] = useState<string | undefined>(undefined);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
+  const session = useSession();
+  const canIngestTransactions = hasPermission(session, "ingestTransactions");
+  const canStartInvestigation = hasPermission(session, "startInvestigation");
   // A stack of page cursors, one per visited page (index 0 = the first page, no cursor).
   // Prev pops, Next pushes the server's nextCursor — so keyset paging works both ways.
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
@@ -145,7 +149,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
       <PageHeader
         title="Transactions"
         description="Every transaction is scored the moment it lands. Search, filter, and open one to investigate."
-        actions={<ImportButton onFileChange={onFileChange} />}
+        actions={canIngestTransactions ? <ImportButton onFileChange={onFileChange} /> : undefined}
       />
       <Card className="gap-lg flex flex-col">
         <div className="gap-md flex flex-col lg:flex-row lg:items-center lg:justify-between">
@@ -159,7 +163,10 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
         </div>
         <AsyncBoundary state={state}>
           {(data) => {
-            const columns = transactionColumns(investigatingId, investigate);
+            const columns = transactionColumns(
+              investigatingId,
+              canStartInvestigation ? investigate : undefined,
+            );
             const rangeEnd = pageIndex * PAGE_SIZE + data.transactions.length;
             return (
               <>
@@ -176,7 +183,11 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
                   columns={columns}
                   rows={data.transactions}
                   rowKey={(transaction) => transaction.transactionId}
-                  onRowClick={(transaction) => void investigate(transaction.transactionId)}
+                  onRowClick={
+                    canStartInvestigation
+                      ? (transaction) => void investigate(transaction.transactionId)
+                      : undefined
+                  }
                   empty={
                     <EmptyState
                       title={search || riskBand ? "No matches" : "No transactions yet"}
@@ -257,9 +268,9 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 
 function transactionColumns(
   investigatingId: string | null,
-  investigate: (transactionId: string) => Promise<void>,
+  investigate?: (transactionId: string) => Promise<void>,
 ): Column<TransactionResponse>[] {
-  return [
+  const columns: Column<TransactionResponse>[] = [
     {
       id: "externalId",
       header: "TXN ID",
@@ -298,6 +309,14 @@ function transactionColumns(
         </span>
       ),
     },
+  ];
+
+  if (!investigate) {
+    return columns;
+  }
+
+  return [
+    ...columns,
     {
       id: "action",
       header: "Investigate",
