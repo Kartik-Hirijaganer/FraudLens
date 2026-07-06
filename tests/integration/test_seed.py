@@ -51,12 +51,12 @@ async def test_seed_creates_expected_entities(db_session: AsyncSession) -> None:
     summary = await seed(db_session)
     assert (summary.agencies, summary.users, summary.model_versions, summary.deployments) == (
         1,
-        3,
+        4,
         1,
         1,
     )
     assert await _count(db_session, Agency) == 1
-    assert await _count(db_session, User) == 3
+    assert await _count(db_session, User) == 4
     assert await _count(db_session, ModelVersion) == 1
     assert await _count(db_session, ModelDeployment) == 1
 
