@@ -20,6 +20,7 @@
 | GET | `/api/v1/investigations/{runId}` | `get_investigation` |
 | POST | `/api/v1/investigations/{runId}/sar/regenerate` | `regenerate_investigation_sar` |
 | GET | `/api/v1/investigations/{runId}/stream` | `stream_investigation` |
+| GET | `/api/v1/me` | `get_current_user` |
 | GET | `/api/v1/model-deployment` | `get_deployment` |
 | POST | `/api/v1/model-deployment/canary/evaluate` | `evaluate_canary` |
 | POST | `/api/v1/model-deployment/rollback` | `rollback_deployment` |
@@ -41,5 +42,6 @@
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
 | GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
+| POST | `/api/v1/users` | `invite_user` |
 | GET | `/healthz` | `healthz` |
 | GET | `/readyz` | `readyz` |
