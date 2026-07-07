@@ -39,12 +39,12 @@ Use these paths:
 
 | Path | Environment | Purpose | Initial secrets |
 | --- | --- | --- | --- |
-| `/backend` | `prod` | Backend runtime secrets | Add keys only when wired, e.g. `DATABASE_URL`, `JWT_SIGNING_KEY` |
+| `/backend` | `prod` | Backend runtime secrets | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | `/ci/vercel` | `prod` | Frontend deploy job | `VERCEL_TOKEN` |
 | `/ci/supabase` | `prod` | Future Supabase automation | Add only when a workflow consumes it |
 | `/mcp/context7` | `prod` | Local agent/CLI workflows that need Context7 docs access | `CONTEXT7_API_KEY` |
 | `/mcp/statsig` | `prod` | Local agent/CLI workflows that need Statsig credentials | Add only if a local Statsig API key is required outside the installed connector |
-| `/llm` | `prod` | LLM provider credentials | `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
+| `/llm` | `prod` | LLM provider credentials | `OPENROUTER_API_KEY` |
 
 Do not store frontend runtime secrets. Any `VITE_*` value bundled into the SPA is public.
 
@@ -85,17 +85,27 @@ If a command does not need secrets, run it normally. Keep `.env` non-secret/loca
 ## LLM Provider Secrets
 
 `fraudlens-llm` reads provider keys lazily from env-var references in
-`config/llm/providers.yml`. Store the actual values only in Infisical `prod` at `/llm`:
+`config/llm/providers.yml`. Track B's live SAR path uses OpenRouter only; store the actual
+value only in Infisical `prod` at `/llm`:
 
 | Key | Used by provider |
 | --- | --- |
 | `OPENROUTER_API_KEY` | `openrouter` |
-| `OPENAI_API_KEY` | `openai` |
-| `ANTHROPIC_API_KEY` | `anthropic` |
-| `GEMINI_API_KEY` | `gemini` |
 
 Run LLM commands through `infisical run --env=prod --path=/llm -- <command>`. Do not copy
 provider keys into `.env`, YAML, fixtures, test output, logs, or GitHub Secrets.
+
+## Supabase Runtime Secrets
+
+Store Supabase backend secrets only in Infisical `prod` at `/backend`:
+
+| Key | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Async SQLAlchemy URL for Supabase Postgres. Use the direct/non-pooled URL for Alembic migrations. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Auth Admin API key used only by `POST /api/v1/users`. |
+
+Do not put the service-role key in `frontend/.env.local`, Vercel variables, docs, or source. The
+frontend only receives `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, which are publishable.
 
 ## GitHub Actions OIDC
 
