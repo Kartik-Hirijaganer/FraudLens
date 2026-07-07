@@ -225,6 +225,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/investigations/{runId}` | `get_investigation` |
 | POST | `/api/v1/investigations/{runId}/sar/regenerate` | `regenerate_investigation_sar` |
 | GET | `/api/v1/investigations/{runId}/stream` | `stream_investigation` |
+| GET | `/api/v1/me` | `get_current_user` |
 | GET | `/api/v1/model-deployment` | `get_deployment` |
 | POST | `/api/v1/model-deployment/canary/evaluate` | `evaluate_canary` |
 | POST | `/api/v1/model-deployment/rollback` | `rollback_deployment` |
@@ -246,6 +247,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
 | GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
+| POST | `/api/v1/users` | `invite_user` |
 | GET | `/healthz` | `healthz` |
 | GET | `/readyz` | `readyz` |
 <!-- /AUTOGEN:endpoints -->
@@ -271,7 +273,12 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `auth_jwt_audience` | `str | None` | `None` | Expected JWT audience; unset skips audience validation for local/integration tests. |
 | `auth_jwt_algorithm` | `Literal` | `'RS256'` | JWT signing algorithm accepted from the configured JWKS. |
 | `auth_agency_claim` | `str` | `'agency_id'` | JWT claim containing the tenant agency id. |
-| `auth_role_claim` | `str` | `'role'` | JWT claim containing the FraudLens RBAC role. |
+| `auth_role_claim` | `str` | `'user_role'` | JWT claim containing the FraudLens RBAC role. Supabase's built-in top-level `role` claim is reserved for `authenticated`, so FraudLens uses `user_role`. |
+| `supabase_url` | `str | None` | `None` | Supabase project URL used by admin-invite provisioning; non-secret and read from env. |
+| `supabase_service_role_key` | `str | None` | `None` | Supabase service-role key for admin user invites; secret from Infisical /backend. |
+| `bootstrap_admin_user_id` | `str | None` | `None` | Optional first-admin auth.users id for scripts/seed.py bootstrap reconciliation. |
+| `bootstrap_admin_email` | `str | None` | `None` | Optional first-admin email for scripts/seed.py bootstrap reconciliation. |
+| `bootstrap_admin_display_name` | `str` | `'Bootstrap Admin'` | Display name used when scripts/seed.py upserts the optional first admin. |
 | `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
 | `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
 | `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |

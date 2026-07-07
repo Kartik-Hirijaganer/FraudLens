@@ -63,11 +63,84 @@ flowchart LR
     fe -->|REST + SSE| be
 ```
 
+## Running live locally
+
+Use this when you want local dev ergonomics (local filesystem storage and local job runner) while
+exercising the real Supabase Auth, real Supabase Postgres, and live OpenRouter SAR drafting path.
+
+### What
+
+`make run-live` starts the backend and Vite frontend without Docker Postgres. It sets:
+
+| Setting | Value |
+| --- | --- |
+| `FRAUDLENS_ENVIRONMENT` | `dev` |
+| `FRAUDLENS_AUTH_DEV_BYPASS` | `false` |
+| `FRAUDLENS_AUTH_JWKS_URL` | `<SUPABASE_PROJECT_URL>/auth/v1/.well-known/jwks.json` |
+| `FRAUDLENS_AUTH_JWT_ISSUER` | `<SUPABASE_PROJECT_URL>/auth/v1` |
+| `FRAUDLENS_AUTH_JWT_AUDIENCE` | `authenticated` |
+| `FRAUDLENS_AUTH_ROLE_CLAIM` | `user_role` |
+| `FRAUDLENS_LLM_MODE` | `live` |
+| `FRAUDLENS_STORAGE_BACKEND` / `FRAUDLENS_QUEUE_BACKEND` | `local` |
+
+### Why
+
+This avoids `config/prod.yaml`'s Azure storage and queue settings while proving the live auth,
+database, and LLM path before any Azure deployment.
+
+### How
+
+1. In Supabase, enable RSA JWT signing, enable email/password auth, and disable open signup.
+2. Apply [`supabase/2026-07-06-auth-claims.sql`](../../supabase/2026-07-06-auth-claims.sql).
+   The hook stamps top-level `agency_id` and `user_role` claims from `public.users`.
+3. Store secrets in Infisical `prod`:
+
+| Path | Key |
+| --- | --- |
+| `/backend` | `DATABASE_URL` using the direct/non-pooled connection for migrations, plus `SUPABASE_SERVICE_ROLE_KEY` |
+| `/llm` | `OPENROUTER_API_KEY` |
+
+4. Put public frontend values in `frontend/.env.local`:
+
+```bash
+VITE_SUPABASE_URL=https://<ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<publishable-anon-key>
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+5. Export the non-secret project URL for the live runner:
+
+```bash
+export SUPABASE_PROJECT_URL=https://<ref>.supabase.co
+```
+
+6. Run migrations and seed the bootstrap admin after creating that first admin in the Supabase
+   dashboard:
+
+```bash
+infisical run --env=prod --path=/backend -- make db-migrate
+FRAUDLENS_BOOTSTRAP_ADMIN_USER_ID=<auth-users-uuid> \
+FRAUDLENS_BOOTSTRAP_ADMIN_EMAIL=<admin-email> \
+infisical run --env=prod --path=/backend -- make db-seed
+```
+
+7. Build the local RAG index once, then start the live-local app:
+
+```bash
+make ingest-rag
+make run-live
+```
+
+Real users sign in with Supabase email/password. The demo persona picker remains a Vite-dev
+convenience and only works when the backend is running with the dev bypass (`make run`), not
+`make run-live`.
+
 ## Companion commands
 
 | Command | What it does |
 |---|---|
 | `make run` | Clean reset + reseed + boot the full stack. Default app command. |
+| `make run-live` | Boot backend + frontend against real Supabase/Postgres + OpenRouter via Infisical. |
 | `make rebuild` | Alias for `make run`. |
 | `make local-demo` | Boot the full stack and print the URL (blocks until `Ctrl-C`). |
 | `make local-demo-down` | Stop the stack (containers removed, data volume kept). |

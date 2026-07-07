@@ -1,6 +1,6 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / Infisical) and returns 200 only
+set of dependency probes (database / ChromaDB / JWKS / Infisical) and returns 200 only
 when none report "down", else 503. Both are UNPREFIXED (no /api/v1) per the
 endpoint contract. The probes are pluggable via a dependency so real reachability
 checks can be wired in later (and so tests can simulate a degraded dependency);
@@ -23,14 +23,17 @@ Notes:
 - The ChromaDB probe checks the baked RAG index for presence (plan §16 Phase 6): a populated
   index → "ok"; a missing/empty index → "down" when `rag_index_required` (prod bakes the
   index) else "skipped" (dev/local need not have built it yet). Infisical remains "skipped".
+- The JWKS probe checks Supabase Auth reachability only when `auth_jwks_url` is configured.
 - Probes may be sync or async; readyz awaits any awaitable result.
 """
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import Annotated, cast
+from urllib import request as url_request
 
 from fastapi import APIRouter, Depends
 from pydantic import Field
@@ -42,6 +45,7 @@ from fraudlens_backend.models.common import CamelModel
 from fraudlens_backend.settings import AppSettings
 
 router = APIRouter(tags=["ops"])
+_HTTP_OK = 200
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
 
@@ -103,7 +107,29 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="chromadb", status="down", detail=f"index {status}")
         return DependencyCheck(name="chromadb", status="skipped", detail=f"index {status}")
 
-    return [_database, _chromadb, lambda: _skipped("infisical")]
+    async def _jwks() -> DependencyCheck:
+        """Probe Supabase JWKS reachability when real JWT verification is configured."""
+        if settings.auth_jwks_url is None:
+            return _skipped("jwks")
+        try:
+            status = await _fetch_status(settings.auth_jwks_url, timeout)
+        except OSError:
+            return DependencyCheck(name="jwks", status="down", detail="unreachable")
+        if status != _HTTP_OK:
+            return DependencyCheck(name="jwks", status="down", detail="unexpected status")
+        return DependencyCheck(name="jwks", status="ok")
+
+    return [_database, _chromadb, _jwks, lambda: _skipped("infisical")]
+
+
+async def _fetch_status(url: str, timeout_seconds: float) -> int:
+    """Fetch a URL in a worker thread and return the HTTP status code."""
+
+    def _open() -> int:
+        with url_request.urlopen(url, timeout=timeout_seconds) as response:
+            return int(response.status)
+
+    return await asyncio.to_thread(_open)
 
 
 ProbesDep = Annotated[list[ReadinessProbe], Depends(get_readiness_probes)]

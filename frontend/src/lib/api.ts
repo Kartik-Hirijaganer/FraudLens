@@ -3,14 +3,16 @@
  * surface is camelCase (FraudLens casing), so the response interfaces use camelCase
  * fields directly and need no remapping. `createApiClient` captures an injectable
  * `fetch` (so tests never touch the network) and exposes one method per consumed
- * endpoint across P3–P10 — transactions, investigations (create/snapshot/stream URL),
- * alerts + SAR review, and the admin model lifecycle. A non-2xx response is parsed into
+ * endpoint across P3–P10 and Track B — `/me`, transactions, investigations
+ * (create/snapshot/stream URL), alerts + SAR review, and the admin model lifecycle. A non-2xx
+ * response is parsed into
  * an `ApiError` carrying the stable envelope `code` (which `lib/errors.ts` maps to UX);
  * the error message is the envelope's PHI-free message, never a raw body or stack.
  *
  * Key classes:
  * - ApiError: thrown on a non-2xx response (carries status + envelope code + requestId).
  * - ApiHealth: shape of GET /api/v1/health.
+ * - CurrentUser: GET /api/v1/me identity after Supabase login.
  * - TransactionResponse: a persisted transaction (masked accounts).
  * - ListTransactionsParams: query params for the transactions list (limit/cursor/riskBand/search).
  * - TransactionListResponse: a page of transactions + nextCursor + total matching count.
@@ -51,20 +53,20 @@
  * - STATUS_LABELS: display labels for alert lifecycle statuses.
  * - statusLabel: display a known alert status or humanize an unknown fallback.
  * - fetchApiHealth: standalone GET /api/v1/health (the walking-skeleton heartbeat).
+ * - fetchCurrentUser: GET /api/v1/me with a just-issued Supabase bearer token.
  * - createApiClient: build an ApiClient bound to an injectable fetch.
  * - apiClient: the default ApiClient for app use.
  *
  * Notes:
  * - The base URL comes from config (VITE_*), never a hardcoded host; the SSE stream URL
- * is built here too so every path lives in one place (rule 5).
+ * is built here too so every path lives in one place (rule 5). A 401 triggers one silent
+ * Supabase refresh/retry before the local session is cleared.
  */
 import { config } from "./config";
 import { humanize } from "./format";
-import { getSession } from "./session";
+import { signOut, updateAccessToken, withSessionHeaders, type UserRole } from "./session";
+import { refreshAccessToken } from "./supabase";
 import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
-
-const DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role";
-const DEMO_ROLE_QUERY_PARAM = "demoRole";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type AlertStatus =
@@ -117,6 +119,12 @@ export interface ApiHealth {
   service: string;
   version: string;
   environment: string;
+}
+
+export interface CurrentUser {
+  email: string;
+  role: UserRole;
+  agencyId: string;
 }
 
 export interface TransactionResponse {
@@ -417,6 +425,7 @@ export interface DashboardMetrics {
 
 export interface ApiClient {
   health(): Promise<ApiHealth>;
+  me(): Promise<CurrentUser>;
   listTransactions(params?: ListTransactionsParams): Promise<TransactionListResponse>;
   getTransaction(transactionId: string): Promise<TransactionResponse>;
   ingestTransaction(body: TransactionIngestRequest): Promise<TransactionResponse>;
@@ -484,43 +493,6 @@ function query(params: Record<string, string | number | undefined>): string {
   return rendered ? `?${rendered}` : "";
 }
 
-function headersToRecord(headers?: HeadersInit): Record<string, string> {
-  if (!headers) {
-    return {};
-  }
-  if (headers instanceof Headers) {
-    return Object.fromEntries(headers.entries());
-  }
-  if (Array.isArray(headers)) {
-    return Object.fromEntries(headers);
-  }
-  return { ...headers };
-}
-
-function withSessionHeaders(init?: RequestInit): RequestInit | undefined {
-  const session = getSession();
-  if (!session) {
-    return init;
-  }
-  const headers = headersToRecord(init?.headers);
-  if (session.accessToken && !("Authorization" in headers)) {
-    headers.Authorization = `Bearer ${session.accessToken}`;
-  }
-  if (session.demoRole && !(DEMO_ROLE_HEADER in headers)) {
-    headers[DEMO_ROLE_HEADER] = session.demoRole;
-  }
-  return { ...init, headers };
-}
-
-function withDemoRoleQuery(url: string): string {
-  const role = getSession()?.demoRole;
-  if (!role) {
-    return url;
-  }
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${DEMO_ROLE_QUERY_PARAM}=${encodeURIComponent(role)}`;
-}
-
 export async function fetchApiHealth(fetchImpl: typeof fetch = fetch): Promise<ApiHealth> {
   const response = await fetchImpl(`${config.apiBaseUrl}/api/v1/health`);
   if (!response.ok) {
@@ -529,9 +501,32 @@ export async function fetchApiHealth(fetchImpl: typeof fetch = fetch): Promise<A
   return (await response.json()) as ApiHealth;
 }
 
+export async function fetchCurrentUser(
+  accessToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CurrentUser> {
+  const response = await fetchImpl(`${config.apiBaseUrl}/api/v1/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as CurrentUser;
+}
+
 export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
   async function send<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetchImpl(`${config.apiBaseUrl}${path}`, withSessionHeaders(init));
+    let response = await fetchImpl(`${config.apiBaseUrl}${path}`, withSessionHeaders(init));
+    if (response.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        updateAccessToken(refreshed);
+        response = await fetchImpl(`${config.apiBaseUrl}${path}`, withSessionHeaders(init));
+      }
+      if (response.status === 401) {
+        signOut();
+      }
+    }
     if (!response.ok) {
       throw await errorFromResponse(response);
     }
@@ -548,6 +543,7 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
 
   return {
     health: () => send<ApiHealth>("/api/v1/health"),
+    me: () => send<CurrentUser>("/api/v1/me"),
     listTransactions: (params = {}) =>
       send<TransactionListResponse>(`/api/v1/transactions${query({ ...params })}`),
     getTransaction: (transactionId) =>
@@ -570,8 +566,7 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
     getInvestigation: (runId) => send<InvestigationSnapshot>(`/api/v1/investigations/${runId}`),
     regenerateSar: (runId) =>
       send<SarDraftView>(`/api/v1/investigations/${runId}/sar/regenerate`, jsonInit("POST")),
-    investigationStreamUrl: (runId) =>
-      withDemoRoleQuery(`${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`),
+    investigationStreamUrl: (runId) => `${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`,
     listAlerts: (params = {}) => send<AlertListResponse>(`/api/v1/alerts${query({ ...params })}`),
     getAlert: (alertId) => send<AlertDetailResponse>(`/api/v1/alerts/${alertId}`),
     actOnAlert: (alertId, body) =>
