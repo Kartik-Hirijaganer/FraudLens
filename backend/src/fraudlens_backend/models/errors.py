@@ -156,6 +156,16 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="This action is not allowed for the current role.",
         ),
         ErrorSpec(
+            code="user_not_provisioned",
+            http_status=403,
+            message="The authenticated user is not provisioned for this agency.",
+        ),
+        ErrorSpec(
+            code="user_invite_failed",
+            http_status=503,
+            message="The user invite could not be completed. Retry shortly.",
+        ),
+        ErrorSpec(
             code="insufficient_matured_labels",
             http_status=422,
             message="Not enough matured reviewed labels to train a candidate model yet.",

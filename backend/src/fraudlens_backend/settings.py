@@ -143,8 +143,43 @@ class AppSettings(BaseSettings):
         description="JWT claim containing the tenant agency id.",
     )
     auth_role_claim: str = Field(
-        default="role",
-        description="JWT claim containing the FraudLens RBAC role.",
+        default="user_role",
+        description=(
+            "JWT claim containing the FraudLens RBAC role. Supabase's built-in top-level "
+            "`role` claim is reserved for `authenticated`, so FraudLens uses `user_role`."
+        ),
+    )
+    supabase_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("supabase_url", "SUPABASE_URL", "FRAUDLENS_SUPABASE_URL"),
+        description=(
+            "Supabase project URL used by admin-invite provisioning; non-secret and read from env."
+        ),
+    )
+    supabase_service_role_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "supabase_service_role_key",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "FRAUDLENS_SUPABASE_SERVICE_ROLE_KEY",
+        ),
+        description=(
+            "Supabase service-role key for admin user invites; secret from Infisical /backend."
+        ),
+    )
+    bootstrap_admin_user_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional first-admin auth.users id for scripts/seed.py bootstrap reconciliation."
+        ),
+    )
+    bootstrap_admin_email: str | None = Field(
+        default=None,
+        description="Optional first-admin email for scripts/seed.py bootstrap reconciliation.",
+    )
+    bootstrap_admin_display_name: str = Field(
+        default="Bootstrap Admin",
+        description="Display name used when scripts/seed.py upserts the optional first admin.",
     )
 
     # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
