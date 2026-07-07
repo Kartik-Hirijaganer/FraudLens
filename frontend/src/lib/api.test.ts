@@ -1,16 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("./supabase", () => ({
+  refreshAccessToken: vi.fn(() => Promise.resolve(null)),
+  signOutSupabase: vi.fn(),
+}));
+
 import {
   ApiError,
   createApiClient,
   fetchApiHealth,
+  fetchCurrentUser,
   type ApiHealth,
   type TransactionListResponse,
 } from "./api";
-import { DEMO_ROLES, signIn, signOut } from "./session";
+import { refreshAccessToken } from "./supabase";
+import { DEMO_ROLES, getSession, signIn, signOut } from "./session";
 
 afterEach(() => {
   signOut();
+  vi.mocked(refreshAccessToken).mockReset();
+  vi.mocked(refreshAccessToken).mockResolvedValue(null);
 });
 
 const HEALTH: ApiHealth = {
@@ -35,6 +44,22 @@ describe("fetchApiHealth", () => {
   it("throws ApiError (with the status) on a non-ok response", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(false, 503, null)));
     await expect(fetchApiHealth(fetchMock)).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("fetchCurrentUser", () => {
+  it("requests /me with the supplied bearer token", async () => {
+    const currentUser = {
+      email: "reviewer@example.test",
+      role: "reviewer",
+      agencyId: "agency-1",
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(true, 200, currentUser)));
+    const result = await fetchCurrentUser("access-token", fetchMock);
+    expect(result).toEqual(currentUser);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/me", {
+      headers: { Authorization: "Bearer access-token" },
+    });
   });
 });
 
@@ -95,7 +120,7 @@ describe("createApiClient", () => {
     expect(createApiClient().investigationStreamUrl("r9")).toBe("/api/v1/investigations/r9/stream");
   });
 
-  it("attaches the selected demo role to API requests and stream URLs", async () => {
+  it("attaches the selected demo role to API requests", async () => {
     const role = DEMO_ROLES.find((candidate) => candidate.role === "auditor");
     if (!role) {
       throw new Error("auditor demo role missing");
@@ -107,9 +132,43 @@ describe("createApiClient", () => {
     await createApiClient(fetchMock).listTransactions();
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>)["X-FraudLens-Demo-Role"]).toBe("auditor");
-    expect(createApiClient().investigationStreamUrl("r9")).toBe(
-      "/api/v1/investigations/r9/stream?demoRole=auditor",
+    expect(createApiClient().investigationStreamUrl("r9")).toBe("/api/v1/investigations/r9/stream");
+  });
+
+  it("refreshes once on 401, retries with the new token, and keeps the session", async () => {
+    vi.mocked(refreshAccessToken).mockResolvedValue("token-2");
+    signIn("reviewer@example.test", false, "reviewer", "token-1");
+    const page: TransactionListResponse = { transactions: [], nextCursor: null, total: 0 };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(fakeResponse(false, 401, { code: "unauthorized" }))
+      .mockResolvedValueOnce(fakeResponse(true, 200, page));
+
+    await expect(createApiClient(fetchMock).listTransactions()).resolves.toEqual(page);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, retryInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe("Bearer token-2");
+    expect(getSession()?.accessToken).toBe("token-2");
+  });
+
+  it("signs out when a 401 cannot be refreshed", async () => {
+    vi.mocked(refreshAccessToken).mockResolvedValue(null);
+    signIn("reviewer@example.test", false, "reviewer", "token-1");
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        fakeResponse(false, 401, {
+          code: "unauthorized",
+          message: "missing bearer token",
+          requestId: "req-1",
+        }),
+      ),
     );
+
+    await expect(createApiClient(fetchMock).listTransactions()).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(getSession()).toBeNull();
   });
 
   it("POSTs to the SAR regenerate endpoint for a run", async () => {
@@ -156,6 +215,7 @@ describe("createApiClient", () => {
     const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(true, 200, {})));
     const client = createApiClient(fetchMock);
     await client.health();
+    await client.me();
     await client.getTransaction("t1");
     await client.ingestBatch({ transactions: [] });
     await client.getInvestigation("r1");
@@ -174,6 +234,7 @@ describe("createApiClient", () => {
     await client.getDashboardMetrics();
     const paths = fetchMock.mock.calls.map((call) => (call as unknown as [string])[0]);
     expect(paths).toContain("/api/v1/health");
+    expect(paths).toContain("/api/v1/me");
     expect(paths).toContain("/api/v1/alerts/a1/sar/review");
     expect(paths).toContain("/api/v1/model-deployment/rollback");
     expect(paths).toContain("/api/v1/drift-reports");
