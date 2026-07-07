@@ -26,7 +26,7 @@ flowchart LR
 | Supabase Postgres | Storage growth, long retention | Synthetic data only; retention windows for jobs/inference; indexes scoped to query patterns. |
 | Blob artifacts | SAR PDFs and model artifacts | Store generated artifacts only; keep local dev on filesystem backend. |
 | Log Analytics | High-volume access/error logs | 30-day retention, daily cap, sampled app logs, no request bodies. |
-| LLM SAR drafting | Token usage and retries | Mock mode locally; per-session/day budget guard; cache replay for identical drafts. |
+| LLM SAR drafting | Token usage and retries | Mock mode for `make run`; OpenRouter only for `make run-live`; per-session/day budget guard; cache replay for identical drafts. |
 | Vercel frontend | Build/runtime usage | Static Vite SPA; no server-rendered runtime in v1. |
 | Dependency/security tooling | CI runtime | Consolidated `make` targets; avoid duplicated gates. |
 
@@ -55,7 +55,8 @@ Local demo cost is intended to be zero beyond the developer machine:
 ## Cost Guardrails
 
 - Keep `FRAUDLENS_LLM_MODE=mock` for local demo and tests.
-- Keep secrets and provider keys out of local `.env`; live providers require Infisical.
+- Keep secrets and provider keys out of local `.env`; `make run-live` requires Infisical and
+  `OPENROUTER_API_KEY`.
 - Treat `system_config` budget keys as runtime tunables; audit changes via `/api/v1/config`.
 - Prefer bounded batch sizes and CSV row caps over unbounded imports.
 - Re-run `make deps-audit` after dependency upgrades; security fixes can change transitive cost or
