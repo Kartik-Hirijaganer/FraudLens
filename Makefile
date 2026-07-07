@@ -20,7 +20,7 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
-        run rebuild local-demo local-demo-down local-demo-reset local-demo-smoke \
+        run rebuild run-live local-demo local-demo-down local-demo-reset local-demo-smoke \
         db-migrate db-seed import-ieee ingest-rag train-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
@@ -181,6 +181,8 @@ run: ## Clean-reset local state, re-seed, then boot the full stack locally.
 	POSTGRES_PORT=$${POSTGRES_PORT:-55432} $(UV) run python scripts/local_demo.py rebuild
 rebuild: ## Alias for `make run`.
 	$(MAKE) run
+run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
+	infisical run --env=prod --path=/ -- $(UV) run python scripts/local_demo.py live
 local-demo-down: ## Stop the local demo stack and remove its containers.
 	$(UV) run python scripts/local_demo.py down
 local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
