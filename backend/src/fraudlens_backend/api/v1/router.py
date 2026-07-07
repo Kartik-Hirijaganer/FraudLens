@@ -1,7 +1,8 @@
 """Summary: Aggregates the versioned /api/v1 business surface. It mounts the health,
-transaction-ingestion, AML-rules, investigation (create/snapshot/SSE), alert/review-workflow,
-model-registry, admin model-lifecycle (retrain/shadow/approve/canary/rollback/drift), dashboard
-metrics, runtime-config, dev-utility, and telemetry sub-routers, and serves the tenant-scoped
+user identity/admin-invite, transaction-ingestion, AML-rules, investigation (create/snapshot/SSE),
+alert/review-workflow, model-registry, admin model-lifecycle (retrain/shadow/approve/canary/
+rollback/drift), dashboard metrics, runtime-config, dev-utility, and telemetry sub-routers, and
+serves the tenant-scoped
 GET /api/v1/agencies/{agencyId}
 lookup,
 which exercises the full access path:
@@ -44,6 +45,7 @@ from fraudlens_backend.api.v1 import (
     rules,
     telemetry,
     transactions,
+    users,
 )
 from fraudlens_backend.db.repositories import AgencyRepository
 from fraudlens_backend.models.common import AgencyResponse, TenantContext
@@ -51,6 +53,7 @@ from fraudlens_backend.models.common import AgencyResponse, TenantContext
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(transactions.router)
+api_router.include_router(users.router)
 api_router.include_router(rules.router)
 api_router.include_router(investigations.router)
 api_router.include_router(alerts.router)

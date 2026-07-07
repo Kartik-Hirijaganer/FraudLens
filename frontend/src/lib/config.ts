@@ -16,12 +16,16 @@
 interface AppConfig {
   apiBaseUrl: string;
   appVersion: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
 }
 
 export function readConfig(env: ImportMetaEnv): AppConfig {
   return {
     apiBaseUrl: env.VITE_API_BASE_URL ?? "",
     appVersion: env.VITE_APP_VERSION ?? "dev",
+    supabaseUrl: env.VITE_SUPABASE_URL ?? "",
+    supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY ?? "",
   };
 }
 
