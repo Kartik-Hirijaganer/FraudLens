@@ -23,10 +23,13 @@ import "@fontsource/manrope/800.css";
 
 import { App } from "./App";
 import { installErrorReporter } from "./lib/logger";
+import { updateAccessToken } from "./lib/session";
+import { subscribeToSupabaseAuth } from "./lib/supabase";
 
 import "./index.css";
 
 installErrorReporter();
+subscribeToSupabaseAuth(updateAccessToken);
 
 const rootElement = document.getElementById("root");
 if (rootElement) {
