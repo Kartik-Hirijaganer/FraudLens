@@ -761,6 +761,35 @@
         "title": "CsvUploadResponse",
         "type": "object"
       },
+      "CurrentUserResponse": {
+        "additionalProperties": false,
+        "description": "The authenticated caller identity used by the frontend session store.",
+        "properties": {
+          "agencyId": {
+            "description": "Tenant agency id from the verified access token.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "email": {
+            "description": "Provisioned email address.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "FraudLens RBAC role enforced for this request."
+          }
+        },
+        "required": [
+          "email",
+          "role",
+          "agencyId"
+        ],
+        "title": "CurrentUserResponse",
+        "type": "object"
+      },
       "DashboardMetricsResponse": {
         "additionalProperties": false,
         "description": "The tenant-scoped dashboard aggregate (plan \u00a75.3 endpoint 13, \u00a716 Phase 12).",
@@ -2476,6 +2505,89 @@
         "title": "TriggerTrainingRequest",
         "type": "object"
       },
+      "UserInviteRequest": {
+        "additionalProperties": false,
+        "description": "Admin-only request to invite a user and create its tenant-scoped row.",
+        "properties": {
+          "displayName": {
+            "description": "Human-readable display name stored in the tenant users table.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Displayname",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address to invite through Supabase Auth.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "FraudLens RBAC role granted to the invited user."
+          }
+        },
+        "required": [
+          "email",
+          "displayName",
+          "role"
+        ],
+        "title": "UserInviteRequest",
+        "type": "object"
+      },
+      "UserInviteResponse": {
+        "additionalProperties": false,
+        "description": "The reconciled tenant user returned after a successful invite.",
+        "properties": {
+          "agencyId": {
+            "description": "Tenant agency id assigned by the inviting admin.",
+            "title": "Agencyid",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Stored display name.",
+            "title": "Displayname",
+            "type": "string"
+          },
+          "email": {
+            "description": "Provisioned email address.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Stored FraudLens RBAC role."
+          },
+          "userId": {
+            "description": "Supabase auth.users id mirrored into public.users.id.",
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "email",
+          "displayName",
+          "role",
+          "agencyId"
+        ],
+        "title": "UserInviteResponse",
+        "type": "object"
+      },
+      "UserRole": {
+        "description": "A user's RBAC role within an agency (plan \u00a76.3).",
+        "enum": [
+          "auditor",
+          "analyst",
+          "reviewer",
+          "admin"
+        ],
+        "title": "UserRole",
+        "type": "string"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -3250,6 +3362,33 @@
         "summary": "Stream Investigation",
         "tags": [
           "investigations"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "description": "Return the verified caller identity from claims plus the provisioned users row.",
+        "operationId": "get_current_user_api_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentUserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current User",
+        "tags": [
+          "users"
         ]
       }
     },
@@ -4209,6 +4348,53 @@
         "summary": "Get Transaction",
         "tags": [
           "transactions"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "post": {
+        "description": "Invite a user through Supabase Auth and mirror the auth uid into public.users.",
+        "operationId": "invite_user_api_v1_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInviteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Invite User",
+        "tags": [
+          "users"
         ]
       }
     },
