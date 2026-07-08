@@ -1,47 +1,53 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSseClient, type SseMessage } from "./sse";
+import { DEMO_ROLES, signIn, signOut } from "./session";
 
-class FakeEventSource {
-  listeners = new Map<string, (event: MessageEvent) => void>();
-  onopen: ((event: Event) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  closed = false;
-  constructor(readonly url: string) {}
-  addEventListener(type: string, cb: (event: MessageEvent) => void): void {
-    this.listeners.set(type, cb);
-  }
-  close(): void {
-    this.closed = true;
-  }
-  emit(type: string, data: string, lastEventId = ""): void {
-    this.listeners.get(type)?.({ data, lastEventId } as MessageEvent);
+function streamResponse(...frames: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) {
+          controller.enqueue(encoder.encode(frame));
+        }
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
+}
+
+async function waitForMessages(messages: SseMessage[], count = 1): Promise<void> {
+  for (let i = 0; i < 20; i += 1) {
+    if (messages.length >= count) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
-function setup(events: string[]) {
-  let source!: FakeEventSource;
-  const messages: SseMessage[] = [];
-  const onOpen = vi.fn();
-  const onError = vi.fn();
-  const handle = createSseClient({
-    url: "/stream",
-    events,
-    onMessage: (message) => messages.push(message),
-    onOpen,
-    onError,
-    eventSourceFactory: (url) => {
-      source = new FakeEventSource(url);
-      return source as unknown as EventSource;
-    },
-  });
-  return { source, messages, onOpen, onError, handle };
-}
+afterEach(() => {
+  signOut();
+});
 
 describe("createSseClient", () => {
-  it("parses subscribed events and exposes lastEventId", () => {
-    const { source, messages } = setup(["run.started", "sar.token"]);
-    source.emit("run.started", JSON.stringify({ transactionId: "t1" }), "1");
+  it("parses subscribed events and exposes lastEventId", async () => {
+    const messages: SseMessage[] = [];
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        streamResponse('id: 1\nevent: run.started\ndata: {"transactionId":"t1"}\n\n'),
+      ),
+    );
+    createSseClient({
+      url: "/stream",
+      events: ["run.started", "sar.token"],
+      onMessage: (message) => messages.push(message),
+      fetchImpl: fetchMock,
+    });
+
+    await waitForMessages(messages);
+
     expect(messages[0]).toEqual({
       type: "run.started",
       data: { transactionId: "t1" },
@@ -49,43 +55,75 @@ describe("createSseClient", () => {
     });
   });
 
-  it("degrades a non-JSON frame to null data", () => {
-    const { source, messages } = setup(["sar.token"]);
-    source.emit("sar.token", "<<not json>>");
+  it("degrades a non-JSON frame to null data", async () => {
+    const messages: SseMessage[] = [];
+    createSseClient({
+      url: "/stream",
+      events: ["sar.token"],
+      onMessage: (message) => messages.push(message),
+      fetchImpl: vi.fn(() =>
+        Promise.resolve(streamResponse("event: sar.token\ndata: <<not json>>\n\n")),
+      ),
+    });
+
+    await waitForMessages(messages);
+
     expect(messages[0].data).toBeNull();
   });
 
-  it("wires onOpen / onError and closes the source", () => {
-    const { source, onOpen, onError, handle } = setup(["run.started"]);
-    source.onopen?.(new Event("open"));
-    source.onerror?.(new Event("error"));
-    expect(onOpen).toHaveBeenCalledOnce();
+  it("wires onOpen, onError, and close", async () => {
+    const onOpen = vi.fn();
+    const onError = vi.fn();
+    const handle = createSseClient({
+      url: "/stream",
+      events: ["run.started"],
+      onMessage: () => undefined,
+      onOpen,
+      onError,
+      fetchImpl: vi.fn(() => Promise.resolve(new Response(null, { status: 500 }))),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onOpen).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledOnce();
     handle.close();
-    expect(source.closed).toBe(true);
   });
 
-  it("falls back to the global EventSource when no factory is given", () => {
-    const close = vi.fn();
-    class GlobalFake {
-      addEventListener(): void {}
-      close = close;
-      onopen: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-    }
-    // Assign the class itself (constructable) — `createSseClient` calls `new EventSource(url)`,
-    // and a `vi.fn` wrapping an arrow function is not a constructor under Vitest 4.
-    (globalThis as { EventSource?: unknown }).EventSource = GlobalFake;
-    try {
-      const handle = createSseClient({
-        url: "/stream",
-        events: ["run.started"],
-        onMessage: () => {},
-      });
-      handle.close();
-      expect(close).toHaveBeenCalledOnce();
-    } finally {
-      delete (globalThis as { EventSource?: unknown }).EventSource;
-    }
+  it("sends bearer auth headers without putting tokens in the URL", async () => {
+    signIn("reviewer@example.test", false, "reviewer", "token-1");
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(streamResponse('event: run.started\ndata: {"ok":true}\n\n')),
+    );
+    const messages: SseMessage[] = [];
+    createSseClient({
+      url: "/api/v1/investigations/r1/stream",
+      events: ["run.started"],
+      onMessage: (message) => messages.push(message),
+      fetchImpl: fetchMock,
+    });
+
+    await waitForMessages(messages);
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/investigations/r1/stream");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer token-1");
+    expect(url).not.toContain("token-1");
+  });
+
+  it("sends the demo role header for dev-bypass sessions", async () => {
+    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(streamResponse('event: run.started\ndata: {"ok":true}\n\n')),
+    );
+    createSseClient({
+      url: "/stream",
+      events: ["run.started"],
+      onMessage: () => undefined,
+      fetchImpl: fetchMock,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["X-FraudLens-Demo-Role"]).toBe("analyst");
   });
 });
