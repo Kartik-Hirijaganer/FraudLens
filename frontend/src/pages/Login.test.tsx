@@ -1,12 +1,25 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Login } from "./Login";
+vi.mock("../lib/api", () => ({
+  fetchCurrentUser: vi.fn(),
+}));
+
+vi.mock("../lib/supabase", () => ({
+  signInWithPassword: vi.fn(),
+  signOutSupabase: vi.fn(),
+}));
+
+import { Login, isDemoPickerEnabled } from "./Login";
+import { fetchCurrentUser } from "../lib/api";
 import { DEMO_ROLES, getSession, signOut } from "../lib/session";
+import { signInWithPassword } from "../lib/supabase";
 
 afterEach(() => {
   signOut();
+  vi.mocked(fetchCurrentUser).mockReset();
+  vi.mocked(signInWithPassword).mockReset();
 });
 
 async function openRolePicker(user: ReturnType<typeof userEvent.setup>): Promise<void> {
@@ -100,6 +113,36 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
     expect(getSession()).toMatchObject({ email: DEMO_ROLES[0].email, role: DEMO_ROLES[0].role });
+  });
+
+  it("signs in with Supabase and stores the server-returned role and token", async () => {
+    vi.mocked(signInWithPassword).mockResolvedValue("access-token");
+    vi.mocked(fetchCurrentUser).mockResolvedValue({
+      email: "reviewer@example.test",
+      role: "reviewer",
+      agencyId: "agency-1",
+    });
+    const user = userEvent.setup();
+    render(<Login />);
+
+    await user.type(screen.getByLabelText("Work email"), "reviewer@example.test");
+    await user.type(screen.getByLabelText("Password"), "correct-password");
+    await user.click(screen.getByRole("button", { name: /Sign in/ }));
+
+    await waitFor(() =>
+      expect(getSession()).toMatchObject({
+        email: "reviewer@example.test",
+        role: "reviewer",
+        accessToken: "access-token",
+      }),
+    );
+    expect(signInWithPassword).toHaveBeenCalledWith("reviewer@example.test", "correct-password");
+    expect(fetchCurrentUser).toHaveBeenCalledWith("access-token");
+  });
+
+  it("hides the demo picker outside Vite dev mode", () => {
+    expect(isDemoPickerEnabled({ DEV: false })).toBe(false);
+    expect(isDemoPickerEnabled({ DEV: true })).toBe(true);
   });
 
   it("persists the session to localStorage only when 'keep me signed in' is checked", async () => {
