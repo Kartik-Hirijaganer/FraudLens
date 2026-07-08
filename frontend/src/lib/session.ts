@@ -1,9 +1,9 @@
 /**
  * Summary: The signed-in identity and demo-session store for the app (plan §16 Phase 11,
- * RBAC hardening Phase 1). `DEMO_ROLES` are synthetic portfolio/demo personas mapped to
- * canonical backend roles, and `signIn` persists the selected role so local-demo API calls can
- * send the dev-only role header. Real auth can later pass an access token while preserving the
- * same `Session` shape for shell, API, and permission helpers.
+ * RBAC hardening Phase 1 / Track B). `DEMO_ROLES` are synthetic portfolio/demo personas mapped
+ * to canonical backend roles, and `signIn` persists the selected role so local-demo API calls can
+ * send the dev-only role header. Real Supabase auth passes an access token while preserving the
+ * same `Session` shape for shell, API, SSE, and permission helpers.
  *
  * Key classes:
  * - Analyst: display identity for the shell and dashboard.
@@ -13,18 +13,23 @@
  * Key functions:
  * - DEMO_ROLES: portfolio/demo personas offered by the login picker.
  * - currentAnalyst: fallback display identity when a non-demo email signs in.
+ * - DEMO_ROLE_HEADER:
  * - roleHasPermission: role-level permission helper used for UX gating.
  * - hasPermission: session-level permission helper used by the shell.
+ * - withSessionHeaders: attach bearer/demo auth to REST and SSE requests.
  * - signIn: start a session (persisted per the "keep signed in" choice).
- * - signOut: clear the session from memory and both storages.
+ * - updateAccessToken: replace the stored bearer token after Supabase refresh.
+ * - signOut: clear the session from memory/storage and sign out of Supabase when configured.
  * - getSession: read the current session synchronously (null when signed out).
  * - useSession: subscribe to the session so a component re-renders on change.
  *
  * Notes:
  * - Demo credentials are synthetic (no PHI, no real secret). The client-sent demo role is honored
- *   only by the backend's non-prod dev bypass; production auth ignores it and uses verified JWTs.
+ * only by the backend's non-prod dev bypass; production auth ignores it and uses verified JWTs.
  */
 import { useSyncExternalStore } from "react";
+
+import { signOutSupabase } from "./supabase";
 
 export type UserRole = "auditor" | "analyst" | "reviewer" | "admin";
 
@@ -151,6 +156,7 @@ export const currentAnalyst: Analyst = {
 };
 
 const STORAGE_KEY = "fraudlens.session";
+export const DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role";
 
 function isUserRole(value: unknown): value is UserRole {
   return typeof value === "string" && USER_ROLES.includes(value as UserRole);
@@ -242,6 +248,44 @@ function emit(): void {
   }
 }
 
+function storageContainingSession(): Storage | null {
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    const safe = safeStorage(store);
+    if (safe?.getItem(STORAGE_KEY)) {
+      return safe;
+    }
+  }
+  return safeStorage(window.sessionStorage);
+}
+
+function headersToRecord(headers?: HeadersInit): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+  return { ...headers };
+}
+
+export function withSessionHeaders(init?: RequestInit): RequestInit | undefined {
+  const session = getSession();
+  if (!session) {
+    return init;
+  }
+  const headers = headersToRecord(init?.headers);
+  if (session.accessToken && !("Authorization" in headers)) {
+    headers.Authorization = `Bearer ${session.accessToken}`;
+  }
+  if (session.demoRole && !(DEMO_ROLE_HEADER in headers)) {
+    headers[DEMO_ROLE_HEADER] = session.demoRole;
+  }
+  return { ...init, headers };
+}
+
 export function signIn(
   email: string,
   remember = false,
@@ -257,7 +301,23 @@ export function signIn(
   return currentSession;
 }
 
+export function updateAccessToken(accessToken: string): Session | null {
+  if (!currentSession) {
+    return null;
+  }
+  currentSession = {
+    email: currentSession.email,
+    role: currentSession.role,
+    analyst: currentSession.analyst,
+    accessToken,
+  };
+  storageContainingSession()?.setItem(STORAGE_KEY, JSON.stringify(currentSession));
+  emit();
+  return currentSession;
+}
+
 export function signOut(): void {
+  signOutSupabase();
   currentSession = null;
   safeStorage(window.localStorage)?.removeItem(STORAGE_KEY);
   safeStorage(window.sessionStorage)?.removeItem(STORAGE_KEY);

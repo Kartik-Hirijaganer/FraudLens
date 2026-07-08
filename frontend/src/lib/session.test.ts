@@ -8,6 +8,8 @@ import {
   roleHasPermission,
   signIn,
   signOut,
+  updateAccessToken,
+  withSessionHeaders,
 } from "./session";
 
 afterEach(() => {
@@ -92,6 +94,25 @@ describe("session store", () => {
     signIn("analyst@agency.gov", true);
     expect(window.localStorage.getItem("fraudlens.session")).not.toBeNull();
     expect(window.sessionStorage.getItem("fraudlens.session")).toBeNull();
+  });
+
+  it("updates the stored access token without turning it into a demo session", () => {
+    signIn("reviewer@agency.gov", false, "reviewer", "token-1");
+    updateAccessToken("token-2");
+    expect(getSession()).toMatchObject({ accessToken: "token-2", role: "reviewer" });
+    expect(getSession()?.demoRole).toBeUndefined();
+    expect(window.sessionStorage.getItem("fraudlens.session")).toContain("token-2");
+  });
+
+  it("builds request headers for bearer and demo sessions", () => {
+    signIn("reviewer@agency.gov", false, "reviewer", "token-1");
+    expect(withSessionHeaders({ headers: { Accept: "application/json" } })?.headers).toMatchObject({
+      Accept: "application/json",
+      Authorization: "Bearer token-1",
+    });
+    signOut();
+    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
+    expect(withSessionHeaders()?.headers).toMatchObject({ "X-FraudLens-Demo-Role": "analyst" });
   });
 });
 

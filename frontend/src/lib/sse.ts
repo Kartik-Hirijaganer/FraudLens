@@ -1,25 +1,24 @@
 /**
- * Summary: A small, testable wrapper over the browser `EventSource` for the
- * investigation stream (plan §5.4, §16 Phase 11 `lib/sse.ts`). It subscribes to the
- * named server-sent events the backend emits (`run.started` … `sar.token` …
- * `run.completed`), parses each frame's JSON `data`, and surfaces the native
- * `lastEventId` so a reconnect resumes exactly from the last persisted `seq` (the
- * backend replays `analysis_run_events` from `Last-Event-ID`). The `EventSource`
- * factory is injectable so tests drive a fake without a real network/EventSource
- * (jsdom has none); the page passes the real one.
+ * Summary: A small, testable fetch-based client for the investigation SSE stream
+ * (plan §5.4, §16 Phase 11 `lib/sse.ts`). It subscribes to the named server-sent
+ * events the backend emits (`run.started` … `sar.token` … `run.completed`), sends the
+ * same Authorization/demo headers as REST, parses each frame's JSON `data`, and
+ * surfaces the stream `id` as `lastEventId`.
  *
  * Key classes:
  * - SseMessage: one parsed server-sent event (type + parsed data + lastEventId).
- * - SseClientOptions: inputs to createSseClient (url, event names, callbacks, factory).
+ * - SseClientOptions: inputs to createSseClient (url, event names, callbacks, fetch).
  * - SseHandle: the returned controller (close the stream).
  *
  * Key functions:
  * - createSseClient: open an EventSource, dispatch parsed named events, return a handle.
  *
  * Notes:
- * - `EventSource` can't send an Authorization header; in local-demo the gateway dev
- *   bypass needs none. A non-JSON frame degrades to `data: null` rather than throwing.
+ * - Native EventSource cannot send an Authorization header; fetch + ReadableStream keeps
+ *   bearer tokens out of URLs. A non-JSON frame degrades to `data: null` rather than throwing.
  */
+import { withSessionHeaders } from "./session";
+
 export interface SseMessage {
   type: string;
   data: unknown;
@@ -32,7 +31,7 @@ export interface SseClientOptions {
   onMessage: (message: SseMessage) => void;
   onOpen?: () => void;
   onError?: (event: Event) => void;
-  eventSourceFactory?: (url: string) => EventSource;
+  fetchImpl?: typeof fetch;
 }
 
 export interface SseHandle {
@@ -50,15 +49,75 @@ function parseData(raw: unknown): unknown {
   }
 }
 
-export function createSseClient(options: SseClientOptions): SseHandle {
-  const factory = options.eventSourceFactory ?? ((url: string) => new EventSource(url));
-  const source = factory(options.url);
-  for (const type of options.events) {
-    source.addEventListener(type, (event: MessageEvent) => {
-      options.onMessage({ type, data: parseData(event.data), lastEventId: event.lastEventId });
-    });
+function parseFrame(frame: string): { type: string; data: string; lastEventId: string } | null {
+  let type = "message";
+  let lastEventId = "";
+  const data: string[] = [];
+  for (const line of frame.split(/\r?\n/)) {
+    if (line.startsWith("event:")) {
+      type = line.slice("event:".length).trimStart();
+    } else if (line.startsWith("data:")) {
+      data.push(line.slice("data:".length).trimStart());
+    } else if (line.startsWith("id:")) {
+      lastEventId = line.slice("id:".length).trimStart();
+    }
   }
-  source.onopen = (): void => options.onOpen?.();
-  source.onerror = (event: Event): void => options.onError?.(event);
-  return { close: () => source.close() };
+  if (data.length === 0) {
+    return null;
+  }
+  return { type, data: data.join("\n"), lastEventId };
+}
+
+export function createSseClient(options: SseClientOptions): SseHandle {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const subscribed = new Set(options.events);
+  let closed = false;
+
+  async function pump(): Promise<void> {
+    try {
+      const response = await fetchImpl(
+        options.url,
+        withSessionHeaders({ headers: { Accept: "text/event-stream" }, signal: controller.signal }),
+      );
+      if (!response.ok || !response.body) {
+        throw new Error("SSE stream failed.");
+      }
+      options.onOpen?.();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!closed) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const parsed = parseFrame(frame);
+          if (parsed && subscribed.has(parsed.type)) {
+            options.onMessage({
+              type: parsed.type,
+              data: parseData(parsed.data),
+              lastEventId: parsed.lastEventId,
+            });
+          }
+        }
+      }
+    } catch {
+      if (!closed) {
+        options.onError?.(new Event("error"));
+      }
+    }
+  }
+
+  void pump();
+  return {
+    close: () => {
+      closed = true;
+      controller.abort();
+    },
+  };
 }
