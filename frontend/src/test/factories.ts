@@ -194,6 +194,13 @@ export function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     health: vi.fn(() =>
       Promise.resolve({ status: "ok", service: "FraudLens", version: "0", environment: "dev" }),
     ),
+    me: vi.fn(() =>
+      Promise.resolve({
+        email: "analyst@demo-agency.test",
+        role: "analyst" as const,
+        agencyId: "agency-1",
+      }),
+    ),
     listTransactions: vi.fn(() =>
       Promise.resolve({ transactions: [transaction()], nextCursor: null, total: 1 }),
     ),
