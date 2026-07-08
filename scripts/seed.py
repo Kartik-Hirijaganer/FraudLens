@@ -75,6 +75,7 @@ from fraudlens_backend.db.models import (
     TrainingLabelType,
     Transaction,
     User,
+    UserRole,
 )
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
@@ -85,7 +86,7 @@ from fraudlens_backend.demo import (
     DEMO_USER_ID,
     DEMO_USERS,
 )
-from fraudlens_backend.settings import get_settings
+from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_core import DEFAULT_RULE_DEFINITIONS, RiskBand
 from fraudlens_ml.scoring import ModelGates, current_feature_spec
 from import_ieee import seed_sample_transactions
@@ -253,6 +254,40 @@ async def _ensure_users(session: AsyncSession) -> int:
                 )
             )
     return len(DEMO_USERS)
+
+
+async def _ensure_bootstrap_admin(session: AsyncSession, settings: AppSettings) -> int:
+    """Upsert the optional dashboard-created first admin into public.users.
+
+    The admin must already exist in Supabase Auth; these settings only reconcile the app-owned
+    row so token `sub` (auth.users.id) resolves to a tenant user. When unset, the local demo seed
+    remains unchanged and returns zero extra users.
+    """
+    if not settings.bootstrap_admin_user_id and not settings.bootstrap_admin_email:
+        return 0
+    if not settings.bootstrap_admin_user_id or not settings.bootstrap_admin_email:
+        raise RuntimeError("bootstrap admin requires both user id and email")
+    try:
+        user_id = uuid.UUID(settings.bootstrap_admin_user_id)
+    except ValueError as exc:
+        raise RuntimeError("bootstrap admin user id must be a UUID") from exc
+    user = await session.get(User, user_id)
+    if user is None:
+        session.add(
+            User(
+                id=user_id,
+                agency_id=DEMO_AGENCY_ID,
+                email=settings.bootstrap_admin_email,
+                display_name=settings.bootstrap_admin_display_name,
+                role=UserRole.ADMIN,
+            )
+        )
+    else:
+        user.agency_id = DEMO_AGENCY_ID
+        user.email = settings.bootstrap_admin_email
+        user.display_name = settings.bootstrap_admin_display_name
+        user.role = UserRole.ADMIN
+    return 1
 
 
 async def _ensure_config(session: AsyncSession) -> int:
@@ -531,11 +566,13 @@ async def _record_seed_job(session: AsyncSession, summary: SeedSummary) -> None:
         job.attempts = job.attempts + 1
 
 
-async def seed(session: AsyncSession) -> SeedSummary:
+async def seed(session: AsyncSession, settings: AppSettings | None = None) -> SeedSummary:
     """Idempotently upsert the Phase 2 demo dataset into the session (caller commits)."""
+    resolved_settings = settings or get_settings()
     await _ensure_agency(session)
     await session.flush()  # the agency must exist before its FKs (users, config, job)
     user_count = await _ensure_users(session)
+    user_count += await _ensure_bootstrap_admin(session, resolved_settings)
     config_count = await _ensure_config(session)
     rules_count = await _ensure_rules(session)
     await _ensure_fixture_model(session)
@@ -573,7 +610,7 @@ async def _amain() -> int:
     sessionmaker = build_sessionmaker(engine)
     try:
         async with sessionmaker() as session:
-            summary = await seed(session)
+            summary = await seed(session, settings)
             await session.commit()
     finally:
         await engine.dispose()

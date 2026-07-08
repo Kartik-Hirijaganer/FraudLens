@@ -5,8 +5,10 @@ SAR drafter via dev config. The preferred ports are :8000/:5173, but unset ports
 fallbacks when another project owns them. `up` waits for /healthz, prints the demo URL, and blocks
 until Ctrl-C, then tears the child processes down cleanly; `down` /`reset` stop the stack (reset
 also drops volumes + .local state); `rebuild` performs a clean local reset, clears generated caches,
-frees FraudLens-owned listeners, then boots; `smoke` is the headless gate — boot Postgres + backend,
-assert /healthz and /readyz, tear down. The database migrate + seed + RAG-index-build steps are
+frees FraudLens-owned listeners, then boots; `live` boots backend + frontend against real
+Supabase/Postgres/OpenRouter secrets already injected by Infisical; `smoke` is the headless gate —
+boot Postgres + backend, assert /healthz and /readyz, tear down. The database migrate + seed +
+RAG-index-build steps are
 guarded so they run once their phases land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase
 6), and are skipped (not failed) until then, keeping `make local-demo` green and shipping a fixture
 RAG index.
@@ -17,7 +19,9 @@ Key classes:
 Key functions:
 - local_database_url: build the local asyncpg URL from (non-secret) env/defaults.
 - demo_environment: the dev environment overrides handed to the child processes.
+- live_environment: dev-local overrides for real Supabase Auth/Postgres + OpenRouter.
 - up: boot Postgres + backend + frontend, print the URL, wait for Ctrl-C.
+- live: boot backend + frontend against real services, print the URL, wait for Ctrl-C.
 - down: stop the compose stack.
 - reset: stop the stack and remove volumes + local state.
 - rebuild: reset local state/caches and boot the full stack from a clean seed.
@@ -164,6 +168,53 @@ def demo_environment() -> dict[str, str]:
             "FRAUDLENS_QUEUE_BACKEND": "local",
             "FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT": "true",
             "FRAUDLENS_LLM_MODE": "mock",
+        }
+    )
+    frontend_origin = _base_url(env["FRONTEND_PORT"])
+    env.setdefault("FRAUDLENS_CORS_ALLOW_ORIGINS", json.dumps([frontend_origin]))
+    env.setdefault("VITE_API_BASE_URL", _base_url(env["BACKEND_PORT"]))
+    return env
+
+
+def _supabase_project_url(env: dict[str, str]) -> str:
+    """Return the non-secret Supabase project URL from accepted env names."""
+    value = (
+        env.get("SUPABASE_PROJECT_URL")
+        or env.get("FRAUDLENS_SUPABASE_URL")
+        or env.get("VITE_SUPABASE_URL")
+    )
+    if not value:
+        raise RuntimeError("SUPABASE_PROJECT_URL or VITE_SUPABASE_URL is required for live mode")
+    return value.rstrip("/")
+
+
+def _require_live_env(env: dict[str, str]) -> None:
+    """Fail fast when run-live is missing required Infisical-injected secrets."""
+    missing = [name for name in ("DATABASE_URL", "OPENROUTER_API_KEY") if not env.get(name)]
+    if missing:
+        raise RuntimeError(f"missing live secret env vars: {', '.join(missing)}")
+
+
+def live_environment() -> dict[str, str]:
+    """Return child-process env for local live Supabase Auth/Postgres + OpenRouter."""
+    env = dict(os.environ)
+    for name in ("BACKEND_PORT", "FRONTEND_PORT"):
+        env.setdefault(name, _env(name))
+    supabase_url = _supabase_project_url(env)
+    _require_live_env(env)
+    env.update(
+        {
+            "FRAUDLENS_ENVIRONMENT": "dev",
+            "FRAUDLENS_AUTH_DEV_BYPASS": "false",
+            "FRAUDLENS_AUTH_JWKS_URL": f"{supabase_url}/auth/v1/.well-known/jwks.json",
+            "FRAUDLENS_AUTH_JWT_ISSUER": f"{supabase_url}/auth/v1",
+            "FRAUDLENS_AUTH_JWT_AUDIENCE": "authenticated",
+            "FRAUDLENS_AUTH_ROLE_CLAIM": "user_role",
+            "FRAUDLENS_SUPABASE_URL": supabase_url,
+            "FRAUDLENS_STORAGE_BACKEND": "local",
+            "FRAUDLENS_QUEUE_BACKEND": "local",
+            "FRAUDLENS_LLM_MODE": "live",
+            "VITE_SUPABASE_URL": supabase_url,
         }
     )
     frontend_origin = _base_url(env["FRONTEND_PORT"])
@@ -445,6 +496,34 @@ def up() -> int:
     return 0
 
 
+def live() -> int:
+    """Boot backend + frontend against live Supabase/Postgres/OpenRouter services."""
+    _require_tools("uv", "npm")
+    _assign_available_default_ports(("BACKEND_PORT", "FRONTEND_PORT"))
+    env = live_environment()
+    backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
+    procs = [
+        subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
+        subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
+    ]
+    try:
+        if not _wait_for_http(f"{_base_url(backend_port)}/healthz"):
+            print("backend did not become healthy in time", file=sys.stderr)
+            return 1
+        print(f"\nFraudLens live-local is up — open {_base_url(frontend_port)}")
+        print(f"gateway/API: {_base_url(backend_port)}  (Ctrl-C to stop)\n")
+        signal.pause()
+    except KeyboardInterrupt:
+        print("\nshutting down…")
+    finally:
+        for proc in procs:
+            proc.terminate()
+        for proc in procs:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=10)
+    return 0
+
+
 def down() -> int:
     """Stop the compose stack (containers removed, volumes kept)."""
     _require_tools("docker")
@@ -500,6 +579,7 @@ def smoke() -> int:
 _COMMANDS = {
     "up": up,
     "down": down,
+    "live": live,
     "rebuild": rebuild,
     "reset": reset,
     "run": rebuild,

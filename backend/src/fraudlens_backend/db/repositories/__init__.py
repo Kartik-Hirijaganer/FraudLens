@@ -8,8 +8,9 @@ persists/looks up agency-scoped SAR drafts;
 `AnalysisRunRepository` persists an investigation run + its events/results/retrievals/inference/
 alerts (the pipeline `RunStore` seam); `AlertRepository` drives the alert/review workflow
 (actions, transitions, resolution labels); `DashboardRepository` computes the tenant-scoped
-dashboard aggregate (counts + cost + model health); `AuditLogRepository` writes the PHI-free audit
-trail. Re-exports are intentional (see members)."""
+dashboard aggregate (counts + cost + model health); `UserRepository` resolves/provisions
+tenant-scoped auth users; `AuditLogRepository` writes the PHI-free audit trail. Re-exports are
+intentional (see members)."""
 
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from fraudlens_backend.db.repositories.transactions import (
     IngestOutcome,
     TransactionRepository,
 )
+from fraudlens_backend.db.repositories.users import UserRepository
 
 __all__ = [
     "AgencyRepository",
@@ -42,4 +44,5 @@ __all__ = [
     "SarDraftRepository",
     "TenantScopedRepository",
     "TransactionRepository",
+    "UserRepository",
 ]
