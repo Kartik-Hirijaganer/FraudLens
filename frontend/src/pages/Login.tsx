@@ -2,14 +2,17 @@
  * Summary: The FraudLens sign-in screen (plan §16 Phase 11) — the pre-auth gate rendered
  * by the shell whenever there is no session. Matches the approved design brief: a navy brand
  * panel (wordmark, animated grid motif, product promise) beside a light sign-in form. The
- * "Demo · sign in as" picker lists the synthetic `DEMO_ROLES` and auto-fills the email +
- * password when a role is chosen, so the demo build can be entered without typing credentials.
+ * "Demo · sign in as" picker lists the synthetic `DEMO_ROLES` in Vite dev only and auto-fills
+ * the email + password when a role is chosen, so the dev-bypass demo can be entered without
+ * typing credentials. Normal submit uses Supabase email/password, fetches `/api/v1/me`, and stores
+ * the server-returned role plus bearer token.
  *
  * Key classes:
  * - (none)
  *
  * Key functions:
- * - Login: render the split-panel sign-in screen and start a session on submit.
+ * - isDemoPickerEnabled: expose the Vite dev gate for the demo picker.
+ * - Login: render the split-panel sign-in screen and start a demo or Supabase session on submit.
  *
  * Notes:
  * - Auto-filled credentials are synthetic demo values (see session.ts) — no PHI, no real secret.
@@ -20,8 +23,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { cx } from "../lib/cx";
-import { DEMO_ROLES, signIn, type DemoRole, type RoleAccent } from "../lib/session";
-import { notify } from "../lib/toast";
+import { fetchCurrentUser } from "../lib/api";
+import { DEMO_ROLES, signIn as startSession, type DemoRole, type RoleAccent } from "../lib/session";
+import { signInWithPassword } from "../lib/supabase";
+import { notify, notifyError } from "../lib/toast";
 
 const ACCENT_DOT: Record<RoleAccent, string> = {
   green: "bg-auth-green",
@@ -33,6 +38,10 @@ const ACCENT_DOT: Record<RoleAccent, string> = {
 const INPUT_CLASS =
   "border-auth-border focus:border-auth-panel focus:shadow-auth-focus w-full rounded-sm border bg-canvas px-lg py-md text-body-sm text-auth-panel outline-none transition placeholder:text-auth-faint";
 
+export function isDemoPickerEnabled(env: Pick<ImportMetaEnv, "DEV"> = import.meta.env): boolean {
+  return env.DEV;
+}
+
 export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,10 +49,12 @@ export function Login() {
   const [remember, setRemember] = useState(false);
   const [roleId, setRoleId] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
+  const showDemoPicker = isDemoPickerEnabled();
   const selectedRole = DEMO_ROLES.find((r) => r.id === roleId) ?? null;
-  const canSubmit = email.trim().length > 0 && password.length > 0;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !signingIn;
 
   useEffect(() => {
     if (!menuOpen) {
@@ -74,12 +85,25 @@ export function Login() {
     setMenuOpen(false);
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!canSubmit) {
       return;
     }
-    signIn(email.trim(), remember, selectedRole?.role);
+    if (showDemoPicker && selectedRole) {
+      startSession(email.trim(), remember, selectedRole.role);
+      return;
+    }
+    setSigningIn(true);
+    try {
+      const accessToken = await signInWithPassword(email.trim(), password);
+      const currentUser = await fetchCurrentUser(accessToken);
+      startSession(currentUser.email, remember, currentUser.role, accessToken);
+    } catch (caught) {
+      notifyError(caught);
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   return (
@@ -129,7 +153,13 @@ export function Login() {
             </h1>
           </div>
 
-          <form className="gap-lg flex flex-col" onSubmit={handleSubmit} aria-label="Sign in">
+          <form
+            className="gap-lg flex flex-col"
+            onSubmit={(event) => {
+              void handleSubmit(event);
+            }}
+            aria-label="Sign in"
+          >
             <div className="gap-sm flex flex-col">
               <label
                 htmlFor="login-email"
@@ -211,97 +241,106 @@ export function Login() {
               disabled={!canSubmit}
               className="bg-auth-panel gap-sm mt-xs py-md text-body-sm group flex w-full items-center justify-center rounded-sm font-semibold text-white transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Sign in
+              {signingIn ? "Signing in" : "Sign in"}
               <span className="inline-block transition-transform group-hover:translate-x-1">→</span>
             </button>
           </form>
 
           {/* Demo role picker */}
-          <div
-            ref={pickerRef}
-            className="border-auth-border gap-sm mt-xl pt-xl flex flex-col border-t border-dashed"
-          >
-            <div className="flex items-center justify-between">
-              <span
-                id="login-role-label"
-                className="text-caption text-auth-muted font-semibold uppercase tracking-widest"
-              >
-                Demo · sign in as
-              </span>
-              <span className="text-auth-faint font-mono text-[10px]">credentials auto-filled</span>
-            </div>
-            <div className="relative">
-              <button
-                type="button"
-                aria-haspopup="listbox"
-                aria-expanded={menuOpen}
-                aria-labelledby="login-role-label"
-                onClick={() => setMenuOpen((v) => !v)}
-                className={cx(
-                  "border-auth-border hover:border-auth-border-strong gap-md flex w-full items-center rounded-sm border bg-canvas px-lg py-md text-left transition",
-                  menuOpen && "border-auth-panel shadow-auth-focus",
-                )}
-              >
+          {showDemoPicker ? (
+            <div
+              ref={pickerRef}
+              className="border-auth-border gap-sm mt-xl pt-xl flex flex-col border-t border-dashed"
+            >
+              <div className="flex items-center justify-between">
                 <span
+                  id="login-role-label"
+                  className="text-caption text-auth-muted font-semibold uppercase tracking-widest"
+                >
+                  Demo · sign in as
+                </span>
+                <span className="text-auth-faint font-mono text-[10px]">
+                  credentials auto-filled
+                </span>
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={menuOpen}
+                  aria-labelledby="login-role-label"
+                  onClick={() => setMenuOpen((v) => !v)}
                   className={cx(
-                    "size-[8px] shrink-0 rounded-full",
-                    selectedRole ? ACCENT_DOT[selectedRole.accent] : "bg-auth-faint",
-                  )}
-                />
-                <span
-                  className={cx(
-                    "text-body-sm grow font-medium",
-                    selectedRole ? "text-auth-panel" : "text-auth-faint",
+                    "border-auth-border hover:border-auth-border-strong gap-md flex w-full items-center rounded-sm border bg-canvas px-lg py-md text-left transition",
+                    menuOpen && "border-auth-panel shadow-auth-focus",
                   )}
                 >
-                  {selectedRole ? selectedRole.name : "Choose a role to auto-fill…"}
-                </span>
-                <span
-                  className={cx(
-                    "text-auth-faint text-[12px] transition-transform",
-                    menuOpen && "rotate-180",
-                  )}
-                >
-                  ⌄
-                </span>
-              </button>
+                  <span
+                    className={cx(
+                      "size-[8px] shrink-0 rounded-full",
+                      selectedRole ? ACCENT_DOT[selectedRole.accent] : "bg-auth-faint",
+                    )}
+                  />
+                  <span
+                    className={cx(
+                      "text-body-sm grow font-medium",
+                      selectedRole ? "text-auth-panel" : "text-auth-faint",
+                    )}
+                  >
+                    {selectedRole ? selectedRole.name : "Choose a role to auto-fill…"}
+                  </span>
+                  <span
+                    className={cx(
+                      "text-auth-faint text-[12px] transition-transform",
+                      menuOpen && "rotate-180",
+                    )}
+                  >
+                    ⌄
+                  </span>
+                </button>
 
-              {menuOpen && (
-                <div
-                  role="listbox"
-                  aria-label="Demo roles"
-                  className="border-auth-border shadow-auth-menu motion-safe:animate-fade-up bg-canvas absolute inset-x-0 bottom-[calc(100%+8px)] z-20 overflow-hidden rounded-[10px] border"
-                >
-                  {DEMO_ROLES.map((role, i) => (
-                    <button
-                      key={role.id}
-                      type="button"
-                      role="option"
-                      aria-selected={role.id === roleId}
-                      onClick={() => handlePick(role)}
-                      className={cx(
-                        "border-auth-divider hover:bg-auth-divider gap-md flex w-full items-center px-lg py-md text-left transition",
-                        i < DEMO_ROLES.length - 1 && "border-b",
-                      )}
-                    >
-                      <span
-                        className={cx("size-[8px] shrink-0 rounded-full", ACCENT_DOT[role.accent])}
-                      />
-                      <span className="gap-xxs flex grow flex-col">
-                        <span className="text-body-sm text-auth-panel font-medium">
-                          {role.name}
+                {menuOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="Demo roles"
+                    className="border-auth-border shadow-auth-menu motion-safe:animate-fade-up bg-canvas absolute inset-x-0 bottom-[calc(100%+8px)] z-20 overflow-hidden rounded-[10px] border"
+                  >
+                    {DEMO_ROLES.map((role, i) => (
+                      <button
+                        key={role.id}
+                        type="button"
+                        role="option"
+                        aria-selected={role.id === roleId}
+                        onClick={() => handlePick(role)}
+                        className={cx(
+                          "border-auth-divider hover:bg-auth-divider gap-md flex w-full items-center px-lg py-md text-left transition",
+                          i < DEMO_ROLES.length - 1 && "border-b",
+                        )}
+                      >
+                        <span
+                          className={cx(
+                            "size-[8px] shrink-0 rounded-full",
+                            ACCENT_DOT[role.accent],
+                          )}
+                        />
+                        <span className="gap-xxs flex grow flex-col">
+                          <span className="text-body-sm text-auth-panel font-medium">
+                            {role.name}
+                          </span>
+                          <span className="text-auth-faint font-mono text-[11px]">
+                            {role.email}
+                          </span>
                         </span>
-                        <span className="text-auth-faint font-mono text-[11px]">{role.email}</span>
-                      </span>
-                      <span className="text-auth-muted bg-auth-divider px-sm py-xxs rounded-full text-[9px] font-semibold uppercase tracking-wide">
-                        {role.tag}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                        <span className="text-auth-muted bg-auth-divider px-sm py-xxs rounded-full text-[9px] font-semibold uppercase tracking-wide">
+                          {role.tag}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {/* Footer */}
           <div className="mt-xl flex items-center justify-between">
