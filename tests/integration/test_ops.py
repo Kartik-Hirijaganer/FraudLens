@@ -6,8 +6,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from fraudlens_backend.api import ops
 from fraudlens_backend.api.ops import DependencyCheck, get_readiness_probes
 from fraudlens_ml.rag import HashingEmbedder, RegulationDocument, build_index, chunk_corpus
 
@@ -74,7 +76,12 @@ def test_readyz_is_ready_with_skipped_dependencies(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert {check["name"] for check in body["checks"]} == {"database", "chromadb", "infisical"}
+    assert {check["name"] for check in body["checks"]} == {
+        "database",
+        "chromadb",
+        "jwks",
+        "infisical",
+    }
     assert all(check["status"] == "skipped" for check in body["checks"])
 
 
@@ -139,6 +146,34 @@ def test_readyz_chromadb_skipped_when_index_dir_unset(
     client = client_factory()
     client.app.state.rag_index_dir = None
     assert _check(client.get("/readyz").json(), "chromadb")["status"] == "skipped"
+
+
+def test_readyz_reports_jwks_ok_when_configured_and_reachable(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def ok(_url: str, _timeout: float) -> int:
+        return 200
+
+    monkeypatch.setattr(ops, "_fetch_status", ok)
+    client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert _check(response.json(), "jwks")["status"] == "ok"
+
+
+def test_readyz_reports_jwks_down_when_configured_but_unreachable(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def down(_url: str, _timeout: float) -> int:
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(ops, "_fetch_status", down)
+    client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    assert _check(response.json(), "jwks")["status"] == "down"
 
 
 def test_resolve_index_dir_keeps_absolute_paths(
