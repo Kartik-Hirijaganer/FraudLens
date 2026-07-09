@@ -208,7 +208,7 @@ async def test_auditor_cannot_start_investigation(
     async with _client(app) as client:
         resp = await client.post(
             "/api/v1/investigations", json={"transactionId": str(transaction_id)}
-    )
+        )
     assert resp.status_code == 403
     assert resp.json()["code"] == "role_permission_required"
 
