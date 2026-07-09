@@ -35,6 +35,37 @@ def test_demo_environment_selects_local_backends_and_mock_llm(
     assert env["DATABASE_URL"].startswith("postgresql+asyncpg://")
 
 
+def test_live_environment_selects_real_auth_db_and_live_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.delenv("FRONTEND_PORT", raising=False)
+    monkeypatch.setenv("SUPABASE_PROJECT_URL", "https://project.supabase.test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.test/fraudlens")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-openrouter-key")
+    env = local_demo.live_environment()
+    assert env["FRAUDLENS_ENVIRONMENT"] == "dev"
+    assert env["FRAUDLENS_AUTH_DEV_BYPASS"] == "false"
+    assert env["FRAUDLENS_AUTH_JWKS_URL"] == (
+        "https://project.supabase.test/auth/v1/.well-known/jwks.json"
+    )
+    assert env["FRAUDLENS_AUTH_JWT_ISSUER"] == "https://project.supabase.test/auth/v1"
+    assert env["FRAUDLENS_AUTH_JWT_AUDIENCE"] == "authenticated"
+    assert env["FRAUDLENS_AUTH_ROLE_CLAIM"] == "user_role"
+    assert env["FRAUDLENS_LLM_MODE"] == "live"
+    assert env["VITE_SUPABASE_URL"] == "https://project.supabase.test"
+
+
+def test_live_environment_requires_supabase_project_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUPABASE_PROJECT_URL", raising=False)
+    monkeypatch.delenv("FRAUDLENS_SUPABASE_URL", raising=False)
+    monkeypatch.delenv("VITE_SUPABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.test/fraudlens")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-openrouter-key")
+    with pytest.raises(RuntimeError, match="SUPABASE_PROJECT_URL"):
+        local_demo.live_environment()
+
+
 def test_compose_command_targets_the_local_file() -> None:
     cmd = local_demo._compose("up", "-d")
     assert cmd[:3] == ["docker", "compose", "-f"]
@@ -71,12 +102,13 @@ def test_frontend_command_pins_selected_port() -> None:
 
 def test_main_dispatches_to_the_named_command(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
-    for name in ("up", "down", "rebuild", "reset", "run", "smoke"):
+    for name in ("up", "down", "live", "rebuild", "reset", "run", "smoke"):
         monkeypatch.setitem(local_demo._COMMANDS, name, lambda n=name: calls.append(n) or 0)
     assert local_demo.main(["down"]) == 0
+    assert local_demo.main(["live"]) == 0
     assert local_demo.main(["smoke"]) == 0
     assert local_demo.main(["run"]) == 0
-    assert calls == ["down", "smoke", "run"]
+    assert calls == ["down", "live", "smoke", "run"]
 
 
 def test_require_tools_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
