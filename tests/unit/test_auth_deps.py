@@ -58,7 +58,7 @@ def test_jwks_token_verifier_accepts_rs256_claims(monkeypatch: pytest.MonkeyPatc
         {
             "sub": "22222222-2222-4222-8222-222222222222",
             "agency_id": "11111111-1111-4111-8111-111111111111",
-            "role": "admin",
+            "user_role": "admin",
             "iss": "issuer",
             "aud": "fraudlens",
         },
@@ -80,7 +80,7 @@ def test_jwks_token_verifier_rejects_invalid_role(monkeypatch: pytest.MonkeyPatc
         {
             "sub": "22222222-2222-4222-8222-222222222222",
             "agency_id": "11111111-1111-4111-8111-111111111111",
-            "role": "superuser",
+            "user_role": "superuser",
         },
         key,
         algorithm="RS256",
@@ -97,10 +97,28 @@ def test_jwks_token_verifier_accepts_auditor_role(monkeypatch: pytest.MonkeyPatc
         {
             "sub": "22222222-2222-4222-8222-222222222222",
             "agency_id": "11111111-1111-4111-8111-111111111111",
-            "role": "auditor",
+            "user_role": "auditor",
         },
         key,
         algorithm="RS256",
     )
 
     assert verifier(token).role == "auditor"
+
+
+def test_jwks_token_verifier_can_use_custom_role_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = _rsa_key()
+    verifier = _verifier_with_key(monkeypatch, key.public_key(), auth_role_claim="role")
+    token = jwt.encode(
+        {
+            "sub": "22222222-2222-4222-8222-222222222222",
+            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "role": "reviewer",
+        },
+        key,
+        algorithm="RS256",
+    )
+
+    assert verifier(token).role == "reviewer"
