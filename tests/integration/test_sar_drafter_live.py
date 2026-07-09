@@ -11,12 +11,14 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 import pytest
+import yaml
 
 from fraudlens_backend.sar.budget import BudgetGuard, SarBudgetExceededError
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
 from fraudlens_backend.sar.drafter_live import LiveSarDrafter, _error_code
 from fraudlens_backend.sar.factory import build_sar_drafter, load_sar_llm_config
 from fraudlens_backend.sar.prompt import SarPromptTemplate
+from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.rules.base import AmlRuleType, RuleHit
 from fraudlens_llm import (
     Catalog,
@@ -255,7 +257,8 @@ def test_factory_builds_live_drafter_from_config(make_settings) -> None:
 
 
 def test_load_sar_llm_config_reads_repo_config() -> None:
+    raw = yaml.safe_load((find_config_dir() / "llm" / "sar.yml").read_text(encoding="utf-8"))
     config = load_sar_llm_config()
-    assert config.model.startswith("anthropic/")
-    assert config.max_output_tokens > 0
-    assert len(config.fallbacks) >= 1
+    assert config.model == raw["model"]
+    assert config.max_output_tokens == raw["max_output_tokens"]
+    assert config.fallbacks == tuple(raw["fallbacks"])

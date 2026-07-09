@@ -81,6 +81,9 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
     assert settings.database_url is None
+    assert settings.auth_role_claim == "user_role"
+    assert settings.supabase_url is None
+    assert settings.supabase_service_role_key is None
     assert set(settings.security_headers) >= {"X-Content-Type-Options", "X-Frame-Options"}
 
 
@@ -121,3 +124,14 @@ def test_database_url_accepts_constructor_and_prefixed_env(
     assert AppSettings(database_url="postgresql+asyncpg://a/b").database_url == (
         "postgresql+asyncpg://a/b"
     )
+
+
+def test_supabase_settings_accept_public_url_and_service_role_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.test")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "placeholder-service-role")
+    settings = AppSettings()
+    assert settings.supabase_url == "https://project.supabase.test"
+    assert settings.supabase_service_role_key == "placeholder-service-role"
