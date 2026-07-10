@@ -4,7 +4,7 @@
  * declarations and keeps display names aligned with the typed API values.
  *
  * Key classes:
- * - ExtractedModelMetrics: normalized model metric values used by UI displays.
+ * - (none)
  *
  * Key functions:
  * - RISK_BAND_OPTIONS: shared transaction risk filter options.
@@ -53,7 +53,7 @@ export const TRAINING_LABEL_OPTIONS: ReadonlyArray<{ value: TrainingLabel; label
 
 export const CANARY_RAMP_STEPS: CanaryPercent[] = [5, 25, 50, 100];
 
-export interface ExtractedModelMetrics {
+interface ExtractedModelMetrics {
   precision: number | null;
   recall: number | null;
   auc: number | null;

@@ -268,10 +268,10 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `request_id_header` | `str` | `'X-Request-Id'` | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | `bool` | `False` | Dev-only auth bypass; honored only when environment != 'prod'. |
 | `auth_dev_bypass_role` | `Literal` | `'admin'` | RBAC role the dev bypass mints (default admin so local-demo can drive the model lifecycle); honored only when the bypass is enabled, so it is prod-inert. |
-| `auth_jwks_url` | `str | None` | `None` | Supabase Auth JWKS URL for RS256 access-token verification; unset fails closed. |
+| `auth_jwks_url` | `str | None` | `None` | Supabase Auth JWKS URL for asymmetric (ES256/RS256) access-token verification; unset fails closed. |
 | `auth_jwt_issuer` | `str | None` | `None` | Expected JWT issuer; unset skips issuer validation for local/integration tests. |
 | `auth_jwt_audience` | `str | None` | `None` | Expected JWT audience; unset skips audience validation for local/integration tests. |
-| `auth_jwt_algorithm` | `Literal` | `'RS256'` | JWT signing algorithm accepted from the configured JWKS. |
+| `auth_jwt_algorithm` | `Literal` | `'ES256'` | JWT signing algorithm accepted from the configured JWKS. Supabase Auth signs ES256 (asymmetric) by default; RS256 is also accepted (e.g. a rotated RSA signing key). |
 | `auth_agency_claim` | `str` | `'agency_id'` | JWT claim containing the tenant agency id. |
 | `auth_role_claim` | `str` | `'user_role'` | JWT claim containing the FraudLens RBAC role. Supabase's built-in top-level `role` claim is reserved for `authenticated`, so FraudLens uses `user_role`. |
 | `supabase_url` | `str | None` | `None` | Supabase project URL used by admin-invite provisioning; non-secret and read from env. |
