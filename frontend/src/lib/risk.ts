@@ -7,7 +7,7 @@
  * "low/positive" tone uses the positive palette, not the brand green.
  *
  * Key classes:
- * - SeverityCounts: the high/medium/low tally returned by `severityCounts`.
+ * - (none)
  *
  * Key functions:
  * - riskTone: map a band/severity string onto a semantic StatusTone.
@@ -26,7 +26,7 @@
  */
 export type StatusTone = "positive" | "warning" | "negative" | "neutral";
 
-export interface SeverityCounts {
+interface SeverityCounts {
   high: number;
   medium: number;
   low: number;
