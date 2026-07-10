@@ -119,7 +119,8 @@ class AppSettings(BaseSettings):
     auth_jwks_url: str | None = Field(
         default=None,
         description=(
-            "Supabase Auth JWKS URL for RS256 access-token verification; unset fails closed."
+            "Supabase Auth JWKS URL for asymmetric (ES256/RS256) access-token verification; "
+            "unset fails closed."
         ),
     )
     auth_jwt_issuer: str | None = Field(
@@ -134,9 +135,12 @@ class AppSettings(BaseSettings):
             "Expected JWT audience; unset skips audience validation for local/integration tests."
         ),
     )
-    auth_jwt_algorithm: Literal["RS256"] = Field(
-        default="RS256",
-        description="JWT signing algorithm accepted from the configured JWKS.",
+    auth_jwt_algorithm: Literal["ES256", "RS256"] = Field(
+        default="ES256",
+        description=(
+            "JWT signing algorithm accepted from the configured JWKS. Supabase Auth signs ES256 "
+            "(asymmetric) by default; RS256 is also accepted (e.g. a rotated RSA signing key)."
+        ),
     )
     auth_agency_claim: str = Field(
         default="agency_id",
