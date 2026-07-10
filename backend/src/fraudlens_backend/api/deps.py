@@ -218,7 +218,7 @@ def _dev_bypass_claims(request: Request, settings: AppSettings) -> AccessClaims:
 
 
 class JwksTokenVerifier:
-    """Verify RS256 JWTs against the configured Supabase JWKS endpoint."""
+    """Verify asymmetric JWTs (Supabase Auth signs ES256 by default) against the configured JWKS."""
 
     def __init__(self, settings: AppSettings) -> None:
         """Capture the JWKS client and the expected claim/issuer/audience policy."""

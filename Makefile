@@ -182,7 +182,7 @@ run: ## Clean-reset local state, re-seed, then boot the full stack locally.
 rebuild: ## Alias for `make run`.
 	$(MAKE) run
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
-	infisical run --env=prod --path=/ -- $(UV) run python scripts/local_demo.py live
+	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live
 local-demo-down: ## Stop the local demo stack and remove its containers.
 	$(UV) run python scripts/local_demo.py down
 local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
