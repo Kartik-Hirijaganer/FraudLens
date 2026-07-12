@@ -24,6 +24,11 @@ dependencies = [
     # RAG over FinCEN/BSA (Phase 6): LangChain orchestration + ChromaDB vector store.
     "langchain>=0.3",
     "chromadb>=0.5",
+    # Real-dataset fetch (real-AML training plan Phase 1): the Kaggle CLI ≥1.8 supports the
+    # new KAGGLE_API_TOKEN auth, lists dataset files, and downloads a SINGLE file via
+    # `-f <name>` — important since the IBM AML-Data bundle is ~8 GB. Training-time only
+    # (scripts/fetch_dataset.py); never imported by the backend runtime.
+    "kaggle>=1.8",
 ]
 
 [build-system]
