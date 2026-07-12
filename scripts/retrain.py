@@ -69,7 +69,8 @@ from fraudlens_ml.scoring import (
     evaluate_tenant_slices,
     save_artifact,
 )
-from lib.synthetic_fraud import DataSplit, generate_dataset, split_dataset
+from lib.dataset import DataSplit, split_dataset
+from lib.synthetic_fraud import generate_dataset
 from train_model import TrainedCandidate, _artifacts_root, train_candidate
 
 # Reuse Phase 5's deterministic seed/size so the candidate reliably clears the gates (and, trained
