@@ -12,6 +12,7 @@ regenerates the committed local-demo fixture bundle the seed's active pointer re
 
 Key classes:
 - TrainedCandidate: a trained booster + calibration + SHAP background + holdout metrics.
+- DatasetManifest: the versioned, PHI-free provenance of one training dataset.
 
 Key functions:
 - train_candidate: SMOTE + XGBoost + Platt-calibrate on a split; compute holdout metrics.
@@ -20,12 +21,15 @@ Key functions:
 - main: CLI — train + gate + (fixture | register the candidate) (dev/demo only).
 
 Notes:
+- `--source` defaults to synthetic (CI + the committed fixture stay hermetic, no download); real
+  runs pass `--source ibm-aml`, which fails fast if the fetched data is absent (never downloads).
+  The `--fixture` bundle is ALWAYS synthetic so it regenerates with no network.
 - Everything is seeded, single-threaded XGBoost (n_jobs=1), and SMOTE/Platt are seeded too, so
   the booster bytes (hence the version label + checksum) are reproducible across runs.
-- The dataset manifest stores only the feature spec + a content hash + row count — never PHI,
+- The dataset manifest stores only source/license/schema/sha256/hashes/counts — never PHI,
   raw identifiers, or agency_id (tenant-safe global training, plan §9.4 / ADR-015).
-- Registration is idempotent by version label: re-running the same config is a no-op, so
-  `make train-model` is safe to repeat (mirrors the seed).
+- Registration is idempotent by version label (source-tagged so sources never collide):
+  re-running the same config is a no-op, so `make train-model` is safe to repeat.
 """
 
 from __future__ import annotations
@@ -42,10 +46,12 @@ from typing import Any
 import numpy as np
 import xgboost as xgb
 from imblearn.over_sampling import SMOTE
+from pydantic import BaseModel, ConfigDict, Field
 from sklearn.linear_model import LogisticRegression
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import fetch_dataset
 from fraudlens_backend.db.models import (
     JobExecution,
     JobStatus,
@@ -69,7 +75,16 @@ from fraudlens_ml.scoring import (
     evaluate_gates,
     save_artifact,
 )
-from lib.synthetic_fraud import DataSplit, generate_dataset, split_dataset
+from lib.aml_fraud import (
+    IBM_AML,
+    build_feature_matrix,
+    load_frame,
+    sample_frame,
+    source_columns,
+    split_chronological,
+)
+from lib.dataset import DataSplit, split_dataset
+from lib.synthetic_fraud import generate_dataset
 from train_baseline import baseline_pr_auc, build_baseline
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +94,12 @@ _TRAIN_ROWS = 16000
 _BACKGROUND_ROWS = 64
 _PLATT_MAX_ITER = 1000
 _FIXTURE_LABEL = "v0-fixture"
+
+# Training data sources: synthetic (the hermetic default for CI + the committed fixture) and the
+# real IBM AML-Data track. IEEE-CIS stays the optional secondary that slots in via the same
+# aml_fraud framework later; it is not a fetch/train source yet.
+_SYNTHETIC = "synthetic"
+_SOURCES: tuple[str, ...] = (_SYNTHETIC, IBM_AML)
 
 # XGBoost hyperparameters (single-threaded + seeded so the booster bytes are reproducible).
 _XGB_PARAMS: dict[str, Any] = {
@@ -149,13 +170,18 @@ def _candidate_metrics_payload(trained: TrainedCandidate, report: GateReport) ->
     return payload
 
 
-def _version_label(seed: int, rows: int) -> str:
-    """Return a deterministic candidate version label (same config -> same label)."""
-    spec = current_feature_spec()
-    digest = hashlib.sha256(
-        json.dumps({"features": spec.features, "seed": seed, "rows": rows}, sort_keys=True).encode()
-    ).hexdigest()
-    return f"xgb-fs{spec.version}-{digest[:10]}"
+class DatasetManifest(BaseModel):
+    """The versioned, PHI-free provenance of one training dataset (persisted on TrainingDataset)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source: str = Field(..., description="Dataset source id (e.g. 'synthetic' or 'ibm-aml').")
+    row_count: int = Field(..., ge=0, description="Rows actually trained on (after any sampling).")
+    label_window: str = Field(..., description="TrainingDataset.label_window tag for this source.")
+    snapshot_query: dict[str, Any] = Field(
+        ..., description="PHI-free dataset descriptor stored as snapshot_query JSONB."
+    )
+    content_hash: str = Field(..., description="Deterministic sha-256 of the dataset descriptor.")
 
 
 def _dataset_hash(seed: int, rows: int) -> str:
@@ -163,10 +189,87 @@ def _dataset_hash(seed: int, rows: int) -> str:
     spec = current_feature_spec()
     return hashlib.sha256(
         json.dumps(
-            {"source": "synthetic", "features": spec.features, "seed": seed, "rows": rows},
+            {"source": _SYNTHETIC, "features": spec.features, "seed": seed, "rows": rows},
             sort_keys=True,
         ).encode()
     ).hexdigest()
+
+
+def _synthetic_manifest(seed: int, rows: int) -> DatasetManifest:
+    """Build the synthetic dataset manifest (unchanged shape, keeps the fixture tests valid)."""
+    return DatasetManifest(
+        source=_SYNTHETIC,
+        row_count=rows,
+        label_window=_SYNTHETIC,
+        snapshot_query={"source": _SYNTHETIC, "seed": seed, "rows": rows},
+        content_hash=_dataset_hash(seed, rows),
+    )
+
+
+def _real_manifest(
+    source: str, paths: fetch_dataset.DatasetPaths, *, row_count: int, sample_rows: int | None
+) -> DatasetManifest:
+    """Build a real manifest: source, license, per-file sha256, schema, version, transform id."""
+    spec = current_feature_spec()
+    dataset = fetch_dataset.dataset_spec(source)
+    snapshot_query: dict[str, Any] = {
+        "source": source,
+        "license": dataset.license,
+        "datasetVersion": f"{dataset.slug}:{dataset.variant}",
+        "files": [{"name": file.name, "sha256": file.sha256} for file in paths.files],
+        "schema": list(source_columns(source)),
+        "transformId": f"aml-loader-fs{spec.version}",
+    }
+    if sample_rows is not None:
+        snapshot_query["sampleRows"] = sample_rows
+    content_hash = hashlib.sha256(
+        json.dumps({**snapshot_query, "rowCount": row_count}, sort_keys=True).encode()
+    ).hexdigest()
+    return DatasetManifest(
+        source=source,
+        row_count=row_count,
+        label_window=source,
+        snapshot_query=snapshot_query,
+        content_hash=content_hash,
+    )
+
+
+def _load_split(
+    source: str, *, seed: int, rows: int, sample_rows: int | None, settings: AppSettings
+) -> tuple[DataSplit, DatasetManifest]:
+    """Resolve a source to a (DataSplit, manifest): synthetic generates; real verifies + loads."""
+    if source == _SYNTHETIC:
+        split = split_dataset(*generate_dataset(rows, seed), seed)
+        return split, _synthetic_manifest(seed, rows)
+    if source not in _SOURCES:
+        raise ValueError(f"unknown --source '{source}' (choices: {list(_SOURCES)})")
+    dataset = fetch_dataset.dataset_spec(source)
+    # Fail fast if the real data is absent — training NEVER auto-downloads (plan Phase 4).
+    paths = fetch_dataset._verify_present(dataset, fetch_dataset._data_dir(settings, None))
+    frame = load_frame(paths, source)
+    if sample_rows is not None:
+        frame = sample_frame(frame, source, sample_rows, seed)
+    features, labels = build_feature_matrix(frame, source)
+    split = split_chronological(features, labels, frame, source)
+    return split, _real_manifest(source, paths, row_count=len(frame), sample_rows=sample_rows)
+
+
+def _version_label(manifest: DatasetManifest, seed: int, rows: int) -> str:
+    """Return a deterministic candidate label including the source (candidates never collide)."""
+    spec = current_feature_spec()
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "source": manifest.source,
+                "contentHash": manifest.content_hash,
+                "features": spec.features,
+                "seed": seed,
+                "rows": rows,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    return f"xgb-{manifest.source}-fs{spec.version}-{digest[:10]}"
 
 
 def write_fixture_bundle(
@@ -199,8 +302,13 @@ async def register_candidate(  # noqa: PLR0913 - registers several rows; extras 
     artifact_uri: str,
     seed: int,
     rows: int,
+    manifest: DatasetManifest | None = None,
 ) -> uuid.UUID:
-    """Idempotently register the dataset/run/version/evaluation/job rows; return the version id."""
+    """Idempotently register the dataset/run/version/evaluation/job rows; return the version id.
+
+    `manifest` describes the training data; when omitted it defaults to the synthetic manifest, so
+    the existing synthetic call sites (and the fixture tests) are unaffected.
+    """
     existing = (
         await session.execute(
             select(ModelVersion).where(ModelVersion.version_label == version_label)
@@ -211,12 +319,13 @@ async def register_candidate(  # noqa: PLR0913 - registers several rows; extras 
 
     spec = current_feature_spec()
     metrics_payload = _candidate_metrics_payload(trained, report)
+    manifest = manifest or _synthetic_manifest(seed, rows)
     dataset = TrainingDataset(
-        snapshot_query={"source": "synthetic", "seed": seed, "rows": rows},
-        label_window="synthetic",
-        row_count=rows,
+        snapshot_query=manifest.snapshot_query,
+        label_window=manifest.label_window,
+        row_count=manifest.row_count,
         feature_spec=spec.model_dump(),
-        content_hash=_dataset_hash(seed, rows),
+        content_hash=manifest.content_hash,
     )
     session.add(dataset)
     await session.flush()
@@ -254,7 +363,12 @@ async def register_candidate(  # noqa: PLR0913 - registers several rows; extras 
             agency_id=None,
             job_type=JobType.TRAIN,
             status=JobStatus.SUCCEEDED,
-            payload={"version_label": version_label, "seed": seed, "rows": rows},
+            payload={
+                "version_label": version_label,
+                "source": manifest.source,
+                "seed": seed,
+                "rows": manifest.row_count,
+            },
             result={"gates_passed": report.passed, "pr_auc": trained.metrics.pr_auc},
             attempts=1,
         )
@@ -269,13 +383,14 @@ def _artifacts_root(settings: AppSettings) -> Path:
     return root if root.is_absolute() else REPO_ROOT / root
 
 
-async def _amain(fixture: bool, rows: int, seed: int) -> int:
+async def _amain(source: str, fixture: bool, rows: int, seed: int, sample_rows: int | None) -> int:
     """Train + gate the model, then (re)write the fixture or register a candidate (dev only)."""
     settings = get_settings()
     if settings.environment == "prod":
         print("train refused: never trains the demo model in prod (FraudLens governance)")
         return 1
     if fixture:
+        # The committed fixture MUST regenerate hermetically with no download — always synthetic.
         report = write_fixture_bundle(seed=seed, rows=rows)
         _print_report("fixture", _FIXTURE_LABEL, report)
         return 0 if report.passed else 2
@@ -284,11 +399,18 @@ async def _amain(fixture: bool, rows: int, seed: int) -> int:
     if engine is None:
         print("train failed: DATABASE_URL is not configured")
         return 1
+    try:
+        split, manifest = _load_split(
+            source, seed=seed, rows=rows, sample_rows=sample_rows, settings=settings
+        )
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        await engine.dispose()
+        print(f"train failed: {exc}")
+        return 1
     gates = ModelGates()
-    split = split_dataset(*generate_dataset(rows, seed), seed)
     trained = train_candidate(split, gates, seed=seed)
     report = _gate_report(trained, None, gates)
-    label = _version_label(seed, rows)
+    label = _version_label(manifest, seed, rows)
     save_artifact(
         _artifacts_root(settings) / label,
         trained.booster,
@@ -309,11 +431,12 @@ async def _amain(fixture: bool, rows: int, seed: int) -> int:
                 artifact_uri=label,
                 seed=seed,
                 rows=rows,
+                manifest=manifest,
             )
             await session.commit()
     finally:
         await engine.dispose()
-    _print_report("registered candidate", label, report)
+    _print_report(f"registered candidate [{manifest.source}]", label, report)
     return 0 if report.passed else 2
 
 
@@ -332,12 +455,24 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point: train + gate the XGBoost model (dev/demo only)."""
     parser = argparse.ArgumentParser(description="Train + register the XGBoost fraud model.")
     parser.add_argument(
+        "--source",
+        choices=_SOURCES,
+        default=_SYNTHETIC,
+        help="Training data source (default synthetic keeps CI + the fixture hermetic).",
+    )
+    parser.add_argument(
         "--fixture", action="store_true", help="(Re)write the committed local-demo fixture bundle."
     )
     parser.add_argument("--rows", type=int, default=_TRAIN_ROWS, help="Synthetic dataset size.")
     parser.add_argument("--seed", type=int, default=_SEED, help="Deterministic training seed.")
+    parser.add_argument(
+        "--sample-rows",
+        type=int,
+        default=None,
+        help="Seeded, label-stratified subsample of a real source for fast iteration.",
+    )
     args = parser.parse_args(argv)
-    return asyncio.run(_amain(args.fixture, args.rows, args.seed))
+    return asyncio.run(_amain(args.source, args.fixture, args.rows, args.seed, args.sample_rows))
 
 
 if __name__ == "__main__":
