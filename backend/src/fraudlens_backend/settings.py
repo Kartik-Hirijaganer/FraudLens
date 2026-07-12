@@ -289,6 +289,12 @@ class AppSettings(BaseSettings):
         description="Root dir (by version label) for model artifact bundles; the committed "
         "fixture lives here, candidates are written here, prod points it at Blob.",
     )
+    aml_data_dir: str = Field(
+        default=".local/aml_data",
+        description="Root dir for downloaded real AML training datasets (e.g. IBM AML-Data); "
+        "relative paths anchor to the repo root like model_artifacts_dir. Gitignored and "
+        "training-time only — raw data is never committed or served (real-AML plan Phase 1).",
+    )
 
     # --- RAG over FinCEN/BSA (plan §16 Phase 6; config-driven, never hardcoded) ---
     rag_corpus_dir: str = Field(
