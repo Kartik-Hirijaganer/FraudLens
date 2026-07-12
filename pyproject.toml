@@ -109,7 +109,7 @@ exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 # stubs / py.typed marker; xgboost and numpy do. Ignoring their missing stubs keeps
 # the rest of the tree under strict typing while letting the scoring code import them.
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "shap.*", "imblearn.*"]
+module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

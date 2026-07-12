@@ -162,6 +162,14 @@ venv.bak/
 # the local ChromaDB index, and any scratch output live under .local/ (never committed).
 .local/
 
+# Real AML training datasets (real-AML plan Phase 1): raw CSVs are download/cache-only and
+# NEVER committed (license + PHI posture). The fetch script writes under settings.aml_data_dir
+# (default .local/aml_data, already covered above); /data/aml_data is belt-and-suspenders in
+# case the dir is repointed. Kaggle API-token files are ignored anywhere in the tree.
+/.local/aml_data/
+/data/aml_data/
+**/kaggle.json
+
 # Model artifacts (plan §16 Phase 5): the demo model_artifacts_dir is data/models. Only the
 # committed local-demo fixture bundle (v0-fixture) is tracked; locally trained candidate
 # bundles (from `make train-model`) land here too and must NOT be committed.
@@ -246,7 +254,7 @@ __marimo__/
 # Skill bundles are redundant once unpacked into .claude/skills/
 *-skill.tar.gz
 
-# Secret material — credentials come from Akeyless, never the repo
+# Secret material — credentials come from Infisical, never the repo
 *.pem
 *.key
 *.p12

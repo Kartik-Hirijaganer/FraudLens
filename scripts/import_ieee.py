@@ -21,10 +21,11 @@ Key functions:
 
 Notes:
 - IEEE-CIS has no counterparty account, so originAccount←card1 and destAccount←addr1 (the
-  available identifiers) and currency/country default to USD/US (the dataset is US-dollar);
-  real deployments map their own account columns. The fraud label is ignored at ingest —
-  labels come from human review (plan §10.4), not from the raw dataset.
-- occurredAt is derived from TransactionDT (seconds after the IEEE-CIS reference date).
+  available identifiers); channel/country come from the SHARED `lib.aml_mapping` proxies
+  (`ieee_channel(ProductCD)` / `ieee_country(addr2)`) so the importer and the trainer agree,
+  and currency defaults to USD (the dataset is US-dollar). The fraud label is ignored at
+  ingest — labels come from human review (plan §10.4), not from the raw dataset.
+- occurredAt is derived from TransactionDT (seconds after the shared IEEE_EPOCH).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ import asyncio
 import csv
 import uuid
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -47,15 +48,13 @@ from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_
 from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.settings import get_settings
 from fraudlens_core import CanonicalTransaction, SchemaValidationError, build_canonical
+from lib.aml_mapping import IEEE_EPOCH, ieee_channel, ieee_country
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _SAMPLE_CSV = REPO_ROOT / "data" / "ieee_cis_sample.csv"
 
-# IEEE-CIS reference epoch: TransactionDT is seconds elapsed after this instant.
-_IEEE_EPOCH = datetime(2017, 12, 1, tzinfo=UTC)
-# IEEE-CIS amounts are US dollars; the dataset is US-centric (documented defaults).
+# IEEE-CIS amounts are US dollars; the dataset is US-centric (documented default).
 _DEFAULT_CURRENCY = "USD"
-_DEFAULT_COUNTRY = "US"
 _FEATURE_COLUMNS = ("ProductCD", "card4", "card6", "P_emaildomain", "dist1")
 _SAMPLE_REJECTION_LIMIT = 10
 
@@ -79,7 +78,7 @@ def _occurred_at(transaction_dt: str) -> datetime:
         seconds = int(float(transaction_dt))
     except (TypeError, ValueError) as exc:
         raise SchemaValidationError("transactionDt", "not_a_number") from exc
-    return _IEEE_EPOCH + timedelta(seconds=seconds)
+    return IEEE_EPOCH + timedelta(seconds=seconds)
 
 
 def _required(row: Mapping[str, Any], name: str) -> str:
@@ -102,8 +101,8 @@ def map_ieee_row(row: Mapping[str, Any]) -> CanonicalTransaction:
         occurred_at=_occurred_at(_required(row, "TransactionDT")),
         origin_account=_required(row, "card1"),
         dest_account=_required(row, "addr1"),
-        channel=_required(row, "ProductCD"),
-        country=_DEFAULT_COUNTRY,
+        channel=ieee_channel(_required(row, "ProductCD")),
+        country=ieee_country(row.get("addr2")),
         features=features,
     )
 
