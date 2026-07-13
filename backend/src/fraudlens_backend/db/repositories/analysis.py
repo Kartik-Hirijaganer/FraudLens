@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Alert,
+    AlertOrigin,
     AlertStatus,
     AnalysisResult,
     AnalysisRun,
@@ -208,6 +209,7 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             agency_id=self._agency_id,
             transaction_id=transaction_id,
             run_id=run_id,
+            origin=AlertOrigin.PIPELINE,
             status=AlertStatus.PENDING_REVIEW if flags else AlertStatus.OPEN,
             severity=severity,
             review_flags=flags,
@@ -215,6 +217,21 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         self._session.add(alert)
         await self._session.flush()
         return alert
+
+    async def update_alert_review_flags(
+        self, *, run_id: uuid.UUID, review_flags: list[dict[str, Any]]
+    ) -> None:
+        """Refresh the pipeline alert's review flags after SAR enrichment completes."""
+        stmt = select(Alert).where(
+            Alert.agency_id == self._agency_id,
+            Alert.run_id == run_id,
+        )
+        alert = (await self._session.execute(stmt)).scalar_one_or_none()
+        if alert is None:
+            return
+        alert.review_flags = review_flags
+        alert.status = AlertStatus.PENDING_REVIEW if review_flags else AlertStatus.OPEN
+        await self._session.flush()
 
     async def complete(  # noqa: PLR0913 - the run carries per-step version provenance (keyword-only).
         self,

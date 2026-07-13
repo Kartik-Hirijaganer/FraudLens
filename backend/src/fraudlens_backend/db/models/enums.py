@@ -11,6 +11,7 @@ Key classes:
 - UserRole: a user's RBAC role within an agency.
 - Severity: ordinal severity shared by rules, alerts, and drift reports.
 - RunStatus: lifecycle status of an analysis run.
+- AlertOrigin: provenance of an alert (pipeline-generated or seeded sample data).
 - AlertStatus: lifecycle status of an alert.
 - AlertActionType: a review action recorded against an alert.
 - SarStatus: lifecycle status of a SAR draft.
@@ -62,6 +63,13 @@ class RunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class AlertOrigin(StrEnum):
+    """Provenance of an alert used to distinguish pipeline output from sample data."""
+
+    PIPELINE = "pipeline"
+    SEED = "seed"
 
 
 class AlertStatus(StrEnum):

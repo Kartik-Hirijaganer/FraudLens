@@ -1057,6 +1057,7 @@ version = "1.0.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
+    { name = "anyio" },
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "fraudlens-core" },
@@ -1073,6 +1074,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
+    { name = "anyio", specifier = ">=4.0" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fraudlens-core", editable = "packages/fraudlens-core" },

@@ -201,6 +201,19 @@ class AlertRepository(TenantScopedRepository[Alert]):
         alert, amount, currency = row
         return AlertSummaryRow(alert=alert, amount=amount, currency=currency)
 
+    async def get_for_run(self, run_id: uuid.UUID) -> Alert | None:
+        """Return this agency's alert for an investigation run, or None when none was raised."""
+        stmt = (
+            select(Alert)
+            .where(
+                Alert.agency_id == self._agency_id,
+                Alert.run_id == run_id,
+            )
+            .order_by(Alert.created_at.desc(), Alert.id.desc())
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def list_actions(self, alert_id: uuid.UUID) -> Sequence[AlertAction]:
         """Return the alert's append-only action trail, newest first (agency-scoped)."""
         stmt = (

@@ -123,8 +123,9 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-m 'not smoke' --cov --cov-report=term-missing --cov-fail-under=90 --strict-markers"
+addopts = "-m 'not smoke and not llm_live' --cov --cov-report=term-missing --cov-fail-under=90 --strict-markers"
 markers = [
+    "llm_live: opt-in live OpenRouter SAR tests (requires Infisical /llm credentials)",
     "smoke: live-URL smoke tests run against a deployed environment (deploy gate)",
 ]
 
