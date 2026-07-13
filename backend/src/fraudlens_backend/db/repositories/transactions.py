@@ -139,6 +139,8 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         Groups by the masked account identifier (masking is deterministic, ADR-014), matching it
         as either origin OR destination so the pipeline can label each prior as outbound/inbound —
         the same-account history the rules engine + feature extractor expect (plan §16 Phase 8).
+        The id tie-break makes the row set at the `limit` cap deterministic when several priors
+        share one timestamp, so re-runs/replays always see identical history.
         """
         start = before - timedelta(hours=window_hours)
         stmt = (
@@ -152,7 +154,7 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
                     Transaction.dest_account == account,
                 ),
             )
-            .order_by(Transaction.occurred_at.desc())
+            .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
             .limit(limit)
         )
         return (await self._session.execute(stmt)).scalars().all()
