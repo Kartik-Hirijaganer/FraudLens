@@ -106,6 +106,7 @@ def _to_alert_view(row: AlertSummaryRow) -> AlertView:
         alert_id=str(alert.id),
         transaction_id=str(alert.transaction_id),
         run_id=str(alert.run_id),
+        origin=alert.origin,
         status=alert.status,
         severity=alert.severity,
         amount=row.amount,
