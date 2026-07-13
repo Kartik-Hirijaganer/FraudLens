@@ -25,18 +25,19 @@ Key functions:
 - build_pipeline_components: construct the process-wide singletons from settings + the index dir.
 - load_risk_policy: resolve the `RiskPolicy` from `system_config` (safe core defaults on any miss).
 - build_pipeline_input: assemble the PHI-free `PipelineInput` (context + same-account history).
-- resolve_scoring_pointer: route the run to the active or canary model (deterministic per txn).
+- resolve_scoring_pointer: route to an override, active/canary, or gated dev candidate fallback.
 - build_pipeline_deps: resolve the routed pointer/rules/policy and assemble the `PipelineDeps`.
 
 Notes:
 - The scorer/explainer adapters raise when no active model deployment exists; that surfaces as a
-  deterministic-core failure → `run.failed` (a healthy deploy is gated by `/readyz`, plan §10.6).
+  deterministic-core failure → `run.failed` unless the explicit non-production candidate fallback
+  resolves a model (a healthy deploy is gated by `/readyz`, plan §10.6).
 - During a canary rollout `resolve_scoring_pointer` routes ~canary_percent% of transactions (by a
   stable hash of the transaction id) to the candidate; the scorer + explainer share that one routed
   pointer so the SAME model both scores and explains, and the inference log records which arm ran
   (`was_canary`) — that is the "canary logs both models" of plan §5.4 (Phase 10, §10.5).
-- The retriever uses the offline `HashingEmbedder` so it matches the keyless index the build bakes
-  (`scripts/ingest_rag.py`), keeping investigations offline + deterministic in local-demo + tests.
+- Retrieval and ingestion use the same config-selected embedder factory. Hashing remains the
+  deterministic default; live mode uses the backend's guardrailed OpenRouter adapter.
 - `RunManager` evicts a finished run's record once no subscriber remains, and LRU-bounds the
   Idempotency-Key→runId map, so neither grows without limit; an SSE observer that connects after
   eviction replays from the persisted `analysis_run_events` (DB).
@@ -65,6 +66,7 @@ from fraudlens_backend.db.repositories import (
 )
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
+from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_llm_call
@@ -93,7 +95,7 @@ from fraudlens_ml.pipeline import (
     ShapResult,
     StreamMessage,
 )
-from fraudlens_ml.rag import HashingEmbedder, Retriever, build_rag_context, extract_citations
+from fraudlens_ml.rag import Retriever, build_rag_context, extract_citations
 from fraudlens_ml.sar import SarCitation, SarDrafter, SarDraftResult, SarFeature
 from fraudlens_ml.scoring import (
     CanaryRouter,
@@ -155,6 +157,7 @@ class ScorerAdapter:
             fraud_probability=output.fraud_probability,
             model_version_label=output.model_version_label,
             was_canary=self._was_canary,
+            risk_thresholds=output.risk_thresholds,
         )
 
 
@@ -295,6 +298,18 @@ class PipelineRunStore:
         run is a background task (no request contextvars), so run_id/agency_id are passed in.
         """
         draft = await self._sar.create_from_result(run_id=self._run_id, result=result)
+        analysis_result = await self._analysis.get_result(self._run_id)
+        if analysis_result is not None:
+            review_flags = compute_review_flags(
+                risk_band=analysis_result.risk_band,
+                fraud_probability=analysis_result.fraud_probability,
+                sar_status=result.status.value,
+                low_confidence_margin=self._review_low_confidence_margin,
+            )
+            await self._analysis.update_alert_review_flags(
+                run_id=self._run_id,
+                review_flags=review_flags,
+            )
         await self._session.commit()
         log_llm_call(
             model=result.model_id,
@@ -312,11 +327,11 @@ class PipelineRunStore:
         return str(draft.id)
 
     async def raise_alert(self, record: AlertRecord) -> None:
-        """Persist the conditional open `alerts` row (with review flags) for the run + commit.
+        """Persist the conditional alert before RAG/SAR enrichment begins, then commit.
 
-        Review flags are derived from the already-persisted result + SAR + the run's band (the SAR
-        and result are committed by their pipeline steps before the alert is raised), so a critical
-        band, a low-confidence probability, or a failed SAR force-flags the alert for review (§8.5).
+        Initial flags use the persisted deterministic result (and any pre-existing draft on a
+        resumed run). `save_sar` refreshes them after enrichment so a failed SAR adds the existing
+        manual-review flag without delaying alert creation behind an LLM call.
         """
         result = await self._analysis.get_result(self._run_id)
         sar = await self._sar.get_for_run(self._run_id)
@@ -379,11 +394,13 @@ class PipelineComponents:
 def build_pipeline_components(settings: AppSettings) -> PipelineComponents:
     """Construct the process-wide pipeline singletons from settings (paths anchored at the CWD)."""
     cache = ModelCache(_anchored(settings.model_artifacts_dir))
+    embedder = build_embedder(settings)
     retriever = Retriever(
         persist_dir=_anchored(settings.rag_index_dir),
         collection=settings.rag_collection,
-        embedder=HashingEmbedder(),
-        rag_version=settings.rag_version,
+        embedder=embedder,
+        rag_version=embedder.provenance.rag_version,
+        min_similarity=settings.investigation_rag_min_similarity,
     )
     return PipelineComponents(
         cache=cache,
@@ -456,9 +473,12 @@ async def build_pipeline_input(
     agency_id: uuid.UUID,
     settings: AppSettings,
 ) -> PipelineInput:
-    """Assemble the PHI-free PipelineInput from a transaction + its windowed same-account history.
+    """Assemble the PHI-free PipelineInput from a transaction + its windowed account histories.
 
-    The history feeds the rules engine + feature extractor (each filters to its own window).
+    The origin-account history feeds the rules engine + feature extractor (each filters to its
+    own window); the destination-account history (directions relative to the destination) feeds
+    the v2 counterparty fan-in features only — both use the same window/cap settings so training
+    can mirror exactly what scoring sees.
     """
     history_rows = await repo.same_account_history(
         account=transaction.origin_account,
@@ -468,6 +488,15 @@ async def build_pipeline_input(
     )
     history = tuple(
         _to_rule_transaction(row, account=transaction.origin_account) for row in history_rows
+    )
+    counterparty_rows = await repo.same_account_history(
+        account=transaction.dest_account,
+        before=transaction.occurred_at,
+        window_hours=settings.investigation_history_window_hours,
+        limit=settings.investigation_history_max,
+    )
+    counterparty_history = tuple(
+        _to_rule_transaction(row, account=transaction.dest_account) for row in counterparty_rows
     )
     current = RuleTransaction(
         amount=transaction.amount,
@@ -481,7 +510,11 @@ async def build_pipeline_input(
         agency_id=str(agency_id),
         run_id=str(run_id),
         transaction_id=str(transaction.id),
-        rule_context=RuleContext(transaction=current, history=history),
+        rule_context=RuleContext(
+            transaction=current,
+            history=history,
+            counterparty_history=counterparty_history,
+        ),
         amount=transaction.amount,
         currency=transaction.currency,
         country=transaction.country,
@@ -491,7 +524,11 @@ async def build_pipeline_input(
 
 
 async def resolve_scoring_pointer(
-    registry: ModelRegistryRepository, *, routing_key: str, model_override: str | None = None
+    registry: ModelRegistryRepository,
+    *,
+    routing_key: str,
+    model_override: str | None = None,
+    allow_candidate_fallback: bool = False,
 ) -> tuple[DeploymentPointer | None, bool]:
     """Resolve the per-run scoring pointer + whether it routed to the canary (plan §10.5 / §5.4).
 
@@ -504,8 +541,6 @@ async def resolve_scoring_pointer(
     then records the canary arm). Routing is deterministic, so a re-run / replay routes identically.
     """
     pointer = await registry.build_pointer()
-    if pointer is None:
-        return None, False
     if model_override is not None:
         version = await registry.get_version_by_label(model_override)
         if version is None:  # the API validates existence first; defensive fallthrough to active
@@ -513,10 +548,15 @@ async def resolve_scoring_pointer(
         overridden = DeploymentPointer(
             active_version_label=version.version_label,
             active_artifact_uri=version.artifact_uri,
-            previous_version_label=pointer.active_version_label,
-            previous_artifact_uri=pointer.active_artifact_uri,
+            previous_version_label=pointer.active_version_label if pointer is not None else None,
+            previous_artifact_uri=pointer.active_artifact_uri if pointer is not None else None,
         )
         return overridden, False
+    if pointer is None:
+        candidate = (
+            await registry.build_latest_candidate_pointer() if allow_candidate_fallback else None
+        )
+        return candidate, False
     canary = await registry.build_canary_deployment()
     if canary is None:
         return pointer, False
@@ -546,7 +586,10 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
     """Resolve the routed pointer/rule-set/policy and assemble the per-run PipelineDeps."""
     registry = ModelRegistryRepository(session)
     pointer, was_canary = await resolve_scoring_pointer(
-        registry, routing_key=str(transaction_id), model_override=model_override
+        registry,
+        routing_key=str(transaction_id),
+        model_override=model_override,
+        allow_candidate_fallback=settings.is_candidate_scoring_fallback_enabled,
     )
     definitions = await RuleRepository(session, agency_id).load_definitions()
     risk_policy = await load_risk_policy(session)

@@ -21,6 +21,8 @@ Key functions:
 Notes:
 - The SSE generator opens its OWN short-lived session for the persisted-event replay and then tails
   the in-memory broadcast queue, so a long-lived stream does not pin the request DB session.
+- Stream-owned session cleanup runs in a shielded task so a client disconnect cannot interrupt
+  SQLAlchemy while it returns an asyncpg connection to the pool.
 - Replaying persisted events (with a `seq`) then de-duping any live event whose `seq` was already
   replayed makes reconnect-from-`Last-Event-ID` exact; ephemeral `sar.token`s (no `seq`) only ever
   arrive live, and `run.completed`/`run.failed` terminate the stream.
@@ -33,8 +35,10 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -50,6 +54,7 @@ from fraudlens_backend.api.deps import (
 )
 from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, SarDraft
 from fraudlens_backend.db.repositories import (
+    AlertRepository,
     AnalysisRunRepository,
     ModelRegistryRepository,
     SarDraftRepository,
@@ -177,7 +182,10 @@ async def start_investigation(
 
 
 def _snapshot(
-    run: AnalysisRun, result: AnalysisResult | None, sar: SarDraft | None
+    run: AnalysisRun,
+    result: AnalysisResult | None,
+    sar: SarDraft | None,
+    alert_id: uuid.UUID | None,
 ) -> InvestigationSnapshotResponse:
     """Project the run + (optional) result + (optional) SAR draft onto the snapshot response."""
     return InvestigationSnapshotResponse(
@@ -197,6 +205,7 @@ def _snapshot(
         citations=list(sar.citations) if sar is not None else [],
         sar_status=sar.status.value if sar is not None else None,
         sar_draft_id=str(sar.id) if sar is not None else None,
+        alert_id=str(alert_id) if alert_id is not None else None,
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
@@ -216,7 +225,8 @@ async def get_investigation(
         raise AppError("investigation_not_found")
     result = await repo.get_result(run_id)
     sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
-    return _snapshot(run, result, sar)
+    alert = await AlertRepository(session, agency_id).get_for_run(run_id)
+    return _snapshot(run, result, sar, alert.id if alert is not None else None)
 
 
 @router.post("/investigations/{runId}/sar/regenerate", response_model=SarDraftView)
@@ -271,6 +281,19 @@ def _sse_frame(seq: int | None, event_type: str, data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+@asynccontextmanager
+async def _stream_session(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    """Yield an SSE-owned session and finish closing it even when the request is cancelled."""
+    session = sessionmaker()
+    with CancelScope(shield=True):
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
 async def _event_stream(
     *,
     manager: RunManager,
@@ -283,12 +306,19 @@ async def _event_stream(
     queue = manager.attach(str(run_id))
     try:
         max_seq = after_seq
-        async with sessionmaker() as session:
+        async with _stream_session(sessionmaker) as session:
             events = await AnalysisRunRepository(session, agency_id).events_after(
                 run_id=run_id, after_seq=after_seq
             )
         for event in events:
-            yield _sse_frame(event.seq, event.event_type.value, dict(event.payload))
+            payload = await _terminal_snapshot_payload(
+                sessionmaker=sessionmaker,
+                agency_id=agency_id,
+                run_id=run_id,
+                event_type=event.event_type.value,
+                payload=dict(event.payload),
+            )
+            yield _sse_frame(event.seq, event.event_type.value, payload)
             max_seq = event.seq
             if event.event_type.value in _TERMINAL_EVENTS:
                 return
@@ -300,7 +330,14 @@ async def _event_stream(
                 return
             if message.seq is not None and message.seq <= max_seq:
                 continue  # already replayed from the persisted log
-            yield _sse_frame(message.seq, message.event_type, message.data)
+            payload = await _terminal_snapshot_payload(
+                sessionmaker=sessionmaker,
+                agency_id=agency_id,
+                run_id=run_id,
+                event_type=message.event_type,
+                payload=message.data,
+            )
+            yield _sse_frame(message.seq, message.event_type, payload)
             if message.seq is not None:
                 max_seq = message.seq
             if message.event_type in _TERMINAL_EVENTS:
@@ -308,6 +345,27 @@ async def _event_stream(
     finally:
         if queue is not None:
             manager.detach(str(run_id), queue)
+
+
+async def _terminal_snapshot_payload(
+    *,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    agency_id: uuid.UUID,
+    run_id: uuid.UUID,
+    event_type: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Add the run's nullable alert id and SAR status to the terminal SSE snapshot."""
+    if event_type != "run.completed":
+        return payload
+    async with _stream_session(sessionmaker) as session:
+        alert = await AlertRepository(session, agency_id).get_for_run(run_id)
+        sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
+    return {
+        **payload,
+        "alertId": str(alert.id) if alert is not None else None,
+        "sarStatus": sar.status.value if sar is not None else None,
+    }
 
 
 @router.get("/investigations/{runId}/stream")
@@ -322,7 +380,7 @@ async def stream_investigation(
     if sessionmaker is None:
         raise AppError("investigations_unavailable")
     agency_id = uuid.UUID(tenant.agency_id)
-    async with sessionmaker() as session:
+    async with _stream_session(sessionmaker) as session:
         run = await AnalysisRunRepository(session, agency_id).get(run_id)
     if run is None:  # missing or another agency's run — 404 with no existence leak
         raise AppError("investigation_not_found")

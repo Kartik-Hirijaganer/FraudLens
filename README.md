@@ -1,10 +1,10 @@
 # FraudLens
 
 FraudLens is a personal AML fraud-investigation system built with production-grade hygiene:
-synthetic data only, fail-closed auth, tenant isolation by `agency_id`, masked-only PHI storage,
-and a durable audit trail. It ingests transactions, runs rule/model investigations, surfaces
-alerts for analyst review, drafts SAR narratives through a governed LLM seam, and manages model
-lifecycle operations behind admin-only APIs.
+public/synthetic data only, fail-closed auth, tenant isolation by `agency_id`, masked-only PHI
+storage, and a durable audit trail. It ingests transactions, runs rule/model investigations,
+surfaces alerts for analyst review, drafts SAR narratives through a governed LLM seam, and manages
+model lifecycle operations behind admin-only APIs.
 
 ## Stack
 
@@ -24,10 +24,13 @@ npm --prefix frontend ci
 make run
 ```
 
-Open `http://localhost:5173` for the frontend and `http://localhost:8000/docs` for the API docs.
-The local run clean-resets the demo stack, reseeds synthetic data, uses docker Postgres, local
-artifact/job backends, and the keyless mock SAR drafter. No cloud account or real secret is
-required.
+Open the URLs printed by the command (normally `http://localhost:5173` and an API fallback such as
+`http://localhost:18000`). The local run resets Postgres, idempotently fetches the full public IBM
+AML-Data `HI-Small_Trans.csv` through Infisical, ingests a bounded masked partition, and scores it
+through the production investigation pipeline. The IBM download is synthetically generated public
+data, not the old hand-written IEEE sample and not real customer data. Only the first fetch needs
+the Infisical `/ml` Kaggle token; the running app uses local backends and the keyless mock SAR
+drafter.
 
 ## Source Of Truth
 

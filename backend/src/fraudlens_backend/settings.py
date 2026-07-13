@@ -15,6 +15,8 @@ Key functions:
 Notes:
 - The dev auth-bypass is gated by `is_dev_bypass_enabled`, which is False whenever
   environment == "prod" REGARDLESS of the flag — so prod cannot be bypassed.
+- Candidate scoring without a deployment is likewise gated by
+  `is_candidate_scoring_fallback_enabled` and is always inert in production.
 - The config directory is discovered via FRAUDLENS_CONFIG_DIR, then by walking up
   from the CWD / this file looking for config/default.yaml (works in src layout,
   editable installs, and the Docker image where FRAUDLENS_CONFIG_DIR=/app/config).
@@ -45,6 +47,7 @@ Environment = Literal["dev", "prod", "staging"]
 StorageBackend = Literal["local", "azure_blob"]
 QueueBackend = Literal["local", "container_apps_jobs"]
 LlmMode = Literal["mock", "live"]
+RagEmbeddingMode = Literal["offline", "live"]
 
 # Safe defaults for the always-on static security headers. The Content-Security-Policy is
 # handled separately (it is path-aware: strict on the API, relaxed on the docs UI — see
@@ -289,6 +292,11 @@ class AppSettings(BaseSettings):
         description="Root dir (by version label) for model artifact bundles; the committed "
         "fixture lives here, candidates are written here, prod points it at Blob.",
     )
+    allow_candidate_scoring_in_dev: bool = Field(
+        default=False,
+        description="Allow scoring with the newest candidate when no deployment exists; honored "
+        "only outside production for explicit live-local model evaluation.",
+    )
     aml_data_dir: str = Field(
         default=".local/aml_data",
         description="Root dir for downloaded real AML training datasets (e.g. IBM AML-Data); "
@@ -309,9 +317,13 @@ class AppSettings(BaseSettings):
         default="fincen_bsa",
         description="ChromaDB collection name holding the embedded regulatory chunks.",
     )
+    rag_embedding_mode: RagEmbeddingMode = Field(
+        default="offline",
+        description="RAG embedder mode: deterministic hashing or live OpenRouter embeddings.",
+    )
     rag_version: str = Field(
         default="rag-v1",
-        description="Corpus/index version recorded on each retrieval for the audit trail.",
+        description="Offline corpus/index version; live mode reads its version from llm/rag.yml.",
     )
     rag_index_required: bool = Field(
         default=False,
@@ -460,11 +472,23 @@ class AppSettings(BaseSettings):
         gt=0,
         description="How many FinCEN/BSA chunks the investigation retrieves for citations.",
     )
+    investigation_rag_min_similarity: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity required to surface a vector RAG citation.",
+    )
     investigation_idempotency_cache_size: int = Field(
         default=1024,
         gt=0,
         description="Max retained Idempotency-Key→runId entries in the in-process run manager "
         "(LRU-bounded; the single-replica dedupe window, ADR-016).",
+    )
+    batch_score_limit: int = Field(
+        default=2000,
+        gt=0,
+        description="Max un-investigated transactions one batch-score sweep investigates "
+        "(covers the whole demo case pack; a cloud Job can raise it per run).",
     )
 
     # --- Alerts & review workflow (plan §16 Phase 9; config-driven, never hardcoded) ---
@@ -519,6 +543,11 @@ class AppSettings(BaseSettings):
     def is_dev_bypass_enabled(self) -> bool:
         """True only when NOT in prod and the bypass flag is set (fails closed in prod)."""
         return self.environment != "prod" and self.auth_dev_bypass
+
+    @property
+    def is_candidate_scoring_fallback_enabled(self) -> bool:
+        """True only outside prod when candidate fallback was explicitly enabled."""
+        return self.environment != "prod" and self.allow_candidate_scoring_in_dev
 
     @classmethod
     def settings_customise_sources(
