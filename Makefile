@@ -11,6 +11,8 @@ UV ?= uv
 NPM ?= npm
 FRONTEND := frontend
 PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src packages/fraudlens-ml/src scripts
+AML_DEMO_ROWS ?= 1600
+AML_SAMPLE_ROWS ?= 50000
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -21,7 +23,7 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live local-demo local-demo-down local-demo-reset local-demo-smoke \
-        db-migrate db-seed import-ieee ingest-rag train-model retrain drift-scan tf-validate \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data train-model train-aml train-aml-sample activate-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -170,15 +172,14 @@ docker-build: ## Build the backend image (no push).
 	docker build -f backend/Dockerfile -t fraudlens-backend:local .
 
 # ---------------------------------------------------------------------------
-# Local demo & data lifecycle (plan §3.4 / §16 Phase 1). `make local-demo` is the
-# one-command path: Docker Postgres + local backends + mock LLM + (Phase 2+) migrate/seed
-# -> gateway+services + frontend, then prints the URL. The data-lifecycle targets wrap the
-# canonical commands; the scripts they call land in their phases (noted inline).
+# Local demo & data lifecycle. `make run` is the clean one-command path: preserve/fetch IBM
+# AML-Data -> Docker Postgres -> migrate + foundation seed -> masked ingest -> RAG -> production
+# pipeline batch score -> gateway + frontend. The running application remains local/keyless.
 # ---------------------------------------------------------------------------
-local-demo: ## Boot the full stack locally (Postgres + gateway + frontend); prints the URL.
-	$(UV) run python scripts/local_demo.py up
-run: ## Clean-reset local state, re-seed, then boot the full stack locally.
-	POSTGRES_PORT=$${POSTGRES_PORT:-55432} $(UV) run python scripts/local_demo.py rebuild
+local-demo: ## Boot the IBM-backed local stack; fetches via Infisical /ml when absent.
+	infisical run --env=prod --path=/ml -- $(UV) run python scripts/local_demo.py up
+run: ## Clean-reset generated state, ingest IBM AML, pipeline-score, then boot locally.
+	infisical run --env=prod --path=/ml -- env POSTGRES_PORT=$${POSTGRES_PORT:-55432} $(UV) run python scripts/local_demo.py rebuild
 rebuild: ## Alias for `make run`.
 	$(MAKE) run
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
@@ -190,19 +191,31 @@ local-demo-reset: ## Tear down the local demo and delete its volumes + local sta
 local-demo-smoke: ## Boot, hit the health probes, then tear down (local E2E gate).
 	$(UV) run python scripts/local_demo.py smoke
 
-db-migrate: ## Apply database migrations (Alembic config lands in Phase 2).
+db-migrate: ## Apply database migrations.
 	$(UV) run alembic upgrade head
-db-seed: ## Seed the demo dataset, dev/demo only (scripts/seed.py lands in Phase 2).
+db-seed: ## Seed foundation identity/config/rules + the active fixture pointer (dev only).
 	$(UV) run python scripts/seed.py
-import-ieee: ## Import the synthetic IEEE-CIS sample (scripts/import_ieee.py lands in Phase 3).
+import-ieee: ## Import the committed synthetic IEEE-CIS sample.
 	$(UV) run python scripts/import_ieee.py
-ingest-rag: ## Build the FinCEN/BSA RAG index (scripts/ingest_rag.py lands in Phase 6).
+ingest-aml-demo: ## Ingest a bounded real IBM AML prefix across three demo tenants.
+	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/ingest_aml_demo.py --rows $(AML_DEMO_ROWS)
+ingest-rag: ## Build the offline FinCEN/BSA hashing RAG index.
 	$(UV) run python scripts/ingest_rag.py
-train-model: ## Train + register an XGBoost model (scripts/train_model.py lands in Phase 5).
+ingest-rag-live: ## Build the live OpenRouter text-embedding-3-small RAG index.
+	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py
+fetch-data: ## Fetch IBM AML-Data HI-Small via Infisical-injected Kaggle credentials.
+	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml
+train-model: ## Train + register the synthetic XGBoost candidate (CI/demo default).
 	$(UV) run python scripts/train_model.py
-retrain: ## Retrain a candidate from matured reviewed labels (scripts/retrain.py, Phase 10).
+train-aml: ## Train + register an IBM AML-Data candidate (active model is unchanged).
+	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml
+train-aml-sample: ## Fast real-data candidate smoke using a deterministic stratified sample.
+	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml --sample-rows $(AML_SAMPLE_ROWS)
+activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
+	$(UV) run python scripts/activate_model.py
+retrain: ## Retrain a candidate from matured reviewed labels.
 	$(UV) run python scripts/retrain.py
-drift-scan: ## Advisory model drift scan (scripts/drift_scan.py, Phase 10).
+drift-scan: ## Run the advisory model drift scan.
 	$(UV) run python scripts/drift_scan.py
 
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
