@@ -6,6 +6,7 @@ ids/emails are obviously-synthetic placeholders (no real PHI/tenant), matching t
 tests/fixtures policy.
 
 Key classes:
+- DemoAgencySpec: a deterministic synthetic agency used by real-dataset demo ingestion.
 - DemoUserSpec: a seeded demo user's email, display name, and role.
 
 Key functions:
@@ -14,6 +15,8 @@ Key functions:
 Notes:
 - `DEMO_AGENCY_ID` / `DEMO_USER_ID` are fixed UUIDs (not random) so the dev bypass, the seed,
   and tests all reference the same tenant + default acting user deterministically across runs.
+- `DEMO_AUTH_PASSWORD` is an intentionally public synthetic credential used only by local demo
+  tooling; it is not an application secret and never grants access outside the demo tenant.
 - This module holds identity constants ONLY; the rest of the seed payload (config, fixture
   model) lives in `scripts/seed.py` so the runtime image carries no demo data.
 """
@@ -30,6 +33,36 @@ from fraudlens_backend.db.models.enums import UserRole
 DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 DEMO_AGENCY_NAME = "Demo Financial Agency"
 DEMO_AGENCY_SLUG = "demo-agency"
+DEMO_AUTH_PASSWORD = "demo-access-2026"
+
+
+class DemoAgencySpec(BaseModel):
+    """A deterministic synthetic agency used to partition public AML demo rows."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    agency_id: uuid.UUID = Field(..., description="Fixed tenant id used for deterministic scope.")
+    name: str = Field(..., description="Synthetic display name (never a source institution).")
+    slug: str = Field(..., description="Stable unique slug for the agency row.")
+
+
+AML_DEMO_AGENCIES: tuple[DemoAgencySpec, ...] = (
+    DemoAgencySpec(
+        agency_id=DEMO_AGENCY_ID,
+        name=DEMO_AGENCY_NAME,
+        slug=DEMO_AGENCY_SLUG,
+    ),
+    DemoAgencySpec(
+        agency_id=uuid.UUID("11111111-1111-4111-8111-111111111112"),
+        name="AML Demo Agency Two",
+        slug="aml-demo-agency-two",
+    ),
+    DemoAgencySpec(
+        agency_id=uuid.UUID("11111111-1111-4111-8111-111111111113"),
+        name="AML Demo Agency Three",
+        slug="aml-demo-agency-three",
+    ),
+)
 
 # Fixed acting-user id the dev bypass mints (the demo analyst). The seed creates exactly this
 # user, so a bypassed identity resolves to a real `users` row — the actor every audited Phase 9
