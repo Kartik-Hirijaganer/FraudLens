@@ -248,10 +248,15 @@ class JwksTokenVerifier:
             )
         except (InvalidTokenError, PyJWKClientError) as exc:
             raise CredentialsError("token verification failed") from exc
-        agency_id = payload.get(self._agency_claim)
+        app_metadata = payload.get("app_metadata")
+        trusted_metadata = app_metadata if isinstance(app_metadata, dict) else {}
+        agency_id = payload.get(self._agency_claim, trusted_metadata.get(self._agency_claim))
         if not isinstance(agency_id, str) or not agency_id:
             raise CredentialsError("missing agency claim")
-        role = payload.get(self._role_claim, UserRole.ANALYST.value)
+        role = payload.get(
+            self._role_claim,
+            trusted_metadata.get(self._role_claim, UserRole.ANALYST.value),
+        )
         if _parse_role(role) is None:
             raise CredentialsError("invalid role claim")
         subject = payload.get("sub")
