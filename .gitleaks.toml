@@ -12,6 +12,8 @@ paths = [
   '''package-lock\.json''',
   '''uv\.lock''',
   '''.*\.terraform\.lock\.hcl''',
+  # Gitignored public IBM AML download cache; never source or a deploy input.
+  '''\.local/aml_data/''',
 ]
 regexes = [
   # Personal GitHub noreply email used for commits (documented in AGENTS.md).
