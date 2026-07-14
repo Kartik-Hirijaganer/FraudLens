@@ -272,6 +272,15 @@
         "title": "AlertMetrics",
         "type": "object"
       },
+      "AlertOrigin": {
+        "description": "Provenance of an alert used to distinguish pipeline output from sample data.",
+        "enum": [
+          "pipeline",
+          "seed"
+        ],
+        "title": "AlertOrigin",
+        "type": "string"
+      },
       "AlertStatus": {
         "description": "Lifecycle status of an alert (plan \u00a79.1 `alerts`).",
         "enum": [
@@ -325,6 +334,10 @@
             "title": "Currency",
             "type": "string"
           },
+          "origin": {
+            "$ref": "#/components/schemas/AlertOrigin",
+            "description": "Alert provenance: pipeline output or explicitly seeded sample data."
+          },
           "reviewFlags": {
             "description": "PHI-free force-review reasons ({flag, reason}) set at investigation time.",
             "items": {
@@ -365,6 +378,7 @@
           "alertId",
           "transactionId",
           "runId",
+          "origin",
           "status",
           "severity",
           "amount",
@@ -1073,6 +1087,18 @@
         "additionalProperties": false,
         "description": "The authoritative investigation snapshot the SSE observer reconciles against.",
         "properties": {
+          "alertId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alert raised by this run, or None when the run did not alert.",
+            "title": "Alertid"
+          },
           "citations": {
             "description": "Grounded regulatory citations the SAR relied on.",
             "items": {
