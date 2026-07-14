@@ -286,6 +286,22 @@ gemini:
     pricing_basis: per_million_tokens
 
 openrouter:
+  openai/text-embedding-3-small:
+    kind: embed
+    context_window: 8192
+    modality: [text]
+    default_params: { dimensions: 1536 }
+    input_price_per_million: 0.02
+    output_price_per_million: 0.02
+    speed: fast
+    reasoning_capable: false
+    intelligence: low
+    source_url: https://openrouter.ai/openai/text-embedding-3-small
+    verified_at: 2026-07-12
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+
   google/gemini-2.0-flash-001:
     kind: chat
     context_window: 1048576

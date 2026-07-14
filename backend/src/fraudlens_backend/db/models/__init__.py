@@ -16,6 +16,7 @@ from fraudlens_backend.db.models.analysis import (
 from fraudlens_backend.db.models.core import Agency, AmlRule, Transaction, User
 from fraudlens_backend.db.models.enums import (
     AlertActionType,
+    AlertOrigin,
     AlertStatus,
     AnalysisRunEventType,
     JobStatus,
@@ -61,6 +62,7 @@ __all__ = [
     "Alert",
     "AlertAction",
     "AlertActionType",
+    "AlertOrigin",
     "AlertStatus",
     "AmlRule",
     "AmlRuleType",
