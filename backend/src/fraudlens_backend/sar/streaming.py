@@ -1,11 +1,10 @@
-"""Summary: Shared token-streaming for the SAR drafters (plan §10.2 "loop tokens", §16 Phase 7).
-Both the mock and the live drafter produce a finished, validated `SarDraftResult` and then stream
-it the same way, so that logic lives here once (no duplication, rule 5): a successful draft streams
-its PHI-masked content as token deltas followed by a single terminal `COMPLETED` event carrying the
-result; a failed draft streams no tokens, just one terminal `FAILED` event (the run still completes
-with score+SHAP+RAG, plan §7.5). The live client has no native token stream, so the completed text
-is re-chunked into word-sized deltas — enough for the live SSE typing effect while keeping the
-authoritative content in the persisted result.
+"""Summary: Shared safe-output streaming for the SAR drafters (plan §10.2, Phase 8).
+Both drafters emit a finished, validated `SarDraftResult` through one event helper: a successful
+draft yields its PHI-masked content as deltas followed by one terminal `COMPLETED` event; a failed
+draft yields one terminal `FAILED` event. The live drafter now consumes a genuine provider stream
+server-side, but its structured JSON must be fully parsed, citation-grounded, and guardrail-scanned
+before disclosure. This helper therefore chunks only that validated rendering; it never exposes
+raw provider deltas or partial JSON.
 
 Key classes:
 - (none)
@@ -15,6 +14,9 @@ Key functions:
 
 Notes:
 - Token chunks keep their trailing whitespace, so concatenating the deltas reproduces the content.
+- Live provider transport is native streaming; browser-facing deltas intentionally begin only
+  after full validation. A future two-stage narrative/citation schema would be required for safe
+  pre-terminal browser delivery.
 - The async-generator shape matches the `SarDrafter.draft` contract, so a drafter just delegates
   its tail to this helper with `async for ... yield`.
 """
@@ -35,7 +37,7 @@ def _chunk_tokens(text: str) -> Iterator[str]:
 
 
 async def stream_result(result: SarDraftResult) -> AsyncIterator[SarStreamEvent]:
-    """Stream a completed draft's tokens then its terminal completed/failed event."""
+    """Stream only a validated draft's rendered tokens, then its terminal event."""
     if result.status == SarDraftStatus.DRAFT:
         for token in _chunk_tokens(result.content):
             yield SarStreamEvent(type=SarEventType.TOKEN, token=token)
