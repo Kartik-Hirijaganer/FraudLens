@@ -91,5 +91,8 @@ class InvestigationSnapshotResponse(CamelModel):
     )
     sar_status: str | None = Field(default=None, description="SAR draft status (draft | failed).")
     sar_draft_id: str | None = Field(default=None, description="Persisted SAR draft id, if any.")
+    alert_id: str | None = Field(
+        default=None, description="Alert raised by this run, or None when the run did not alert."
+    )
     created_at: datetime = Field(..., description="When the run was created.")
     updated_at: datetime = Field(..., description="When the run was last updated.")
