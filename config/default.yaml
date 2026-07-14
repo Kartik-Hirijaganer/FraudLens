@@ -18,6 +18,7 @@ request_id_header: X-Request-Id
 # Auth dev-bypass: honored ONLY when environment != "prod" AND this is true.
 # Inert in prod by construction (see backend api/deps.py and its tests).
 auth_dev_bypass: false
+allow_candidate_scoring_in_dev: false
 
 # --- Gateway edge — BOOT-CRITICAL config (loaded at startup, never DB-dependent) ---
 # The security posture (CORS, rate limits, headers) is fully determined here before
@@ -44,3 +45,5 @@ client_error_rate_limit_requests: 60
 storage_backend: local
 queue_backend: local
 llm_mode: mock
+rag_embedding_mode: offline
+investigation_rag_min_similarity: 0.2

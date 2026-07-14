@@ -1,0 +1,15 @@
+# =====================================================================
+# FraudLens live RAG embedding selection (NON-SECRET).
+# =====================================================================
+#
+# The catalog reference routes through OpenRouter's OpenAI-compatible embeddings endpoint.
+# OPENROUTER_API_KEY is resolved at runtime from Infisical /llm; no provider key lives here.
+# `rag_version` identifies this exact embedding space in index metadata and retrieval audit rows.
+# Public regulatory text and PHI-free retrieval queries use the deidentified governance tier,
+# the least-sensitive provider-allowed class currently represented by FraudLens.
+# =====================================================================
+
+model: openrouter/openai/text-embedding-3-small
+dimensions: 1536
+rag_version: rag-v2-te3s
+data_class: deidentified
