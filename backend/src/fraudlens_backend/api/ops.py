@@ -98,9 +98,11 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
         if rag_index_dir is None:
             return _skipped("chromadb")
         # Lazy import keeps heavy chromadb out of the import graph until /readyz needs it.
+        from fraudlens_backend.rag import build_embedder  # noqa: PLC0415
         from fraudlens_ml.rag import index_status  # noqa: PLC0415
 
-        status = index_status(rag_index_dir, settings.rag_collection)
+        provenance = build_embedder(settings).provenance
+        status = index_status(rag_index_dir, settings.rag_collection, provenance)
         if status == "ready":
             return DependencyCheck(name="chromadb", status="ok")
         if settings.rag_index_required:
