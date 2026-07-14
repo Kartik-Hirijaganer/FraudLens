@@ -2,8 +2,9 @@
 the SAME LangGraph pipeline the interactive `POST /investigations` path uses, but headlessly — no
 SSE stream, no `RunManager` background task — over a set of transactions, then records a PHI-free
 `job_executions(batch_score)` row for the ops audit trail. Each transaction gets its own persisted
-`analysis_runs` row + full pipeline (rules→scoring→SHAP→RAG→SAR), reusing the warm
-`PipelineComponents` (model cache + retriever + drafter) and the per-run `RunStore`, so a batch
+`analysis_runs` row + deterministic scoring core; only threshold-crossing runs continue through
+RAG→SAR. The runner reuses the warm `PipelineComponents` (model cache + retriever + drafter) and
+the per-run `RunStore`, so a batch
 sweep produces exactly the same durable results/events/alerts an interactive run would. Runs are
 sequential on one session (the store commits incrementally), so a mid-batch failure leaves prior
 runs durable. `main` is the dev/demo entry point that scores the demo agency's un-investigated
@@ -21,6 +22,9 @@ Key functions:
 Notes:
 - The live `EventEmitter` is a no-op here (batch has no observers); the pipeline still persists each
   ordered event, so a batch-scored run is fully replayable via `GET /investigations/{runId}/stream`.
+- Per-transaction fault isolation: a transaction whose input cannot even be assembled (e.g. a
+  legacy row violating a tightened contract) marks ITS run failed (`batch_input_error`) and the
+  sweep continues — one poisoned row never aborts the batch.
 - `main` is dev/demo-oriented (like `scripts/seed.py`) and scores un-investigated transactions, so
   re-running it is naturally incremental.
 """
@@ -99,23 +103,31 @@ async def run_batch_score(
             continue
         run = await analysis_repo.create_running(transaction_id=transaction.id)
         await session.commit()
-        pipeline_input = await build_pipeline_input(
-            repo=txn_repo,
-            transaction=transaction,
-            run_id=run.id,
-            agency_id=agency_id,
-            settings=settings,
-        )
-        deps = await build_pipeline_deps(
-            components=components,
-            session=session,
-            settings=settings,
-            agency_id=agency_id,
-            run_id=run.id,
-            transaction_id=transaction.id,
-            emit=_noop_emit,
-        )
-        report = await Runner(deps).run(pipeline_input)
+        run_id, current_id = run.id, transaction.id  # plain values survive a rollback expiry
+        try:
+            pipeline_input = await build_pipeline_input(
+                repo=txn_repo,
+                transaction=transaction,
+                run_id=run_id,
+                agency_id=agency_id,
+                settings=settings,
+            )
+            deps = await build_pipeline_deps(
+                components=components,
+                session=session,
+                settings=settings,
+                agency_id=agency_id,
+                run_id=run_id,
+                transaction_id=current_id,
+                emit=_noop_emit,
+            )
+            report = await Runner(deps).run(pipeline_input)
+        except Exception:  # one poisoned transaction must never abort the whole sweep
+            await session.rollback()
+            await analysis_repo.fail(run_id=run_id, error_code="batch_input_error")
+            await session.commit()
+            failed += 1
+            continue
         completed += report.status == "completed"
         failed += report.status == "failed"
     job = JobExecution(
@@ -147,7 +159,9 @@ async def _amain() -> int:
     components = build_pipeline_components(settings)
     try:
         async with build_sessionmaker(engine)() as session:
-            transaction_ids = await select_uninvestigated(session, agency_id=DEMO_AGENCY_ID)
+            transaction_ids = await select_uninvestigated(
+                session, agency_id=DEMO_AGENCY_ID, limit=settings.batch_score_limit
+            )
             result = await run_batch_score(
                 session=session,
                 components=components,
