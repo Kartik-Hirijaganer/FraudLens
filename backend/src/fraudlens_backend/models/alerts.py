@@ -38,6 +38,7 @@ from pydantic import Field, model_validator
 
 from fraudlens_backend.db.models.enums import (
     AlertActionType,
+    AlertOrigin,
     AlertStatus,
     Severity,
     TrainingLabelType,
@@ -64,6 +65,9 @@ class AlertView(CamelModel):
     alert_id: str = Field(..., description="The alert's unique id (UUID).")
     transaction_id: str = Field(..., description="The flagged transaction's id.")
     run_id: str = Field(..., description="The investigation run that raised the alert.")
+    origin: AlertOrigin = Field(
+        ..., description="Alert provenance: pipeline output or explicitly seeded sample data."
+    )
     status: AlertStatus = Field(
         ...,
         description=(
