@@ -4,11 +4,13 @@ implements the injected `fraudlens_ml.sar.SarDrafter` protocol on top of the gua
 imports llm (the backend wires it in). Per draft it: (1) replays an identical prior result from the
 cache with no spend (plan §7.6); (2) enforces the session/daily USD budget, raising
 `SarBudgetExceededError` → 429 before any call (plan §7.6); (3) assembles the PHI-masked prompt and
-calls the client, which runs input redaction + prompt-risk + output policy/phishing scans + output
-sanitization + governed fallback (plan §8.1, §7.5) — so the drafter inherits all guardrails for
-free; (4) parses the model JSON into a schema-valid, citation-GROUNDED `SarDraftContent` (no
+calls the client's provider-native streaming path, which assembles raw deltas server-side before
+running output policy/phishing scans + sanitization + governed fallback (plan §8.1, §7.5) — so no
+unvalidated partial JSON reaches an analyst; (4) parses the complete model JSON into a schema-valid,
+citation-GROUNDED `SarDraftContent` (no
 fabricated regulation ids); (5) records token usage + estimated cost for the audit trail (plan §7.4)
-and caches the result; (6) streams it. Any provider/guardrail/schema failure degrades to a terminal
+and caches the result; (6) streams only the validated rendered result. Any
+provider/guardrail/schema failure degrades to a terminal
 `failed` result so the run still completes with score+SHAP+RAG (plan §7.5) — it never throws except
 for the budget 429.
 
@@ -44,11 +46,13 @@ from fraudlens_llm import (
     GuardrailError,
     LlmClient,
     LlmError,
+    LlmMessage,
     LlmRateLimitError,
     LlmTimeoutError,
     LlmUsage,
     ModelNotFoundError,
     PolicyError,
+    StreamGenerationRequest,
     TaskType,
 )
 from fraudlens_ml.sar import (
@@ -71,6 +75,7 @@ class LiveSarDrafter:
         prompt: SarPromptTemplate,
         model: str,
         max_output_tokens: int,
+        reasoning_effort: str | None = None,
         budget: BudgetGuard,
         cache: SarDraftCache,
         fallbacks: tuple[str, ...] = (),
@@ -82,13 +87,14 @@ class LiveSarDrafter:
         self._prompt = prompt
         self._model = model
         self._max_output_tokens = max_output_tokens
+        self._reasoning_effort = reasoning_effort
         self._budget = budget
         self._cache = cache
         self._fallbacks = fallbacks
         self._task_type = task_type
 
     async def draft(self, sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:
-        """Replay-or-generate a guardrailed, grounded SAR and stream it (failed path on error)."""
+        """Replay-or-native-stream a guarded SAR, then emit only its validated rendering."""
         key = sar_cache_key(self._model, self._prompt.prompt_hash, sar_input)
         cached = self._cache.get(key)
         if cached is not None:
@@ -99,12 +105,18 @@ class LiveSarDrafter:
         self._budget.ensure_within_budget()
         messages = build_messages(self._prompt, sar_input)
         try:
-            llm_result = await self._client.generate(
-                messages,
-                model=self._model,
-                overrides=GenerationParams(max_tokens=self._max_output_tokens),
-                task_type=self._task_type,
-                fallbacks=self._fallbacks or None,
+            llm_result = await self._client.generate_stream(
+                StreamGenerationRequest(
+                    messages=[LlmMessage.model_validate(message) for message in messages],
+                    model=self._model,
+                    overrides=GenerationParams(
+                        max_tokens=self._max_output_tokens,
+                        response_format="json_object",
+                        reasoning_effort=self._reasoning_effort,
+                    ),
+                    task_type=self._task_type,
+                    fallbacks=self._fallbacks,
+                )
             )
         except LlmError as exc:
             async for event in stream_result(self._failed_result(_error_code(exc))):

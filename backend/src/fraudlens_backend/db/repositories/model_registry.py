@@ -17,6 +17,8 @@ Key functions:
 Notes:
 - `build_pointer` returns None when no deployment row or no active version exists, so callers
   (readiness, the pipeline) can fail closed rather than score with no model (plan §10.6).
+- `build_latest_candidate_pointer` is a non-mutating resolver for explicitly gated callers; it
+  never promotes a candidate or creates a deployment row.
 - The previous-active version is folded into the pointer only when both its label and uri
   resolve, so the scorer's last-known-good fallback is offered only when it is loadable.
 - `build_canary_deployment` resolves the active + optional canary (at its percent) into the
@@ -32,7 +34,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import ModelDeployment, ModelVersion
+from fraudlens_backend.db.models import ModelDeployment, ModelVersion, ModelVersionStatus
 from fraudlens_ml.scoring import CanaryDeployment, DeploymentPointer
 
 _DEFAULT_LIST_LIMIT = 50
@@ -90,6 +92,22 @@ class ModelRegistryRepository:
             active_artifact_uri=active.artifact_uri,
             previous_version_label=previous_label,
             previous_artifact_uri=previous_uri,
+        )
+
+    async def build_latest_candidate_pointer(self) -> DeploymentPointer | None:
+        """Resolve the newest candidate for an explicitly enabled non-production fallback."""
+        stmt = (
+            select(ModelVersion)
+            .where(ModelVersion.status == ModelVersionStatus.CANDIDATE)
+            .order_by(ModelVersion.created_at.desc(), ModelVersion.id.desc())
+            .limit(1)
+        )
+        candidate = (await self._session.execute(stmt)).scalar_one_or_none()
+        if candidate is None:
+            return None
+        return DeploymentPointer(
+            active_version_label=candidate.version_label,
+            active_artifact_uri=candidate.artifact_uri,
         )
 
     async def build_canary_deployment(self) -> CanaryDeployment | None:
