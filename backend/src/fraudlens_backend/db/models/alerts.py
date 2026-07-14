@@ -45,7 +45,13 @@ from fraudlens_backend.db.base import (
     TimestampMixin,
     str_enum,
 )
-from fraudlens_backend.db.models.enums import AlertActionType, AlertStatus, SarStatus, Severity
+from fraudlens_backend.db.models.enums import (
+    AlertActionType,
+    AlertOrigin,
+    AlertStatus,
+    SarStatus,
+    Severity,
+)
 
 
 class Alert(AgencyScopedMixin, TimestampMixin, Base):
@@ -63,6 +69,12 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
     status: Mapped[AlertStatus] = mapped_column(
         str_enum(AlertStatus, create_constraint=True), nullable=False, default=AlertStatus.OPEN
+    )
+    origin: Mapped[AlertOrigin] = mapped_column(
+        str_enum(AlertOrigin, create_constraint=True),
+        nullable=False,
+        default=AlertOrigin.PIPELINE,
+        server_default=AlertOrigin.PIPELINE.value,
     )
     severity: Mapped[Severity] = mapped_column(str_enum(Severity), nullable=False)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(

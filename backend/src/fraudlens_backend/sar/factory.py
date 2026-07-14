@@ -8,7 +8,7 @@ so no model name is ever hardcoded in source (plan §7.2). Every live collaborat
 client, pricing catalog, prompt template, budget guard, replay cache) is overridable for tests/DI.
 
 Key classes:
-- SarLlmConfig: the non-secret SAR model selection (model ref + fallbacks + max output tokens).
+- SarLlmConfig: the non-secret SAR model selection and generation limits.
 
 Key functions:
 - load_sar_llm_config: load + validate config/llm/sar.yml.
@@ -49,6 +49,11 @@ class SarLlmConfig(BaseModel):
         description="Ordered fallback model references (governance-gated at the client).",
     )
     max_output_tokens: int = Field(..., gt=0, description="Max SAR completion tokens (cost cap).")
+    reasoning_effort: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Optional provider reasoning-effort hint for the SAR model.",
+    )
 
 
 def load_sar_llm_config(path: Path | None = None) -> SarLlmConfig:
@@ -79,6 +84,7 @@ def build_sar_drafter(  # noqa: PLR0913 - explicit overridable collaborators (DI
         prompt=template,
         model=sar_config.model,
         max_output_tokens=sar_config.max_output_tokens,
+        reasoning_effort=sar_config.reasoning_effort,
         budget=budget or BudgetGuard(),
         cache=cache or InMemorySarDraftCache(),
         fallbacks=sar_config.fallbacks,
