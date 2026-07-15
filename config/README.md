@@ -54,3 +54,14 @@ Validate the registries with:
 ```bash
 make llm-catalog-check
 ```
+
+## GFP benchmark protocol (`gfp-benchmark.yaml`)
+
+`config/gfp-benchmark.yaml` pins the **offline** GFP tenant-isolation study protocol
+(seed, batch size, engine pin, time windows, histogram bins, sampling ladder, fold
+fractions, target quotas, `.local/` IO paths). It is **not** loaded by `AppSettings`:
+`scripts/lib/gfp/config.py` (`GfpBenchmarkConfig`, frozen + `extra="forbid"`) validates
+it and rejects bad windows/bins/fractions/quotas/paths/engine-versions. The values were
+frozen with [ADR-017](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md)
+and never influence live scoring. Non-secret (Golden Rule 2): dataset files and study
+outputs stay under gitignored `.local/`.

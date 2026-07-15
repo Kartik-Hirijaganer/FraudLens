@@ -45,6 +45,7 @@ Use these paths:
 | `/mcp/context7` | `prod` | Local agent/CLI workflows that need Context7 docs access | `CONTEXT7_API_KEY` |
 | `/mcp/statsig` | `prod` | Local agent/CLI workflows that need Statsig credentials | Add only if a local Statsig API key is required outside the installed connector |
 | `/llm` | `prod` | LLM provider credentials | `OPENROUTER_API_KEY` |
+| `/ml` | `prod` | Offline real-dataset fetch and training | `KAGGLE_API_TOKEN` |
 
 Do not store frontend runtime secrets. Any `VITE_*` value bundled into the SPA is public.
 
@@ -102,10 +103,14 @@ Store Supabase backend secrets only in Infisical `prod` at `/backend`:
 | Key | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Async SQLAlchemy URL for Supabase Postgres. Use the direct/non-pooled URL for Alembic migrations. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Auth Admin API key used only by `POST /api/v1/users`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Auth Admin API key used by user invites and live-demo provisioning. |
+| `SUPABASE_URL` | Non-secret project URL used by backend auth and the live-local runner. |
+| `VITE_SUPABASE_ANON_KEY` | Publishable frontend key used for Supabase email/password login. |
 
 Do not put the service-role key in `frontend/.env.local`, Vercel variables, docs, or source. The
 frontend only receives `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, which are publishable.
+`make run-live` requires all four values and fails before startup if any are absent; it never maps
+the service-role value into a `VITE_*` variable.
 
 ## GitHub Actions OIDC
 
