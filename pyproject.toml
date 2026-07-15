@@ -49,6 +49,16 @@ dev = [
     # dependency-audit gate (Makefile `deps-audit`, plan §16 Phase 13).
     "pip-audit>=2.7",
 ]
+# BENCHMARK-ONLY group for the offline GFP tenant-isolation study (GFP plan Phase 2;
+# serving boundary: docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md).
+# Exact pin verified against PyPI at implementation time (floor >=1.15): snapml 1.17.2
+# ships cp311 wheels for manylinux_2_28_x86_64 + macosx_10_13_x86_64 ONLY — no arm64-mac
+# wheel, hence the x86-64 marker (inert on Apple Silicon; run via `make gfp-container`).
+# NEVER a default/dev group and never a workspace-member dependency, so `uv sync`, CI,
+# and the deploy image (`--no-dev`) all stay snapml-free. Install: `uv sync --group gfp`.
+gfp = [
+    "snapml==1.17.2 ; platform_machine == 'x86_64'",
+]
 
 # ---------------------------------------------------------------------------
 # ruff — lint + format (shared baseline; per-package layering bans extend this)
@@ -110,6 +120,12 @@ exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 # the rest of the tree under strict typing while letting the scoring code import them.
 [[tool.mypy.overrides]]
 module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*"]
+ignore_missing_imports = true
+
+# snapml (benchmark-only `gfp` dependency group; ADR-017) ships no stubs/py.typed and is
+# imported lazily in exactly one scripts/lib/gfp adapter — never by the runtime packages.
+[[tool.mypy.overrides]]
+module = ["snapml.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

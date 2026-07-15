@@ -1032,6 +1032,9 @@ dev = [
     { name = "types-pyyaml" },
     { name = "vulture" },
 ]
+gfp = [
+    { name = "snapml", marker = "platform_machine == 'x86_64'" },
+]
 
 [package.metadata]
 
@@ -1050,6 +1053,7 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0" },
     { name = "vulture", specifier = ">=2.13" },
 ]
+gfp = [{ name = "snapml", marker = "platform_machine == 'x86_64'", specifier = "==1.17.2" }]
 
 [[package]]
 name = "fraudlens-backend"
@@ -4314,6 +4318,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d3/f9/b4bce2825b39b57760b361e6131a3dacee3d8951c58cb97ad120abb90317/slicer-0.0.8.tar.gz", hash = "sha256:2e7553af73f0c0c2d355f4afcc3ecf97c6f2156fcf4593955c3f56cf6c4d6eb7", size = 14894, upload-time = "2024-03-09T23:35:26.826Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/63/81/9ef641ff4e12cbcca30e54e72fb0951a2ba195d0cda0ba4100e532d929db/slicer-0.0.8-py3-none-any.whl", hash = "sha256:6c206258543aecd010d497dc2eca9d2805860a0b3758673903456b7df7934dc3", size = 15251, upload-time = "2024-03-09T07:03:07.708Z" },
+]
+
+[[package]]
+name = "snapml"
+version = "1.17.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/83/4664d784c9354c88f7be2fbf2c01613b7006e97a16c316da17e363fd532f/snapml-1.17.2-cp311-cp311-macosx_10_13_x86_64.whl", hash = "sha256:5bab8cd886d7f180403dd2e379726df4736736d6901954602ef9ca0b6a35ecd0", size = 3574908, upload-time = "2026-04-22T23:43:27.258Z" },
+    { url = "https://files.pythonhosted.org/packages/24/1a/46814b7d8d8b554e40e214c3e60e9a2e774cd9d2fb7baa1c2c275fceab5e/snapml-1.17.2-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:19698f78b1c8eaa6503d12dd6ac4c29599ca14961ded94ed51214640b3017dd0", size = 7888372, upload-time = "2026-04-22T23:45:55.096Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/7e/07e5e53e5b4747caf371a0f5babcf90b93b6837e4f4d0e9506eae1965bd1/snapml-1.17.2-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:417707a3c1cd2f7d99cc97f7fd524ac401263a2e4d71a7dd2398662bb82d42e2", size = 3573961, upload-time = "2026-04-22T23:48:07.161Z" },
+    { url = "https://files.pythonhosted.org/packages/71/44/e555aa8a6526ddabdecc08e06f3c4fd2d047fa9625d1a064c4aab6efd5c3/snapml-1.17.2-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:90804c77d040d30f78e6c4190f77eddb0ee91054ecbac38e2b6a9b276b78630a", size = 7886555, upload-time = "2026-04-22T23:53:06.22Z" },
 ]
 
 [[package]]
