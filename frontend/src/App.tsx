@@ -19,9 +19,11 @@
  * - Unknown ids deep-link straight to the relevant page (which resolves existence); an
  *   unrecognized route renders a not-found empty state.
  */
+import { Suspense, lazy } from "react";
 import { Toaster } from "sonner";
 
 import { EmptyState } from "./components/feedback/EmptyState";
+import { Spinner } from "./components/feedback/Spinner";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
@@ -30,6 +32,10 @@ import { Login } from "./pages/Login";
 import { ModelAdmin } from "./pages/ModelAdmin";
 import { Transactions } from "./pages/Transactions";
 import { cx } from "./lib/cx";
+
+// Lazily loaded so the committed study artifact (and d3-force) load only when the research
+// view is opened — the rest of the app never pulls that build-time data import.
+const ResearchRoute = lazy(() => import("./pages/ResearchRoute"));
 import { paths, useHashRoute, type Route } from "./lib/router";
 import {
   hasPermission,
@@ -65,6 +71,17 @@ const SIDEBAR: NavGroup[] = [
         label: "Alerts",
         href: paths.alerts,
         isActive: (r) => r.name === "alerts" || r.name === "alertDetail",
+      },
+    ],
+  },
+  {
+    heading: "Research",
+    items: [
+      {
+        label: "Graph typologies",
+        href: paths.researchGraphTypologies,
+        permission: "view",
+        isActive: (r) => r.name === "researchGraphTypologies",
       },
     ],
   },
@@ -107,6 +124,12 @@ function renderRoute(route: Route, session: Session) {
         return <EmptyState title="Admin only" description="This page requires the admin role." />;
       }
       return <ModelAdmin />;
+    case "researchGraphTypologies":
+      return (
+        <Suspense fallback={<Spinner label="Loading research…" />}>
+          <ResearchRoute />
+        </Suspense>
+      );
     default:
       return (
         <EmptyState title="Page not found" description="The link you followed doesn't exist." />
