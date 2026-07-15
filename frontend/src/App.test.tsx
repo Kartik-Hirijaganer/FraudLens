@@ -62,6 +62,15 @@ describe("App gate", () => {
     ).toBeInTheDocument();
     expect(workspace).not.toBeInTheDocument();
   });
+
+  it("keeps the research route behind the session gate", () => {
+    goTo("#/research/graph-typologies");
+    render(<App />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
+  });
 });
 
 describe("App shell", () => {
@@ -132,5 +141,22 @@ describe("App shell", () => {
     render(<App />);
     goTo("#/nope");
     expect(screen.getByText("Page not found")).toBeInTheDocument();
+  });
+
+  it("offers the research view to any signed-in role", () => {
+    render(<App />);
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Graph typologies" })).toBeInTheDocument();
+  });
+
+  it("lazy-loads the research page from the committed study data", async () => {
+    render(<App />);
+    goTo("#/research/graph-typologies");
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Graph typologies & tenant isolation",
+      }),
+    ).toBeInTheDocument();
   });
 });
