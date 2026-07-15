@@ -60,6 +60,17 @@ describe("AlertQueue", () => {
     expect(screen.getByText("Flagged transaction")).toBeInTheDocument();
   });
 
+  it("labels only seeded queue items as sample data", () => {
+    render(
+      <AlertQueue
+        alerts={[alertView({ alertId: "seed", origin: "seed" }), alertView({ alertId: "real" })]}
+        totalOpen={2}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("Sample data")).toHaveLength(1);
+  });
+
   it("shows an empty state and no footer when there are no alerts", () => {
     render(<AlertQueue alerts={[]} totalOpen={0} onSelect={vi.fn()} />);
     expect(screen.getByText("You're all caught up")).toBeInTheDocument();
