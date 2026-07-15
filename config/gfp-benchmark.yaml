@@ -1,0 +1,105 @@
+# GFP tenant-isolation benchmark — FROZEN protocol pins (offline-only; ADR-017).
+#
+# Read ONLY by scripts/lib/gfp (GfpBenchmarkConfig) — never by AppSettings and never by
+# live scoring. These values pin the "Benchmark contract" of
+# plans/2026-07-14-gfp-isolation-gap-visual-study.md and were frozen with
+# docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md BEFORE any new holdout
+# result was inspected; changing them invalidates published results. NON-SECRET
+# (Golden Rule 2): dataset files and outputs live under gitignored .local/ only.
+
+seed: 1729
+batch_size: 128 # edges per GFP transform batch; batches never cross a fold boundary
+
+engine:
+  name: snapml
+  version: "1.17.2" # exact pin; must match the root `gfp` dependency group (floor 1.15)
+
+# Edge-list wire schema handed to the GraphFeaturePreprocessor (names AND order are the
+# contract; values must be finite and < 2^53 — enforced at edge-build time, Phase 3).
+edge_columns: [edge_id, dense_src, dense_dst, utc_epoch_s, usd_amount]
+
+# All six pattern/statistic families are always materialized; their parameters are
+# pinned here (86,400 s everywhere except the 21,600 s scatter-gather window).
+windows:
+  global_window_s: 86400
+  fan_window_s: 86400
+  degree_window_s: 86400
+  vertex_stats_window_s: 86400
+  temporal_cycle_window_s: 86400
+  simple_cycle_window_s: 86400
+  scatter_gather_window_s: 21600
+
+# Inclusive histogram bin boundaries per family.
+bins:
+  fan: { lo: 2, hi: 30 }
+  degree: { lo: 2, hi: 30 }
+  scatter_gather: { lo: 2, hi: 30 }
+  temporal_cycle: { lo: 2, hi: 30 }
+  simple_cycle: { lo: 2, hi: 10 }
+
+simple_cycle_max_length: 10
+
+# Vertex statistics: every stat x endpoint over the timestamp + USD-amount columns.
+vertex_stats:
+  endpoints: [source_out, source_in, target_out, target_in]
+  stats: [fan, degree, ratio, avg, sum, var, skew, kurtosis]
+  raw_columns: [utc_epoch_s, usd_amount]
+
+# Datasets by fetch-registry source id (scripts/fetch_dataset.py; `make fetch-gfp-data`).
+# HI-Small: full graph context, every servable row a target. The Medium variants use
+# label-blind node-induced subgraphs with stratified targets.
+datasets:
+  - source: ibm-aml
+    graph_context: full
+    target_quota: null
+  - source: ibm-aml-hi-medium
+    graph_context: node_induced
+    target_quota: 1000000
+  - source: ibm-aml-li-medium
+    graph_context: node_induced
+    target_quota: 1000000
+
+# Node-keep hash-fraction escalation ladder (SHA-256 over normalized (bank, account)).
+# Escalate one step only when a fold lacks a class; after the last step, FAIL — never
+# silently resize.
+sampling:
+  node_hash_fractions: ["1/4", "1/3", "1/2"]
+
+# Strict chronological fold fractions (boundaries advance through whole equal-timestamp
+# cohorts; frozen before any GFP call). Exact rationals — no float drift.
+folds:
+  train: "3/5"
+  calibration: "1/5"
+  holdout: "1/5"
+
+# Stratified target quotas for node-induced datasets (sum must equal each sampled
+# dataset's target_quota).
+target_quotas:
+  train: 600000
+  calibration: 200000
+  holdout: 200000
+
+# Benchmark IO — must stay inside gitignored .local/ (validated).
+paths:
+  data_dir: .local/aml_data # fetched Kaggle CSVs; read-only to the benchmark
+  output_dir: .local/gfp-study # per-run study.json; never committed
+
+# Fixed USD-per-unit pins for the dataset's 15 synthetic currencies (2022-era magnitudes).
+# Relative scale is what matters for graph statistics; a currency missing here FAILS the
+# edge build — it is never silently treated as USD (plan Phase 3).
+usd_rates:
+  us dollar: "1"
+  euro: "1.10"
+  uk pound: "1.30"
+  canadian dollar: "0.75"
+  australian dollar: "0.70"
+  swiss franc: "1.05"
+  yuan: "0.15"
+  yen: "0.0075"
+  rupee: "0.012"
+  ruble: "0.016"
+  brazil real: "0.19"
+  mexican peso: "0.05"
+  saudi riyal: "0.27"
+  shekel: "0.29"
+  bitcoin: "20000"

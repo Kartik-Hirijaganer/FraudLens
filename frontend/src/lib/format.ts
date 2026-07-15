@@ -16,13 +16,14 @@
  * - formatAge: render an ISO timestamp as a compact relative age.
  * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
  * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4E18").
+ * - formatInvestigationRef:
  * - formatModelVersion: render a model version label human-friendly (drops "-fixture").
  * - greeting: pick a time-of-day greeting ("Good morning/afternoon/evening").
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
  * Notes:
  * - Formatters never throw: an unparseable amount/date falls back to a dash so a single
- *   malformed field can't blank the whole page.
+ * malformed field can't blank the whole page.
  */
 const PLACEHOLDER = "—";
 
@@ -97,18 +98,22 @@ export function formatAgo(iso: string, now: Date = new Date()): string {
 
 const _ALERT_REF_LENGTH = 4;
 
-export function formatAlertRef(alertId: string): string {
-  const trimmed = alertId.trim();
+function formatCompactRef(value: string, prefix: string, knownPrefix: RegExp): string {
+  const trimmed = value.trim();
   if (!trimmed) {
     return PLACEHOLDER;
   }
-  // Strip a leading "alert"/"al" prefix + separator, then keep only the identifying tail
-  // (list "alert" before "al" so the longer prefix wins, e.g. "alert_1" → tail "1").
-  const tail = /^(?:alert|al)[-_](.+)$/i.exec(trimmed)?.[1] ?? trimmed;
+  const tail = knownPrefix.exec(trimmed)?.[1] ?? trimmed;
   const alnum = tail.replace(/[^a-zA-Z0-9]/g, "") || tail;
-  // A compact, glanceable code (the full id is used for navigation) — e.g. a raw UUID
-  // "267ad722-…-46245a094e18" reads "AL-4E18", matching the design's short reference style.
-  return `AL-${alnum.slice(-_ALERT_REF_LENGTH).toUpperCase()}`;
+  return `${prefix}-${alnum.slice(-_ALERT_REF_LENGTH).toUpperCase()}`;
+}
+
+export function formatAlertRef(alertId: string): string {
+  return formatCompactRef(alertId, "AL", /^(?:alert|al)[-_](.+)$/i);
+}
+
+export function formatInvestigationRef(runId: string): string {
+  return formatCompactRef(runId, "INV", /^(?:investigation|inv|run)[-_](.+)$/i);
 }
 
 export function formatModelVersion(label: string | null | undefined): string {

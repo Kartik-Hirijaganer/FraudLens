@@ -5,11 +5,22 @@
 > `make docs` and validated by CI (`make docs-check`) — **do not edit them by hand**.
 
 FraudLens is an **AML fraud-investigation system**: transactions are risk-scored
-(XGBoost + SHAP), enriched with regulatory context retrieved from FinCEN/BSA references
-(LangChain + ChromaDB RAG), orchestrated through an investigation graph (LangGraph), and
-summarized into draft SARs by an LLM. This document describes the implemented v1 service
-surface, data model, governance controls, and deploy topology; generated regions below are
-kept in sync from the live codebase.
+(XGBoost + SHAP) through an investigation graph (LangGraph). Runs that cross the alert threshold
+are enriched with FinCEN/BSA regulatory context and summarized into draft SARs; no-alert runs stop
+after the deterministic score and explanation.
+This document distinguishes the implemented defaults from opt-in or planned live behavior;
+generated regions below stay synchronized with the codebase.
+
+## Implemented behavior and target state
+
+| Capability | Implemented now | Target / opt-in extension |
+|---|---|---|
+| Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
+| Regulatory RAG | FinCEN/BSA chunks are stored in ChromaDB. The deterministic 256-dimensional `HashingEmbedder` remains the keyless default; `make ingest-rag-live` and `make run-live` opt into 1536-dimensional OpenRouter `text-embedding-3-small`. | Expand the curated regulatory corpus and authoritative source metadata without changing the embedding/index contract. |
+| SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode can call the guarded provider adapter, but waits for the complete response and then re-chunks validated text for SSE. | Phase 8 proves the live OpenRouter path and consumes native provider token streams while preserving grounding and output-guardrail gates. |
+
+The diagrams below show the full system shape. Where a diagram names an LLM provider or semantic
+RAG flow, treat it as the opt-in/target path described above, not the keyless local default.
 
 ## C4 — System Context
 
@@ -63,7 +74,7 @@ C4Component
     Rel(v1, errors, "Errors rendered by")
 ```
 
-## Fraud-investigation pipeline (target)
+## Fraud-investigation pipeline (target / opt-in live path)
 
 ```mermaid
 sequenceDiagram
@@ -76,13 +87,19 @@ sequenceDiagram
     Analyst->>API: Request investigation (agency_id from JWT)
     API->>Score: Score transaction (tenant-scoped)
     Score-->>API: risk_band + SHAP explanation
-    API->>RAG: Retrieve FinCEN/BSA context
-    RAG-->>API: Cited regulatory passages
-    API->>Graph: Orchestrate investigation steps
-    Graph->>LLM: Draft SAR narrative
-    LLM-->>Graph: Draft (no PHI in prompts/logs)
-    Graph-->>API: Draft SAR + citations
-    API-->>Analyst: Review-ready draft
+    API->>Graph: Persist score and evaluate alert threshold
+    alt threshold crossed
+        Graph->>Graph: Persist alert
+        Graph->>RAG: Retrieve FinCEN/BSA context
+        RAG-->>Graph: Relevant cited passages above similarity floor
+        Graph->>LLM: Draft SAR narrative
+        LLM-->>Graph: Draft (no PHI in prompts/logs)
+        Graph-->>API: Alert + draft SAR + citations
+        API-->>Analyst: Review-ready draft for internal approval
+    else below threshold
+        Graph-->>API: Completed no-alert analysis
+        API-->>Analyst: Score + drivers; no RAG or SAR
+    end
 ```
 
 ## Deployment topology
@@ -136,12 +153,25 @@ metadata live in `config/llm/catalog.yml`; provider connection and governance po
 live in `config/llm/providers.yml`. API keys are env-var references only and resolve at
 runtime from Infisical `/llm`.
 
-Public calls enter through `LlmClient.generate()` or `LlmClient.embed()`. The client checks
+Public provider calls enter through `LlmClient.generate()` or `LlmClient.embed()`. The client checks
 provider data-class policy before any SDK call, masks PHI-like input locally, scans prompt
 risk, prepends a fixed system policy, calls a private provider adapter, scans raw output
 before sanitization, and returns only `safe_text` by default. Embeddings run policy and
 masking before the provider call; vector storage and `agency_id` scoping remain backend
-responsibilities.
+responsibilities. The backend's `build_embedder` factory is the single selector used by both index
+ingest and pipeline retrieval: `offline` returns `HashingEmbedder`, while `live` adapts
+`LlmClient.embed()` through a dedicated background event-loop thread so the synchronous retriever
+can operate safely inside the application's active asyncio loop. Live calls route only through the
+OpenRouter OpenAI-compatible provider and classify the PHI-free regulatory input under the
+configured provider policy.
+
+Every ChromaDB collection records embedding kind, model reference, dimensions, and RAG version.
+Hashing indexes use `rag-v1`; the configured `text-embedding-3-small` space uses `rag-v2-te3s`.
+Retrieval compares its embedder provenance to the collection before vector search. Missing metadata,
+a model/version mismatch, or a dimension mismatch fails closed to deterministic lexical retrieval
+and records `mode="lexical"`; incompatible vectors are never queried. Switching modes therefore
+requires rebuilding the index (`make ingest-rag` or `make ingest-rag-live`). The committed/container-
+baked index stays hashing-based and hermetic; a live index is local/deployment state, never committed.
 
 Fallback is allowed only after retryable provider failures and only to providers that allow
 the call's `DataClass` and maintain an equal-or-stricter governance posture. Fallback never
@@ -155,8 +185,9 @@ SAR drafting reaches `fraudlens-ml` only through the injected `SarDrafter` proto
 drafter, selected by `FRAUDLENS_LLM_MODE`: a deterministic, keyless **mock** (the `make
 local-demo` default — no provider, no cost) or a **live** drafter over `LlmClient`. Both consume
 a PHI-free `SarInput` (risk band, model probability, the rule hits that fired, the top SHAP
-drivers, and the grounded regulatory citations) and stream token events followed by one terminal
-result.
+drivers, and the grounded regulatory citations) and emit token events followed by one terminal
+result. In the current live path the provider response is received and validated in full before
+the narrative is re-chunked into SSE deltas; native provider streaming is a Phase 8 target.
 
 Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML front-matter
 semantic version + a static instruction body). Every draft records the template's
@@ -168,8 +199,9 @@ The masked narrative, structured body, grounded citations, token usage, and esti
 persisted for the audit trail. A per-session/per-day USD **budget guard** caps spend (429 on
 exceed), a replay **cache** returns an identical prior draft with no new spend, and SAR model/
 fallback selection is config-driven (`config/llm/sar.yml`, no hardcoded model ids). PHI is masked
-before the prompt is assembled; any provider/guardrail/schema failure degrades to
-`sarStatus=failed` so the run still completes with score + SHAP + RAG.
+before the prompt is assembled; any provider/guardrail/schema failure on an alerted run degrades to
+`sarStatus=failed` so the run still completes with score + SHAP + RAG. Below-threshold runs never
+invoke RAG or SAR drafting.
 
 ## FraudLens governance mapping
 
@@ -181,6 +213,11 @@ before the prompt is assembled; any provider/guardrail/schema failure degrades t
 | FraudLens error envelope | `api/errors.py` → `{code, message, details, requestId}` |
 | Secrets via Infisical, never repo | `config/*.yaml` (non-secret only); `gitleaks` + `scripts/check_no_secrets.py` |
 | Generated docs stay in sync | `make docs` / `make docs-check` (this file's AUTOGEN regions, OpenAPI, ERD) |
+| Graph-feature serving boundary: no cross-tenant graph topology in live scoring ([ADR-017](adr/ADR-017-graph-feature-serving-boundary.md)) | Offline-only `scripts/lib/gfp/` (never a runtime package); `snapml` confined to the benchmark-only `gfp` dependency group; served vector stays the 19 `FEATURE_NAMES`; identifier-free `RuleContext` |
+
+Decision records: ADR-001…016 live in
+[master plan §22](../../plans/2026-06-12-aml-fraud-detection-system.md#22-decision-records-adrs);
+newer standalone ADRs are indexed in [`adr/README.md`](adr/README.md).
 
 ## Module map
 
@@ -301,10 +338,13 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `local_retrain_command` | `list` | `['uv', 'run', 'python', 'scripts/retrain.py']` | Command the local job backend runs for a retrain submission. |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
 | `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
+| `allow_candidate_scoring_in_dev` | `bool` | `False` | Allow scoring with the newest candidate when no deployment exists; honored only outside production for explicit live-local model evaluation. |
+| `aml_data_dir` | `str` | `'.local/aml_data'` | Root dir for downloaded real AML training datasets (e.g. IBM AML-Data); relative paths anchor to the repo root like model_artifacts_dir. Gitignored and training-time only — raw data is never committed or served (real-AML plan Phase 1). |
 | `rag_corpus_dir` | `str` | `'data/regulations'` | Committed source corpus dir (`*.md` provisions) ingest builds the index from. |
 | `rag_index_dir` | `str` | `'.local/chroma'` | ChromaDB index dir (built by ingest-rag; baked into the prod image). |
 | `rag_collection` | `str` | `'fincen_bsa'` | ChromaDB collection name holding the embedded regulatory chunks. |
-| `rag_version` | `str` | `'rag-v1'` | Corpus/index version recorded on each retrieval for the audit trail. |
+| `rag_embedding_mode` | `Literal` | `'offline'` | RAG embedder mode: deterministic hashing or live OpenRouter embeddings. |
+| `rag_version` | `str` | `'rag-v1'` | Offline corpus/index version; live mode reads its version from llm/rag.yml. |
 | `rag_index_required` | `bool` | `False` | When true, a missing/empty RAG index fails /readyz (prod bakes the index). |
 | `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
@@ -335,7 +375,9 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `investigation_history_window_hours` | `int` | `168` | Same-account history lookback fed to the rules engine + features (covers the widest built-in rule window, structuring at 7 days). |
 | `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
 | `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
+| `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
 | `investigation_idempotency_cache_size` | `int` | `1024` | Max retained Idempotency-Key→runId entries in the in-process run manager (LRU-bounded; the single-replica dedupe window, ADR-016). |
+| `batch_score_limit` | `int` | `2000` | Max un-investigated transactions one batch-score sweep investigates (covers the whole demo case pack; a cloud Job can raise it per run). |
 | `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
 | `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
 | `retrain_min_labels_total` | `int` | `10` | Min matured reviewed labels (any class) before a retrain is eligible; below it the trigger returns insufficient_matured_labels (plan §9.4). Dev-friendly default. |
@@ -372,6 +414,7 @@ erDiagram
         uuid agency_id FK
         uuid assigned_to FK
         datetime created_at
+        enum origin
         json review_flags
         uuid run_id FK
         enum severity
