@@ -69,6 +69,7 @@ import { refreshAccessToken } from "./supabase";
 import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
 
 export type Severity = "low" | "medium" | "high" | "critical";
+export type AlertOrigin = "pipeline" | "seed";
 export type AlertStatus =
   | "open"
   | "pending_review"
@@ -218,6 +219,7 @@ export interface InvestigationSnapshot {
   citations: RegulationCitation[];
   sarStatus: string | null;
   sarDraftId: string | null;
+  alertId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -226,6 +228,7 @@ export interface AlertView {
   alertId: string;
   transactionId: string;
   runId: string;
+  origin: AlertOrigin;
   status: AlertStatus;
   severity: Severity;
   amount: string;
