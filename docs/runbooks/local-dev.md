@@ -1,17 +1,18 @@
 # Local development — one-command demo
 
-> Run the whole stack on your machine with **no cloud and no secrets**. This is the
-> primary developer path (plan §3.4); it uses a docker Postgres, local file/job backends,
-> and the **keyless mock SAR drafter**, so nothing reaches Azure, Vercel, Supabase, or any
-> LLM provider.
+> Run the whole application stack locally. The app uses Docker Postgres, local file/job backends,
+> and the **keyless mock SAR drafter**; only the idempotent IBM dataset fetch receives the Infisical
+> `/ml` Kaggle token, and that token is removed before any other child starts.
 
 ## Prerequisites
 
 - **Docker** (daemon running) — for the local Postgres.
 - **uv** — Python toolchain / workspace runner (`uv sync --all-packages` once).
 - **Node + npm** — for the Vite frontend (`npm --prefix frontend ci` once).
+- **Infisical CLI login** — supplies `KAGGLE_API_TOKEN` from `prod` `/ml` when the public IBM file
+  is not already cached.
 
-No API keys, Infisical login, or cloud accounts are required for the demo.
+No Azure, Vercel, Supabase, or LLM-provider account is required for the default demo.
 
 ## Start it cleanly
 
@@ -21,10 +22,11 @@ Use this as the normal local application command:
 make run
 ```
 
-`make run` resets the FraudLens local Docker stack, drops the local Postgres volume, clears
-generated local caches/state, frees FraudLens-owned dev listeners, re-applies migrations/seed/RAG
-indexing, then starts the backend and frontend. It uses `POSTGRES_PORT=55432` by default to avoid
-colliding with a local Postgres already bound to `5432`; override it if needed:
+`make run` drops the local Postgres volume and generated caches, but preserves the 454 MB
+gitignored IBM download. It then verifies/fetches the configured `HI-Small_Trans.csv`, applies
+migrations, foundation-seeds identity/config/rules, masks and ingests 300 IBM rows across three
+demo tenants, builds RAG, and batch-investigates the primary tenant before starting the servers.
+It never falls back to IEEE/sample alerts. Postgres uses port `55432` by default:
 
 ```bash
 POSTGRES_PORT=5432 make run
@@ -36,27 +38,33 @@ POSTGRES_PORT=5432 make run
 make local-demo
 ```
 
-This lower-level command keeps existing local data/volumes and runs
+This lower-level command keeps existing local data/volumes and idempotently runs
 [`scripts/local_demo.py`](../../scripts/local_demo.py), which:
 
-1. checks the required tools are on `PATH`;
-2. starts Postgres via [`docker-compose.local.yml`](../../docker-compose.local.yml) and waits
+1. verifies/fetches the public IBM file (Infisical `/ml` supplies the credential only here);
+2. removes the Kaggle token from the child environment;
+3. starts Postgres via [`docker-compose.local.yml`](../../docker-compose.local.yml) and waits
    for its healthcheck;
-3. applies migrations + seed **when they exist** (they land in Phase 2 and are skipped, not
-   failed, until then);
-4. starts the gateway+services (`uvicorn`) and the frontend (Vite) with
+4. applies migrations and the foundation-only seed;
+5. ingests masked IBM rows, builds the regulatory index, and runs batch investigations;
+6. starts the gateway+services (`uvicorn`) and the frontend (Vite) with
    `FRAUDLENS_ENVIRONMENT=dev`, local storage/queue backends,
    `FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT=true`, and `FRAUDLENS_LLM_MODE=mock`;
-5. waits for `GET /healthz`, prints the URL, and blocks until `Ctrl-C`, then shuts the child
+7. waits for `GET /healthz`, prints the URL, and blocks until `Ctrl-C`, then shuts the child
    processes down cleanly.
 
 Open the URL printed by the command. Preferred defaults are **http://localhost:5173** for the app
-and **http://localhost:8000** for the gateway/API; if another project already owns those ports,
-the script automatically selects free fallbacks and prints the actual URLs.
+and **http://localhost:8000** for the gateway/API; if another project owns those ports, the script
+selects free fallbacks and prints the actual URLs. The runner holds a repository-scoped process
+lock: starting a second `run`, `run-live`, or smoke stack fails with a clear instruction instead of
+silently creating a second FraudLens URL.
 
 ```mermaid
 flowchart LR
-    dev["make local-demo"] --> pg[("Postgres<br/>docker-compose")]
+    dev["make local-demo"] --> ibm["IBM AML-Data<br/>gitignored cache"]
+    ibm --> ingest["masked bounded ingest"]
+    ingest --> pg[("Postgres<br/>docker-compose")]
+    pg --> score["production investigation pipeline"]
     dev --> be["gateway+services<br/>uvicorn default :8000"]
     dev --> fe["frontend<br/>Vite default :5173"]
     be -->|asyncpg| pg
@@ -76,10 +84,13 @@ exercising the real Supabase Auth, real Supabase Postgres, and live OpenRouter S
 | --- | --- |
 | `FRAUDLENS_ENVIRONMENT` | `dev` |
 | `FRAUDLENS_AUTH_DEV_BYPASS` | `false` |
+| `VITE_AUTH_DEV_BYPASS` | `false` (live mode never accepts tokenless sessions) |
+| `VITE_DEMO_AUTH_ENABLED` | `true` (shows personas backed by real Supabase users) |
 | `FRAUDLENS_AUTH_JWKS_URL` | `<SUPABASE_PROJECT_URL>/auth/v1/.well-known/jwks.json` |
 | `FRAUDLENS_AUTH_JWT_ISSUER` | `<SUPABASE_PROJECT_URL>/auth/v1` |
 | `FRAUDLENS_AUTH_JWT_AUDIENCE` | `authenticated` |
 | `FRAUDLENS_AUTH_ROLE_CLAIM` | `user_role` |
+| `FRAUDLENS_ALLOW_CANDIDATE_SCORING_IN_DEV` | `true` (non-production fallback only when no active deployment exists) |
 | `FRAUDLENS_LLM_MODE` | `live` |
 | `FRAUDLENS_STORAGE_BACKEND` / `FRAUDLENS_QUEUE_BACKEND` | `local` |
 
@@ -99,53 +110,43 @@ database, and LLM path before any Azure deployment.
 | --- | --- |
 | `/backend` | `DATABASE_URL` using the direct/non-pooled connection for migrations, plus `SUPABASE_SERVICE_ROLE_KEY` |
 | `/llm` | `OPENROUTER_API_KEY` |
+| `/` | `SUPABASE_URL` and publishable `VITE_SUPABASE_ANON_KEY` |
 
-4. Put public frontend values in `frontend/.env.local`:
+4. Run migrations. `make run-live` then idempotently creates/updates the four synthetic demo
+   identities through the server-only Supabase Admin API and mirrors their Auth UUIDs into the
+   demo tenant before starting either dev server:
 
 ```bash
-VITE_SUPABASE_URL=https://<ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<publishable-anon-key>
-VITE_API_BASE_URL=http://localhost:8000
+infisical run --env=prod --path=/ --recursive -- make db-migrate
 ```
 
-5. Export the non-secret project URL for the live runner:
+5. Build the live RAG index once, optionally ingest the bounded IBM AML demo rows, then start the
+   live-local app:
 
 ```bash
-export SUPABASE_PROJECT_URL=https://<ref>.supabase.co
-```
-
-6. Run migrations and seed the bootstrap admin after creating that first admin in the Supabase
-   dashboard:
-
-```bash
-infisical run --env=prod --path=/backend -- make db-migrate
-FRAUDLENS_BOOTSTRAP_ADMIN_USER_ID=<auth-users-uuid> \
-FRAUDLENS_BOOTSTRAP_ADMIN_EMAIL=<admin-email> \
-infisical run --env=prod --path=/backend -- make db-seed
-```
-
-7. Build the local RAG index once, then start the live-local app:
-
-```bash
-make ingest-rag
+make ingest-rag-live
+make ingest-aml-demo        # optional: 300 actual IBM AML rows, masked across 3 tenants
 make run-live
 ```
 
-Real users sign in with Supabase email/password. The demo persona picker remains a Vite-dev
-convenience and only works when the backend is running with the dev bypass (`make run`), not
-`make run-live`.
+Real users sign in with Supabase email/password. In live mode, the demo persona picker selects one
+of the four provisioned Supabase users; it never creates a tokenless session or enables the backend
+auth bypass. When the actual-data training gates leave models as candidates and no active deployment
+exists, `make run-live` evaluates the newest candidate without promoting it or creating a deployment
+row. This fallback is disabled by default and remains inert whenever `FRAUDLENS_ENVIRONMENT=prod`.
 
 ## Companion commands
 
 | Command | What it does |
 |---|---|
-| `make run` | Clean reset + reseed + boot the full stack. Default app command. |
+| `make run` | Reset DB/caches, preserve/fetch IBM data, ingest + pipeline-score, then boot. |
 | `make run-live` | Boot backend + frontend against real Supabase/Postgres + OpenRouter via Infisical. |
 | `make rebuild` | Alias for `make run`. |
-| `make local-demo` | Boot the full stack and print the URL (blocks until `Ctrl-C`). |
+| `make local-demo` | Idempotently ingest/score IBM data, boot, and print the URL. |
 | `make local-demo-down` | Stop the stack (containers removed, data volume kept). |
-| `make local-demo-reset` | Stop the stack, **drop the volume**, and remove `.local/`. |
+| `make local-demo-reset` | Stop, drop the volume, and remove `.local/` including IBM data. |
 | `make local-demo-smoke` | Headless gate: boot Postgres + backend, assert `/healthz` + `/readyz`, tear down. |
+| `make ingest-aml-demo` | Ingest a bounded actual IBM AML prefix across three synthetic tenants. |
 
 ## Configuration & backends
 
@@ -164,14 +165,12 @@ convenience and only works when the backend is running with the dev bypass (`mak
 - Copy [`.env.example`](../../.env.example) to `.env` to override the non-secret local
   values (ports, Postgres credentials). The demo also works with no `.env`.
 
-## Data lifecycle (scaffolded; lands in later phases)
-
-These targets wrap the canonical commands; the scripts they invoke arrive with their phases.
+## Data lifecycle
 
 | Command | Purpose | Lands in |
 |---|---|---|
 | `make db-migrate` | Apply Alembic migrations | Phase 2 |
-| `make db-seed` | Seed the demo dataset (dev/demo only) | Phase 2 |
+| `make db-seed` | Seed identity/config/rules/model pointer only; no operational evidence | Phase 2 |
 | `make import-ieee` | Import the synthetic IEEE-CIS sample | Phase 3 |
 | `make ingest-rag` | Build the FinCEN/BSA RAG index | Phase 6 |
 | `make train-model` | Train + register an XGBoost model | Phase 5 |
@@ -187,3 +186,6 @@ These targets wrap the canonical commands; the scripts they invoke arrive with t
   wrong; `make local-demo-down` then `make local-demo`. With no `DATABASE_URL` the database
   check reports `skipped` (the app still boots).
 - **Reset everything** → `make local-demo-reset` (drops the volume and `.local/`).
+- **Reset the DB but keep the large IBM download** → `make run`.
+- **IBM fetch fails** → authenticate the Infisical CLI and confirm `KAGGLE_API_TOKEN` exists at
+  `prod` `/ml`; startup intentionally has no sample-data fallback.

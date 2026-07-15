@@ -37,7 +37,12 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
     {
       id: "status",
       header: "Status",
-      cell: (alert) => <Badge tone={riskTone(alert.severity)}>{STATUS_LABELS[alert.status]}</Badge>,
+      cell: (alert) => (
+        <div className="gap-sm flex flex-wrap">
+          <Badge tone={riskTone(alert.severity)}>{STATUS_LABELS[alert.status]}</Badge>
+          {alert.origin === "seed" ? <Badge tone="neutral">Sample data</Badge> : null}
+        </div>
+      ),
     },
     {
       id: "amount",

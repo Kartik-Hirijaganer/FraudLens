@@ -1,0 +1,167 @@
+{
+  "agencyNames": [
+    "Demo Financial Agency",
+    "AML Demo Agency Two",
+    "AML Demo Agency Three"
+  ],
+  "metrics": {
+    "armAPrAuc": 0.25,
+    "armAToCCiLower": 0.0,
+    "armAToCCiUpper": 0.0,
+    "armAToCLift": 0.0,
+    "armCPrAuc": 0.25,
+    "armCPrAucNormalized": 1.0,
+    "datasetSource": "ibm-aml",
+    "isolationDeltaC": 0.0
+  },
+  "motifs": [
+    {
+      "edges": [
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-01",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-01",
+          "targetNodeId": "node-02",
+          "timeOffsetS": 0
+        },
+        {
+          "amountBand": "1k-10k",
+          "edgeId": "edge-02",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-01",
+          "targetNodeId": "node-03",
+          "timeOffsetS": 60
+        },
+        {
+          "amountBand": "lt-100",
+          "edgeId": "edge-03",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-02",
+          "targetNodeId": "node-04",
+          "timeOffsetS": 120
+        },
+        {
+          "amountBand": "10k-100k",
+          "edgeId": "edge-04",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-03",
+          "targetNodeId": "node-04",
+          "timeOffsetS": 180
+        }
+      ],
+      "motifId": "scatter_gather-84deff01f199",
+      "nodes": [
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-01"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-02"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-03"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-04"
+        }
+      ],
+      "servable": true,
+      "typology": "scatter_gather"
+    },
+    {
+      "edges": [
+        {
+          "amountBand": "ge-100k",
+          "edgeId": "edge-01",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-01",
+          "targetNodeId": "node-02",
+          "timeOffsetS": 0
+        },
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-02",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-02",
+          "targetNodeId": "node-03",
+          "timeOffsetS": 60
+        },
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-03",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-03",
+          "targetNodeId": "node-01",
+          "timeOffsetS": 120
+        }
+      ],
+      "motifId": "intra_tenant_cycle-084adc872cdf",
+      "nodes": [
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-01"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-02"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-03"
+        }
+      ],
+      "servable": true,
+      "typology": "intra_tenant_cycle"
+    },
+    {
+      "edges": [
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-01",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-01",
+          "targetNodeId": "node-02",
+          "timeOffsetS": 0
+        },
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-02",
+          "ownerAgencyIndex": 1,
+          "sourceNodeId": "node-02",
+          "targetNodeId": "node-03",
+          "timeOffsetS": 60
+        },
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-03",
+          "ownerAgencyIndex": 2,
+          "sourceNodeId": "node-03",
+          "targetNodeId": "node-01",
+          "timeOffsetS": 120
+        }
+      ],
+      "motifId": "cross_tenant_cycle-57a770bf9f60",
+      "nodes": [
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-01"
+        },
+        {
+          "agencyIndex": 1,
+          "nodeId": "node-02"
+        },
+        {
+          "agencyIndex": 2,
+          "nodeId": "node-03"
+        }
+      ],
+      "servable": false,
+      "typology": "cross_tenant_cycle"
+    }
+  ],
+  "reportSha256": "c13151f6ec4f49a5dbc5e931b5562ccae6a30df672cbe5fb4b346469227707a2"
+}

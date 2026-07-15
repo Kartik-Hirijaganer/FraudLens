@@ -23,7 +23,7 @@ AML_SAMPLE_ROWS ?= 50000
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live local-demo local-demo-down local-demo-reset local-demo-smoke \
-        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data train-model train-aml train-aml-sample activate-model retrain drift-scan tf-validate \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish train-model train-aml train-aml-sample activate-model retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -205,6 +205,10 @@ ingest-rag-live: ## Build the live OpenRouter text-embedding-3-small RAG index.
 	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py
 fetch-data: ## Fetch IBM AML-Data HI-Small via Infisical-injected Kaggle credentials.
 	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml
+fetch-gfp-data: ## Fetch the three GFP-study variants one file at a time (Infisical Kaggle; skips present files).
+	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml
+	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml-hi-medium
+	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml-li-medium
 train-model: ## Train + register the synthetic XGBoost candidate (CI/demo default).
 	$(UV) run python scripts/train_model.py
 train-aml: ## Train + register an IBM AML-Data candidate (active model is unchanged).
@@ -217,6 +221,50 @@ retrain: ## Retrain a candidate from matured reviewed labels.
 	$(UV) run python scripts/retrain.py
 drift-scan: ## Run the advisory model drift scan.
 	$(UV) run python scripts/drift_scan.py
+
+# ---------------------------------------------------------------------------
+# GFP tenant-isolation benchmark (offline-only; ADR-017). snapml publishes no
+# arm64-mac wheel, so on Apple Silicon benchmark commands run inside a THROWAWAY
+# pinned Python-3.11 x86-64 container — a local compat wrapper, NOT a deployable
+# image and NOT a CI job. Mounts: repo read-only, .local/ writable, fetched
+# datasets read-only; uv state lives under .local/gfp-container/ so nothing
+# escapes the gitignored scratch area.
+# ---------------------------------------------------------------------------
+GFP_CONTAINER_IMAGE ?= python:3.11-slim-bookworm
+GFP_CONTAINER_UV ?= uv==0.11.28
+# Portable GFP suites (reference/fake engines + a stubbed adapter — no snapml needed).
+GFP_PORTABLE_TESTS := tests/unit/test_gfp_benchmark_config.py tests/unit/test_gfp_schema.py \
+	tests/unit/test_gfp_boundaries.py tests/unit/test_gfp_edges.py \
+	tests/unit/test_gfp_sampling_folds.py tests/unit/test_gfp_scopes.py \
+	tests/unit/test_gfp_reference_engine.py tests/unit/test_gfp_engines.py \
+	tests/unit/test_gfp_metrics.py tests/unit/test_gfp_benchmark.py \
+	tests/unit/test_gfp_curation.py tests/unit/test_gfp_publish.py
+gfp-reference-test: ## Portable GFP suite; >=90% branch coverage gate on scripts/lib/gfp (no snapml).
+	$(UV) run pytest $(GFP_PORTABLE_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/gfp --cov-report=term-missing --cov-fail-under=90
+gfp-test: ## Real snapml adapter parity (x86-64 only; FAILS — never skips — when snapml is absent).
+	$(UV) sync --frozen --all-packages --group gfp
+	GFP_REQUIRE_SNAPML=1 $(UV) run --no-sync pytest tests/unit/test_gfp_snapml_adapter.py -q -o addopts=''
+gfp-benchmark: ## Full three-dataset snapml study run -> .local/gfp-study/<run-id>/ (x86-64; use gfp-container on arm64).
+	$(UV) sync --frozen --all-packages --group gfp
+	$(UV) run --no-sync python scripts/benchmark_gfp.py run
+gfp-publish: ## Validate + atomically publish a completed run (GFP_RUN=<run-id>) to docs/ + frontend data.
+	@if [ -z "$(GFP_RUN)" ]; then echo "usage: make gfp-publish GFP_RUN=<run-id>"; exit 2; fi
+	$(UV) run python scripts/benchmark_gfp.py publish --run $(GFP_RUN)
+gfp-container: ## Run CMD in a throwaway pinned Python-3.11 x86-64 container (arm64 compat; repo ro, .local rw, datasets ro).
+	@if [ -z "$(CMD)" ]; then echo "usage: make gfp-container CMD='uv sync --frozen --group gfp && ...'"; exit 2; fi
+	@mkdir -p .local/aml_data .local/gfp-container
+	docker run --rm --platform linux/amd64 \
+		-e GFP_CMD="$(CMD)" \
+		-e UV_PROJECT_ENVIRONMENT=/repo/.local/gfp-container/venv \
+		-e UV_CACHE_DIR=/repo/.local/gfp-container/uv-cache \
+		-e UV_LINK_MODE=copy \
+		-v "$(CURDIR):/repo:ro" \
+		-v "$(CURDIR)/.local:/repo/.local" \
+		-v "$(CURDIR)/.local/aml_data:/repo/.local/aml_data:ro" \
+		-w /repo \
+		"$(GFP_CONTAINER_IMAGE)" \
+		bash -euo pipefail -c 'apt-get update -qq >/dev/null && apt-get install -qq -y --no-install-recommends libgomp1 make >/dev/null && python -m pip install --quiet "$(GFP_CONTAINER_UV)" && eval "$$GFP_CMD"'
 
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform

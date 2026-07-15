@@ -120,6 +120,6 @@ account exists).
 ## 9. Local development (plan §11.8)
 
 `make local-demo` runs the console renderer at `DEBUG` with the requestId bound and no external
-sink; telemetry export stays off. A test asserts the redaction processor strips seeded PHI/secrets
-locally, and the Phase 12 suite asserts the dashboard reflects seeded activity (incl. model health)
-and that every mutating endpoint writes a PHI-free audit row.
+sink; telemetry export stays off. A test asserts the redaction processor strips fixture PHI/secrets
+locally. Dashboard tests prove the foundation seed creates no operational activity, while pipeline
+and mutating-endpoint tests cover evidence persistence and PHI-free audit rows.

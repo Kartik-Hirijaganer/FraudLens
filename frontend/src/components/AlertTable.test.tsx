@@ -25,4 +25,14 @@ describe("AlertTable", () => {
     await userEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(onSelect).toHaveBeenCalledWith("a-9");
   });
+
+  it("labels only seeded alerts as sample data", () => {
+    render(
+      <AlertTable
+        alerts={[alertView({ alertId: "seed", origin: "seed" }), alertView({ alertId: "real" })]}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("Sample data")).toHaveLength(1);
+  });
 });
