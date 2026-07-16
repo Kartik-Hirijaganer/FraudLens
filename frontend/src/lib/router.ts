@@ -28,6 +28,7 @@ export type Route =
   | { name: "alertDetail"; alertId: string }
   | { name: "investigation"; runId: string }
   | { name: "modelAdmin" }
+  | { name: "researchGraphTypologies" }
   | { name: "notFound" };
 
 export function parseHash(hash: string): Route {
@@ -53,6 +54,9 @@ export function parseHash(hash: string): Route {
   if (head === "model-admin" && segments.length === 1) {
     return { name: "modelAdmin" };
   }
+  if (head === "research" && second === "graph-typologies" && segments.length === 2) {
+    return { name: "researchGraphTypologies" };
+  }
   return { name: "notFound" };
 }
 
@@ -75,6 +79,7 @@ export const paths = {
   transactions: "#/transactions",
   alerts: "#/alerts",
   modelAdmin: "#/model-admin",
+  researchGraphTypologies: "#/research/graph-typologies",
   alertDetail: (alertId: string): string => `#/alerts/${alertId}`,
   investigation: (runId: string): string => `#/investigations/${runId}`,
 };
