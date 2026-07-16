@@ -14,18 +14,19 @@
  * - InvestigationState: the accumulated UI state of a run.
  *
  * Key functions:
- * - initialInvestigationState: the empty starting state for a run.
- * - reduceInvestigation: fold one SSE message into the next state (pure).
  * - INVESTIGATION_EVENTS: the named server-sent events to subscribe to.
  * - CASE_STEPS: the ordered "build the case" wizard steps (Risk → … → Submit).
+ * - NO_ALERT_CASE_STEPS:
  * - caseStepReady: whether a wizard step's evidence has arrived in the streamed state (pure).
+ * - initialInvestigationState: the empty starting state for a run.
+ * - reduceInvestigation: fold one SSE message into the next state (pure).
  *
  * Notes:
  * - Every payload field is read defensively from `unknown` (a malformed frame degrades to
- *   safe defaults), so a bad event can never throw inside the live render path.
+ * safe defaults), so a bad event can never throw inside the live render path.
  * - The five auto-run pipeline stages (rules/scoring/shap/rag/sar, from the SSE events)
- *   are collapsed by `caseStepReady` into the analyst-facing wizard steps in `CASE_STEPS`,
- *   so the page and stepper share one definition of the step order (rule 5).
+ * are collapsed by `caseStepReady` into the analyst-facing wizard steps in `CASE_STEPS`,
+ * so the page and stepper share one definition of the step order (rule 5).
  */
 import type { SseMessage } from "./sse";
 
@@ -72,6 +73,8 @@ export interface InvestigationState {
   riskScore?: number;
   riskBand?: string;
   sarDraftId?: string;
+  sarStatus?: string;
+  alertId?: string;
   errorCode?: string;
   lastEventId: string;
 }
@@ -93,10 +96,18 @@ export const CASE_STEPS = [
   { key: "drivers", label: "Drivers" },
   { key: "citations", label: "Citations" },
   { key: "sar", label: "SAR draft" },
-  { key: "submit", label: "Submit" },
+  { key: "submit", label: "Approval" },
 ] as const;
 
-export type CaseStepKey = (typeof CASE_STEPS)[number]["key"];
+export const NO_ALERT_CASE_STEPS = [
+  { key: "risk", label: "Risk" },
+  { key: "drivers", label: "Drivers" },
+  { key: "outcome", label: "Outcome" },
+] as const;
+
+export type CaseStepKey =
+  | (typeof CASE_STEPS)[number]["key"]
+  | (typeof NO_ALERT_CASE_STEPS)[number]["key"];
 
 /**
  * Whether the evidence a wizard step displays has arrived in the streamed state. The
@@ -119,6 +130,7 @@ export function caseStepReady(state: InvestigationState, key: CaseStepKey): bool
     case "sar":
       return state.sarStarted || state.sarText.length > 0 || state.completedSteps.includes("sar");
     case "submit":
+    case "outcome":
       return state.status === "completed";
     default:
       return false;
@@ -262,6 +274,8 @@ export function reduceInvestigation(
         riskBand: stringOf(data.riskBand),
         modelVersion: stringOf(data.modelVersion) ?? state.modelVersion,
         sarDraftId: stringOf(data.sarDraftId),
+        sarStatus: stringOf(data.sarStatus),
+        alertId: stringOf(data.alertId),
         completedSteps: withStep(state.completedSteps, "sar"),
       };
     case "run.failed":
