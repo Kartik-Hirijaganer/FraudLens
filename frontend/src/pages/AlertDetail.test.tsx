@@ -6,7 +6,7 @@ vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
 import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
-import { alertDetail, makeClient } from "../test/factories";
+import { alertDetail, alertView, makeClient } from "../test/factories";
 import { AlertDetail } from "./AlertDetail";
 
 function signInAs(role: UserRole): void {
@@ -148,6 +148,22 @@ describe("AlertDetail", () => {
     });
     render(<AlertDetail alertId="alert-1" client={client} />);
     expect(await screen.findByText("No SAR draft")).toBeInTheDocument();
+  });
+
+  it("labels only seeded alert details as sample data", async () => {
+    signInAs("reviewer");
+    const seededClient = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(alertDetail({ alert: alertView({ origin: "seed" }), sarDraft: null })),
+      ),
+    });
+    const seeded = render(<AlertDetail alertId="seed-alert" client={seededClient} />);
+    expect(await screen.findByText("Sample data")).toBeInTheDocument();
+    seeded.unmount();
+
+    render(<AlertDetail alertId="pipeline-alert" client={makeClient()} />);
+    await screen.findByText(/Suspicious structuring activity observed/);
+    expect(screen.queryByText("Sample data")).not.toBeInTheDocument();
   });
 
   it("shows an error state when the alert fails to load", async () => {
