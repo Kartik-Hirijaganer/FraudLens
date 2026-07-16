@@ -33,12 +33,23 @@ describe("Transactions", () => {
     const client = makeClient();
     render(<Transactions client={client} />);
     expect(await screen.findByText("ext-1")).toBeInTheDocument();
+    expect(client.listModelVersions).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: /Investigate transaction/ }));
     expect(client.startInvestigation).toHaveBeenCalledWith({
       transactionId: "tx-1",
       modelOverride: undefined,
     });
     await waitFor(() => expect(window.location.hash).toBe("#/investigations/run-1"));
+  });
+
+  it("loads the model override selector only for admins", async () => {
+    signOut();
+    signInAs("admin");
+    const client = makeClient();
+    render(<Transactions client={client} />);
+
+    expect(await screen.findByText("ext-1")).toBeInTheDocument();
+    expect(client.listModelVersions).toHaveBeenCalledOnce();
   });
 
   it("imports a CSV and reloads on success", async () => {

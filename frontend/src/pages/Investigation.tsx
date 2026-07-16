@@ -1,8 +1,9 @@
 /**
  * Summary: The "Build the case" investigation page (plan §5.4, §10.2, §16 Phase 11,
  * redesigned). It opens the SSE stream for a run, folds the server-sent events into
- * `InvestigationState`, and presents the evidence as a guided five-step wizard — Risk →
- * Drivers → Citations → SAR draft → Submit — that the analyst walks one step at a time,
+ * `InvestigationState`, and presents alerted runs as a guided five-step wizard — Risk →
+ * Drivers → Citations → SAR draft → Approval. No-alert runs use a compact Risk → Drivers →
+ * Outcome path and never imply that a SAR exists.
  * confirming each before moving on. The auto-run populates the evidence in the background
  * (a status pill reads starting / in progress / complete / failed); a step's "continue"
  * CTA stays disabled until that step's evidence has streamed in (`caseStepReady`). The
@@ -25,6 +26,8 @@
  * - "Regenerate" on the SAR step POSTs to the regenerate endpoint (a new persisted draft
  *   version) while the button shows a spinner and the draft dims/pulses; on success the new
  *   narrative replaces the shown text, on failure an error toast fires and the draft is kept.
+ * - "Approve SAR" requires a raised alert + approvable draft, POSTs an approval through
+ *   the existing SAR-review endpoint, and navigates only after the persisted review succeeds.
  */
 import { useEffect, useState } from "react";
 
@@ -41,10 +44,11 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { apiClient, type ApiClient, type InvestigationSnapshot } from "../lib/api";
-import { formatAlertRef, humanize } from "../lib/format";
+import { formatInvestigationRef, humanize } from "../lib/format";
 import {
   CASE_STEPS,
   INVESTIGATION_EVENTS,
+  NO_ALERT_CASE_STEPS,
   caseStepReady,
   initialInvestigationState,
   reduceInvestigation,
@@ -58,6 +62,7 @@ import { createSseClient, type SseHandle } from "../lib/sse";
 import { notify, notifyError } from "../lib/toast";
 
 const TERMINAL_EVENTS = new Set(["run.completed", "run.failed"]);
+const APPROVABLE_SAR_STATUSES = new Set(["draft", "reviewed"]);
 
 function snapshotToState(snapshot: InvestigationSnapshot): InvestigationState {
   const completedSteps: string[] = [];
@@ -95,6 +100,8 @@ function snapshotToState(snapshot: InvestigationSnapshot): InvestigationState {
     riskScore: snapshot.riskScore ?? undefined,
     riskBand: snapshot.riskBand ?? undefined,
     sarDraftId: snapshot.sarDraftId ?? undefined,
+    sarStatus: snapshot.sarStatus ?? undefined,
+    alertId: snapshot.alertId ?? undefined,
     errorCode: snapshot.errorCode ?? undefined,
   };
 }
@@ -117,21 +124,24 @@ function statusPill(status: InvestigationState["status"]): StatusPill {
   }
 }
 
-// The top SHAP driver, with its value appended (a "σ" suffix for z-score features), so the
-// chip reads like "Top driver: Amount Zscore 4.1σ" — the driver AND how far it deviated.
+// The chip reports the signed SHAP contribution rather than the transformed raw feature value,
+// because a top absolute driver may either increase or reduce risk.
 function topDriverLabel(feature: ShapFeature): string {
   const name = humanize(feature.feature);
-  if (!Number.isFinite(feature.value)) {
+  if (!Number.isFinite(feature.shapValue)) {
     return `Top driver: ${name}`;
   }
-  const rounded = Math.round(feature.value * 10) / 10;
-  const isZScore = /z[\s_-]?score/i.test(feature.feature);
-  return `Top driver: ${name} ${rounded}${isZScore ? "σ" : ""}`;
+  const direction = feature.shapValue >= 0 ? "risk driver" : "risk reducer";
+  const contribution = `${feature.shapValue >= 0 ? "+" : ""}${feature.shapValue.toFixed(3)}`;
+  return `Top ${direction}: ${name} · SHAP ${contribution}`;
 }
 
 // The data-driven evidence summary chips shown under the stepper. Each entry is emitted
 // only when its evidence exists, so the row grows as the auto-run lands.
-function evidenceChips(state: InvestigationState): { tone: StatusTone; label: string }[] {
+function evidenceChips(
+  state: InvestigationState,
+  includeEnrichment: boolean,
+): { tone: StatusTone; label: string }[] {
   const chips: { tone: StatusTone; label: string }[] = [];
   const riskValue = state.riskScore ?? state.fraudProbability;
   if (riskValue !== undefined) {
@@ -150,7 +160,7 @@ function evidenceChips(state: InvestigationState): { tone: StatusTone; label: st
     chips.push({ tone: "neutral", label: humanize(topHit.ruleType) });
   }
   const count = state.citations.length;
-  if (count > 0) {
+  if (includeEnrichment && count > 0) {
     chips.push({ tone: "neutral", label: `${count} regulatory citation${count === 1 ? "" : "s"}` });
   }
   return chips;
@@ -171,11 +181,15 @@ const STEP_COPY: Record<string, { heading: string; subtitle: string }> = {
   },
   sar: {
     heading: "Draft the SAR narrative",
-    subtitle: "Generated from the evidence above. Read every line — you own what you submit.",
+    subtitle: "Generated from the evidence above. Read every line before approving it.",
   },
   submit: {
-    heading: "Submit the report",
-    subtitle: "One last look before you file. Submitting routes the case to the alerts queue.",
+    heading: "Approve the SAR",
+    subtitle: "Record the internal review decision. Regulatory submission is a separate process.",
+  },
+  outcome: {
+    heading: "Review the outcome",
+    subtitle: "The score stayed below the alert threshold, so enrichment stopped after analysis.",
   },
 };
 
@@ -194,14 +208,17 @@ export function Investigation({
   const [connectionError, setConnectionError] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [regenerating, setRegenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const session = useSession();
   const canStartInvestigation = hasPermission(session, "startInvestigation");
+  const canReviewSar = hasPermission(session, "reviewSar");
 
   useEffect(() => {
     setState(initialInvestigationState());
     setConnectionError(false);
     setCurrentStep(0);
     setRegenerating(false);
+    setSubmitting(false);
     let closed = false;
     let terminalReached = false;
     let handle: SseHandle | null = null;
@@ -241,35 +258,61 @@ export function Investigation({
   const streaming = state.sarStarted && state.status === "running";
   const gaugeValue = state.riskScore ?? state.fraudProbability;
   const pill = statusPill(state.status);
-  const chips = evidenceChips(state);
-
-  const stepKey = CASE_STEPS[currentStep].key;
+  const isNoAlertOutcome = state.status === "completed" && state.alertId === undefined;
+  const chips = evidenceChips(state, !isNoAlertOutcome);
+  const caseSteps = isNoAlertOutcome ? NO_ALERT_CASE_STEPS : CASE_STEPS;
+  const activeStep = Math.min(currentStep, caseSteps.length - 1);
+  const stepKey = caseSteps[activeStep].key;
   const copy = STEP_COPY[stepKey];
-  const isLastStep = currentStep === CASE_STEPS.length - 1;
-  const nextStep = isLastStep ? undefined : CASE_STEPS[currentStep + 1];
+  const isLastStep = activeStep === caseSteps.length - 1;
+  const nextStep = isLastStep ? undefined : caseSteps[activeStep + 1];
   const canAdvance = caseStepReady(state, isLastStep ? "submit" : (nextStep?.key ?? "submit"));
+  const hasApprovableDraft =
+    state.sarDraftId !== undefined &&
+    state.sarStatus !== undefined &&
+    APPROVABLE_SAR_STATUSES.has(state.sarStatus);
+  const canSubmit =
+    canAdvance && state.alertId !== undefined && hasApprovableDraft && canReviewSar && !submitting;
+  const canRunPrimary = isLastStep ? (isNoAlertOutcome ? canAdvance : canSubmit) : canAdvance;
   const primaryLabel = isLastStep
-    ? "Submit the report"
+    ? isNoAlertOutcome
+      ? "Back to transactions"
+      : "Approve SAR"
     : `Looks good — continue to ${nextStep?.label.toLowerCase()} →`;
 
-  function handlePrimary(): void {
-    if (!canAdvance) {
+  async function handlePrimary(): Promise<void> {
+    if (!canRunPrimary) {
       return;
     }
     if (isLastStep) {
-      notify({
-        tone: "positive",
-        title: "SAR submitted for review",
-        description: "The case has been routed to the alerts queue.",
-      });
-      navigate(paths.alerts);
+      if (isNoAlertOutcome) {
+        navigate(paths.transactions);
+        return;
+      }
+      if (state.alertId === undefined) {
+        return;
+      }
+      setSubmitting(true);
+      try {
+        await client.reviewSar(state.alertId, { decision: "approve" });
+        notify({
+          tone: "positive",
+          title: "SAR approved",
+          description: "The internal approval was recorded and PDF generation was queued.",
+        });
+        navigate(paths.alerts);
+      } catch (caught) {
+        notifyError(caught);
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
-    setCurrentStep((step) => Math.min(step + 1, CASE_STEPS.length - 1));
+    setCurrentStep(Math.min(activeStep + 1, caseSteps.length - 1));
   }
 
   function handleBack(): void {
-    setCurrentStep((step) => Math.max(step - 1, 0));
+    setCurrentStep(Math.max(activeStep - 1, 0));
   }
 
   async function handleRegenerate(): Promise<void> {
@@ -346,11 +389,25 @@ export function Investigation({
       case "submit":
         return (
           <div className="gap-md bg-canvas-soft p-lg flex flex-col rounded-lg">
-            <p className="text-body-md text-ink font-semibold">Ready to file</p>
+            <p className="text-body-md text-ink font-semibold">Ready for internal approval</p>
             <p className="text-body-sm text-body">
               {canAdvance
-                ? "You've confirmed the risk, drivers, citations, and narrative. Submitting records your decision and routes the case to the alerts queue."
-                : "The auto-run is still finishing. You can submit once every step has completed."}
+                ? !hasApprovableDraft
+                  ? "This investigation has no draft that is eligible for approval."
+                  : !canReviewSar
+                    ? "Reviewer permission is required to approve this report."
+                    : "You've confirmed the risk, drivers, citations, and narrative. Approval is recorded internally; it does not submit the SAR to FinCEN."
+                : "The auto-run is still finishing. You can approve once every step has completed."}
+            </p>
+          </div>
+        );
+      case "outcome":
+        return (
+          <div className="gap-md bg-canvas-soft p-lg flex flex-col rounded-lg">
+            <p className="text-body-md text-ink font-semibold">Analysis complete — no alert</p>
+            <p className="text-body-sm text-body">
+              The blended score did not cross the alert threshold. FraudLens recorded the score and
+              model drivers, then stopped before regulatory retrieval and SAR drafting.
             </p>
           </div>
         );
@@ -364,15 +421,19 @@ export function Investigation({
       <header className="gap-lg flex flex-col lg:flex-row lg:items-start lg:justify-between">
         <div className="gap-sm flex flex-col">
           <nav aria-label="Breadcrumb" className="gap-xs text-body-sm flex items-center">
-            <span className="text-mute font-semibold">{formatAlertRef(runId)}</span>
+            <span className="text-mute font-semibold">{formatInvestigationRef(runId)}</span>
             <span aria-hidden="true" className="text-mute">
               /
             </span>
             <span className="text-ink font-semibold">Investigation</span>
           </nav>
-          <h1 className="text-display-md text-ink">Build the case</h1>
+          <h1 className="text-display-md text-ink">
+            {isNoAlertOutcome ? "Review the analysis" : "Build the case"}
+          </h1>
           <p className="text-body-lg text-body">
-            FraudLens walks the evidence one step at a time. You confirm each before moving on.
+            {isNoAlertOutcome
+              ? "The run completed below the alert threshold. Review the score and model drivers."
+              : "FraudLens walks the evidence one step at a time. You confirm each before moving on."}
           </p>
         </div>
         <Badge tone={pill.tone} className="shrink-0">
@@ -399,7 +460,7 @@ export function Investigation({
       ) : null}
 
       <Card className="gap-xl flex flex-col">
-        <CaseStepper steps={CASE_STEPS} currentStep={currentStep} />
+        <CaseStepper steps={caseSteps} currentStep={activeStep} />
 
         {chips.length > 0 ? (
           <div className="gap-sm flex flex-wrap">
@@ -416,7 +477,7 @@ export function Investigation({
         <div className="gap-lg flex flex-col">
           <div className="gap-xs flex flex-col">
             <h2 className="text-display-xs text-ink">
-              Step {currentStep + 1} · {copy.heading}
+              Step {activeStep + 1} · {copy.heading}
             </h2>
             <p className="text-body-md text-mute">{copy.subtitle}</p>
           </div>
@@ -444,10 +505,17 @@ export function Investigation({
               <Button
                 variant="primary"
                 className="grow"
-                disabled={!canAdvance || regenerating}
-                onClick={handlePrimary}
+                disabled={!canRunPrimary || regenerating}
+                onClick={() => void handlePrimary()}
               >
-                {primaryLabel}
+                {submitting ? (
+                  <span className="gap-sm inline-flex items-center">
+                    <Spinner label="Approving the SAR" />
+                    Approving…
+                  </span>
+                ) : (
+                  primaryLabel
+                )}
               </Button>
             </div>
             {!canAdvance ? (
@@ -459,15 +527,15 @@ export function Investigation({
         <div className="border-canvas-soft border-t" />
 
         <div className="gap-md text-body-sm flex items-center justify-between">
-          {currentStep > 0 ? (
+          {activeStep > 0 ? (
             <button type="button" onClick={handleBack} className="text-ink font-semibold">
-              ← Back to {CASE_STEPS[currentStep - 1].label.toLowerCase()}
+              ← Back to {caseSteps[activeStep - 1].label.toLowerCase()}
             </button>
           ) : (
             <span />
           )}
           <span className="text-mute">
-            Step {currentStep + 1} of {CASE_STEPS.length}
+            Step {activeStep + 1} of {caseSteps.length}
           </span>
         </div>
       </Card>

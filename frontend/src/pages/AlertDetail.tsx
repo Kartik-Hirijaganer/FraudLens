@@ -75,6 +75,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                 <Badge tone={riskTone(detail.alert.severity)}>
                   {humanize(detail.alert.severity)}
                 </Badge>
+                {detail.alert.origin === "seed" ? <Badge tone="neutral">Sample data</Badge> : null}
                 <span className="text-body-md text-ink">{statusLabel(detail.alert.status)}</span>
                 {detail.alert.reviewFlags.map((flag) => (
                   <Badge key={flag.flag} tone="warning">

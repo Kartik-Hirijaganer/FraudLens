@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEMO_AGENCIES,
   DEMO_ROLES,
   currentAnalyst,
+  demoAgencyById,
   getSession,
   hasPermission,
   roleHasPermission,
@@ -49,6 +51,30 @@ describe("DEMO_ROLES", () => {
   });
 });
 
+describe("demo agencies", () => {
+  const agencyTwo = DEMO_ROLES.find((role) => role.requiresLiveAuth);
+
+  it("binds every persona to a declared demo agency", () => {
+    const agencyIds = new Set(DEMO_AGENCIES.map((agency) => agency.id));
+    for (const role of DEMO_ROLES) {
+      expect(agencyIds.has(role.agencyId)).toBe(true);
+    }
+    expect(DEMO_AGENCIES.map((agency) => agency.index)).toEqual([0, 1, 2]);
+  });
+
+  it("offers exactly one live-auth-only Agency Two analyst persona", () => {
+    expect(agencyTwo).toBeDefined();
+    expect(agencyTwo?.role).toBe("analyst");
+    expect(agencyTwo?.agencyId).toBe(DEMO_AGENCIES[1].id);
+  });
+
+  it("resolves a demo agency by id and null otherwise", () => {
+    expect(demoAgencyById(DEMO_AGENCIES[1].id)?.index).toBe(1);
+    expect(demoAgencyById("not-an-agency")).toBeNull();
+    expect(demoAgencyById(undefined)).toBeNull();
+  });
+});
+
 describe("session store", () => {
   it("is signed out by default", () => {
     expect(getSession()).toBeNull();
@@ -67,6 +93,33 @@ describe("session store", () => {
       analyst: DEMO_ROLES[2].analyst,
       demoRole: "admin",
     });
+  });
+
+  it("persists the persona's agency for a demo session", () => {
+    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
+    expect(getSession()?.agencyId).toBe(DEMO_AGENCIES[0].id);
+  });
+
+  it("resolves two same-role personas distinctly by email (no role mis-selection)", () => {
+    const agencyOne = DEMO_ROLES.find((r) => r.role === "analyst" && !r.requiresLiveAuth)!;
+    const agencyTwo = DEMO_ROLES.find((r) => r.requiresLiveAuth)!;
+    // Both are analysts; resolving by role alone would always pick the first-declared one.
+    signIn(agencyTwo.email, false, "analyst", "token-two", agencyTwo.agencyId);
+    expect(getSession()).toMatchObject({
+      email: agencyTwo.email,
+      role: "analyst",
+      analyst: agencyTwo.analyst,
+      agencyId: DEMO_AGENCIES[1].id,
+    });
+    expect(getSession()?.analyst).not.toEqual(agencyOne.analyst);
+  });
+
+  it("persists a verified /me agency for a live session and through a token refresh", () => {
+    signIn("real@agency.gov", false, "analyst", "token-1", DEMO_AGENCIES[1].id);
+    expect(getSession()?.agencyId).toBe(DEMO_AGENCIES[1].id);
+    updateAccessToken("token-2");
+    expect(getSession()).toMatchObject({ accessToken: "token-2", agencyId: DEMO_AGENCIES[1].id });
+    expect(window.sessionStorage.getItem("fraudlens.session")).toContain(DEMO_AGENCIES[1].id);
   });
 
   it("maps legacy demo emails to the same role identities", () => {
@@ -137,6 +190,15 @@ describe("session rehydration on load", () => {
     );
     const mod = await importFreshSession();
     expect(mod.getSession()).toMatchObject({ email: "tab@agency.gov", role: "auditor" });
+  });
+
+  it("rehydrates the persisted agency id", async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ email: "kept@agency.gov", agencyId: DEMO_AGENCIES[1].id }),
+    );
+    const mod = await importFreshSession();
+    expect(mod.getSession()?.agencyId).toBe(DEMO_AGENCIES[1].id);
   });
 
   it("ignores a malformed storage entry", async () => {
