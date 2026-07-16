@@ -2,16 +2,17 @@
  * Summary: The FraudLens sign-in screen (plan §16 Phase 11) — the pre-auth gate rendered
  * by the shell whenever there is no session. Matches the approved design brief: a navy brand
  * panel (wordmark, animated grid motif, product promise) beside a light sign-in form. The
- * "Demo · sign in as" picker lists the synthetic `DEMO_ROLES` in Vite dev only and auto-fills
- * the email + password when a role is chosen, so the dev-bypass demo can be entered without
- * typing credentials. Normal submit uses Supabase email/password, fetches `/api/v1/me`, and stores
- * the server-returned role plus bearer token.
+ * "Demo · sign in as" picker lists synthetic `DEMO_ROLES` only when Vite dev mode and either the
+ * backend bypass or live demo auth is explicitly enabled. It auto-fills credentials; live mode
+ * still uses Supabase email/password plus `/api/v1/me` and stores the server-returned role/token.
  *
  * Key classes:
  * - (none)
  *
  * Key functions:
- * - isDemoPickerEnabled: expose the Vite dev gate for the demo picker.
+ * - isDemoBypassEnabled: expose the local-only tokenless bypass gate.
+ * - isLiveDemoAuthEnabled: expose the explicit live-demo-auth gate (real Supabase sign-in).
+ * - isDemoPickerEnabled: expose the explicit Vite-dev demo picker gates.
  * - Login: render the split-panel sign-in screen and start a demo or Supabase session on submit.
  *
  * Notes:
@@ -38,11 +39,31 @@ const ACCENT_DOT: Record<RoleAccent, string> = {
 const INPUT_CLASS =
   "border-auth-border focus:border-auth-panel focus:shadow-auth-focus w-full rounded-sm border bg-canvas px-lg py-md text-body-sm text-auth-panel outline-none transition placeholder:text-auth-faint";
 
-export function isDemoPickerEnabled(env: Pick<ImportMetaEnv, "DEV"> = import.meta.env): boolean {
-  return env.DEV;
+export type LoginEnv = Pick<
+  ImportMetaEnv,
+  "DEV" | "VITE_AUTH_DEV_BYPASS" | "VITE_DEMO_AUTH_ENABLED"
+>;
+
+export function isDemoPickerEnabled(env: LoginEnv = import.meta.env): boolean {
+  return env.DEV && (env.VITE_AUTH_DEV_BYPASS === "true" || env.VITE_DEMO_AUTH_ENABLED === "true");
 }
 
-export function Login() {
+export function isDemoBypassEnabled(
+  env: Pick<ImportMetaEnv, "DEV" | "VITE_AUTH_DEV_BYPASS"> = import.meta.env,
+): boolean {
+  return env.DEV && env.VITE_AUTH_DEV_BYPASS === "true";
+}
+
+// Live demo auth = real Supabase email/password sign-in against seeded demo tenants. Agency Two
+// (and any `requiresLiveAuth` persona) needs an agency-bound JWT, so it is offered only here —
+// never via the tokenless dev bypass, which mints Agency One claims only.
+export function isLiveDemoAuthEnabled(
+  env: Pick<ImportMetaEnv, "DEV" | "VITE_DEMO_AUTH_ENABLED"> = import.meta.env,
+): boolean {
+  return env.DEV && env.VITE_DEMO_AUTH_ENABLED === "true";
+}
+
+export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -52,8 +73,12 @@ export function Login() {
   const [signingIn, setSigningIn] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  const showDemoPicker = isDemoPickerEnabled();
-  const selectedRole = DEMO_ROLES.find((r) => r.id === roleId) ?? null;
+  const showDemoPicker = isDemoPickerEnabled(env);
+  // Agency-Two (live-auth) personas appear only when live demo auth is on; the dev bypass
+  // mints Agency One only, so a live-auth persona picked under the bypass still uses Supabase.
+  const liveDemoAuth = isLiveDemoAuthEnabled(env);
+  const visiblePersonas = DEMO_ROLES.filter((r) => !r.requiresLiveAuth || liveDemoAuth);
+  const selectedRole = visiblePersonas.find((r) => r.id === roleId) ?? null;
   const canSubmit = email.trim().length > 0 && password.length > 0 && !signingIn;
 
   useEffect(() => {
@@ -90,15 +115,28 @@ export function Login() {
     if (!canSubmit) {
       return;
     }
-    if (showDemoPicker && selectedRole) {
-      startSession(email.trim(), remember, selectedRole.role);
+    if (
+      showDemoPicker &&
+      selectedRole &&
+      !selectedRole.requiresLiveAuth &&
+      isDemoBypassEnabled(env)
+    ) {
+      // Tokenless dev bypass — Agency One only; persist the persona's agency for the shell/study.
+      startSession(email.trim(), remember, selectedRole.role, undefined, selectedRole.agencyId);
       return;
     }
     setSigningIn(true);
     try {
       const accessToken = await signInWithPassword(email.trim(), password);
       const currentUser = await fetchCurrentUser(accessToken);
-      startSession(currentUser.email, remember, currentUser.role, accessToken);
+      // The tenant comes from the VERIFIED /me claim, never a client-selected agency.
+      startSession(
+        currentUser.email,
+        remember,
+        currentUser.role,
+        accessToken,
+        currentUser.agencyId,
+      );
     } catch (caught) {
       notifyError(caught);
     } finally {
@@ -305,7 +343,7 @@ export function Login() {
                     aria-label="Demo roles"
                     className="border-auth-border shadow-auth-menu motion-safe:animate-fade-up bg-canvas absolute inset-x-0 bottom-[calc(100%+8px)] z-20 overflow-hidden rounded-[10px] border"
                   >
-                    {DEMO_ROLES.map((role, i) => (
+                    {visiblePersonas.map((role, i) => (
                       <button
                         key={role.id}
                         type="button"
@@ -314,7 +352,7 @@ export function Login() {
                         onClick={() => handlePick(role)}
                         className={cx(
                           "border-auth-divider hover:bg-auth-divider gap-md flex w-full items-center px-lg py-md text-left transition",
-                          i < DEMO_ROLES.length - 1 && "border-b",
+                          i < visiblePersonas.length - 1 && "border-b",
                         )}
                       >
                         <span

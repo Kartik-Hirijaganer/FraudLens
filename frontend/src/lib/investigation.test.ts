@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CASE_STEPS,
   INVESTIGATION_EVENTS,
+  NO_ALERT_CASE_STEPS,
   caseStepReady,
   initialInvestigationState,
   reduceInvestigation,
@@ -29,6 +30,7 @@ describe("investigation constants", () => {
       "sar",
       "submit",
     ]);
+    expect(NO_ALERT_CASE_STEPS.map((step) => step.key)).toEqual(["risk", "drivers", "outcome"]);
   });
 });
 
@@ -37,6 +39,7 @@ describe("caseStepReady", () => {
     const empty = initialInvestigationState();
     expect(caseStepReady(empty, "risk")).toBe(false);
     expect(caseStepReady(empty, "submit")).toBe(false);
+    expect(caseStepReady(empty, "outcome")).toBe(false);
 
     const scored = fold([
       msg("run.started", { transactionId: "tx-1" }),
@@ -49,12 +52,19 @@ describe("caseStepReady", () => {
       msg("step.shap.completed", { topFeatures: [{ feature: "amount", value: 1, shapValue: 1 }] }),
       msg("step.rag.completed", { mode: "vector", citations: [] }),
       msg("sar.started", {}),
-      msg("run.completed", { riskScore: 0.8, riskBand: "high", sarDraftId: "s1" }),
+      msg("run.completed", {
+        riskScore: 0.8,
+        riskBand: "high",
+        sarDraftId: "s1",
+        sarStatus: "draft",
+        alertId: "alert-1",
+      }),
     ]);
     expect(caseStepReady(done, "drivers")).toBe(true);
     expect(caseStepReady(done, "citations")).toBe(true);
     expect(caseStepReady(done, "sar")).toBe(true);
     expect(caseStepReady(done, "submit")).toBe(true);
+    expect(caseStepReady(done, "outcome")).toBe(true);
   });
 
   it("treats each evidence signal as sufficient for its wizard step", () => {
@@ -109,7 +119,14 @@ describe("reduceInvestigation", () => {
       msg("sar.token", { token: "world" }),
       msg(
         "run.completed",
-        { riskScore: 0.81, riskBand: "critical", modelVersion: "m1", sarDraftId: "sar-1" },
+        {
+          riskScore: 0.81,
+          riskBand: "critical",
+          modelVersion: "m1",
+          sarDraftId: "sar-1",
+          sarStatus: "draft",
+          alertId: "alert-1",
+        },
         "7",
       ),
     ]);
@@ -128,6 +145,8 @@ describe("reduceInvestigation", () => {
     expect(state.sarText).toBe("Hello world");
     expect(state.riskBand).toBe("critical");
     expect(state.sarDraftId).toBe("sar-1");
+    expect(state.sarStatus).toBe("draft");
+    expect(state.alertId).toBe("alert-1");
     expect(state.lastEventId).toBe("7");
   });
 

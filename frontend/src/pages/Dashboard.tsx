@@ -2,7 +2,7 @@
  * Summary: The analyst landing page (plan §16 Phase 11 Dashboard, redesigned). It reads
  * the tenant-scoped `/dashboard/metrics` aggregate plus the open-alert list and greets
  * the analyst by time of day, calls out the high-risk backlog, and surfaces four headline
- * KPI cards (open alerts + severity mix, in-review load, SARs filed, active-model health)
+ * KPI cards (open alerts + severity mix, in-review load, SARs approved, active-model health)
  * above the open-alert triage queue. Loading, error+retry, and empty states all flow
  * through the shared AsyncBoundary, and the metrics + alerts load concurrently.
  *
@@ -103,7 +103,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
                 hint={`${metrics.alerts.escalated} escalated`}
               />
               <MetricCard
-                label="SARs filed"
+                label="SARs approved"
                 value={metrics.sar.approved}
                 hint={`${metrics.sar.total} drafted`}
               />

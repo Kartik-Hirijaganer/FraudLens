@@ -6,6 +6,7 @@ import {
   formatAlertRef,
   formatCurrency,
   formatDateTime,
+  formatInvestigationRef,
   formatModelVersion,
   formatPercent,
   greeting,
@@ -100,6 +101,17 @@ describe("formatAlertRef", () => {
 
   it("returns a dash for empty input", () => {
     expect(formatAlertRef("   ")).toBe("—");
+  });
+});
+
+describe("formatInvestigationRef", () => {
+  it("formats run identifiers without implying that an alert exists", () => {
+    expect(formatInvestigationRef("run-4821")).toBe("INV-4821");
+    expect(formatInvestigationRef("267ad722-718b-4095-9a7a-46245a094e18")).toBe("INV-4E18");
+  });
+
+  it("returns a dash for empty input", () => {
+    expect(formatInvestigationRef("   ")).toBe("—");
   });
 });
 
