@@ -19,6 +19,8 @@
  *   comes from the list response so it stays exact under any filter without scanning client-side.
  * - The cursor stack records each visited page's cursor so Prev pops and Next pushes; changing
  *   the filter or search resets it to the first page. The in-flight Investigate is guarded.
+ * - Model override is admin-only: non-admin roles load transactions without calling the
+ *   admin-only model registry and investigations use the active model implicitly.
  */
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 
@@ -51,7 +53,7 @@ interface TransactionsData {
   transactions: TransactionResponse[];
   nextCursor: string | null;
   total: number;
-  models: ModelVersionListResponse;
+  models: ModelVersionListResponse | null;
 }
 
 interface TransactionsProps {
@@ -67,6 +69,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   const session = useSession();
   const canIngestTransactions = hasPermission(session, "ingestTransactions");
   const canStartInvestigation = hasPermission(session, "startInvestigation");
+  const canChooseModel = hasPermission(session, "manageAdmin");
   // A stack of page cursors, one per visited page (index 0 = the first page, no cursor).
   // Prev pops, Next pushes the server's nextCursor — so keyset paging works both ways.
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
@@ -84,22 +87,20 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   }, [searchInput]);
 
   const load = useCallback(async (): Promise<TransactionsData> => {
-    const [page, models] = await Promise.all([
-      client.listTransactions({
-        riskBand: riskBand || undefined,
-        search: search || undefined,
-        limit: PAGE_SIZE,
-        cursor,
-      }),
-      client.listModelVersions(),
-    ]);
+    const page = await client.listTransactions({
+      riskBand: riskBand || undefined,
+      search: search || undefined,
+      limit: PAGE_SIZE,
+      cursor,
+    });
+    const models = canChooseModel ? await client.listModelVersions() : null;
     return {
       transactions: page.transactions,
       nextCursor: page.nextCursor,
       total: page.total,
       models,
     };
-  }, [client, riskBand, search, cursor]);
+  }, [canChooseModel, client, riskBand, search, cursor]);
   const state = useAsync(load, [client, riskBand, search, cursor]);
 
   function changeRiskBand(next: string): void {
@@ -148,7 +149,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     <section className="gap-xl flex flex-col">
       <PageHeader
         title="Transactions"
-        description="Every transaction is scored the moment it lands. Search, filter, and open one to investigate."
+        description="Imported transactions are ready for review. Open one to start scoring and investigation."
         actions={canIngestTransactions ? <ImportButton onFileChange={onFileChange} /> : undefined}
       />
       <Card className="gap-lg flex flex-col">
@@ -170,14 +171,16 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
             const rangeEnd = pageIndex * PAGE_SIZE + data.transactions.length;
             return (
               <>
-                <div className="max-w-sm">
-                  <ModelSelector
-                    versions={data.models.versions}
-                    activeLabel={data.models.activeVersionLabel}
-                    value={override}
-                    onChange={setOverride}
-                  />
-                </div>
+                {data.models ? (
+                  <div className="max-w-sm">
+                    <ModelSelector
+                      versions={data.models.versions}
+                      activeLabel={data.models.activeVersionLabel}
+                      value={override}
+                      onChange={setOverride}
+                    />
+                  </div>
+                ) : null}
                 <DataTable
                   caption="Transactions"
                   columns={columns}
