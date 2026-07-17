@@ -1,7 +1,7 @@
-"""Summary: Private OpenAI-compatible SDK adapter for chat completions and
-embeddings. It lazily reads API keys from environment variables, validates
-requested parameters against supported capability sets, and normalizes SDK results
-and exceptions into FraudLens LLM types.
+"""Summary: Private OpenAI-compatible SDK adapter for chat completions, native token
+streams, and embeddings. It lazily reads API keys from environment variables,
+validates requested parameters against supported capability sets, and normalizes SDK
+results and exceptions into FraudLens LLM types.
 
 Key classes:
 - OpenAiCompatibleAdapter: Adapter for OpenAI-compatible providers.
@@ -16,7 +16,7 @@ Notes:
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any, cast
 
 from openai import (
@@ -32,6 +32,7 @@ from openai import (
 
 from fraudlens_llm.adapters.base import (
     AdapterEmbeddingResult,
+    AdapterGenerateChunk,
     AdapterGenerateResult,
     params_to_dict,
 )
@@ -41,6 +42,7 @@ from fraudlens_llm.exceptions import (
     CapabilityMismatchError,
     LlmError,
     MissingApiKeyError,
+    ProviderError,
     UnsupportedParameterError,
 )
 from fraudlens_llm.models import LlmMessage, LlmUsage
@@ -129,6 +131,59 @@ class OpenAiCompatibleAdapter:
             embeddings=[list(item.embedding) for item in response.data],
             usage=_usage_from_openai(response),
         )
+
+    async def generate_stream(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+    ) -> AsyncIterator[AdapterGenerateChunk]:
+        """Yield native chat deltas through an OpenAI-compatible SDK stream."""
+        if card.kind != Kind.CHAT:
+            raise CapabilityMismatchError(f"Model '{model_id}' is not a chat model")
+        provider_params = _validated_params(params, _CHAT_PARAMS)
+        if "response_format" in provider_params:
+            provider_params["response_format"] = {"type": provider_params["response_format"]}
+        try:
+            stream = cast(
+                Any,
+                await self._client_instance().chat.completions.create(
+                    model=model_id,
+                    messages=cast(
+                        Any,
+                        [message.model_dump(mode="json") for message in messages],
+                    ),
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    **provider_params,
+                ),
+            )
+            async for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                choice = choices[0] if choices else None
+                finish_reason = getattr(choice, "finish_reason", None)
+                if getattr(chunk, "error", None) is not None or finish_reason == "error":
+                    raise ProviderError(
+                        "OpenAI-compatible provider stream interrupted",
+                        retryable=True,
+                    )
+                delta = getattr(choice, "delta", None)
+                text_delta = _content_to_text(getattr(delta, "content", ""))
+                usage = (
+                    _usage_from_openai(chunk) if getattr(chunk, "usage", None) is not None else None
+                )
+                served_model = getattr(chunk, "model", None)
+                if text_delta or served_model or finish_reason or usage is not None:
+                    yield AdapterGenerateChunk(
+                        text_delta=text_delta,
+                        served_model=served_model,
+                        finish_reason=finish_reason,
+                        usage=usage,
+                    )
+        except OpenAIError as exc:
+            raise _map_openai_error(exc, self._provider) from exc
 
     def _client_instance(self) -> AsyncOpenAI:
         """Return a lazily constructed SDK client after reading the env-var key."""
