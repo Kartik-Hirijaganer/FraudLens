@@ -1784,6 +1784,18 @@ double-clicks; it's the **queue-ready seam** (background task → future worker)
 *Tradeoffs:* a persisted event log + background-task management to build. *Reconsider:* multi-instance
 / off-request processing at scale → move the executor to an `arq`/Azure-Queue worker (same events).
 
+**ADR-017 — Graph-feature serving boundary: GFP measured offline, never served.** *Options:*
+(a) process-global online GFP graph, (b) per-tenant online graphs, (c) **offline-only study,
+serving unchanged**. *Why (c):* a process-global transaction graph makes Agency A's score depend
+on Agency B's topology — against the tenant-isolation invariant (every tenant read/job binds
+`agency_id`) — and the identifier-free `RuleContext` (PHI-safe boundary) deliberately lacks the
+unique edge/node ids GFP requires; ADR-015's global-*training* allowance is **not** authorization
+for cross-tenant *online* reads. Graph code stays in `scripts/lib/gfp/`; the served vector stays
+the 19 `FEATURE_NAMES`. *Tradeoffs:* measured multi-hop lift (global or per-tenant) is
+deliberately left unserved; per-tenant serving is deferred behind hard preconditions. *Reconsider:*
+only via a new ADR + security review, given a positive measured benefit. Canonical record:
+[`docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md`](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md).
+
 ---
 
 ## 23. Final Deliverable Format

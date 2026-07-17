@@ -43,6 +43,7 @@ import numpy as np
 import xgboost as xgb
 from pydantic import BaseModel, ConfigDict, Field
 
+from fraudlens_core import ModelRiskThresholds
 from fraudlens_ml.scoring.features import FeatureSpec
 
 _MODEL_FILE = "model.json"
@@ -82,6 +83,11 @@ class ModelArtifactMetadata(BaseModel):
     metrics: dict[str, float] = Field(
         default_factory=dict, description="Holdout metrics recorded at training time."
     )
+    risk_thresholds: ModelRiskThresholds | None = Field(
+        default=None,
+        description="Holdout-derived calibrated-probability operating points for risk banding; "
+        "None (legacy/synthetic artifacts) keeps the identity banding behavior.",
+    )
 
 
 @dataclass(frozen=True)
@@ -94,6 +100,7 @@ class LoadedArtifact:
     calibration: Calibration
     background: np.ndarray
     metrics: dict[str, float]
+    risk_thresholds: ModelRiskThresholds | None = None
 
 
 class DeploymentPointer(BaseModel):
@@ -125,6 +132,7 @@ def save_artifact(  # noqa: PLR0913 - an artifact bundles many parts; all are ke
     calibration: Calibration,
     background: np.ndarray,
     metrics: dict[str, float],
+    risk_thresholds: ModelRiskThresholds | None = None,
 ) -> ModelArtifactMetadata:
     """Write a booster + metadata bundle to a directory and return the recorded metadata."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -137,6 +145,7 @@ def save_artifact(  # noqa: PLR0913 - an artifact bundles many parts; all are ke
         model_sha256=_sha256_file(model_path),
         background=[[float(value) for value in row] for row in np.asarray(background)],
         metrics=metrics,
+        risk_thresholds=risk_thresholds,
     )
     (directory / _METADATA_FILE).write_text(
         json.dumps(metadata.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
@@ -166,6 +175,7 @@ def load_artifact(directory: Path) -> LoadedArtifact:
         calibration=metadata.calibration,
         background=np.array(metadata.background, dtype=np.float64),
         metrics=metadata.metrics,
+        risk_thresholds=metadata.risk_thresholds,
     )
 
 

@@ -5,14 +5,14 @@ document into deterministic overlapping chunks, embeds the chunks, and writes th
 persistent ChromaDB collection the retriever reads back. The default `HashingEmbedder` is a
 pure-Python, deterministic, dependency-free embedder so `make ingest-rag` and `make local-demo`
 build a real vector index with NO API keys, NO network, and NO cost; the same `Embedder`
-protocol is the seam a live `text-embedding-3-small` embedder plugs into for production
-(selected by config, mirroring the SAR drafter mock/live split — plan §7). Building the index
-is the write side; `retriever.py` is the read side and reuses `connect` here so the store's
-shape (collection name, cosine space) is defined in exactly one place (no duplication).
+protocol is implemented by the backend's opt-in live `text-embedding-3-small` adapter. Building
+the index is the write side; `retriever.py` is the read side and reuses `connect` here so the
+store's shape (collection name, cosine space) is defined in exactly one place (no duplication).
 
 Key classes:
 - RegulationDocument: one loaded regulatory provision (id, title, citation, source, text).
 - Chunk: a deterministic slice of a document plus the citation metadata it carries.
+- EmbeddingProvenance: the embedding kind/model/dimension/version persisted on the index.
 - Embedder: the protocol an embedding backend implements (offline hashing or live provider).
 - HashingEmbedder: deterministic, offline, zero-dependency hashed bag-of-tokens embedder.
 
@@ -38,9 +38,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import chromadb
 import numpy as np
@@ -58,6 +58,14 @@ _FRONTMATTER_FENCE = "---"
 _REQUIRED_META = ("docId", "title", "citation", "source")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _COSINE_METADATA = {"hnsw:space": "cosine"}
+_HASHING_MODEL_ID = "hashing-sha1-v1"
+_DEFAULT_RAG_VERSION = "rag-v1"
+_PROVENANCE_METADATA_KEYS = {
+    "kind": "embedding_kind",
+    "model_id": "embedding_model_id",
+    "dimensions": "embedding_dimensions",
+    "rag_version": "rag_version",
+}
 
 
 class RegulationDocument(BaseModel):
@@ -96,9 +104,56 @@ class Chunk(BaseModel):
         }
 
 
+class EmbeddingProvenance(BaseModel):
+    """Identity of an embedding space persisted with and checked against a RAG index."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["hashing", "provider"] = Field(
+        ..., description="Embedding implementation family used to produce the vectors."
+    )
+    model_id: str = Field(
+        ..., min_length=1, description="Stable hashing algorithm id or provider model reference."
+    )
+    dimensions: int = Field(..., gt=0, description="Vector dimensions in this embedding space.")
+    rag_version: str = Field(
+        ..., min_length=1, description="Audit version identifying the corpus and embedding space."
+    )
+
+    def collection_metadata(self) -> dict[str, str | int]:
+        """Return the scalar ChromaDB metadata fields encoding this embedding space."""
+        return {
+            _PROVENANCE_METADATA_KEYS["kind"]: self.kind,
+            _PROVENANCE_METADATA_KEYS["model_id"]: self.model_id,
+            _PROVENANCE_METADATA_KEYS["dimensions"]: self.dimensions,
+            _PROVENANCE_METADATA_KEYS["rag_version"]: self.rag_version,
+        }
+
+    @classmethod
+    def from_collection_metadata(
+        cls, metadata: Mapping[str, Any] | None
+    ) -> EmbeddingProvenance | None:
+        """Parse provenance from collection metadata; return None for absent/invalid metadata."""
+        if metadata is None:
+            return None
+        payload = {
+            field: metadata.get(metadata_key)
+            for field, metadata_key in _PROVENANCE_METADATA_KEYS.items()
+        }
+        try:
+            return cls.model_validate(payload)
+        except ValueError:
+            return None
+
+
 @runtime_checkable
 class Embedder(Protocol):
     """An embedding backend: offline hashing in dev, a live provider on the compliance path."""
+
+    @property
+    def provenance(self) -> EmbeddingProvenance:
+        """Return the exact embedding-space identity produced by this embedder."""
+        ...
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed a batch of chunk texts into vectors (one row per text)."""
@@ -117,9 +172,22 @@ def tokenize(text: str) -> list[str]:
 class HashingEmbedder:
     """Deterministic, offline, zero-dependency signed hashed bag-of-tokens embedder."""
 
-    def __init__(self, dimensions: int = _EMBED_DIMENSIONS) -> None:
+    def __init__(
+        self, dimensions: int = _EMBED_DIMENSIONS, *, rag_version: str = _DEFAULT_RAG_VERSION
+    ) -> None:
         """Bind the output dimensionality of the hashed embedding space."""
         self._dimensions = dimensions
+        self._provenance = EmbeddingProvenance(
+            kind="hashing",
+            model_id=_HASHING_MODEL_ID,
+            dimensions=dimensions,
+            rag_version=rag_version,
+        )
+
+    @property
+    def provenance(self) -> EmbeddingProvenance:
+        """Return the deterministic hashing-space provenance recorded on the index."""
+        return self._provenance
 
     def _vector(self, text: str) -> list[float]:
         """Map text to an L2-normalized signed-hashing vector (deterministic via hashlib)."""
@@ -248,14 +316,17 @@ def build_index(
     client = connect(persist_dir)
     if collection in {existing.name for existing in client.list_collections()}:
         client.delete_collection(collection)  # idempotent rebuild: no stale chunks survive
-    store = client.get_or_create_collection(collection, metadata=dict(_COSINE_METADATA))
+    provenance = embedder.provenance
+    metadata = {**_COSINE_METADATA, **provenance.collection_metadata()}
+    store = client.get_or_create_collection(collection, metadata=metadata)
     if not chunks:
         return 0
     texts = [chunk.text for chunk in chunks]
+    rows = embedder.embed_documents(texts)
+    if len(rows) != len(texts) or any(len(row) != provenance.dimensions for row in rows):
+        raise ValueError("embedder returned vectors inconsistent with its declared provenance")
     # cast: ChromaDB's Embeddings alias uses an invariant union dtype our float32 rows satisfy.
-    embeddings = cast(
-        Embeddings, [np.asarray(row, dtype=np.float32) for row in embedder.embed_documents(texts)]
-    )
+    embeddings = cast(Embeddings, [np.asarray(row, dtype=np.float32) for row in rows])
     store.add(
         ids=[chunk.chunk_id for chunk in chunks],
         documents=texts,

@@ -1,8 +1,8 @@
 """Summary: The investigation Runner — the run-lifecycle owner the backend launches as an
 in-process background task (plan §10.2, ADR-016, §16 Phase 8). `POST /investigations` creates the
 `analysis_runs` row and OWNS execution by handing the run here; the Runner emits `run.started`,
-invokes the LangGraph orchestrator (`build_pipeline_graph`) to run rules→scoring→SHAP→RAG→SAR, and
-then — on success — raises the conditional alert, marks the run completed (stamping the
+invokes the LangGraph orchestrator (`build_pipeline_graph`) to run the deterministic core and the
+alert-only RAG/SAR branch, and then — on success — marks the run completed (stamping the
 transaction's latest run + band), and emits the terminal `run.completed`. A failure in the
 DETERMINISTIC core (rules/scoring/SHAP) propagates out of the graph, so the Runner marks the run
 failed and emits `run.failed{code}` with the partial event log already durable (soft RAG/LLM
@@ -33,7 +33,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from fraudlens_core import RiskAssessment, RiskBand, RuleEvaluation
 from fraudlens_ml.pipeline.events import (
-    AlertRecord,
     PipelineDeps,
     PipelineEventType,
     PipelineInput,
@@ -42,7 +41,7 @@ from fraudlens_ml.pipeline.events import (
     ScoreResult,
 )
 from fraudlens_ml.pipeline.graph import build_pipeline_graph, persist_and_emit
-from fraudlens_ml.pipeline.steps import completed_payload, severity_for_band
+from fraudlens_ml.pipeline.steps import completed_payload
 
 # The stable run.failed code for a deterministic-core step failure (PHI-free, no internals leaked).
 _RUN_FAILED_CODE = "investigation_failed"
@@ -68,7 +67,7 @@ class Runner:
     """Builds the orchestration graph from the injected deps and drives one run to its terminus."""
 
     def __init__(self, deps: PipelineDeps) -> None:
-        """Bind the deps and compile the rules→scoring→SHAP→RAG→SAR orchestration graph."""
+        """Bind deps and compile the core plus conditional alert-enrichment graph."""
         self._deps = deps
         self._graph = build_pipeline_graph(deps)
 
@@ -91,25 +90,19 @@ class Runner:
         return await self._complete(pipeline_input, final)
 
     async def _complete(self, pipeline_input: PipelineInput, final: dict[str, Any]) -> RunReport:
-        """Raise the conditional alert, mark the run completed, and emit the terminal event."""
+        """Complete the run with optional enrichment provenance and emit the terminal event."""
         deps = self._deps
         evaluation: RuleEvaluation = final["evaluation"]
         score: ScoreResult = final["score"]
         assessment: RiskAssessment = final["assessment"]
-        rag: RagResult = final["rag"]
+        rag: RagResult | None = final.get("rag")
         sar_draft_id = str(final.get("sar_draft_id", ""))
         provenance = RunProvenance(
             model_version=score.model_version_label,
             rules_version=evaluation.rules_version,
-            rag_version=rag.rag_version,
+            rag_version=rag.rag_version if rag is not None else None,
             prompt_version=final.get("sar_prompt_version"),
         )
-        if assessment.alert:
-            await deps.store.raise_alert(
-                AlertRecord(
-                    severity=severity_for_band(assessment.risk_band), risk_band=assessment.risk_band
-                )
-            )
         await deps.store.complete_run(
             combined_score=assessment.combined_score,
             risk_band=assessment.risk_band,

@@ -53,7 +53,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from fraudlens_core import RiskBand, RiskPolicy, RuleContext, RuleEvaluation
+from fraudlens_core import ModelRiskThresholds, RiskBand, RiskPolicy, RuleContext, RuleEvaluation
 from fraudlens_ml.sar import SarCitation, SarDrafter, SarDraftResult, SarFeature
 
 _DEFAULT_RAG_TOP_K = 4
@@ -101,6 +101,11 @@ class ScoreResult(BaseModel):
     model_version_label: str = Field(..., description="Version label of the model that scored.")
     was_canary: bool = Field(
         default=False, description="True when a canary model scored (Phase 10; active-only in v1)."
+    )
+    risk_thresholds: ModelRiskThresholds | None = Field(
+        default=None,
+        description="The scoring model's persisted risk operating points; the risk step "
+        "normalizes the raw probability through them (None keeps the identity mapping).",
     )
 
 
