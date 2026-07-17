@@ -33,7 +33,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -86,8 +86,16 @@ def _require_text(value: str, field: str) -> str:
     return text
 
 
+# Canonical amount precision: the persisted `Numeric(18, 2)` column stores cents, so the
+# boundary quantizes explicitly (half-up, matching Postgres numeric rounding) instead of
+# letting storage truncate silently. An amount that rounds to zero cents is not a valid
+# transaction for this system (real IBM AML data carries sub-cent fx/crypto dust that would
+# otherwise persist as 0.00 and violate the downstream `amount > 0` analytical contract).
+_AMOUNT_QUANTUM = Decimal("0.01")
+
+
 def _coerce_amount(amount: Decimal | float | int | str) -> Decimal:
-    """Coerce a raw amount to a positive Decimal, else raise SchemaValidationError."""
+    """Coerce a raw amount to a positive cent-quantized Decimal, else raise."""
     try:
         value = amount if isinstance(amount, Decimal) else Decimal(str(amount))
     except (InvalidOperation, ValueError) as exc:
@@ -96,7 +104,10 @@ def _coerce_amount(amount: Decimal | float | int | str) -> Decimal:
         raise SchemaValidationError("amount", "not_finite")
     if value <= 0:
         raise SchemaValidationError("amount", "not_positive")
-    return value
+    quantized = value.quantize(_AMOUNT_QUANTUM, rounding=ROUND_HALF_UP)
+    if quantized <= 0:  # sub-half-cent dust rounds to 0.00 -> not storable as a transaction
+        raise SchemaValidationError("amount", "not_positive")
+    return quantized
 
 
 def _require_aware(occurred_at: datetime, now: datetime) -> datetime:
