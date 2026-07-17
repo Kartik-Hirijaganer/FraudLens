@@ -12,6 +12,7 @@ backend can override them from config but a DB outage still yields a meaningful 
 blends, bands, and decides whether the run should raise an alert.
 
 Key classes:
+- ModelRiskThresholds: a model version's calibrated-probability operating points (med/high/crit).
 - RiskPolicy: the blend weight, cumulative band thresholds, and alert threshold (tunable).
 - RiskAssessment: the blended `combined_score`, the resolved `RiskBand`, and the alert flag.
 
@@ -25,13 +26,19 @@ Notes:
   map falls back to `RiskBand.LOW`, so banding never raises on bad config (graceful degradation).
 - `RiskPolicy` defaults are the canonical source the seed mirrors; changing them here changes
   the documented defaults (no duplicated magic thresholds across the codebase, rule 5).
+- `ModelRiskThresholds` fixes the rare-event mismatch: a calibrated probability from a ~0.1%
+  base-rate AML model never nears the fixed band bounds, so each model version persists the
+  holdout-derived operating points at which its OWN score warrants medium/high/critical. `assess`
+  normalizes the probability through a monotone piecewise-linear map anchored so a score AT an
+  operating point (with zero rules) lands exactly at that band's lower bound; `None` thresholds
+  keep the identity mapping, so legacy artifacts and the synthetic fixture behave unchanged.
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fraudlens_core.types import RiskBand
 
@@ -50,6 +57,38 @@ _DEFAULT_BAND_THRESHOLDS: dict[RiskBand, float] = {
     RiskBand.CRITICAL: 0.85,
 }
 _DEFAULT_ALERT_THRESHOLD = 0.6
+
+
+class ModelRiskThresholds(BaseModel):
+    """A model version's calibrated-probability operating points, derived from its holdout.
+
+    `medium`/`high`/`critical` are the calibrated probabilities at/above which THIS model's
+    signal alone warrants that band (top-K/percentile operating points chosen at training time,
+    e.g. the alert-budget and top-slice quantiles). They must be strictly increasing inside
+    (0, 1) — a degenerate score distribution must omit thresholds rather than persist junk.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    medium: float = Field(
+        ..., gt=0.0, lt=1.0, description="Probability at which the model signal warrants MEDIUM."
+    )
+    high: float = Field(
+        ..., gt=0.0, lt=1.0, description="Probability at which the model signal warrants HIGH."
+    )
+    critical: float = Field(
+        ...,
+        gt=0.0,
+        lt=1.0,
+        description="Probability at which the model signal warrants CRITICAL.",
+    )
+
+    @model_validator(mode="after")
+    def _strictly_increasing(self) -> ModelRiskThresholds:
+        """Require medium < high < critical so the normalization map stays monotone."""
+        if not (self.medium < self.high < self.critical):
+            raise ValueError("model risk thresholds must satisfy medium < high < critical")
+        return self
 
 
 class RiskAssessment(BaseModel):
@@ -93,6 +132,42 @@ class RiskPolicy(BaseModel):
         )
         return min(_MAX_SCORE, max(_MIN_SCORE, blended))
 
+    def _band_bound(self, band: RiskBand) -> float:
+        """Return a band's configured lower bound, falling back to the documented default."""
+        return float(self.band_thresholds.get(band, _DEFAULT_BAND_THRESHOLDS[band]))
+
+    def model_risk(self, fraud_probability: float, thresholds: ModelRiskThresholds | None) -> float:
+        """Normalize a calibrated probability into model-risk space via the operating points.
+
+        Identity (clamped) when no thresholds exist or the model carries no blend weight — the
+        legacy behavior every pre-v2 artifact keeps. With thresholds, a monotone piecewise-linear
+        map sends each operating point to the level at which the MODEL SIGNAL ALONE (zero rules)
+        blends exactly onto that band's lower bound (`bound / model_weight`, capped at 1.0 — a
+        band bound above the blend weight stays reachable only with rule corroboration, which is
+        deliberate policy for CRITICAL).
+        """
+        probability = min(_MAX_SCORE, max(_MIN_SCORE, fraud_probability))
+        if thresholds is None or self.model_weight <= 0.0:
+            return probability
+        xs = (0.0, thresholds.medium, thresholds.high, thresholds.critical, 1.0)
+        targets = (
+            0.0,
+            self._band_bound(RiskBand.MEDIUM) / self.model_weight,
+            self._band_bound(RiskBand.HIGH) / self.model_weight,
+            self._band_bound(RiskBand.CRITICAL) / self.model_weight,
+            1.0,
+        )
+        ys: list[float] = []
+        for target in targets:  # clamp to [0,1] and force non-decreasing (bad config safe)
+            level = min(_MAX_SCORE, max(_MIN_SCORE, target))
+            ys.append(max(level, ys[-1]) if ys else level)
+        for index in range(1, len(xs)):  # xs strictly increase (validator + 0/1 sentinels)
+            if probability <= xs[index]:
+                span = xs[index] - xs[index - 1]
+                fraction = (probability - xs[index - 1]) / span
+                return ys[index - 1] + fraction * (ys[index] - ys[index - 1])
+        return _MAX_SCORE
+
     def band_for(self, combined_score: float) -> RiskBand:
         """Return the highest band whose lower bound is <= the score (LOW on empty/bad config)."""
         eligible = [band for band, lower in self.band_thresholds.items() if combined_score >= lower]
@@ -101,10 +176,22 @@ class RiskPolicy(BaseModel):
         return max(eligible, key=lambda band: self.band_thresholds[band])
 
     def assess(
-        self, *, fraud_probability: float, rules_subscore: Decimal | float
+        self,
+        *,
+        fraud_probability: float,
+        rules_subscore: Decimal | float,
+        model_thresholds: ModelRiskThresholds | None = None,
     ) -> RiskAssessment:
-        """Blend the two subscores, band the result, and decide whether to raise an alert."""
-        combined = self.blend(fraud_probability=fraud_probability, rules_subscore=rules_subscore)
+        """Blend the two subscores, band the result, and decide whether to raise an alert.
+
+        `model_thresholds` (the scoring model's persisted operating points) normalizes the raw
+        calibrated probability into model-risk space first; omitted, the blend consumes the raw
+        probability exactly as before.
+        """
+        combined = self.blend(
+            fraud_probability=self.model_risk(fraud_probability, model_thresholds),
+            rules_subscore=rules_subscore,
+        )
         return RiskAssessment(
             combined_score=combined,
             risk_band=self.band_for(combined),
