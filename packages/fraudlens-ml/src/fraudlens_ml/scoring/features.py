@@ -24,6 +24,12 @@ Notes:
 a documented default so scoring never raises on an unseen value.
 - Velocity/amount/country aggregates count ONLY same-account history within a fixed 24h
 window before the transaction, so the features are deterministic given a context.
+- Feature-spec v2 adds direction-split flow, burstiness, structuring-share, and counterparty
+fan-in signals computed from `RuleContext.history` (origin account) and the v2
+`RuleContext.counterparty_history` (destination account, directions relative to the
+destination) — every one reproducible at inference from the windowed same-account queries.
+- The scorer orders vectors by the LOADED artifact's persisted spec, so v1 (10-feature)
+artifacts keep scoring against the v2 extractor unchanged (their names are a subset).
 - All thresholds/weights are module constants (no magic values, plan §12.1 / ruff PLR2004).
 """
 
@@ -39,10 +45,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from fraudlens_core import RuleContext, TransactionDirection
 from fraudlens_core.rules.base import RuleTransaction
 
-FEATURE_SPEC_VERSION = 1
+FEATURE_SPEC_VERSION = 2
 
 # The ordered feature space — the single source of truth for column order. The model
 # artifact persists this so training and scoring can never disagree (plan §16 Phase 5).
+# v2 appends direction-split flow, burstiness, structuring-share, and counterparty fan-in
+# signals (full-IBM training plan Phase 1); v1 names stay a prefix so old artifacts keep
+# scoring by their own persisted spec.
 FEATURE_NAMES: tuple[str, ...] = (
     "amount_log",
     "hour_of_day",
@@ -54,10 +63,22 @@ FEATURE_NAMES: tuple[str, ...] = (
     "amount_24h_sum_log",
     "distinct_countries_24h",
     "is_outbound",
+    "inbound_velocity_24h",
+    "inbound_amount_24h_log",
+    "seconds_since_prev_txn_log",
+    "distinct_channels_24h",
+    "round_amount_share_24h",
+    "dest_fan_in_24h",
+    "dest_inbound_amount_24h_log",
+    "dest_outbound_velocity_24h",
+    "dest_outbound_amount_24h_log",
 )
 
 _WINDOW_24H = timedelta(hours=24)
 _ROUND_AMOUNT_MODULUS = Decimal("100")
+# Burstiness sentinel when no prior exists inside the 24h window: the window width itself,
+# in seconds ("the most recent prior is at least a day away").
+_NO_PRIOR_SENTINEL_SECONDS = 86_400.0
 
 # Graded, PHI-free reference risk for known high-risk jurisdictions / channels; an unseen
 # code falls back to the documented default so an unfamiliar value never breaks scoring.
@@ -119,14 +140,25 @@ def _is_round_amount(amount: Decimal) -> float:
     return 1.0 if amount % _ROUND_AMOUNT_MODULUS == 0 else 0.0
 
 
+def _within_24h_window(
+    priors: tuple[RuleTransaction, ...], transaction: RuleTransaction
+) -> tuple[RuleTransaction, ...]:
+    """Return the priors strictly within the [t-24h, t) window before the transaction."""
+    cutoff = transaction.occurred_at - _WINDOW_24H
+    return tuple(prior for prior in priors if cutoff <= prior.occurred_at < transaction.occurred_at)
+
+
 def _recent_history(context: RuleContext) -> tuple[RuleTransaction, ...]:
     """Return same-account history strictly within the 24h window before the transaction."""
-    cutoff = context.transaction.occurred_at - _WINDOW_24H
-    return tuple(
-        prior
-        for prior in context.history
-        if cutoff <= prior.occurred_at < context.transaction.occurred_at
-    )
+    return _within_24h_window(context.history, context.transaction)
+
+
+def _seconds_since_prev(recent: tuple[RuleTransaction, ...], txn: RuleTransaction) -> float:
+    """Return seconds since the most recent 24h-window prior (sentinel when none exists)."""
+    if not recent:
+        return _NO_PRIOR_SENTINEL_SECONDS
+    latest = max(prior.occurred_at for prior in recent)
+    return float((txn.occurred_at - latest).total_seconds())
 
 
 def extract_features(context: RuleContext) -> dict[str, float]:
@@ -136,6 +168,18 @@ def extract_features(context: RuleContext) -> dict[str, float]:
     amount = float(txn.amount)
     window_sum = amount + sum(float(prior.amount) for prior in recent)
     countries = {txn.country, *(prior.country for prior in recent)}
+    channels = {txn.channel, *(prior.channel for prior in recent)}
+    inbound = tuple(p for p in recent if p.direction == TransactionDirection.INBOUND)
+    round_hits = _is_round_amount(txn.amount) + sum(
+        _is_round_amount(prior.amount) for prior in recent
+    )
+    dest_recent = _within_24h_window(context.counterparty_history, txn)
+    dest_inbound = tuple(p for p in dest_recent if p.direction == TransactionDirection.INBOUND)
+    dest_inbound_sum = amount + sum(float(prior.amount) for prior in dest_inbound)
+    # The destination's OUTBOUND window flags a pass-through/layering hop: funds arriving at
+    # the counterparty while it is simultaneously forwarding funds onward.
+    dest_outbound = tuple(p for p in dest_recent if p.direction == TransactionDirection.OUTBOUND)
+    dest_outbound_sum = sum(float(prior.amount) for prior in dest_outbound)
     values: dict[str, float] = {
         "amount_log": float(np.log1p(amount)),
         "hour_of_day": float(txn.occurred_at.hour),
@@ -147,6 +191,15 @@ def extract_features(context: RuleContext) -> dict[str, float]:
         "amount_24h_sum_log": float(np.log1p(window_sum)),
         "distinct_countries_24h": float(len(countries)),
         "is_outbound": 1.0 if txn.direction == TransactionDirection.OUTBOUND else 0.0,
+        "inbound_velocity_24h": float(len(inbound)),
+        "inbound_amount_24h_log": float(np.log1p(sum(float(prior.amount) for prior in inbound))),
+        "seconds_since_prev_txn_log": float(np.log1p(_seconds_since_prev(recent, txn))),
+        "distinct_channels_24h": float(len(channels)),
+        "round_amount_share_24h": round_hits / (1.0 + len(recent)),
+        "dest_fan_in_24h": float(len(dest_inbound)),
+        "dest_inbound_amount_24h_log": float(np.log1p(dest_inbound_sum)),
+        "dest_outbound_velocity_24h": float(len(dest_outbound)),
+        "dest_outbound_amount_24h_log": float(np.log1p(dest_outbound_sum)),
     }
     return {name: values[name] for name in FEATURE_NAMES}
 
