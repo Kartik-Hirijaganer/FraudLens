@@ -29,7 +29,7 @@ from __future__ import annotations
 import xgboost as xgb
 from pydantic import BaseModel, ConfigDict, Field
 
-from fraudlens_core import RuleContext
+from fraudlens_core import ModelRiskThresholds, RuleContext
 from fraudlens_ml.scoring.artifacts import DeploymentPointer, ModelCache
 from fraudlens_ml.scoring.features import extract_features, feature_vector
 
@@ -41,6 +41,10 @@ class ScoreOutput(BaseModel):
 
     fraud_probability: float = Field(..., ge=0.0, le=1.0, description="Calibrated P(fraud).")
     model_version_label: str = Field(..., description="Version label of the model that scored.")
+    risk_thresholds: ModelRiskThresholds | None = Field(
+        default=None,
+        description="The scoring model's persisted risk operating points (None on legacy models).",
+    )
 
 
 class Scorer:
@@ -59,4 +63,5 @@ class Scorer:
         return ScoreOutput(
             fraud_probability=min(1.0, max(0.0, probability)),
             model_version_label=loaded.version_label,
+            risk_thresholds=loaded.risk_thresholds,
         )
