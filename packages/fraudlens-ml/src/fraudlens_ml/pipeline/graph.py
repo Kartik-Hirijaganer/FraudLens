@@ -1,5 +1,7 @@
 """Summary: The LangGraph investigation orchestrator (plan §3.3, §10.2, §16 Phase 8). It wires
-the five discrete steps — rules → scoring → SHAP → RAG → SAR — into a `StateGraph` whose nodes
+ the deterministic rules → scoring → SHAP core, then conditionally raises an alert and runs the
+ RAG → SAR enrichment branch only when the blended score crosses the alert threshold. The
+ `StateGraph` nodes
 are pure over the accumulating `PipelineState` and reach all IO through the injected `PipelineDeps`
 (scorer / explainer / retriever / drafter ports + the `RunStore` + the live `emit`), so the graph
 itself imports no heavy ML and is driven identically by real adapters or test fakes. The node order
@@ -12,7 +14,7 @@ step persists its ordered `analysis_run_events` row (the SSE replay log) and emi
 ephemeral `sar.token`s emit without persisting (the authoritative SAR lands in `sar_drafts`).
 
 Key classes:
-- PipelineState: the LangGraph state accumulated across the rules→scoring→SHAP→RAG→SAR nodes.
+- PipelineState: the LangGraph state accumulated across the core and conditional alert enrichment.
 
 Key functions:
 - persist_and_emit: append an ordered event (returns its seq) and broadcast it live (shared helper).
@@ -22,7 +24,8 @@ Notes:
 - The deterministic nodes let exceptions propagate (the Runner catches → `run.failed`); the RAG and
   SAR nodes swallow exceptions so a soft-dependency outage never fails the run (plan §7.5 / §10.6).
 - `analysis_results` is persisted inside the SHAP node — the moment the deterministic core
-  (rules→score→SHAP→band) is complete — so the result is durable regardless of what RAG/SAR do.
+  (rules→score→SHAP→band) is complete. No-alert runs end there; alerted runs persist the alert
+  before entering RAG/SAR so an enhancer outage cannot delay or erase the detection decision.
 - A misbehaving drafter that yields no terminal event degrades to a sentinel `failed` SAR draft
   rather than stranding the run (defensive; the mock/live drafters always yield a terminal, §7.5).
 """
@@ -36,6 +39,7 @@ from langgraph.graph import END, START, StateGraph
 from fraudlens_core import RiskAssessment, RuleEvaluation
 from fraudlens_ml.pipeline.events import (
     SAR_TOKEN_EVENT,
+    AlertRecord,
     InferenceRecord,
     PipelineDeps,
     PipelineEventType,
@@ -53,6 +57,7 @@ from fraudlens_ml.pipeline.steps import (
     result_record,
     rules_payload,
     scoring_payload,
+    severity_for_band,
     shap_payload,
 )
 from fraudlens_ml.sar import SarDraftResult, SarDraftStatus, SarEventType, SarInput
@@ -112,8 +117,8 @@ async def _drive_drafter(deps: PipelineDeps, sar_input: SarInput) -> SarDraftRes
     return terminal if terminal is not None else _failed_sar_result()
 
 
-def build_pipeline_graph(deps: PipelineDeps) -> Any:
-    """Compile the rules→scoring→SHAP→RAG→SAR StateGraph bound to the injected deps."""
+def build_pipeline_graph(deps: PipelineDeps) -> Any:  # noqa: PLR0915 - explicit graph node wiring.
+    """Compile the core→conditional-alert-enrichment StateGraph bound to the injected deps."""
 
     async def node_rules(state: PipelineState) -> dict[str, Any]:
         """Deterministic rules → fired hits + weighted subscore; persists + emits the step event."""
@@ -147,7 +152,9 @@ def build_pipeline_graph(deps: PipelineDeps) -> Any:
         shap = deps.explainer.explain(pipeline_input.rule_context)
         await persist_and_emit(deps, PipelineEventType.STEP_SHAP_COMPLETED, shap_payload(shap))
         assessment = deps.risk_policy.assess(
-            fraud_probability=score.fraud_probability, rules_subscore=evaluation.subscore
+            fraud_probability=score.fraud_probability,
+            rules_subscore=evaluation.subscore,
+            model_thresholds=score.risk_thresholds,
         )
         await deps.store.save_result(
             result_record(evaluation=evaluation, score=score, shap=shap, assessment=assessment)
@@ -173,6 +180,21 @@ def build_pipeline_graph(deps: PipelineDeps) -> Any:
         await persist_and_emit(deps, PipelineEventType.STEP_RAG_COMPLETED, rag_payload(rag))
         return {"rag": rag}
 
+    async def node_alert(state: PipelineState) -> dict[str, Any]:
+        """Persist the threshold-driven alert before any optional RAG/SAR enrichment begins."""
+        assessment = state["assessment"]
+        await deps.store.raise_alert(
+            AlertRecord(
+                severity=severity_for_band(assessment.risk_band),
+                risk_band=assessment.risk_band,
+            )
+        )
+        return {}
+
+    def route_after_assessment(state: PipelineState) -> str:
+        """Route alerted runs to enrichment and complete no-alert runs after the core."""
+        return "alert" if state["assessment"].alert else END
+
     async def node_sar(state: PipelineState) -> dict[str, Any]:
         """Soft enhancer: stream the SAR live, persist the draft (draft or failed), never abort."""
         sar_input = build_sar_input(
@@ -196,12 +218,14 @@ def build_pipeline_graph(deps: PipelineDeps) -> Any:
     graph.add_node("rules", node_rules)
     graph.add_node("scoring", node_scoring)
     graph.add_node("shap", node_shap)
+    graph.add_node("alert", node_alert)
     graph.add_node("rag", node_rag)
     graph.add_node("sar", node_sar)
     graph.add_edge(START, "rules")
     graph.add_edge("rules", "scoring")
     graph.add_edge("scoring", "shap")
-    graph.add_edge("shap", "rag")
+    graph.add_conditional_edges("shap", route_after_assessment)
+    graph.add_edge("alert", "rag")
     graph.add_edge("rag", "sar")
     graph.add_edge("sar", END)
     return graph.compile()
