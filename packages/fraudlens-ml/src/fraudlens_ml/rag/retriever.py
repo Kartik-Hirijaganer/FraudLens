@@ -1,11 +1,14 @@
 """Summary: The FinCEN/BSA RAG retriever — the read side of the index `ingest.py` builds
 (plan §16 Phase 6). `Retriever.retrieve` resolves the persisted ChromaDB collection, embeds the
-query, and returns the top-k most relevant regulatory chunks with their citations. It is built
+query, applies a configurable cosine-similarity floor, and returns up to the top-k relevant
+regulatory chunks with their citations. It is built
 for graceful degradation around a deterministic core (plan §10.6): if the query embedder fails
 (a down/keyless embeddings provider) it transparently falls back to a deterministic LEXICAL
 ranking over the same baked chunks; if the index is missing or empty it returns an empty result
 flagged as such — so an investigation always continues with citations, lexical citations, or a
-clean "no citations" signal, never a hard failure. `index_status` is the cheap presence check
+clean "no citations" signal, never a hard failure. Index/embedder provenance is checked before
+vector search; an absent or mismatched embedding space also fails closed to lexical mode rather
+than querying incompatible vectors. `index_status` is the cheap presence/provenance check
 `/readyz` uses to gate a replica on the baked index (plan §16 Phase 6 API change). Retrieval
 touches only the local index — no DB, no network in the offline path.
 
@@ -37,13 +40,14 @@ from chromadb import Collection
 from chromadb.api.types import Embeddings, QueryResult
 from pydantic import BaseModel, ConfigDict, Field
 
-from fraudlens_ml.rag.ingest import Embedder, connect, tokenize
+from fraudlens_ml.rag.ingest import Embedder, EmbeddingProvenance, connect, tokenize
 
 DEFAULT_TOP_K = 4
 DEFAULT_RAG_VERSION = "rag-v1"
+DEFAULT_MIN_SIMILARITY = 0.0
 _SQLITE_MARKER = "chroma.sqlite3"
 
-IndexStatus = Literal["ready", "empty", "missing"]
+IndexStatus = Literal["ready", "empty", "missing", "mismatch"]
 RetrievalMode = Literal["vector", "lexical", "empty"]
 
 
@@ -77,13 +81,22 @@ class RetrievalResult(BaseModel):
     rag_version: str = Field(..., description="Version of the corpus/index used for retrieval.")
 
 
-def index_status(persist_dir: Path, collection: str) -> IndexStatus:
-    """Classify the persisted index as 'ready' (has chunks), 'empty', or 'missing'."""
+def index_status(
+    persist_dir: Path,
+    collection: str,
+    expected_provenance: EmbeddingProvenance | None = None,
+) -> IndexStatus:
+    """Classify an index as ready, empty, missing, or provenance-mismatched."""
     if not (persist_dir / _SQLITE_MARKER).is_file():
         return "missing"
     try:
         store = connect(persist_dir).get_collection(collection)
-        return "ready" if store.count() > 0 else "empty"
+        if store.count() == 0:
+            return "empty"
+        observed = EmbeddingProvenance.from_collection_metadata(store.metadata)
+        if expected_provenance is not None and observed != expected_provenance:
+            return "mismatch"
+        return "ready"
     except Exception:  # any open/lookup failure → treat as missing (readiness never raises)
         return "missing"
 
@@ -119,12 +132,18 @@ class Retriever:
         collection: str,
         embedder: Embedder,
         rag_version: str = DEFAULT_RAG_VERSION,
+        min_similarity: float = DEFAULT_MIN_SIMILARITY,
     ) -> None:
-        """Bind the index location, collection, query embedder, and corpus version."""
+        """Bind the index, query embedder, corpus version, and vector relevance floor."""
+        if not 0.0 <= min_similarity <= 1.0:
+            raise ValueError("min_similarity must be between 0 and 1")
         self._persist_dir = persist_dir
         self._collection = collection
         self._embedder = embedder
-        self._rag_version = rag_version
+        self._min_similarity = min_similarity
+        provenance = getattr(embedder, "provenance", None)
+        self._provenance = provenance if isinstance(provenance, EmbeddingProvenance) else None
+        self._rag_version = self._provenance.rag_version if self._provenance else rag_version
 
     def _empty(self, mode: RetrievalMode) -> RetrievalResult:
         """Return an empty result carrying the given degradation mode + rag version."""
@@ -132,18 +151,23 @@ class Retriever:
 
     def retrieve(self, query: str, *, top_k: int = DEFAULT_TOP_K) -> RetrievalResult:
         """Return the top-k relevant chunks: vector search, else lexical, else empty."""
-        if index_status(self._persist_dir, self._collection) != "ready":
+        status = index_status(self._persist_dir, self._collection, self._provenance)
+        if status in {"missing", "empty"}:
             return self._empty("empty")
         store = connect(self._persist_dir).get_collection(self._collection)
+        if status == "mismatch" or self._provenance is None:
+            return self._lexical(store, query, top_k)
         try:
             embedding = np.asarray(self._embedder.embed_query(query), dtype=np.float32)
-        except Exception:  # embeddings provider down → deterministic lexical fallback (§10.6)
+            if len(embedding) != self._provenance.dimensions:
+                return self._lexical(store, query, top_k)
+            result = store.query(
+                query_embeddings=cast(Embeddings, [embedding]),
+                n_results=top_k,
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception:  # provider/index failure → deterministic lexical fallback (§10.6)
             return self._lexical(store, query, top_k)
-        result = store.query(
-            query_embeddings=cast(Embeddings, [embedding]),
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
         return self._from_vector(result)
 
     def _from_vector(self, result: QueryResult) -> RetrievalResult:
@@ -152,10 +176,13 @@ class Retriever:
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
         distances = (result.get("distances") or [[]])[0]
-        chunks = [
-            _chunk_from_meta(ids[i], documents[i], metadatas[i], 1.0 - float(distances[i]))
-            for i in range(len(ids))
-        ]
+        chunks = []
+        for index in range(len(ids)):
+            score = 1.0 - float(distances[index])
+            if score >= self._min_similarity:
+                chunks.append(
+                    _chunk_from_meta(ids[index], documents[index], metadatas[index], score)
+                )
         return RetrievalResult(chunks=chunks, mode="vector", rag_version=self._rag_version)
 
     def _lexical(self, store: Collection, query: str, top_k: int) -> RetrievalResult:

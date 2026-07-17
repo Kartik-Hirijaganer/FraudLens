@@ -1,6 +1,6 @@
 """fraudlens-core: shared domain types and multi-tenancy (agency_id) helpers."""
 
-from fraudlens_core.risk import RiskAssessment, RiskPolicy
+from fraudlens_core.risk import ModelRiskThresholds, RiskAssessment, RiskPolicy
 from fraudlens_core.rules import (
     BUILTIN_RULES,
     DEFAULT_RULE_DEFINITIONS,
@@ -30,6 +30,7 @@ __all__ = [
     "DEFAULT_RULE_DEFINITIONS",
     "AmlRuleType",
     "CanonicalTransaction",
+    "ModelRiskThresholds",
     "RiskAssessment",
     "RiskBand",
     "RiskPolicy",

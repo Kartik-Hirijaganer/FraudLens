@@ -23,6 +23,8 @@ Key functions:
 Notes:
 - `RuleTransaction` deliberately carries NO account identifiers: history is pre-grouped by
   account by the caller, so the engine stays PHI-free by construction (plan §8.4).
+- `RuleContext.counterparty_history` (destination-account activity, directions relative to the
+  destination) exists for the feature extractor's fan-in signals; the rules engine ignores it.
 - `RuleHit.reason`/`details` are value-free of PHI — only counts, thresholds, and the
   (non-PHI) country code — so a hit can flow into `analysis_results`/logs without leaking.
 - Every field carries `Field(..., description=...)` and models are frozen with
@@ -83,6 +85,12 @@ class RuleContext(BaseModel):
     history: tuple[RuleTransaction, ...] = Field(
         default=(),
         description="Recent same-account activity (PHI-free), pre-grouped by the caller.",
+    )
+    counterparty_history: tuple[RuleTransaction, ...] = Field(
+        default=(),
+        description="Recent destination-account activity (PHI-free), pre-grouped by the caller "
+        "with directions relative to the DESTINATION account; rules ignore it, the feature "
+        "extractor uses it for counterparty fan-in signals (feature-spec v2).",
     )
 
 

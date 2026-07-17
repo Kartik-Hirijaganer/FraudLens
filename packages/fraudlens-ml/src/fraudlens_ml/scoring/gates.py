@@ -25,6 +25,10 @@ Key functions:
 - evaluate_tenant_slices: per-tenant slice gate — no slice may regress beyond tolerance (§9.4).
 
 Notes:
+- The PR-AUC floor and precision@top bars are base-rate-aware: each absolute bar is capped by
+  an equivalent-strength base-rate multiple (`pr_auc_lift_min` / `precision_lift_min`), because
+  at a ~0.1% AML base rate the absolute precision bar is mathematically unattainable while at
+  the synthetic ~3.5% base rate the absolute bars remain binding (behavior unchanged there).
 - The active-regression gate is skipped (auto-pass) when there is no current active model,
   so the very first model is judged on the floor + baseline + operating-point gates only.
 - recall_at_budget / precision_at_top_pct flag the top ceil(fraction*N) by score; the alert
@@ -76,6 +80,29 @@ class ModelGates(BaseModel):
         default=0.05,
         description="Max PR-AUC a per-tenant slice may fall below active before failing (§9.4).",
     )
+    # Rare-event normalization (full-IBM training plan Phase 3). The absolute PR-AUC floor and
+    # precision@top bars were calibrated for the synthetic ~3.5% base rate; at a ~0.1% AML base
+    # rate precision@top1% >= 0.20 is mathematically unattainable (positives are scarcer than 20%
+    # of the top slice). Each absolute bar is therefore capped by an equivalent-strength
+    # base-rate multiple (lift): effective = min(absolute, lift_min * base_rate). At >= ~1% base
+    # rates the absolute bars stay binding, so synthetic gate outcomes are unchanged.
+    pr_auc_lift_min: float = Field(
+        default=150.0,
+        gt=0.0,
+        description="PR-AUC floor as a base-rate multiple for rare-event holdouts (mean lift).",
+    )
+    precision_lift_min: float = Field(
+        default=20.0,
+        gt=0.0,
+        description="precision@top-slice floor as a base-rate multiple for rare-event holdouts.",
+    )
+    medium_review_fraction: float = Field(
+        default=0.15,
+        gt=0.0,
+        lt=1.0,
+        description="Scored-volume fraction whose holdout score quantile anchors the MEDIUM "
+        "risk operating point persisted with a rare-event model version.",
+    )
 
 
 class CandidateMetrics(BaseModel):
@@ -88,6 +115,18 @@ class CandidateMetrics(BaseModel):
     precision_at_top_pct: float = Field(..., description="Precision within the top-score slice.")
     ece: float = Field(..., description="Expected calibration error (lower is better).")
     brier: float = Field(..., description="Brier score (tracked alongside ECE).")
+    holdout_base_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Positive-class rate of the holdout; scales the rare-event lift gates.",
+    )
+    precision_at_budget: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Precision at the alert-budget operating point (informative, not gated).",
+    )
 
 
 class GateCheck(BaseModel):
@@ -180,7 +219,24 @@ def compute_metrics(
         precision_at_top_pct=precision_at_top_pct(labels, probabilities, gates.top_pct_fraction),
         ece=expected_calibration_error(labels, probabilities, gates.calibration_bins),
         brier=brier_score(labels, probabilities),
+        holdout_base_rate=float(labels.mean()) if labels.shape[0] else 0.0,
+        precision_at_budget=precision_at_top_pct(
+            labels, probabilities, gates.alert_budget_fraction
+        ),
     )
+
+
+def _effective_floor(absolute: float, lift_min: float, base_rate: float) -> float:
+    """Return a gate's effective threshold: the absolute bar capped by its base-rate multiple.
+
+    At common (>= ~1%) base rates the absolute bar is the smaller term, so behavior is exactly
+    the historical gate; at rare-event base rates the lift term keeps the bar equivalent in
+    strength but mathematically attainable (a 0-base-rate degenerate holdout keeps the absolute
+    bar rather than collapsing the gate to zero).
+    """
+    if base_rate <= 0.0:
+        return absolute
+    return min(absolute, lift_min * base_rate)
 
 
 def evaluate_gates(
@@ -190,12 +246,18 @@ def evaluate_gates(
     gates: ModelGates,
 ) -> GateReport:
     """Apply the §10.5.1 gates to candidate vs baseline vs (optional) active metrics."""
+    pr_auc_floor = _effective_floor(
+        gates.pr_auc_floor, gates.pr_auc_lift_min, candidate.holdout_base_rate
+    )
+    precision_floor = _effective_floor(
+        gates.precision_at_top_pct, gates.precision_lift_min, candidate.holdout_base_rate
+    )
     checks: list[GateCheck] = [
         GateCheck(
             name="pr_auc_floor",
             value=candidate.pr_auc,
-            threshold=gates.pr_auc_floor,
-            passed=candidate.pr_auc >= gates.pr_auc_floor,
+            threshold=pr_auc_floor,
+            passed=candidate.pr_auc >= pr_auc_floor,
         ),
         GateCheck(
             name="beats_baseline",
@@ -212,8 +274,8 @@ def evaluate_gates(
         GateCheck(
             name="precision_at_top_pct",
             value=candidate.precision_at_top_pct,
-            threshold=gates.precision_at_top_pct,
-            passed=candidate.precision_at_top_pct >= gates.precision_at_top_pct - _EPS,
+            threshold=precision_floor,
+            passed=candidate.precision_at_top_pct >= precision_floor - _EPS,
         ),
         GateCheck(
             name="calibration_ece",

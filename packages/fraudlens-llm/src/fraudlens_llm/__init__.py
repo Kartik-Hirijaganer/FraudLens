@@ -11,7 +11,7 @@ from fraudlens_llm.catalog import (
     Speed,
     load_catalog,
 )
-from fraudlens_llm.client import BoundModel, LlmClient
+from fraudlens_llm.client import BoundModel, LlmClient, StreamGenerationRequest
 from fraudlens_llm.exceptions import (
     CapabilityMismatchError,
     CatalogError,
@@ -88,6 +88,7 @@ __all__ = [
     "Role",
     "ScanOutcome",
     "Speed",
+    "StreamGenerationRequest",
     "Strictness",
     "TaskType",
     "UnsupportedParameterError",
