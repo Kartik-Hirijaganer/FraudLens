@@ -1,9 +1,12 @@
 """Summary: Public guardrailed async LLM client. It is the first exported call path
 that can reach provider SDKs and enforces compliance policy, PHI masking, prompt
 risk scanning, output scanning/sanitization, safe logging, and fallback governance.
+Chat generation supports both blocking and provider-native streaming transport; the
+streaming path buffers raw deltas until the complete output passes the same guardrails.
 
 Key classes:
 - BoundModel: Convenience wrapper bound to one provider/model reference.
+- StreamGenerationRequest: Typed request for provider-native guarded generation.
 - LlmClient: Catalog-driven guardrailed async client.
 
 Key functions:
@@ -18,11 +21,16 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from fraudlens_llm.adapters.anthropic import AnthropicAdapter
-from fraudlens_llm.adapters.base import AdapterGenerateResult, ProviderAdapter
+from fraudlens_llm.adapters.base import (
+    AdapterGenerateResult,
+    ProviderAdapter,
+    StreamingProviderAdapter,
+)
 from fraudlens_llm.adapters.openai_compatible import OpenAiCompatibleAdapter
 from fraudlens_llm.catalog import Catalog, GenerationParams, Kind, ModelCard, load_catalog
 from fraudlens_llm.exceptions import (
@@ -84,6 +92,43 @@ class _InputGuardrails(BaseModel):
 
     messages: list[LlmMessage] = Field(..., description="Masked provider messages.")
     report: GuardrailReport = Field(..., description="Input guardrail report.")
+
+
+class _PreparedGeneration(BaseModel):
+    """Internal provider-ready generation request after input guardrails."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    resolved: _ResolvedModel = Field(..., description="Resolved primary model.")
+    messages: list[LlmMessage] = Field(..., description="Masked provider messages.")
+    report: GuardrailReport = Field(..., description="Input guardrail report.")
+    data_class: DataClass = Field(..., description="Governed data classification.")
+
+
+class StreamGenerationRequest(BaseModel):
+    """Typed request for a provider-native stream assembled behind output guardrails."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    messages: Sequence[LlmMessage] = Field(
+        ..., description="Chat messages validated and masked before the provider call."
+    )
+    model: str | None = Field(default=None, description="Provider/model reference override.")
+    overrides: GenerationParams | None = Field(
+        default=None, description="Per-call generation parameter overrides."
+    )
+    task_type: TaskType = Field(
+        default=TaskType.GENERATION, description="Guardrail task classification."
+    )
+    data_class: DataClass | None = Field(
+        default=None, description="Provider-governance data classification override."
+    )
+    include_raw: bool = Field(
+        default=False, description="Whether non-production policy may return raw output."
+    )
+    fallbacks: tuple[str, ...] = Field(
+        default=(), description="Ordered governance-eligible fallback model references."
+    )
 
 
 class BoundModel:
@@ -179,26 +224,42 @@ class LlmClient:
         fallbacks: Sequence[str] | None = None,
     ) -> LlmResult:
         """Generate chat text through the guardrailed pipeline."""
-        resolved = self._resolve_model(model or self._settings.default_model)
-        self._require_kind(resolved, Kind.CHAT)
-        resolved_data_class = data_class or self._settings.default_data_class
-        self._enforce_provider_policy(resolved, resolved_data_class)
-        typed_messages = _coerce_messages(messages)
-        input_guardrails = self._run_input_guardrails(
-            typed_messages,
+        prepared = self._prepare_generation(
+            messages,
+            model=model,
             task_type=task_type,
-            data_class=resolved_data_class,
+            data_class=data_class,
         )
-        provider_messages = [system_policy_message(), *input_guardrails.messages]
         return await self._generate_with_fallbacks(
-            resolved,
-            provider_messages,
-            input_guardrails.report,
+            prepared.resolved,
+            prepared.messages,
+            prepared.report,
             overrides=overrides,
             task_type=task_type,
-            data_class=resolved_data_class,
+            data_class=prepared.data_class,
             include_raw=include_raw,
             fallbacks=fallbacks or (),
+            native_stream=False,
+        )
+
+    async def generate_stream(self, request: StreamGenerationRequest) -> LlmResult:
+        """Consume a provider-native stream, then scan and return its assembled output."""
+        prepared = self._prepare_generation(
+            request.messages,
+            model=request.model,
+            task_type=request.task_type,
+            data_class=request.data_class,
+        )
+        return await self._generate_with_fallbacks(
+            prepared.resolved,
+            prepared.messages,
+            prepared.report,
+            overrides=request.overrides,
+            task_type=request.task_type,
+            data_class=prepared.data_class,
+            include_raw=request.include_raw,
+            fallbacks=request.fallbacks,
+            native_stream=True,
         )
 
     async def embed(
@@ -251,6 +312,31 @@ class LlmClient:
         self._resolve_model(ref)
         return BoundModel(self, ref)
 
+    def _prepare_generation(
+        self,
+        messages: Sequence[LlmMessage | dict[str, object]],
+        *,
+        model: str | None,
+        task_type: TaskType,
+        data_class: DataClass | None,
+    ) -> _PreparedGeneration:
+        """Resolve policy and input guardrails once for blocking or streaming transport."""
+        resolved = self._resolve_model(model or self._settings.default_model)
+        self._require_kind(resolved, Kind.CHAT)
+        resolved_data_class = data_class or self._settings.default_data_class
+        self._enforce_provider_policy(resolved, resolved_data_class)
+        input_guardrails = self._run_input_guardrails(
+            _coerce_messages(messages),
+            task_type=task_type,
+            data_class=resolved_data_class,
+        )
+        return _PreparedGeneration(
+            resolved=resolved,
+            messages=[system_policy_message(), *input_guardrails.messages],
+            report=input_guardrails.report,
+            data_class=resolved_data_class,
+        )
+
     async def _generate_with_fallbacks(  # noqa: PLR0913 - keeps routing context explicit.
         self,
         resolved: _ResolvedModel,
@@ -262,8 +348,9 @@ class LlmClient:
         data_class: DataClass,
         include_raw: bool,
         fallbacks: Sequence[str],
+        native_stream: bool,
     ) -> LlmResult:
-        """Generate with primary then eligible fallback refs after retryable failures."""
+        """Generate through one guarded fallback pipeline using blocking or native transport."""
         last_error: LlmError | None = None
         eligible = [resolved, *self._eligible_fallbacks(resolved, data_class, fallbacks)]
         for fallback_count, target in enumerate(eligible):
@@ -274,11 +361,11 @@ class LlmClient:
             )
             start = time.perf_counter()
             try:
-                adapter_result = await self._adapter_for(target).generate(
-                    model_id=target.model_id,
-                    card=target.card,
-                    messages=messages,
-                    params=params,
+                adapter_result = await self._invoke_generation(
+                    target,
+                    messages,
+                    params,
+                    native_stream=native_stream,
                 )
             except LlmError as exc:
                 if exc.retryable:
@@ -299,6 +386,30 @@ class LlmClient:
         if last_error is not None:
             raise last_error
         raise PolicyError("No fallback model satisfied provider governance policy")
+
+    async def _invoke_generation(
+        self,
+        target: _ResolvedModel,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+        *,
+        native_stream: bool,
+    ) -> AdapterGenerateResult:
+        """Invoke the selected transport and normalize it to one adapter result."""
+        if native_stream:
+            return await _collect_adapter_stream(
+                self._streaming_adapter_for(target),
+                model_id=target.model_id,
+                card=target.card,
+                messages=messages,
+                params=params,
+            )
+        return await self._adapter_for(target).generate(
+            model_id=target.model_id,
+            card=target.card,
+            messages=messages,
+            params=params,
+        )
 
     def _resolve_model(self, ref: str) -> _ResolvedModel:
         """Resolve a catalog ref plus provider config."""
@@ -374,6 +485,14 @@ class LlmClient:
         self._adapters[resolved.provider] = adapter
         return adapter
 
+    def _streaming_adapter_for(self, resolved: _ResolvedModel) -> StreamingProviderAdapter:
+        """Return the native streaming adapter supported by OpenAI-compatible providers."""
+        if resolved.provider_config.protocol != Protocol.OPENAI_COMPATIBLE:
+            raise CapabilityMismatchError(
+                "Native chat streaming requires an openai_compatible provider"
+            )
+        return cast(StreamingProviderAdapter, self._adapter_for(resolved))
+
     def _eligible_fallbacks(
         self,
         primary: _ResolvedModel,
@@ -398,6 +517,37 @@ class LlmClient:
 def _coerce_messages(messages: Sequence[LlmMessage | dict[str, object]]) -> list[LlmMessage]:
     """Validate message inputs into LlmMessage instances."""
     return _MESSAGE_ADAPTER.validate_python(list(messages))
+
+
+async def _collect_adapter_stream(
+    adapter: StreamingProviderAdapter,
+    *,
+    model_id: str,
+    card: ModelCard,
+    messages: Sequence[LlmMessage],
+    params: GenerationParams,
+) -> AdapterGenerateResult:
+    """Assemble native provider deltas into the normalized result guardrails consume."""
+    text_parts: list[str] = []
+    served_model: str | None = None
+    finish_reason: str | None = None
+    usage = LlmUsage()
+    async for chunk in adapter.generate_stream(
+        model_id=model_id,
+        card=card,
+        messages=messages,
+        params=params,
+    ):
+        text_parts.append(chunk.text_delta)
+        served_model = chunk.served_model or served_model
+        finish_reason = chunk.finish_reason or finish_reason
+        usage = chunk.usage or usage
+    return AdapterGenerateResult(
+        text="".join(text_parts),
+        served_model=served_model,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
 
 
 def _mask_inputs(
