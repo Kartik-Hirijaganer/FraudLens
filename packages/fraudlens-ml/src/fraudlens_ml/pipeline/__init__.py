@@ -1,5 +1,6 @@
 """fraudlens-ml investigation pipeline (plan §16 Phase 8): the LangGraph orchestrator that
-composes rules→scoring→SHAP→RAG→SAR into a persisted, idempotent run owned by `POST`, with SSE
+composes a rules→scoring→SHAP core with alert-only RAG→SAR enrichment into a persisted, idempotent
+run owned by `POST`, with SSE
 as a pure observer/replay (ADR-016). The graph is pure over an in-memory state and reaches all
 IO through injected ports (`PipelineDeps`) + an async `RunStore` the backend implements, so it
 imports no heavy ML and is driven identically by real adapters or test fakes. Layering: imports
