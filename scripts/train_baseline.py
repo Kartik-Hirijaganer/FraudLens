@@ -21,7 +21,7 @@ Key functions:
 Notes:
 - Linear-by-construction: the baseline cannot capture the nonlinear AND-interactions the
   synthetic fraud signal hides in, which is exactly why a tree model is expected to beat it.
-- It touches no database and no PHI — purely synthetic features in, a PR-AUC number out.
+- It touches no database and consumes only the PHI-free feature matrix — a PR-AUC number out.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from fraudlens_ml.scoring.gates import average_precision
-from lib.aml_fraud import IBM_AML
+from lib.aml_fraud import IBM_AML, IEEE_CIS
 from lib.dataset import DataSplit, split_dataset
 from lib.synthetic_fraud import generate_dataset
 
@@ -43,7 +43,7 @@ _LR_MAX_ITER = 1000
 _DEFAULT_ROWS = 16000
 _DEFAULT_SEED = 1729
 _SYNTHETIC = "synthetic"
-_SOURCES: tuple[str, ...] = (_SYNTHETIC, IBM_AML)
+_SOURCES: tuple[str, ...] = (_SYNTHETIC, IBM_AML, IEEE_CIS)
 
 
 @dataclass(frozen=True)

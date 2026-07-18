@@ -1,24 +1,25 @@
-"""Summary: The deterministic synthetic IEEE-CIS-shaped training dataset shared by the two
-Phase 5 training scripts (`scripts/train_model.py`, `scripts/train_baseline.py`). FraudLens
-ships no real IEEE-CIS download and never stores real PHI (governance), so `make train-model`
-must produce a model from data that is fully synthetic, reproducible, and learnable enough to
-clear the §10.5.1 gates. This generator samples transaction attributes (amount, hour, country/
+"""Summary: The deterministic synthetic IEEE-CIS-shaped training dataset shared by
+`scripts/train_model.py` and `scripts/train_baseline.py`. It remains the system of record for
+`make train-model`, CI, the committed fixture, and retraining; opt-in public-dataset training
+lives separately in `lib.aml_fraud`. This generator samples transaction attributes (amount,
+hour, country/
 channel risk, velocity, …) and concentrates fraud in nonlinear AND-interactions of those
 features — large cross-border amounts, rapid movement on risky channels, round-amount
 structuring — so a tree model (XGBoost) can separate it AND beat a linear logistic baseline,
 at a low (~3.5%) base rate. Columns are emitted in `fraudlens_ml` `FEATURE_NAMES` order, so the
 trained model's columns line up exactly with what the scorer extracts from a real transaction.
+The `DataSplit` container + the seeded random `split_dataset` now live in `lib.dataset` (shared
+with the real AML loader); this module keeps only the synthetic generator.
 
 Key classes:
-- DataSplit: the deterministic train / calibration / holdout arrays for one dataset.
+- (none)
 
 Key functions:
 - generate_dataset: sample (X, y) with fraud concentrated in nonlinear feature interactions.
-- split_dataset: deterministically split (X, y) into train / calibration / holdout folds.
 
 Notes:
-- Everything is seeded (numpy default_rng): same (n, seed) -> identical X, y, and folds, so
-  training and the gate tests are reproducible across runs and machines.
+- Everything is seeded (numpy default_rng): same (n, seed) -> identical X and y, so training
+  and the gate tests are reproducible across runs and machines.
 - The intercept is a tuned constant chosen for a ~3.5% base rate; the exact rate drifts a
   little with n but stays low, which is all the gates require.
 - The data is synthetic and PHI-free by construction (no identifiers, no real accounts), so a
@@ -26,8 +27,6 @@ Notes:
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 import numpy as np
 
@@ -47,21 +46,13 @@ _ODD_HOUR_END = 6
 _ROUND_RATE = 0.15
 _OUTBOUND_RATE = 0.70
 
-# Calibration + holdout folds are each this fraction of the dataset; the rest trains.
-_HOLDOUT_FRACTION = 0.2
-_CALIBRATION_FRACTION = 0.2
-
-
-@dataclass(frozen=True)
-class DataSplit:
-    """The deterministic train / calibration / holdout folds for one synthetic dataset."""
-
-    x_train: np.ndarray
-    y_train: np.ndarray
-    x_calibration: np.ndarray
-    y_calibration: np.ndarray
-    x_holdout: np.ndarray
-    y_holdout: np.ndarray
+# Feature-spec v2 sampling knobs (named; ruff PLR2004). Values mirror the live extractor's
+# semantics: the burstiness sentinel is the 24h window itself; fan-in spikes with the
+# rapid-movement interaction so the counterparty signal co-moves with fraud.
+_INBOUND_SHARE = 0.45
+_PREV_TXN_SCALE_SECONDS = 14_400.0
+_NO_PRIOR_SENTINEL_SECONDS = 86_400.0
+_FAN_IN_BOOST = 2.5
 
 
 def generate_dataset(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -96,6 +87,28 @@ def generate_dataset(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     probability = 1.0 / (1.0 + np.exp(-logit))
     labels = (rng.random(n) < probability).astype(int)
 
+    # Feature-spec v2 behavioral/counterparty columns. They are sampled AFTER the label draw so
+    # the label mechanism above is untouched; their fraud correlation flows through the existing
+    # velocity/channel drivers (dest fan-in spikes on the rapid-movement interaction), mirroring
+    # how the real extractor's window features co-move.
+    inbound_velocity = rng.binomial(velocity.astype(int), _INBOUND_SHARE).astype(float)
+    inbound_amount_sum = amount * inbound_velocity * rng.random(n)
+    seconds_since_prev = np.where(
+        velocity > 0,
+        np.minimum(
+            rng.exponential(_PREV_TXN_SCALE_SECONDS, n) / (1.0 + velocity),
+            _NO_PRIOR_SENTINEL_SECONDS,
+        ),
+        _NO_PRIOR_SENTINEL_SECONDS,
+    )
+    distinct_channels = 1.0 + np.minimum(velocity, rng.poisson(0.4, n)).astype(float)
+    round_share = (is_round + rng.binomial(velocity.astype(int), _ROUND_RATE)) / (velocity + 1.0)
+    dest_fan_in = rng.poisson(0.5 + _FAN_IN_BOOST * hi_velocity * hi_channel, n).astype(float)
+    dest_inbound_sum = amount * (1.0 + dest_fan_in * rng.random(n))
+    # A layering hop forwards what it gathers: outbound activity scales with fan-in.
+    dest_outbound_velocity = rng.binomial(dest_fan_in.astype(int), _INBOUND_SHARE).astype(float)
+    dest_outbound_sum = dest_inbound_sum * rng.random(n) * (dest_outbound_velocity > 0)
+
     columns = {
         "amount_log": amount_log,
         "hour_of_day": hour.astype(float),
@@ -107,25 +120,15 @@ def generate_dataset(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
         "amount_24h_sum_log": np.log1p(amount_24h_sum),
         "distinct_countries_24h": distinct_countries,
         "is_outbound": is_outbound,
+        "inbound_velocity_24h": inbound_velocity,
+        "inbound_amount_24h_log": np.log1p(inbound_amount_sum),
+        "seconds_since_prev_txn_log": np.log1p(seconds_since_prev),
+        "distinct_channels_24h": distinct_channels,
+        "round_amount_share_24h": round_share,
+        "dest_fan_in_24h": dest_fan_in,
+        "dest_inbound_amount_24h_log": np.log1p(dest_inbound_sum),
+        "dest_outbound_velocity_24h": dest_outbound_velocity,
+        "dest_outbound_amount_24h_log": np.log1p(dest_outbound_sum),
     }
     features = np.column_stack([columns[name] for name in FEATURE_NAMES])
     return features, labels
-
-
-def split_dataset(features: np.ndarray, labels: np.ndarray, seed: int) -> DataSplit:
-    """Deterministically split (X, y) into train / calibration / holdout folds."""
-    n = features.shape[0]
-    order = np.random.default_rng(seed).permutation(n)
-    n_holdout = int(n * _HOLDOUT_FRACTION)
-    n_calibration = int(n * _CALIBRATION_FRACTION)
-    holdout = order[:n_holdout]
-    calibration = order[n_holdout : n_holdout + n_calibration]
-    train = order[n_holdout + n_calibration :]
-    return DataSplit(
-        x_train=features[train],
-        y_train=labels[train],
-        x_calibration=features[calibration],
-        y_calibration=labels[calibration],
-        x_holdout=features[holdout],
-        y_holdout=labels[holdout],
-    )
