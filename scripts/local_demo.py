@@ -1,22 +1,20 @@
-"""Summary: The one-command local demo orchestrator (plan §3.4 / §16 Phase 1). It
-boots the full stack with NO cloud and NO secrets: a docker-compose Postgres, then the
-gateway+services (uvicorn) and the frontend (Vite), wired to local backends and the keyless mock
-SAR drafter via dev config. The preferred ports are :8000/:5173, but unset ports move to free
-fallbacks when another project owns them. `up` waits for /healthz, prints the demo URL, and blocks
-until Ctrl-C, then tears the child processes down cleanly; `down` /`reset` stop the stack (reset
-also drops volumes + .local state); `rebuild` performs a clean local reset, clears generated caches,
-frees FraudLens-owned listeners, then boots; `live` boots backend + frontend against real
-Supabase/Postgres/OpenRouter secrets already injected by Infisical; `smoke` is the headless gate —
-boot Postgres + backend, assert /healthz and /readyz, tear down. The database migrate + seed +
-RAG-index-build steps are
-guarded so they run once their phases land (Alembic/seed in Phase 2, the FinCEN/BSA index in Phase
-6), and are skipped (not failed) until then, keeping `make local-demo` green and shipping a fixture
-RAG index.
+"""Summary: The one-command local demo orchestrator (plan §3.4 / §16 Phase 1). It boots a
+Docker Postgres, migrates and foundation-seeds it, promotes the best locally trained
+gates-passed model bundle to ACTIVE (the seeded fixture stays only when none exists),
+idempotently fetches the IBM AML-Data source through Infisical, masks and ingests its
+representative case pack, builds the offline regulatory index, and batch-investigates the
+primary demo tenant through the production pipeline before starting FastAPI
+and Vite. The local application remains keyless after download and uses the mock SAR drafter. The
+preferred ports are :8000/:5173, with free fallbacks when occupied. `rebuild` drops database
+volumes/generated caches while preserving the large gitignored IBM download; `reset` also deletes
+the download. `live` uses Infisical-backed Supabase/Postgres/OpenRouter services and provisions the
+four demo identities. `smoke` remains the fast foundation-only health/readiness gate.
 
 Key classes:
 - (none)
 
 Key functions:
+- runner_guard: hold the repository-scoped single-runner lock for stack-starting commands.
 - local_database_url: build the local asyncpg URL from (non-secret) env/defaults.
 - demo_environment: the dev environment overrides handed to the child processes.
 - live_environment: dev-local overrides for real Supabase Auth/Postgres + OpenRouter.
@@ -29,14 +27,17 @@ Key functions:
 - main: CLI entry; dispatch up/down/reset/rebuild/smoke.
 
 Notes:
-- All credentials here are NON-SECRET local docker conveniences (overridable via .env);
-  real secrets always come from Infisical at runtime (Golden Rule 2).
+- Local Docker credentials are non-secret conveniences. The Kaggle token is injected from
+  Infisical only for the fetch child and removed before database, backend, and frontend children.
+- Missing IBM data or credentials fail startup; this command never falls back to sample alerts.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -44,15 +45,19 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.local.yml"
 LOCAL_STATE_DIR = REPO_ROOT / ".local"
 FRONTEND_DIR = REPO_ROOT / "frontend"
+_RUNNER_LOCK_DIGEST = hashlib.sha256(str(REPO_ROOT.resolve()).encode("utf-8")).hexdigest()[:12]
+_RUNNER_LOCK_PATH = Path(tempfile.gettempdir()) / f"fraudlens-local-demo-{_RUNNER_LOCK_DIGEST}.lock"
 
 # Non-secret local defaults (overridable via .env / environment); see .env.example.
 _DEFAULTS: dict[str, str] = {
@@ -78,7 +83,8 @@ _HEALTH_POLL_SECONDS = 1.0
 _HTTP_OK = 200
 _PORT_DRAIN_TIMEOUT_SECONDS = 5.0
 _LOCAL_CACHE_PATHS = (
-    LOCAL_STATE_DIR,
+    LOCAL_STATE_DIR / "artifacts",
+    LOCAL_STATE_DIR / "chroma",
     REPO_ROOT / ".pytest_cache",
     REPO_ROOT / ".ruff_cache",
     REPO_ROOT / ".mypy_cache",
@@ -92,6 +98,28 @@ _REPO_PROCESS_MARKERS = (
     "scripts/local_demo.py",
     "npm --prefix frontend run dev",
 )
+_STACK_COMMANDS = frozenset({"up", "live", "rebuild", "run", "smoke"})
+
+
+@contextlib.contextmanager
+def runner_guard() -> Iterator[object]:
+    """Hold a cross-process lock so only one FraudLens local stack can run at a time."""
+    with _RUNNER_LOCK_PATH.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(
+                "another FraudLens local stack is already running; stop it with Ctrl-C "
+                "before starting run/run-live again"
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()))
+        handle.flush()
+        try:
+            yield handle
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _env(name: str) -> str:
@@ -163,11 +191,15 @@ def demo_environment() -> dict[str, str]:
     env.update(
         {
             "FRAUDLENS_ENVIRONMENT": "dev",
+            "VITE_AUTH_DEV_BYPASS": "true",
+            "VITE_DEMO_AUTH_ENABLED": "false",
             "DATABASE_URL": local_database_url(),
             "FRAUDLENS_STORAGE_BACKEND": "local",
             "FRAUDLENS_QUEUE_BACKEND": "local",
             "FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT": "true",
+            "FRAUDLENS_ALLOW_CANDIDATE_SCORING_IN_DEV": "false",
             "FRAUDLENS_LLM_MODE": "mock",
+            "FRAUDLENS_RAG_EMBEDDING_MODE": "offline",
         }
     )
     frontend_origin = _base_url(env["FRONTEND_PORT"])
@@ -180,17 +212,24 @@ def _supabase_project_url(env: dict[str, str]) -> str:
     """Return the non-secret Supabase project URL from accepted env names."""
     value = (
         env.get("SUPABASE_PROJECT_URL")
+        or env.get("SUPABASE_URL")
         or env.get("FRAUDLENS_SUPABASE_URL")
         or env.get("VITE_SUPABASE_URL")
     )
     if not value:
-        raise RuntimeError("SUPABASE_PROJECT_URL or VITE_SUPABASE_URL is required for live mode")
+        raise RuntimeError("SUPABASE_URL or SUPABASE_PROJECT_URL is required for live mode")
     return value.rstrip("/")
 
 
 def _require_live_env(env: dict[str, str]) -> None:
     """Fail fast when run-live is missing required Infisical-injected secrets."""
-    missing = [name for name in ("DATABASE_URL", "OPENROUTER_API_KEY") if not env.get(name)]
+    required = (
+        "DATABASE_URL",
+        "OPENROUTER_API_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "VITE_SUPABASE_ANON_KEY",
+    )
+    missing = [name for name in required if not env.get(name)]
     if missing:
         raise RuntimeError(f"missing live secret env vars: {', '.join(missing)}")
 
@@ -206,6 +245,8 @@ def live_environment() -> dict[str, str]:
         {
             "FRAUDLENS_ENVIRONMENT": "dev",
             "FRAUDLENS_AUTH_DEV_BYPASS": "false",
+            "VITE_AUTH_DEV_BYPASS": "false",
+            "VITE_DEMO_AUTH_ENABLED": "true",
             "FRAUDLENS_AUTH_JWKS_URL": f"{supabase_url}/auth/v1/.well-known/jwks.json",
             "FRAUDLENS_AUTH_JWT_ISSUER": f"{supabase_url}/auth/v1",
             "FRAUDLENS_AUTH_JWT_AUDIENCE": "authenticated",
@@ -213,7 +254,9 @@ def live_environment() -> dict[str, str]:
             "FRAUDLENS_SUPABASE_URL": supabase_url,
             "FRAUDLENS_STORAGE_BACKEND": "local",
             "FRAUDLENS_QUEUE_BACKEND": "local",
+            "FRAUDLENS_ALLOW_CANDIDATE_SCORING_IN_DEV": "true",
             "FRAUDLENS_LLM_MODE": "live",
+            "FRAUDLENS_RAG_EMBEDDING_MODE": "live",
             "VITE_SUPABASE_URL": supabase_url,
         }
     )
@@ -252,7 +295,7 @@ def _remove_path(path: Path) -> None:
 
 
 def _clear_local_caches() -> None:
-    """Delete generated local state/caches used by the demo and checks."""
+    """Delete generated demo/check caches while preserving downloaded IBM AML source data."""
     for path in _LOCAL_CACHE_PATHS:
         _remove_path(path)
 
@@ -424,6 +467,58 @@ def _maybe_migrate_and_seed(env: dict[str, str]) -> None:
         print(">> seed: skipped (scripts/seed.py lands in Phase 2)")
 
 
+def _fetch_ibm_demo_data(env: dict[str, str]) -> None:
+    """Idempotently fetch/verify the real IBM AML dataset before local demo bootstrap."""
+    script = REPO_ROOT / "scripts" / "fetch_dataset.py"
+    if not script.is_file():
+        raise RuntimeError(
+            "IBM AML fetch script is missing; local demo cannot fall back to samples"
+        )
+    subprocess.run(
+        ["uv", "run", "python", "scripts/fetch_dataset.py", "--source", "ibm-aml"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
+
+
+def _ingest_ibm_demo_data(env: dict[str, str]) -> None:
+    """Ingest a bounded, masked IBM AML partition into the freshly migrated local database."""
+    script = REPO_ROOT / "scripts" / "ingest_aml_demo.py"
+    if not script.is_file():
+        raise RuntimeError("IBM AML demo ingest script is missing")
+    subprocess.run(
+        ["uv", "run", "python", "scripts/ingest_aml_demo.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
+
+
+def _activate_trained_model(env: dict[str, str]) -> None:
+    """Promote the best locally trained gates-passed bundle to ACTIVE (fixture stays otherwise).
+
+    A gates-failed or absent bundle is never promoted; the script prints the honest outcome and
+    the seeded fixture keeps serving, so a fresh clone still boots.
+    """
+    subprocess.run(
+        ["uv", "run", "python", "scripts/activate_model.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
+
+
+def _score_ibm_demo_data(env: dict[str, str]) -> None:
+    """Batch-investigate the primary IBM demo partition through the production pipeline."""
+    subprocess.run(
+        ["uv", "run", "python", "-m", "fraudlens_backend.jobs.runner"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
+
+
 def _maybe_build_rag_index(env: dict[str, str]) -> None:
     """Build the FinCEN/BSA RAG index when present; skip (don't fail) until Phase 6 lands it."""
     if (REPO_ROOT / "scripts" / "ingest_rag.py").is_file():
@@ -466,14 +561,20 @@ def _frontend_command(env: dict[str, str]) -> list[str]:
 
 
 def up() -> int:
-    """Boot Postgres + backend + frontend, print the demo URL, wait for Ctrl-C."""
+    """Fetch IBM data, rebuild evidence through the pipeline, then boot backend + frontend."""
     _require_tools("docker", "uv", "npm")
     _assign_available_default_ports(("POSTGRES_PORT", "BACKEND_PORT", "FRONTEND_PORT"))
     env = demo_environment()
     backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
+    _fetch_ibm_demo_data(env)
+    # The downloader is the only child that may receive the Kaggle credential.
+    env.pop("KAGGLE_API_TOKEN", None)
     _start_postgres(env)
     _maybe_migrate_and_seed(env)
+    _activate_trained_model(env)
+    _ingest_ibm_demo_data(env)
     _maybe_build_rag_index(env)
+    _score_ibm_demo_data(env)
     procs = [
         subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
         subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
@@ -502,6 +603,7 @@ def live() -> int:
     _assign_available_default_ports(("BACKEND_PORT", "FRONTEND_PORT"))
     env = live_environment()
     backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
+    _provision_live_demo_auth(env)
     procs = [
         subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
         subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
@@ -524,6 +626,17 @@ def live() -> int:
     return 0
 
 
+def _provision_live_demo_auth(env: dict[str, str]) -> None:
+    """Provision real demo identities before exposing the live-local login screen."""
+    print(">> ensuring live demo Supabase users", flush=True)
+    subprocess.run(
+        ["uv", "run", "python", "scripts/provision_demo_auth.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
+
+
 def down() -> int:
     """Stop the compose stack (containers removed, volumes kept)."""
     _require_tools("docker")
@@ -532,15 +645,16 @@ def down() -> int:
 
 
 def reset() -> int:
-    """Stop the stack, drop its volumes, and remove local state (.local/)."""
+    """Stop the stack, drop its volumes, and remove all local state including IBM source data."""
     _require_tools("docker")
     _compose_down(remove_volumes=True)
     _clear_local_caches()
+    _remove_path(LOCAL_STATE_DIR)
     return 0
 
 
 def rebuild() -> int:
-    """Reset local Docker/state/caches, free local FraudLens ports, then boot the stack."""
+    """Reset Docker/generated caches, preserve IBM source data, then boot the real-data demo."""
     _require_tools("docker", "uv", "npm")
     ports = (_env("POSTGRES_PORT"), _env("BACKEND_PORT"), _env("FRONTEND_PORT"))
     print(">> stopping FraudLens local Docker stack and dropping volumes")
@@ -592,7 +706,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FraudLens one-command local demo.")
     parser.add_argument("command", choices=sorted(_COMMANDS), help="demo lifecycle action")
     args = parser.parse_args(argv)
-    return _COMMANDS[args.command]()
+    try:
+        if args.command in _STACK_COMMANDS:
+            with runner_guard():
+                return _COMMANDS[args.command]()
+        return _COMMANDS[args.command]()
+    except RuntimeError as exc:
+        print(f"local demo failed: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
 """Summary: Build the FinCEN/BSA RAG index from the committed corpus (plan §16 Phase 6).
 `make ingest-rag` loads every regulatory provision under `settings.rag_corpus_dir`, chunks it
-deterministically, embeds the chunks with the offline `HashingEmbedder`, and persists a ChromaDB
-collection at `settings.rag_index_dir` — with NO API keys, NO network, and NO cost, so it runs
+deterministically, embeds the chunks with the config-selected shared embedder, and persists a
+provenance-tagged ChromaDB collection at `settings.rag_index_dir`. Offline mode remains keyless and
+deterministic, so it runs
 the same locally, in `make local-demo`, and at image-build time (the index is baked into the
 container in Phase 14). When a database is configured it records a `job_executions(ingest_rag)`
 row for the ops audit trail; without one it still builds the index (so the build works in any
-context). The live `text-embedding-3-small` embedder is the documented compliance-path seam (the
-`Embedder` protocol), selected by config — not wired here, keeping this job keyless and offline.
+context). `make ingest-rag-live` opts into `text-embedding-3-small` through OpenRouter/Infisical;
+ingest and retrieval share the same factory so their embedding spaces cannot diverge silently.
 
 Key classes:
 - (none)
@@ -35,11 +36,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
+from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_ml.rag import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
-    HashingEmbedder,
     build_index,
     chunk_corpus,
     load_corpus,
@@ -60,9 +61,10 @@ def ingest_corpus(settings: AppSettings, *, chunk_size: int, overlap: int) -> tu
     index_dir = _anchored(settings.rag_index_dir)
     documents = load_corpus(corpus_dir)
     chunks = chunk_corpus(documents, chunk_size=chunk_size, overlap=overlap)
+    embedder = build_embedder(settings)
     count = build_index(
         chunks,
-        embedder=HashingEmbedder(),
+        embedder=embedder,
         persist_dir=index_dir,
         collection=settings.rag_collection,
     )
