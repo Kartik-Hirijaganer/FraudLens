@@ -4,10 +4,10 @@ them through the SAME masked-only path as the API (`fraudlens_core.build_canonic
 `TransactionRepository.ingest`), so every imported row is deduped by `(agency_id,
 externalId)` and stored with masked account identifiers + a feature hash — never raw PHI.
 It is partial-accept: a malformed row becomes a PHI-free rejection rather than aborting the
-import. `seed_sample_transactions` lets `scripts/seed.py` load the curated sample so
-`make local-demo` shows real transactions; the CLI (`make import-ieee`) imports an arbitrary
-CSV into the demo agency and records a `csv_import` row in `job_executions`. Refuses to run
-against `environment == "prod"` (synthetic-data-only, like the seed).
+import. `seed_sample_transactions` is a test/explicit-import helper for the committed sample; the
+foundation seed and default local demo never call it. The CLI (`make import-ieee`) imports an
+arbitrary CSV into the demo agency and records a `csv_import` row in `job_executions`. Refuses to
+run against `environment == "prod"`.
 
 Key classes:
 - ImportResult: counts (+ bounded PHI-free rejections) from an import run.
@@ -16,7 +16,7 @@ Key functions:
 - map_ieee_row: map one IEEE-CIS row to a CanonicalTransaction (raises on a bad row).
 - ingest_rows: ingest an iterable of IEEE-CIS rows into one agency (partial-accept).
 - load_sample_rows: read the curated synthetic IEEE-CIS sample CSV shipped in the repo.
-- seed_sample_transactions: ingest the curated sample into an agency (used by the seed).
+- seed_sample_transactions: explicitly ingest the curated sample into an agency.
 - main: CLI entry — import a CSV into the demo agency and record the job (dev/demo only).
 
 Notes:
