@@ -22,10 +22,20 @@ Key functions:
 
 Notes:
 - `--source` defaults to synthetic (CI + the committed fixture stay hermetic, no download); real
-  runs pass `--source ibm-aml`, which fails fast if the fetched data is absent (never downloads).
-  The `--fixture` bundle is ALWAYS synthetic so it regenerates with no network.
-- Everything is seeded, single-threaded XGBoost (n_jobs=1), and SMOTE/Platt are seeded too, so
-  the booster bytes (hence the version label + checksum) are reproducible across runs.
+  runs pass `--source ibm-aml` (recommended) or `--source ieee-cis` (optional). Both fail fast if
+  local data is absent (never download). The `--fixture` bundle is ALWAYS synthetic.
+- Rare-event branch (full-IBM plan Phase 4): when the training fold's minority share is under
+  1%, SMOTE is replaced by `scale_pos_weight` with deeper multi-threaded hist params (SMOTE at
+  a ~0.1% base rate over millions of rows is statistically and computationally wrong), and the
+  holdout score quantiles at the gates' own alert-budget / top-slice / medium-review fractions
+  are persisted as the model's `ModelRiskThresholds` operating points. The >= 1% path
+  (synthetic, fixture, retrain) is byte-identical to the historical behavior.
+- The synthetic path stays seeded, single-threaded XGBoost (n_jobs=1) + seeded SMOTE/Platt, so
+  the fixture booster bytes are reproducible; the rare-event params pin n_jobs=8, which is
+  reproducible per machine/thread-count (documented determinism caveat).
+- `--artifact-only` writes the bundle + `manifest.json` sidecar without a database, so training
+  can run before the demo database exists; `scripts/activate_model.py` registers + promotes the
+  bundle later from those files.
 - The dataset manifest stores only source/license/schema/sha256/hashes/counts — never PHI,
   raw identifiers, or agency_id (tenant-safe global training, plan §9.4 / ADR-015).
 - Registration is idempotent by version label (source-tagged so sources never collide):
@@ -65,6 +75,7 @@ from fraudlens_backend.db.models import (
 )
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.settings import AppSettings, get_settings
+from fraudlens_core import ModelRiskThresholds
 from fraudlens_ml.scoring import (
     Calibration,
     CandidateMetrics,
@@ -77,9 +88,11 @@ from fraudlens_ml.scoring import (
 )
 from lib.aml_fraud import (
     IBM_AML,
+    IEEE_CIS,
     build_feature_matrix,
     load_frame,
     sample_frame,
+    servable_frame,
     source_columns,
     split_chronological,
 )
@@ -94,12 +107,20 @@ _TRAIN_ROWS = 16000
 _BACKGROUND_ROWS = 64
 _PLATT_MAX_ITER = 1000
 _FIXTURE_LABEL = "v0-fixture"
+_SMOTE_DEFAULT_NEIGHBORS = 5
+_MIN_SMOTE_CLASS_ROWS = 2
+_BINARY_CLASS_COUNT = 2
 
-# Training data sources: synthetic (the hermetic default for CI + the committed fixture) and the
-# real IBM AML-Data track. IEEE-CIS stays the optional secondary that slots in via the same
-# aml_fraud framework later; it is not a fetch/train source yet.
+# Training data sources: synthetic (the hermetic default), IBM AML-Data (recommended primary),
+# and IEEE-CIS (optional secondary, supplied locally because Phase 2 fetches only IBM).
 _SYNTHETIC = "synthetic"
-_SOURCES: tuple[str, ...] = (_SYNTHETIC, IBM_AML)
+_SOURCES: tuple[str, ...] = (_SYNTHETIC, IBM_AML, IEEE_CIS)
+_IEEE_CIS_SPEC = fetch_dataset.DatasetSpec(
+    source=IEEE_CIS,
+    slug="ieee-fraud-detection",
+    variant="train_transaction.csv",
+    license="Kaggle Competition Rules (IEEE-CIS Fraud Detection)",
+)
 
 # XGBoost hyperparameters (single-threaded + seeded so the booster bytes are reproducible).
 _XGB_PARAMS: dict[str, Any] = {
@@ -113,6 +134,31 @@ _XGB_PARAMS: dict[str, Any] = {
     "n_jobs": 1,
 }
 
+# Training folds with a minority share under this use the rare-event branch: no SMOTE (wrong at
+# ~0.1% over millions of rows), class weighting via scale_pos_weight, deeper hist params, and
+# persisted holdout-quantile risk operating points. Synthetic (~3.5%) stays on the SMOTE path.
+_RARE_EVENT_MINORITY_SHARE = 0.01
+# Rare-event hyperparameters (swept on the full IBM split): more capacity for the 5M-row set;
+# hist + multi-threading keep the full-dataset fit in minutes (reproducible per
+# machine/thread-count — documented caveat). Class weighting uses the SQUARE ROOT of the
+# neg/pos ratio — full-ratio weighting over-weights the ~0.1% positives and measurably hurt
+# ranking (PR-AUC 0.165 vs 0.198 on the same split).
+_XGB_PARAMS_RARE: dict[str, Any] = {
+    "n_estimators": 1200,
+    "max_depth": 9,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 5,
+    "tree_method": "hist",
+    "max_bin": 256,
+    "eval_metric": "aucpr",
+    "random_state": _SEED,
+    "n_jobs": 8,
+}
+# The bundle sidecar activate_model reads to register a trained candidate without retraining.
+_MANIFEST_SIDECAR = "manifest.json"
+
 
 @dataclass(frozen=True)
 class TrainedCandidate:
@@ -123,6 +169,8 @@ class TrainedCandidate:
     background: np.ndarray
     metrics: CandidateMetrics
     baseline_pr_auc: float
+    risk_thresholds: ModelRiskThresholds | None = None
+    rare_event: bool = False
 
 
 def _fit_platt(margins: np.ndarray, labels: np.ndarray) -> Calibration:
@@ -131,10 +179,82 @@ def _fit_platt(margins: np.ndarray, labels: np.ndarray) -> Calibration:
     return Calibration(a=float(logistic.coef_[0][0]), b=float(logistic.intercept_[0]))
 
 
+def _class_counts(labels: np.ndarray) -> dict[int, int]:
+    """Return integer class counts for PHI-free split validation and SMOTE configuration."""
+    values, counts = np.unique(labels, return_counts=True)
+    return {int(value): int(count) for value, count in zip(values, counts, strict=True)}
+
+
+def _smote_neighbors(labels: np.ndarray) -> int:
+    """Choose a valid SMOTE neighbor count from the actual minority-class training rows."""
+    counts = _class_counts(labels)
+    if len(counts) < _BINARY_CLASS_COUNT or min(counts.values()) < _MIN_SMOTE_CLASS_ROWS:
+        raise ValueError(
+            "training fold needs at least two rows in each class; increase --sample-rows"
+        )
+    return min(_SMOTE_DEFAULT_NEIGHBORS, min(counts.values()) - 1)
+
+
+def _validate_evaluation_folds(split: DataSplit) -> None:
+    """Require both classes in calibration/holdout so calibration and gates are meaningful."""
+    if (
+        len(_class_counts(split.y_calibration)) < _BINARY_CLASS_COUNT
+        or len(_class_counts(split.y_holdout)) < _BINARY_CLASS_COUNT
+    ):
+        raise ValueError("calibration and holdout folds need both classes; increase --sample-rows")
+
+
+def _is_rare_event_fold(labels: np.ndarray) -> bool:
+    """True when the training fold's minority share is below the rare-event branch threshold."""
+    counts = _class_counts(labels)
+    total = sum(counts.values())
+    return total > 0 and (min(counts.values()) / total) < _RARE_EVENT_MINORITY_SHARE
+
+
+def _fit_classifier(split: DataSplit, seed: int) -> xgb.XGBClassifier:
+    """Fit the source-appropriate XGBoost: SMOTE path (>=1% minority) or rare-event weighting."""
+    if not _is_rare_event_fold(split.y_train):
+        resampled_x, resampled_y = SMOTE(
+            random_state=seed,
+            k_neighbors=_smote_neighbors(split.y_train),
+        ).fit_resample(split.x_train, split.y_train)
+        return xgb.XGBClassifier(**_XGB_PARAMS).fit(resampled_x, resampled_y)
+    counts = _class_counts(split.y_train)
+    params = dict(_XGB_PARAMS_RARE)
+    params["random_state"] = seed
+    params["scale_pos_weight"] = float(np.sqrt(counts.get(0, 0) / max(1, counts.get(1, 0))))
+    return xgb.XGBClassifier(**params).fit(split.x_train, split.y_train)
+
+
+def _derive_risk_thresholds(
+    probabilities: np.ndarray, gates: ModelGates
+) -> ModelRiskThresholds | None:
+    """Derive the model's risk operating points from its holdout score distribution.
+
+    The quantiles reuse the gates' own capacity semantics: the top `medium_review_fraction` of
+    scored volume warrants at least MEDIUM, the top `alert_budget_fraction` warrants HIGH (the
+    alert operating point), and the top `top_pct_fraction` warrants CRITICAL. A degenerate
+    distribution (non-increasing or out-of-range quantiles) returns None — the identity banding
+    is safer than junk operating points.
+    """
+    medium = float(np.quantile(probabilities, 1.0 - gates.medium_review_fraction))
+    high = float(np.quantile(probabilities, 1.0 - gates.alert_budget_fraction))
+    critical = float(np.quantile(probabilities, 1.0 - gates.top_pct_fraction))
+    if not (0.0 < medium < high < critical < 1.0):
+        return None
+    return ModelRiskThresholds(medium=medium, high=high, critical=critical)
+
+
 def train_candidate(split: DataSplit, gates: ModelGates, *, seed: int) -> TrainedCandidate:
-    """SMOTE + XGBoost + Platt-calibrate on a split, then compute the holdout gate metrics."""
-    resampled_x, resampled_y = SMOTE(random_state=seed).fit_resample(split.x_train, split.y_train)
-    classifier = xgb.XGBClassifier(**_XGB_PARAMS).fit(resampled_x, resampled_y)
+    """Fit + Platt-calibrate the source-appropriate XGBoost, then compute holdout gate metrics.
+
+    The >=1% minority path (synthetic/fixture/retrain) is the historical SMOTE pipeline,
+    byte-identical; the rare-event path swaps SMOTE for class weighting and persists the
+    holdout-quantile risk operating points (full-IBM plan Phase 4).
+    """
+    _validate_evaluation_folds(split)
+    rare_event = _is_rare_event_fold(split.y_train)
+    classifier = _fit_classifier(split, seed)
     calibration = _fit_platt(
         np.asarray(classifier.predict(split.x_calibration, output_margin=True)),
         split.y_calibration,
@@ -152,7 +272,16 @@ def train_candidate(split: DataSplit, gates: ModelGates, *, seed: int) -> Traine
         background=background,
         metrics=metrics,
         baseline_pr_auc=baseline_pr_auc(baseline, split.x_holdout, split.y_holdout),
+        risk_thresholds=(
+            _derive_risk_thresholds(holdout_probability, gates) if rare_event else None
+        ),
+        rare_event=rare_event,
     )
+
+
+def _trained_params(trained: TrainedCandidate) -> dict[str, Any]:
+    """Return the hyperparameters the candidate actually trained with (branch-accurate)."""
+    return dict(_XGB_PARAMS_RARE) if trained.rare_event else dict(_XGB_PARAMS)
 
 
 def _gate_report(
@@ -167,6 +296,10 @@ def _candidate_metrics_payload(trained: TrainedCandidate, report: GateReport) ->
     payload = trained.metrics.model_dump()
     payload["baseline_pr_auc"] = trained.baseline_pr_auc
     payload["gates_passed"] = float(report.passed)
+    if trained.risk_thresholds is not None:
+        payload["risk_threshold_medium"] = trained.risk_thresholds.medium
+        payload["risk_threshold_high"] = trained.risk_thresholds.high
+        payload["risk_threshold_critical"] = trained.risk_thresholds.critical
     return payload
 
 
@@ -211,7 +344,7 @@ def _real_manifest(
 ) -> DatasetManifest:
     """Build a real manifest: source, license, per-file sha256, schema, version, transform id."""
     spec = current_feature_spec()
-    dataset = fetch_dataset.dataset_spec(source)
+    dataset = fetch_dataset.dataset_spec(source) if source == IBM_AML else _IEEE_CIS_SPEC
     snapshot_query: dict[str, Any] = {
         "source": source,
         "license": dataset.license,
@@ -243,13 +376,19 @@ def _load_split(
         return split, _synthetic_manifest(seed, rows)
     if source not in _SOURCES:
         raise ValueError(f"unknown --source '{source}' (choices: {list(_SOURCES)})")
-    dataset = fetch_dataset.dataset_spec(source)
+    dataset = fetch_dataset.dataset_spec(source) if source == IBM_AML else _IEEE_CIS_SPEC
     # Fail fast if the real data is absent — training NEVER auto-downloads (plan Phase 4).
     paths = fetch_dataset._verify_present(dataset, fetch_dataset._data_dir(settings, None))
-    frame = load_frame(paths, source)
+    # Only servable rows train: the ingest boundary rejects amounts that round to zero cents,
+    # so such rows can never appear in a served database (anti-skew).
+    frame = servable_frame(load_frame(paths, source), source)
     if sample_rows is not None:
         frame = sample_frame(frame, source, sample_rows, seed)
-    features, labels = build_feature_matrix(frame, source)
+    # The online history query caps at investigation_history_max most-recent rows; the offline
+    # windows mirror that cap so training features equal what scoring is actually fed.
+    features, labels = build_feature_matrix(
+        frame, source, history_max=settings.investigation_history_max
+    )
     split = split_chronological(features, labels, frame, source)
     return split, _real_manifest(source, paths, row_count=len(frame), sample_rows=sample_rows)
 
@@ -333,7 +472,7 @@ async def register_candidate(  # noqa: PLR0913 - registers several rows; extras 
         trigger=ModelTrigger.MANUAL,
         dataset_id=dataset.id,
         status=JobStatus.SUCCEEDED,
-        params=dict(_XGB_PARAMS),
+        params=_trained_params(trained),
         metrics=metrics_payload,
         artifact_uri=artifact_uri,
     )
@@ -383,7 +522,24 @@ def _artifacts_root(settings: AppSettings) -> Path:
     return root if root.is_absolute() else REPO_ROOT / root
 
 
-async def _amain(source: str, fixture: bool, rows: int, seed: int, sample_rows: int | None) -> int:
+def _write_manifest_sidecar(
+    directory: Path, manifest: DatasetManifest, *, seed: int, rows: int
+) -> None:
+    """Write the PHI-free dataset-manifest sidecar activate_model registers a bundle from."""
+    payload = {"manifest": manifest.model_dump(mode="json"), "seed": seed, "rows": rows}
+    (directory / _MANIFEST_SIDECAR).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+async def _amain(  # noqa: PLR0911, PLR0913 - CLI orchestration: each guard exits with its own code
+    source: str,
+    fixture: bool,
+    rows: int,
+    seed: int,
+    sample_rows: int | None,
+    artifact_only: bool,
+) -> int:
     """Train + gate the model, then (re)write the fixture or register a candidate (dev only)."""
     settings = get_settings()
     if settings.environment == "prod":
@@ -395,31 +551,46 @@ async def _amain(source: str, fixture: bool, rows: int, seed: int, sample_rows: 
         _print_report("fixture", _FIXTURE_LABEL, report)
         return 0 if report.passed else 2
 
-    engine = create_engine_from_settings(settings)
-    if engine is None:
-        print("train failed: DATABASE_URL is not configured")
-        return 1
+    engine = None
+    if not artifact_only:
+        engine = create_engine_from_settings(settings)
+        if engine is None:
+            print("train failed: DATABASE_URL is not configured (or pass --artifact-only)")
+            return 1
     try:
         split, manifest = _load_split(
             source, seed=seed, rows=rows, sample_rows=sample_rows, settings=settings
         )
     except (FileNotFoundError, ValueError, KeyError) as exc:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
         print(f"train failed: {exc}")
         return 1
     gates = ModelGates()
-    trained = train_candidate(split, gates, seed=seed)
+    try:
+        trained = train_candidate(split, gates, seed=seed)
+    except ValueError as exc:
+        if engine is not None:
+            await engine.dispose()
+        print(f"train failed: {exc}")
+        return 1
     report = _gate_report(trained, None, gates)
     label = _version_label(manifest, seed, rows)
+    bundle_dir = _artifacts_root(settings) / label
     save_artifact(
-        _artifacts_root(settings) / label,
+        bundle_dir,
         trained.booster,
         version_label=label,
         feature_spec=current_feature_spec(),
         calibration=trained.calibration,
         background=trained.background,
         metrics=_candidate_metrics_payload(trained, report),
+        risk_thresholds=trained.risk_thresholds,
     )
+    _write_manifest_sidecar(bundle_dir, manifest, seed=seed, rows=rows)
+    if artifact_only or engine is None:
+        _print_report(f"artifact-only [{manifest.source}]", label, report)
+        return 0 if report.passed else 2
     sessionmaker = build_sessionmaker(engine)
     try:
         async with sessionmaker() as session:
@@ -471,8 +642,23 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Seeded, label-stratified subsample of a real source for fast iteration.",
     )
+    parser.add_argument(
+        "--artifact-only",
+        action="store_true",
+        help="Write the bundle + manifest sidecar without a database; "
+        "scripts/activate_model.py registers it later.",
+    )
     args = parser.parse_args(argv)
-    return asyncio.run(_amain(args.source, args.fixture, args.rows, args.seed, args.sample_rows))
+    return asyncio.run(
+        _amain(
+            args.source,
+            args.fixture,
+            args.rows,
+            args.seed,
+            args.sample_rows,
+            args.artifact_only,
+        )
+    )
 
 
 if __name__ == "__main__":
