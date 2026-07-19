@@ -211,6 +211,7 @@ class FakeRunStore:
         self.alerts: list[AlertRecord] = []
         self.completed: list[tuple[float, RiskBand, RunProvenance]] = []
         self.failed: list[tuple[str, RunProvenance]] = []
+        self.operations: list[str] = []
         self._seq = 0
 
     @property
@@ -230,18 +231,22 @@ class FakeRunStore:
         self.inferences.append(record)
 
     async def save_rag(self, record: RagRecord) -> None:
+        self.operations.append("save_rag")
         self.rags.append(record)
 
     async def save_sar(self, result: SarDraftResult) -> str:
+        self.operations.append("save_sar")
         self.sars.append(result)
         return f"sar-{len(self.sars)}"
 
     async def raise_alert(self, record: AlertRecord) -> None:
+        self.operations.append("raise_alert")
         self.alerts.append(record)
 
     async def complete_run(
         self, *, combined_score: float, risk_band: RiskBand, provenance: RunProvenance
     ) -> None:
+        self.operations.append("complete_run")
         self.completed.append((combined_score, risk_band, provenance))
 
     async def fail_run(self, *, error_code: str, provenance: RunProvenance) -> None:
