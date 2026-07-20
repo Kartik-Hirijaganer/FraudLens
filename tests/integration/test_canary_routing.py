@@ -177,6 +177,126 @@ async def test_resolve_model_override_unknown_falls_through(db_session: AsyncSes
     assert pointer.active_version_label == "v0-fixture"  # defensive fallthrough to active
 
 
+async def test_resolve_model_override_without_active_deployment(
+    db_session: AsyncSession,
+) -> None:
+    dataset = TrainingDataset(
+        snapshot_query={}, label_window="t", row_count=0, feature_spec={}, content_hash="e" * 64
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    run = ModelTrainingRun(
+        trigger=ModelTrigger.MANUAL, dataset_id=dataset.id, status=JobStatus.SUCCEEDED
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add(
+        ModelVersion(
+            version_label="candidate-only",
+            training_run_id=run.id,
+            artifact_uri="candidate-only",
+            feature_spec={"features": ["amount_log"]},
+            metrics={"pr_auc": 0.5},
+            status=ModelVersionStatus.CANDIDATE,
+        )
+    )
+    await db_session.flush()
+
+    pointer, was_canary = await resolve_scoring_pointer(
+        ModelRegistryRepository(db_session),
+        routing_key="txn-1",
+        model_override="candidate-only",
+    )
+
+    assert was_canary is False
+    assert pointer is not None
+    assert pointer.active_version_label == "candidate-only"
+    assert pointer.previous_version_label is None
+
+
+async def test_candidate_fallback_is_disabled_without_active_deployment(
+    db_session: AsyncSession,
+) -> None:
+    dataset = TrainingDataset(
+        snapshot_query={}, label_window="t", row_count=0, feature_spec={}, content_hash="f" * 64
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    run = ModelTrainingRun(
+        trigger=ModelTrigger.MANUAL, dataset_id=dataset.id, status=JobStatus.SUCCEEDED
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add(
+        ModelVersion(
+            version_label="fallback-disabled",
+            training_run_id=run.id,
+            artifact_uri="fallback-disabled",
+            feature_spec={},
+            metrics={},
+            status=ModelVersionStatus.CANDIDATE,
+        )
+    )
+    await db_session.flush()
+
+    pointer, was_canary = await resolve_scoring_pointer(
+        ModelRegistryRepository(db_session), routing_key="txn-1"
+    )
+
+    assert pointer is None
+    assert was_canary is False
+
+
+async def test_candidate_fallback_resolves_without_active_deployment(
+    db_session: AsyncSession,
+) -> None:
+    dataset = TrainingDataset(
+        snapshot_query={}, label_window="t", row_count=0, feature_spec={}, content_hash="g" * 64
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    run = ModelTrainingRun(
+        trigger=ModelTrigger.MANUAL, dataset_id=dataset.id, status=JobStatus.SUCCEEDED
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add(
+        ModelVersion(
+            version_label="fallback-enabled",
+            training_run_id=run.id,
+            artifact_uri="fallback-enabled",
+            feature_spec={},
+            metrics={},
+            status=ModelVersionStatus.CANDIDATE,
+        )
+    )
+    await db_session.flush()
+
+    pointer, was_canary = await resolve_scoring_pointer(
+        ModelRegistryRepository(db_session),
+        routing_key="txn-1",
+        allow_candidate_fallback=True,
+    )
+
+    assert pointer is not None
+    assert pointer.active_version_label == "fallback-enabled"
+    assert was_canary is False
+
+
+async def test_active_deployment_precedes_candidate_fallback(db_session: AsyncSession) -> None:
+    await seed(db_session)
+
+    pointer, was_canary = await resolve_scoring_pointer(
+        ModelRegistryRepository(db_session),
+        routing_key="txn-1",
+        allow_candidate_fallback=True,
+    )
+
+    assert pointer is not None
+    assert pointer.active_version_label == "v0-fixture"
+    assert was_canary is False
+
+
 def test_scorer_adapter_marks_canary(
     fixture_model_dir: Path, make_rule_context: Callable[..., RuleContext]
 ) -> None:
