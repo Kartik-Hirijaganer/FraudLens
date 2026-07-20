@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from training_label_fakes import add_matured_training_labels
 
 from fraudlens_backend.db.models import (
     AuditLog,
@@ -173,6 +174,7 @@ async def test_investigation_start_writes_audit_row(
 ) -> None:
     async with db_sessionmaker() as session:
         await seed(session)
+        await add_matured_training_labels(session, count=1)
         await session.commit()
         transaction_id = str(
             (

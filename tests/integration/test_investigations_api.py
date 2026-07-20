@@ -7,15 +7,17 @@ persistence without the heavy model or shared-connection races."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
+from anyio import CancelScope, create_task_group
 from pipeline_fakes import (
     FakeExplainerPort,
     FakeRetrieverPort,
@@ -32,8 +34,10 @@ from sqlalchemy.ext.asyncio import (
 )
 
 import fraudlens_backend.pipeline_wiring as wiring
+from fraudlens_backend.api.v1.investigations import _stream_session
 from fraudlens_backend.db.models import (
     Agency,
+    Alert,
     AnalysisResult,
     AnalysisRun,
     AnalysisRunEvent,
@@ -46,6 +50,7 @@ from fraudlens_backend.db.models import (
     RunStatus,
     SarDraft,
     SarStatus,
+    Severity,
     TrainingDataset,
     Transaction,
 )
@@ -63,6 +68,40 @@ from fraudlens_core import RiskBand, RiskPolicy
 from fraudlens_ml.pipeline import PipelineDeps
 
 _OTHER_AGENCY_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
+
+
+async def test_stream_session_finishes_close_when_consumer_is_cancelled() -> None:
+    close_started = asyncio.Event()
+    allow_close = asyncio.Event()
+    close_finished = asyncio.Event()
+
+    class ClosingSession:
+        async def close(self) -> None:
+            close_started.set()
+            await allow_close.wait()
+            close_finished.set()
+
+    closing_session = ClosingSession()
+    factory = cast(async_sessionmaker[AsyncSession], lambda: closing_session)
+
+    async def consume() -> None:
+        async with _stream_session(factory):
+            pass
+
+    scopes: list[CancelScope] = []
+
+    async def scoped_consume() -> None:
+        with CancelScope() as scope:
+            scopes.append(scope)
+            await consume()
+
+    async with create_task_group() as task_group:
+        task_group.start_soon(scoped_consume)
+        await close_started.wait()
+        scopes[0].cancel()
+        allow_close.set()
+        await close_finished.wait()
+    assert close_finished.is_set()
 
 
 def _client(app: object) -> httpx.AsyncClient:
@@ -261,6 +300,7 @@ async def _seed_completed_run(
     *,
     agency_id: uuid.UUID,
     with_result: bool = True,
+    with_alert: bool = False,
 ) -> uuid.UUID:
     """Insert a completed run (+ result + SAR) under an agency; return the run id."""
     async with sessionmaker() as session:
@@ -318,6 +358,16 @@ async def _seed_completed_run(
                     status=SarStatus.DRAFT,
                 )
             )
+        if with_alert:
+            session.add(
+                Alert(
+                    agency_id=agency_id,
+                    transaction_id=transaction.id,
+                    run_id=run.id,
+                    severity=Severity.HIGH,
+                    review_flags=[],
+                )
+            )
         await session.commit()
         return run.id
 
@@ -327,7 +377,7 @@ async def test_snapshot_projects_run_result_and_sar(
     db_engine: AsyncEngine,
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    run_id = await _seed_completed_run(db_sessionmaker, agency_id=DEMO_AGENCY_ID)
+    run_id = await _seed_completed_run(db_sessionmaker, agency_id=DEMO_AGENCY_ID, with_alert=True)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.get(f"/api/v1/investigations/{run_id}")
@@ -337,8 +387,31 @@ async def test_snapshot_projects_run_result_and_sar(
     assert body["riskBand"] == "high"
     assert body["fraudProbability"] == 0.9
     assert body["sarStatus"] == "draft"
+    async with db_sessionmaker() as session:
+        alert_id = (
+            await session.execute(
+                select(Alert.id).where(
+                    Alert.agency_id == DEMO_AGENCY_ID,
+                    Alert.run_id == run_id,
+                )
+            )
+        ).scalar_one()
+    assert body["alertId"] == str(alert_id)
     assert body["citations"][0]["citation"] == "31 CFR 1010.314"
     assert body["topFeatures"][0]["feature"] == "amount_log"
+
+
+async def test_snapshot_alert_id_is_null_when_run_did_not_raise_alert(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    run_id = await _seed_completed_run(db_sessionmaker, agency_id=DEMO_AGENCY_ID)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.get(f"/api/v1/investigations/{run_id}")
+    assert resp.status_code == 200
+    assert resp.json()["alertId"] is None
 
 
 async def test_snapshot_cross_tenant_and_missing_return_404(
@@ -477,6 +550,8 @@ async def test_run_completes_without_a_stream_then_snapshot_and_replay(
     assert snapshot.json()["status"] == "completed"
     assert snapshot.json()["riskBand"] == "high"
     assert snapshot.json()["sarStatus"] == "draft"
+    assert snapshot.json()["alertId"] is not None
+    assert f'"alertId":"{snapshot.json()["alertId"]}"' in stream.text
     assert _sse_events(stream.text)[-1] == "run.completed"  # the full log replays post-hoc
 
 

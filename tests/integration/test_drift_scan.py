@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from training_label_fakes import add_matured_training_labels
 
 from drift_scan import population_stability_index, scan_active_model, severity_for_psi
 from fraudlens_backend.db.models import (
@@ -44,7 +45,7 @@ def test_severity_for_psi_bands() -> None:
 
 
 async def _active_version_and_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
-    """Return the seeded active model-version id + one seeded analysis-run id for FK references."""
+    """Return the active model-version id + one explicit fixture-run id for FK references."""
     deployment = (await session.execute(select(ModelDeployment).limit(1))).scalar_one()
     run_id = (await session.execute(select(AnalysisRun.id).limit(1))).scalar_one()
     return deployment.active_version_id, run_id
@@ -76,6 +77,7 @@ async def _add_inferences(
 
 async def test_scan_records_insufficient_data_advisory(db_session: AsyncSession) -> None:
     await seed(db_session)
+    await add_matured_training_labels(db_session, count=1)
     version_id, run_id = await _active_version_and_run(db_session)
     await _add_inferences(db_session, version_id=version_id, run_id=run_id, probabilities=[0.3] * 5)
     report = await scan_active_model(db_session)
@@ -87,6 +89,7 @@ async def test_scan_records_insufficient_data_advisory(db_session: AsyncSession)
 
 async def test_scan_detects_score_shift_and_records_job(db_session: AsyncSession) -> None:
     await seed(db_session)
+    await add_matured_training_labels(db_session, count=1)
     version_id, run_id = await _active_version_and_run(db_session)
     # First half low scores, second half high scores → a clear distribution shift.
     probabilities = [0.1] * 30 + [0.9] * 30

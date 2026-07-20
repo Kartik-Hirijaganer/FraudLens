@@ -46,13 +46,21 @@ def test_map_ieee_row_maps_documented_subset() -> None:
     assert canonical.external_id == "2987000"
     assert str(canonical.amount) == "59.00"
     assert canonical.currency == "USD"  # documented default
-    assert canonical.country == "US"
-    assert canonical.channel == "W"  # ProductCD
+    assert canonical.country == "US"  # ieee_country: US-centric default (no addr2)
+    assert canonical.channel == "card"  # ieee_channel(ProductCD="W")
     # TransactionDT seconds after the IEEE epoch (2017-12-01) -> 2017-12-02.
     assert canonical.occurred_at.isoformat().startswith("2017-12-02")
     # Extra IEEE columns are carried as features.
     assert canonical.features["card4"] == "visa"
     assert "dist1" in canonical.features
+
+
+def test_map_ieee_row_maps_channel_and_country_via_shared_proxies() -> None:
+    # channel/country come from lib.aml_mapping, not the raw ProductCD / a hardcoded "US".
+    wire = map_ieee_row(_ieee_row(ProductCD="H", addr2="87"))
+    assert (wire.channel, wire.country) == ("wire", "US")
+    unknown = map_ieee_row(_ieee_row(ProductCD="Z"))
+    assert unknown.channel == "other"  # unmapped ProductCD -> documented default token
 
 
 def test_map_ieee_row_requires_columns() -> None:
