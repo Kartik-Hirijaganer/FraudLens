@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from training_label_fakes import add_matured_training_labels
 
 from fraudlens_backend.db.models import (
     AnalysisRun,
@@ -72,6 +73,7 @@ async def _seeded_run_id(session: AsyncSession) -> uuid.UUID:
 
 async def test_matured_label_counts_balanced(db_session: AsyncSession) -> None:
     await seed(db_session)
+    await add_matured_training_labels(db_session)
     counts = await ModelLifecycleRepository(db_session).matured_label_counts(
         as_of=datetime.now(UTC)
     )
@@ -176,6 +178,7 @@ async def test_rollback_returns_none_when_nothing_to_do(db_session: AsyncSession
 
 async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession) -> None:
     await seed(db_session)
+    await add_matured_training_labels(db_session, count=1)
     repo = ModelLifecycleRepository(db_session)
     deployment = await repo.get_deployment()
     active_id = deployment.active_version_id
