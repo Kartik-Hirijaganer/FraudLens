@@ -30,6 +30,7 @@ from fraudlens_backend.db.models import (
     Agency,
     Alert,
     AlertAction,
+    AlertOrigin,
     AlertStatus,
     AnalysisResult,
     AnalysisRun,
@@ -119,6 +120,7 @@ async def _seed_alert(
     *,
     agency_id: uuid.UUID = DEMO_AGENCY_ID,
     status: AlertStatus = AlertStatus.OPEN,
+    origin: AlertOrigin = AlertOrigin.PIPELINE,
     with_sar: bool = True,
     sar_status: SarStatus = SarStatus.DRAFT,
     review_flags: list[dict[str, str]] | None = None,
@@ -172,6 +174,7 @@ async def _seed_alert(
             agency_id=agency_id,
             transaction_id=transaction.id,
             run_id=run.id,
+            origin=origin,
             status=status,
             severity=Severity.HIGH,
             review_flags=review_flags or [],
@@ -217,6 +220,7 @@ async def test_list_alerts_scoped_and_status_filter(
     assert [a["status"] for a in escalated_resp.json()["alerts"]] == ["escalated"]
     assert all_resp.json()["alerts"][0]["amount"] == "9500.00"
     assert all_resp.json()["alerts"][0]["currency"] == "USD"
+    assert all(alert["origin"] == "pipeline" for alert in all_resp.json()["alerts"])
 
 
 async def test_get_alert_detail_surfaces_sar_and_flags(
@@ -225,13 +229,14 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     flags = [{"flag": "critical_risk_band", "reason": "Risk band is critical."}]
-    ids = await _seed_alert(db_sessionmaker, review_flags=flags)
+    ids = await _seed_alert(db_sessionmaker, review_flags=flags, origin=AlertOrigin.SEED)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
     assert resp.status_code == 200
     body = resp.json()
     assert body["alert"]["reviewFlags"][0]["flag"] == "critical_risk_band"
+    assert body["alert"]["origin"] == "seed"
     assert body["alert"]["amount"] == "9500.00"
     assert body["alert"]["currency"] == "USD"
     assert body["sarDraft"]["citations"][0]["citation"] == "31 CFR 1010.314"
