@@ -14,6 +14,7 @@ from collections.abc import Callable
 import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from training_label_fakes import add_matured_training_labels
 
 from fraudlens_backend.db.models import (
     AnalysisRun,
@@ -51,9 +52,10 @@ def _client(app: object) -> httpx.AsyncClient:
 
 
 async def _seed(sm: async_sessionmaker[AsyncSession]) -> None:
-    """Seed the demo dataset (active fixture model + balanced matured labels)."""
+    """Seed the foundation and explicit test-only balanced matured labels."""
     async with sm() as session:
         await seed(session)
+        await add_matured_training_labels(session)
         await session.commit()
 
 
