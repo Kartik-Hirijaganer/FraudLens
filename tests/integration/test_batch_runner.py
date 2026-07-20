@@ -153,3 +153,43 @@ async def test_run_batch_score_investigates_and_records_job(
         ).scalar_one()
         assert job.result == {"completed": 2, "failed": 0, "skipped": 1}
         assert str(job.id) == result.job_id
+
+
+async def test_run_batch_score_isolates_a_poisoned_transaction(
+    make_settings: Callable[..., AppSettings],
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One row violating a tightened contract fails ITS run; the sweep still completes.
+
+    A zero amount can only exist as legacy storage predating the cent-quantization boundary;
+    `build_pipeline_input` raises on it, and the runner must isolate the fault instead of
+    aborting the whole batch.
+    """
+    _patch_fake_deps(monkeypatch)
+    async with db_sessionmaker() as session:
+        session.add(Agency(id=_AGENCY_ID, name="B", slug="b-batch"))
+        good = _transaction("good-row")
+        poisoned = _transaction("poisoned-row", amount=Decimal("0.00"))
+        session.add_all([good, poisoned])
+        await session.commit()
+        good_id, poisoned_id = good.id, poisoned.id  # plain values survive the rollback expiry
+
+        result = await run_batch_score(
+            session=session,
+            components=build_pipeline_components(make_settings(llm_mode="mock")),
+            settings=make_settings(),
+            agency_id=_AGENCY_ID,
+            transaction_ids=[good_id, poisoned_id],
+        )
+
+    assert result.completed == 1
+    assert result.failed == 1
+    async with db_sessionmaker() as session:
+        failed_run = (
+            await session.execute(
+                select(AnalysisRun).where(AnalysisRun.transaction_id == poisoned_id)
+            )
+        ).scalar_one()
+        assert failed_run.status is RunStatus.FAILED
+        assert failed_run.error_code == "batch_input_error"
