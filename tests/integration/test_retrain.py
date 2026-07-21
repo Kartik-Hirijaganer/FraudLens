@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from training_label_fakes import add_matured_training_labels
 
 from fraudlens_backend.db.models import (
     AnalysisRun,
@@ -31,7 +32,8 @@ from fraudlens_backend.db.models import (
 from fraudlens_backend.db.repositories import ModelLifecycleRepository
 from fraudlens_backend.db.repositories.model_lifecycle import LabelCounts, labels_eligible
 from fraudlens_ml.scoring import ModelGates, evaluate_gates, evaluate_tenant_slices
-from lib.synthetic_fraud import DataSplit, generate_dataset, split_dataset
+from lib.dataset import DataSplit, split_dataset
+from lib.synthetic_fraud import generate_dataset
 from retrain import (
     TrainedCandidate,
     register_retrained_candidate,
@@ -176,6 +178,7 @@ async def test_register_retrained_candidate_is_idempotent(
 
 async def test_matured_label_counts_excludes_immature(db_session: AsyncSession) -> None:
     await seed(db_session)
+    await add_matured_training_labels(db_session)
     lifecycle = ModelLifecycleRepository(db_session)
     now = datetime.now(UTC)
     seeded = await lifecycle.matured_label_counts(as_of=now)
