@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from fraudlens_backend.db.models import (
     Agency,
     Alert,
+    AlertOrigin,
     AlertStatus,
     AnalysisResult,
     AnalysisRun,
@@ -203,6 +204,7 @@ async def test_run_persists_all_rows_and_completes(
         assert inference.feature_hash == "fh-persist"
 
         alert = (await session.execute(select(Alert).where(Alert.run_id == run.id))).scalar_one()
+        assert alert.origin is AlertOrigin.PIPELINE
         assert alert.status is AlertStatus.OPEN
         assert alert.severity is Severity.HIGH
 
@@ -241,7 +243,13 @@ async def test_low_score_completes_without_alert(
 
     async with db_sessionmaker() as session:
         alert_count = (await session.execute(select(func.count()).select_from(Alert))).scalar_one()
+        retrieval_count = (
+            await session.execute(select(func.count()).select_from(RagRetrieval))
+        ).scalar_one()
+        sar_count = (await session.execute(select(func.count()).select_from(SarDraft))).scalar_one()
         assert alert_count == 0
+        assert retrieval_count == 0
+        assert sar_count == 0
 
 
 async def test_unregistered_model_label_skips_inference_log(

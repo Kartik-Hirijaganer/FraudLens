@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
@@ -31,9 +31,14 @@ from fraudlens_llm import (
     ProviderNotConfiguredError,
     Providers,
     Role,
+    StreamGenerationRequest,
     TaskType,
 )
-from fraudlens_llm.adapters.base import AdapterEmbeddingResult, AdapterGenerateResult
+from fraudlens_llm.adapters.base import (
+    AdapterEmbeddingResult,
+    AdapterGenerateChunk,
+    AdapterGenerateResult,
+)
 from fraudlens_llm.exceptions import LlmTimeoutError
 
 
@@ -49,6 +54,7 @@ class _FakeAdapter:
         self.fail_once = fail_once
         self.embeddings = embeddings or [[0.1, 0.2]]
         self.generate_calls: list[Sequence[LlmMessage]] = []
+        self.stream_generate_calls: list[Sequence[LlmMessage]] = []
         self.embed_calls: list[Sequence[str]] = []
         self.params: list[GenerationParams] = []
 
@@ -68,6 +74,29 @@ class _FakeAdapter:
             raise LlmTimeoutError("timeout")
         return AdapterGenerateResult(
             text=self.text,
+            served_model="served",
+            finish_reason="stop",
+            usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+        )
+
+    async def generate_stream(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+    ) -> AsyncIterator[AdapterGenerateChunk]:
+        _ = (model_id, card)
+        self.stream_generate_calls.append(messages)
+        self.params.append(params)
+        if self.fail_once:
+            self.fail_once = False
+            raise LlmTimeoutError("timeout")
+        midpoint = len(self.text) // 2
+        yield AdapterGenerateChunk(text_delta=self.text[:midpoint], served_model="served")
+        yield AdapterGenerateChunk(
+            text_delta=self.text[midpoint:],
             served_model="served",
             finish_reason="stop",
             usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
@@ -198,6 +227,28 @@ async def test_generate_masks_phi_before_fake_adapter_and_excludes_raw_by_defaul
     assert result.raw_text is None
     assert result.guardrail.masking.total_masked == 2
     assert fake.params[0].max_tokens == 7
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_assembles_ordered_deltas_before_output_guardrails() -> None:
+    client = _client()
+    fake = _FakeAdapter(text='Analysis: safe <img onerror="x"> response')
+    client._adapters["openai"] = fake
+
+    result = await client.generate_stream(
+        StreamGenerationRequest(
+            messages=[LlmMessage(role=Role.USER, content="contact a@example.com")],
+            model="openai/chat",
+            task_type=TaskType.ANALYSIS,
+        )
+    )
+
+    combined = "\n".join(message.content for message in fake.stream_generate_calls[0])
+    assert "a@example.com" not in combined
+    assert result.safe_text == "Analysis: safe <img> response"
+    assert result.guardrail.decision == GuardrailDecision.FLAG
+    assert result.usage.total_tokens == 15
+    assert result.finish_reason == "stop"
 
 
 @pytest.mark.asyncio
