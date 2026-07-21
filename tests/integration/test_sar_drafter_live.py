@@ -7,7 +7,7 @@ WITHOUT any real provider call — the fake adapter stands in for the SDK, so th
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from decimal import Decimal
 
 import pytest
@@ -39,7 +39,7 @@ from fraudlens_llm import (
     ProviderConfig,
     Providers,
 )
-from fraudlens_llm.adapters.base import AdapterGenerateResult
+from fraudlens_llm.adapters.base import AdapterGenerateChunk, AdapterGenerateResult
 from fraudlens_llm.exceptions import LlmTimeoutError
 from fraudlens_ml.sar import SarDraftStatus, SarEventType
 
@@ -51,10 +51,18 @@ SAR_JSON = (
 
 
 class _FakeAdapter:
-    def __init__(self, *, text: str = SAR_JSON, fail_once: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        text: str = SAR_JSON,
+        fail_once: bool = False,
+        deltas: tuple[str, ...] | None = None,
+    ) -> None:
         self.text = text
         self.fail_once = fail_once
+        self.deltas = deltas or (text[: len(text) // 2], text[len(text) // 2 :])
         self.calls: list[Sequence[LlmMessage]] = []
+        self.emitted_deltas: list[str] = []
 
     async def generate(self, *, model_id, card, messages, params) -> AdapterGenerateResult:
         self.calls.append(messages)
@@ -67,6 +75,33 @@ class _FakeAdapter:
             finish_reason="stop",
             usage=LlmUsage(input_tokens=100, output_tokens=50, total_tokens=150),
         )
+
+    async def generate_stream(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+    ) -> AsyncIterator[AdapterGenerateChunk]:
+        _ = (model_id, card, params)
+        self.calls.append(messages)
+        if self.fail_once:
+            self.fail_once = False
+            raise LlmTimeoutError()
+        for index, delta in enumerate(self.deltas):
+            self.emitted_deltas.append(delta)
+            final = index == len(self.deltas) - 1
+            yield AdapterGenerateChunk(
+                text_delta=delta,
+                served_model="served",
+                finish_reason="stop" if final else None,
+                usage=(
+                    LlmUsage(input_tokens=100, output_tokens=50, total_tokens=150)
+                    if final
+                    else None
+                ),
+            )
 
 
 def _card() -> ModelCard:
@@ -86,7 +121,8 @@ def _card() -> ModelCard:
 
 def _provider() -> ProviderConfig:
     return ProviderConfig(
-        protocol=Protocol.ANTHROPIC,
+        protocol=Protocol.OPENAI_COMPATIBLE,
+        base_url="https://example.com/v1",
         api_key_env="EXAMPLE_API_KEY",
         timeout_s=10,
         max_retries=0,
@@ -155,6 +191,21 @@ async def test_live_masks_phi_before_provider_and_grounds_citations(make_sar_inp
     assert result.cost_usd == Decimal("0.000200")  # 100*1/1e6 + 50*2/1e6
     assert result.token_usage.total_tokens == 150
     assert result.guardrail_decision == "allow"  # guardrail report surfaced (guardrails ran)
+
+
+@pytest.mark.asyncio
+async def test_live_assembles_native_deltas_before_grounded_terminal_event(make_sar_input) -> None:
+    boundaries = (SAR_JSON[:17], SAR_JSON[17:83], SAR_JSON[83:])
+    adapter = _FakeAdapter(deltas=boundaries)
+
+    events = await _draft(_live(_client(primary=adapter)), make_sar_input())
+
+    result = events[-1].result
+    browser_text = "".join(event.token or "" for event in events if event.token is not None)
+    assert tuple(adapter.emitted_deltas) == boundaries
+    assert events[-1].type == SarEventType.COMPLETED
+    assert result.structured.cited_regulations == ("31 CFR 1010.314",)
+    assert browser_text == result.content
 
 
 @pytest.mark.asyncio
@@ -261,4 +312,5 @@ def test_load_sar_llm_config_reads_repo_config() -> None:
     config = load_sar_llm_config()
     assert config.model == raw["model"]
     assert config.max_output_tokens == raw["max_output_tokens"]
+    assert config.reasoning_effort == raw["reasoning_effort"]
     assert config.fallbacks == tuple(raw["fallbacks"])
