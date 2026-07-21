@@ -109,6 +109,58 @@ def test_jwks_token_verifier_accepts_es256_claims(monkeypatch: pytest.MonkeyPatc
     assert claims.role == "admin"
 
 
+def test_jwks_token_verifier_accepts_server_owned_app_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = _ec_key()
+    verifier = _verifier_with_key(
+        monkeypatch,
+        key.public_key(),
+        auth_jwt_algorithm="ES256",
+        auth_jwt_issuer="issuer",
+        auth_jwt_audience="fraudlens",
+    )
+    token = jwt.encode(
+        {
+            "sub": "22222222-2222-4222-8222-222222222222",
+            "app_metadata": {
+                "agency_id": "11111111-1111-4111-8111-111111111111",
+                "user_role": "reviewer",
+            },
+            "iss": "issuer",
+            "aud": "fraudlens",
+        },
+        key,
+        algorithm="ES256",
+    )
+
+    claims = verifier(token)
+
+    assert claims.agency_id == "11111111-1111-4111-8111-111111111111"
+    assert claims.role == "reviewer"
+
+
+def test_jwks_token_verifier_rejects_user_editable_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = _rsa_key()
+    verifier = _verifier_with_key(monkeypatch, key.public_key())
+    token = jwt.encode(
+        {
+            "sub": "22222222-2222-4222-8222-222222222222",
+            "user_metadata": {
+                "agency_id": "11111111-1111-4111-8111-111111111111",
+                "user_role": "admin",
+            },
+        },
+        key,
+        algorithm="RS256",
+    )
+
+    with pytest.raises(CredentialsError, match="missing agency claim"):
+        verifier(token)
+
+
 def test_jwks_token_verifier_rejects_invalid_role(monkeypatch: pytest.MonkeyPatch) -> None:
     key = _rsa_key()
     verifier = _verifier_with_key(monkeypatch, key.public_key())
