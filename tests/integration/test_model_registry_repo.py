@@ -6,6 +6,7 @@ there is no deployment or the active version is missing (so callers can fail clo
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +62,58 @@ async def test_build_pointer_none_when_active_version_missing(db_session: AsyncS
     db_session.add(ModelDeployment(active_version_id=uuid.uuid4(), canary_percent=0))
     await db_session.flush()
     assert await ModelRegistryRepository(db_session).build_pointer() is None
+
+
+async def test_build_latest_candidate_pointer_selects_newest_candidate(
+    db_session: AsyncSession,
+) -> None:
+    await seed(db_session)
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            ModelVersion(
+                version_label="candidate-older",
+                training_run_id=_FIXTURE_TRAINING_RUN_ID,
+                artifact_uri="candidate-older",
+                feature_spec={},
+                metrics={},
+                status=ModelVersionStatus.CANDIDATE,
+                created_at=now - timedelta(minutes=1),
+            ),
+            ModelVersion(
+                version_label="candidate-newest",
+                training_run_id=_FIXTURE_TRAINING_RUN_ID,
+                artifact_uri="candidate-newest",
+                feature_spec={},
+                metrics={},
+                status=ModelVersionStatus.CANDIDATE,
+                created_at=now,
+            ),
+            ModelVersion(
+                version_label="rejected-newer",
+                training_run_id=_FIXTURE_TRAINING_RUN_ID,
+                artifact_uri="rejected-newer",
+                feature_spec={},
+                metrics={},
+                status=ModelVersionStatus.REJECTED,
+                created_at=now + timedelta(minutes=1),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    pointer = await ModelRegistryRepository(db_session).build_latest_candidate_pointer()
+
+    assert pointer is not None
+    assert pointer.active_version_label == "candidate-newest"
+    assert pointer.active_artifact_uri == "candidate-newest"
+
+
+async def test_build_latest_candidate_pointer_none_without_candidate(
+    db_session: AsyncSession,
+) -> None:
+    await seed(db_session)
+    assert await ModelRegistryRepository(db_session).build_latest_candidate_pointer() is None
 
 
 async def test_list_versions_and_get_version(db_session: AsyncSession) -> None:
