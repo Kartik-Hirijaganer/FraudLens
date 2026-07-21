@@ -140,6 +140,25 @@ def test_readyz_chromadb_down_when_index_required_but_missing(
     assert _check(response.json(), "chromadb")["status"] == "down"
 
 
+def test_readyz_chromadb_down_when_required_embedding_space_mismatches(
+    client_factory: Callable[..., TestClient], tmp_path: Path
+) -> None:
+    index_dir = tmp_path / "hashing-index"
+    client = client_factory(
+        rag_embedding_mode="live",
+        rag_index_required=True,
+        rag_index_dir=str(index_dir),
+    )
+    client.app.state.rag_index_dir = _build_fixture_index(
+        index_dir, client.app.state.settings.rag_collection
+    )
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    check = _check(response.json(), "chromadb")
+    assert check["status"] == "down"
+    assert check["detail"] == "index mismatch"
+
+
 def test_readyz_chromadb_skipped_when_index_dir_unset(
     client_factory: Callable[..., TestClient],
 ) -> None:
