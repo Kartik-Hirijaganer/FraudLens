@@ -25,9 +25,9 @@ CtxFactory = Callable[..., RuleContext]
 
 def test_feature_spec_lists_all_feature_names() -> None:
     spec = current_feature_spec()
-    assert spec.version == 1
+    assert spec.version == 2
     assert tuple(spec.features) == FEATURE_NAMES
-    assert len(FEATURE_NAMES) == 10
+    assert len(FEATURE_NAMES) == 19
 
 
 def test_extract_features_is_deterministic(make_rule_context: CtxFactory) -> None:
@@ -94,6 +94,87 @@ def test_velocity_window_counts_only_recent_same_account_history(
     assert features["velocity_24h"] == 1.0  # only `recent`
     assert features["distinct_countries_24h"] == 2.0  # US (current) + GB (recent)
     assert features["amount_24h_sum_log"] == pytest.approx(math.log1p(100.0 + 200.0))
+
+
+def test_v2_direction_split_burstiness_and_structuring_share(
+    make_rule_context: CtxFactory,
+) -> None:
+    now = datetime(2024, 6, 5, 12, 0, tzinfo=UTC)
+    inbound_prior = RuleTransaction(
+        amount=Decimal("400.00"),
+        currency="USD",
+        country="GB",
+        channel="ach",
+        occurred_at=datetime(2024, 6, 5, 9, 0, tzinfo=UTC),  # 3h before, INTO the account
+        direction=TransactionDirection.INBOUND,
+    )
+    outbound_prior = RuleTransaction(
+        amount=Decimal("123.45"),
+        currency="USD",
+        country="US",
+        channel="wire",
+        occurred_at=datetime(2024, 6, 5, 10, 0, tzinfo=UTC),  # 2h before, most recent prior
+        direction=TransactionDirection.OUTBOUND,
+    )
+    features = extract_features(
+        make_rule_context(
+            amount="100.00",
+            channel="wire",
+            occurred_at=now,
+            history=(inbound_prior, outbound_prior),
+        )
+    )
+    assert features["inbound_velocity_24h"] == 1.0
+    assert features["inbound_amount_24h_log"] == pytest.approx(math.log1p(400.0))
+    assert features["seconds_since_prev_txn_log"] == pytest.approx(math.log1p(2 * 3600.0))
+    assert features["distinct_channels_24h"] == 2.0  # wire (current+prior) + ach
+    # Round-amount share: current (100.00) + inbound prior (400.00) round, 123.45 not -> 2/3.
+    assert features["round_amount_share_24h"] == pytest.approx(2.0 / 3.0)
+
+
+def test_v2_burstiness_sentinel_without_window_priors(make_rule_context: CtxFactory) -> None:
+    features = extract_features(make_rule_context(amount="10.00"))
+    assert features["seconds_since_prev_txn_log"] == pytest.approx(math.log1p(86_400.0))
+    assert features["inbound_velocity_24h"] == 0.0
+    assert features["round_amount_share_24h"] == 0.0  # 10.00 is not a multiple of 100
+
+
+def test_v2_counterparty_fan_in_features(make_rule_context: CtxFactory) -> None:
+    now = datetime(2024, 6, 5, 12, 0, tzinfo=UTC)
+    into_dest = RuleTransaction(
+        amount=Decimal("900.00"),
+        currency="USD",
+        country="US",
+        channel="wire",
+        occurred_at=datetime(2024, 6, 5, 8, 0, tzinfo=UTC),
+        direction=TransactionDirection.INBOUND,  # money INTO the destination account
+    )
+    out_of_dest = RuleTransaction(
+        amount=Decimal("850.00"),
+        currency="USD",
+        country="US",
+        channel="wire",
+        occurred_at=datetime(2024, 6, 5, 9, 0, tzinfo=UTC),
+        direction=TransactionDirection.OUTBOUND,  # the destination passing funds onward
+    )
+    base = make_rule_context(amount="100.00", occurred_at=now)
+    ctx = RuleContext(
+        transaction=base.transaction,
+        history=base.history,
+        counterparty_history=(into_dest, out_of_dest),
+    )
+    features = extract_features(ctx)
+    assert features["dest_fan_in_24h"] == 1.0  # only the inbound leg counts as fan-in
+    assert features["dest_inbound_amount_24h_log"] == pytest.approx(math.log1p(100.0 + 900.0))
+    # The destination forwarding funds onward is the pass-through/layering-hop signal.
+    assert features["dest_outbound_velocity_24h"] == 1.0
+    assert features["dest_outbound_amount_24h_log"] == pytest.approx(math.log1p(850.0))
+    # Without counterparty history the dest features collapse to the current transaction alone.
+    bare = extract_features(base)
+    assert bare["dest_fan_in_24h"] == 0.0
+    assert bare["dest_inbound_amount_24h_log"] == pytest.approx(math.log1p(100.0))
+    assert bare["dest_outbound_velocity_24h"] == 0.0
+    assert bare["dest_outbound_amount_24h_log"] == 0.0
 
 
 def test_feature_vector_orders_by_names_and_rejects_missing() -> None:

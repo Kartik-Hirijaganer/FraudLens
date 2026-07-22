@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 
-from fraudlens_core import RiskBand, RiskPolicy
+from fraudlens_core import ModelRiskThresholds, RiskBand, RiskPolicy
 
 
 def test_blend_is_a_convex_combination() -> None:
@@ -65,3 +65,62 @@ def test_custom_thresholds_and_weight() -> None:
     assert assessment.combined_score == pytest.approx(0.6)  # model_weight 1.0 ignores rules
     assert assessment.risk_band is RiskBand.CRITICAL
     assert assessment.alert is True
+
+
+def test_model_risk_identity_without_thresholds_or_weight() -> None:
+    policy = RiskPolicy()
+    thresholds = ModelRiskThresholds(medium=0.001, high=0.01, critical=0.05)
+    assert policy.model_risk(0.42, None) == pytest.approx(0.42)
+    assert policy.model_risk(1.7, None) == 1.0  # clamped
+    assert policy.model_risk(-0.5, None) == 0.0  # clamped
+    rules_only = RiskPolicy(model_weight=0.0)
+    assert rules_only.model_risk(0.42, thresholds) == pytest.approx(0.42)
+
+
+def test_model_risk_maps_operating_points_onto_band_bounds() -> None:
+    policy = RiskPolicy()  # weight 0.7, bands 0.3/0.6/0.85
+    thresholds = ModelRiskThresholds(medium=0.001, high=0.01, critical=0.05)
+    # A model score AT an operating point (zero rules) lands exactly on the band bound.
+    at_medium = policy.assess(
+        fraud_probability=0.001, rules_subscore=0.0, model_thresholds=thresholds
+    )
+    assert at_medium.combined_score == pytest.approx(0.3)
+    assert at_medium.risk_band is RiskBand.MEDIUM
+    at_high = policy.assess(fraud_probability=0.01, rules_subscore=0.0, model_thresholds=thresholds)
+    assert at_high.combined_score == pytest.approx(0.6)
+    assert at_high.risk_band is RiskBand.HIGH
+    assert at_high.alert is True
+    below = policy.assess(fraud_probability=0.0002, rules_subscore=0.0, model_thresholds=thresholds)
+    assert below.risk_band is RiskBand.LOW
+    assert below.alert is False
+
+
+def test_model_risk_is_monotone_and_bounded() -> None:
+    policy = RiskPolicy()
+    thresholds = ModelRiskThresholds(medium=0.001, high=0.01, critical=0.05)
+    previous = -1.0
+    for probability in [0.0, 0.0005, 0.001, 0.004, 0.01, 0.03, 0.05, 0.2, 0.9, 1.0]:
+        normalized = policy.model_risk(probability, thresholds)
+        assert 0.0 <= normalized <= 1.0
+        assert normalized >= previous
+        previous = normalized
+
+
+def test_model_risk_critical_needs_rule_corroboration_at_default_weight() -> None:
+    policy = RiskPolicy()
+    thresholds = ModelRiskThresholds(medium=0.001, high=0.01, critical=0.05)
+    model_only = policy.assess(
+        fraud_probability=0.06, rules_subscore=0.0, model_thresholds=thresholds
+    )
+    assert model_only.risk_band is RiskBand.HIGH  # 0.85/0.7 > 1 -> capped; model alone tops out
+    corroborated = policy.assess(
+        fraud_probability=0.06, rules_subscore=0.6, model_thresholds=thresholds
+    )
+    assert corroborated.risk_band is RiskBand.CRITICAL
+
+
+def test_model_risk_thresholds_require_strict_ordering() -> None:
+    with pytest.raises(ValueError, match="medium < high < critical"):
+        ModelRiskThresholds(medium=0.01, high=0.01, critical=0.05)
+    with pytest.raises(ValueError):
+        ModelRiskThresholds(medium=0.5, high=0.4, critical=0.6)
