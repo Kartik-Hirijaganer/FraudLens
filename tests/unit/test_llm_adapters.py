@@ -112,6 +112,40 @@ class _OpenAiChatCompletions:
 
     async def create(self, **kwargs: object) -> object:
         self.calls.append(kwargs)
+        if kwargs.get("stream") is True:
+            return _OpenAiStream(
+                [
+                    SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="adapter "),
+                                finish_reason=None,
+                            )
+                        ],
+                        usage=None,
+                        model="served-chat",
+                    ),
+                    SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="ok"),
+                                finish_reason="stop",
+                            )
+                        ],
+                        usage=None,
+                        model="served-chat",
+                    ),
+                    SimpleNamespace(
+                        choices=[],
+                        usage=SimpleNamespace(
+                            prompt_tokens=4,
+                            completion_tokens=5,
+                            total_tokens=9,
+                        ),
+                        model="served-chat",
+                    ),
+                ]
+            )
         return SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -122,6 +156,19 @@ class _OpenAiChatCompletions:
             usage=SimpleNamespace(prompt_tokens=4, completion_tokens=5, total_tokens=9),
             model="served-chat",
         )
+
+
+class _OpenAiStream:
+    def __init__(self, chunks: list[object]) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self) -> _OpenAiStream:
+        return self
+
+    async def __anext__(self) -> object:
+        if not self._chunks:
+            raise StopAsyncIteration
+        return self._chunks.pop(0)
 
 
 class _OpenAiEmbeddings:
@@ -184,12 +231,26 @@ async def test_openai_adapter_chat_and_embed_happy_paths() -> None:
         inputs=["hello"],
         params=GenerationParams(dimensions=2),
     )
+    stream = [
+        chunk
+        async for chunk in adapter.generate_stream(
+            model_id="gpt-5-mini",
+            card=_card(),
+            messages=[LlmMessage(role=Role.USER, content="hello")],
+            params=GenerationParams(max_tokens=10, response_format="json_object"),
+        )
+    ]
 
     assert chat.text == "adapter ok"
     assert chat.usage.total_tokens == 9
     assert fake.chat.completions.calls[0]["response_format"] == {"type": "json_object"}
     assert embed.embeddings == [[0.1, 0.2]]
     assert fake.embeddings.calls[0]["dimensions"] == 2
+    assert "".join(chunk.text_delta for chunk in stream) == "adapter ok"
+    assert stream[-1].usage.total_tokens == 9
+    assert fake.chat.completions.calls[1]["stream"] is True
+    assert fake.chat.completions.calls[1]["stream_options"] == {"include_usage": True}
+    assert fake.chat.completions.calls[1]["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.asyncio
