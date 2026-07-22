@@ -95,6 +95,7 @@ async def test_high_score_raises_alert_low_score_does_not() -> None:
     high_store = FakeRunStore()
     await Runner(_deps(high_store, RecordingEmit())).run(_pipeline_input())
     assert len(high_store.alerts) == 1  # combined 0.78 >= 0.6 alert threshold
+    assert high_store.operations.index("raise_alert") < high_store.operations.index("save_rag")
 
     low_store = FakeRunStore()
     report = await Runner(
@@ -102,6 +103,17 @@ async def test_high_score_raises_alert_low_score_does_not() -> None:
     ).run(_pipeline_input())
     assert report.risk_band is RiskBand.LOW  # 0.1*0.7 + 0.5*0.3 = 0.22 → low band
     assert low_store.alerts == []
+    assert low_store.rags == []
+    assert low_store.sars == []
+    assert low_store.event_types == [
+        "run.started",
+        "step.rules.completed",
+        "step.scoring.completed",
+        "step.shap.completed",
+        "run.completed",
+    ]
+    assert report.sar_draft_id is None
+    assert report.sar_status is None
 
 
 async def test_tokens_stream_live_but_are_not_persisted() -> None:
