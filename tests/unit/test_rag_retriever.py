@@ -12,6 +12,7 @@ import pytest
 
 from fraudlens_ml.rag import (
     Embedder,
+    EmbeddingProvenance,
     HashingEmbedder,
     RegulationDocument,
     Retriever,
@@ -61,6 +62,23 @@ class _DownEmbedder:
         raise RuntimeError("embeddings provider down")
 
 
+class _LiveEmbedder:
+    """A live-space test embedder that must not query a hashing-space index."""
+
+    provenance = EmbeddingProvenance(
+        kind="provider",
+        model_id="openrouter/openai/text-embedding-3-small",
+        dimensions=1536,
+        rag_version="rag-v2-te3s",
+    )
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return [[0.0] * self.provenance.dimensions for _ in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        raise AssertionError("provenance mismatch must fail closed before provider query")
+
+
 @pytest.fixture(scope="module")
 def index_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the small FinCEN test index once for the module."""
@@ -91,12 +109,52 @@ def test_vector_retrieval_returns_the_relevant_citation_first(index_dir: Path) -
     assert all(isinstance(chunk.score, float) for chunk in result.chunks)
 
 
+def test_vector_retrieval_filters_chunks_below_similarity_floor(index_dir: Path) -> None:
+    retriever = Retriever(
+        persist_dir=index_dir,
+        collection=_COLLECTION,
+        embedder=HashingEmbedder(),
+        min_similarity=0.5,
+    )
+    result = retriever._from_vector(
+        {
+            "ids": [["strong", "weak"]],
+            "documents": [["strong text", "weak text"]],
+            "metadatas": [[{"citation": "A"}, {"citation": "B"}]],
+            "distances": [[0.2, 0.8]],
+        }
+    )
+    assert [chunk.chunk_id for chunk in result.chunks] == ["strong"]
+    assert result.chunks[0].score == pytest.approx(0.8)
+
+
+def test_retriever_rejects_invalid_similarity_floor(index_dir: Path) -> None:
+    with pytest.raises(ValueError, match="min_similarity"):
+        Retriever(
+            persist_dir=index_dir,
+            collection=_COLLECTION,
+            embedder=HashingEmbedder(),
+            min_similarity=1.1,
+        )
+
+
 def test_embeddings_down_falls_back_to_lexical(index_dir: Path) -> None:
     result = _retriever(index_dir, _DownEmbedder()).retrieve(
         "suspicious activity report narrative describing money laundering", top_k=2
     )
     assert result.mode == "lexical"
     assert result.chunks
+    assert result.chunks[0].citation == "31 USC 5318(g)"
+
+
+def test_provenance_mismatch_fails_closed_to_lexical(index_dir: Path) -> None:
+    embedder = _LiveEmbedder()
+    assert index_status(index_dir, _COLLECTION, embedder.provenance) == "mismatch"
+    result = _retriever(index_dir, embedder).retrieve(
+        "suspicious activity report narrative describing money laundering", top_k=2
+    )
+    assert result.mode == "lexical"
+    assert result.rag_version == "rag-v2-te3s"
     assert result.chunks[0].citation == "31 USC 5318(g)"
 
 

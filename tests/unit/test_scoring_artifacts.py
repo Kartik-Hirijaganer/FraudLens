@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from fraudlens_core import ModelRiskThresholds
 from fraudlens_ml.scoring import (
     ArtifactError,
     Calibration,
@@ -127,3 +128,25 @@ def test_cache_raises_when_active_fails_and_no_previous(tmp_path: Path) -> None:
     pointer = DeploymentPointer(active_version_label="broken", active_artifact_uri="nope")
     with pytest.raises(ArtifactError):
         ModelCache(tmp_path).get(pointer)
+
+
+def test_risk_thresholds_round_trip_and_default_none(
+    fixture_model_dir: Path, tmp_path: Path
+) -> None:
+    """v2 operating points persist with the bundle; legacy bundles load as None (identity)."""
+    loaded = load_artifact(fixture_model_dir)
+    assert loaded.risk_thresholds is None  # the synthetic fixture carries no operating points
+    thresholds = ModelRiskThresholds(medium=0.0012, high=0.0055, critical=0.023)
+    out = tmp_path / "with-thresholds"
+    save_artifact(
+        out,
+        loaded.booster,
+        version_label="with-thresholds-1",
+        feature_spec=loaded.feature_spec,
+        calibration=loaded.calibration,
+        background=loaded.background,
+        metrics={"pr_auc": 0.2},
+        risk_thresholds=thresholds,
+    )
+    reloaded = load_artifact(out)
+    assert reloaded.risk_thresholds == thresholds
