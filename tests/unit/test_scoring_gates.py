@@ -169,3 +169,68 @@ def test_tenant_slices_auto_pass_when_no_active_model() -> None:
         {"slice-0": 0.10, "slice-1": 0.05}, active_pr_auc=None, gates=ModelGates()
     )
     assert all(check.passed for check in checks)  # the first model is judged on the overall gates
+
+
+def test_rare_event_lift_caps_replace_unattainable_absolute_bars() -> None:
+    """At a ~0.1% base rate the absolute precision bar is mathematically unattainable; the
+    lift formulation keeps an equivalent-strength, attainable bar (full-IBM plan Phase 3)."""
+    gates = ModelGates()
+    rare = CandidateMetrics(
+        pr_auc=0.20,
+        recall_at_budget=0.70,
+        precision_at_top_pct=0.05,
+        ece=0.001,
+        brier=0.001,
+        holdout_base_rate=0.001,
+        precision_at_budget=0.01,
+    )
+    report = evaluate_gates(rare, 0.05, None, gates)
+    by_name = {check.name: check for check in report.checks}
+    assert by_name["pr_auc_floor"].threshold == pytest.approx(0.15)  # 150 x 0.001
+    assert by_name["pr_auc_floor"].passed
+    assert by_name["precision_at_top_pct"].threshold == pytest.approx(0.02)  # 20 x 0.001
+    assert by_name["precision_at_top_pct"].passed
+    assert report.passed
+
+
+def test_common_base_rates_keep_the_absolute_bars() -> None:
+    """At the synthetic ~3.5% base rate the historical absolute thresholds stay binding."""
+    gates = ModelGates()
+    common = CandidateMetrics(
+        pr_auc=0.60,
+        recall_at_budget=0.70,
+        precision_at_top_pct=0.50,
+        ece=0.01,
+        brier=0.05,
+        holdout_base_rate=0.035,
+        precision_at_budget=0.40,
+    )
+    report = evaluate_gates(common, 0.40, None, gates)
+    by_name = {check.name: check for check in report.checks}
+    assert by_name["pr_auc_floor"].threshold == pytest.approx(gates.pr_auc_floor)
+    assert by_name["precision_at_top_pct"].threshold == pytest.approx(gates.precision_at_top_pct)
+
+
+def test_zero_base_rate_keeps_absolute_bars_rather_than_collapsing() -> None:
+    gates = ModelGates()
+    degenerate = CandidateMetrics(
+        pr_auc=0.0,
+        recall_at_budget=0.0,
+        precision_at_top_pct=0.0,
+        ece=0.0,
+        brier=0.0,
+        holdout_base_rate=0.0,
+        precision_at_budget=0.0,
+    )
+    report = evaluate_gates(degenerate, 0.0, None, gates)
+    by_name = {check.name: check for check in report.checks}
+    assert by_name["pr_auc_floor"].threshold == pytest.approx(gates.pr_auc_floor)
+    assert not report.passed
+
+
+def test_compute_metrics_records_base_rate_and_budget_precision() -> None:
+    labels = np.array([0] * 98 + [1] * 2)
+    probabilities = np.linspace(0.0, 1.0, 100)
+    metrics = compute_metrics(labels, probabilities, ModelGates())
+    assert metrics.holdout_base_rate == pytest.approx(0.02)
+    assert 0.0 <= metrics.precision_at_budget <= 1.0
