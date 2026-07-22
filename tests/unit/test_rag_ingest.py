@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from fraudlens_ml.rag import (
+    EmbeddingProvenance,
     HashingEmbedder,
     RegulationDocument,
     build_index,
@@ -124,6 +125,12 @@ def test_hashing_embedder_is_deterministic_and_unit_normalized() -> None:
     assert math.isclose(math.sqrt(sum(value * value for value in first)), 1.0, rel_tol=1e-9)
     batch = embedder.embed_documents(["a b c", "d e f"])
     assert len(batch) == 2 and all(len(row) == 64 for row in batch)
+    assert embedder.provenance == EmbeddingProvenance(
+        kind="hashing",
+        model_id="hashing-sha1-v1",
+        dimensions=64,
+        rag_version="rag-v1",
+    )
 
 
 def test_hashing_embedder_empty_text_is_zero_vector() -> None:
@@ -149,6 +156,11 @@ def test_build_index_persists_chunks_and_is_idempotent(tmp_path: Path) -> None:
         chunks, embedder=HashingEmbedder(), persist_dir=persist, collection="cidx"
     ) == len(chunks)
     assert index_status(persist, "cidx") == "ready"
+    metadata = connect(persist).get_collection("cidx").metadata
+    assert metadata["embedding_kind"] == "hashing"
+    assert metadata["embedding_model_id"] == "hashing-sha1-v1"
+    assert metadata["embedding_dimensions"] == 256
+    assert metadata["rag_version"] == "rag-v1"
     # a rebuild drops + recreates the collection: still exactly len(chunks), no stale duplicates
     assert build_index(
         chunks, embedder=HashingEmbedder(), persist_dir=persist, collection="cidx"
