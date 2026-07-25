@@ -128,7 +128,7 @@ LIVE_DEMO_USERS: tuple[DemoUserSpec, ...] = (
     DemoUserSpec(
         user_id=uuid.UUID("66666666-6666-4666-8666-666666666666"),
         email="analyst@aml-demo-agency-two.test",
-        display_name="Agency Two Analyst",
+        display_name="Sam Okafor",
         role=UserRole.ANALYST,
         agency_id=AML_DEMO_AGENCY_TWO_ID,
     ),

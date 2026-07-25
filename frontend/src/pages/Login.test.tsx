@@ -39,6 +39,12 @@ const LIVE_DEMO_ENV: LoginEnv = {
   VITE_DEMO_AUTH_ENABLED: "true",
 };
 
+const PORTFOLIO_DEMO_ENV: LoginEnv = {
+  DEV: false,
+  VITE_AUTH_DEV_BYPASS: "false",
+  VITE_DEMO_AUTH_ENABLED: "true",
+};
+
 const HIDDEN_DEMO_ENV: LoginEnv = {
   DEV: true,
   VITE_AUTH_DEV_BYPASS: "false",
@@ -111,6 +117,19 @@ describe("Login", () => {
     render(<Login env={LIVE_DEMO_ENV} />);
     await openRolePicker(user);
     expect(screen.getByRole("option", { name })).toBeInTheDocument();
+  });
+
+  it("offers the real-auth demo personas in a production portfolio build", async () => {
+    expect(LIVE_ONLY_PERSONA).toBeDefined();
+    const user = userEvent.setup();
+    render(<Login env={PORTFOLIO_DEMO_ENV} />);
+
+    await openRolePicker(user);
+
+    expect(screen.getAllByRole("option")).toHaveLength(DEMO_ROLES.length);
+    expect(
+      screen.getByRole("option", { name: new RegExp(LIVE_ONLY_PERSONA!.email) }),
+    ).toBeInTheDocument();
   });
 
   it("routes the Agency Two persona through Supabase even when the bypass is on", async () => {
@@ -242,7 +261,7 @@ describe("Login", () => {
     expect(fetchCurrentUser).toHaveBeenCalledWith("access-token");
   });
 
-  it("shows the demo picker only behind an explicit Vite-dev demo gate", () => {
+  it("keeps the bypass dev-only while allowing explicit live demo auth in production", () => {
     expect(
       isDemoPickerEnabled({
         DEV: false,
@@ -259,15 +278,22 @@ describe("Login", () => {
     ).toBe(false);
     expect(
       isDemoPickerEnabled({
+        DEV: false,
+        VITE_AUTH_DEV_BYPASS: "false",
+        VITE_DEMO_AUTH_ENABLED: "true",
+      }),
+    ).toBe(true);
+    expect(
+      isDemoPickerEnabled({
         DEV: true,
         VITE_AUTH_DEV_BYPASS: "false",
         VITE_DEMO_AUTH_ENABLED: "true",
       }),
     ).toBe(true);
     expect(isDemoBypassEnabled({ DEV: true, VITE_AUTH_DEV_BYPASS: "false" })).toBe(false);
-    expect(isLiveDemoAuthEnabled({ DEV: true, VITE_DEMO_AUTH_ENABLED: "true" })).toBe(true);
-    expect(isLiveDemoAuthEnabled({ DEV: false, VITE_DEMO_AUTH_ENABLED: "true" })).toBe(false);
-    expect(isLiveDemoAuthEnabled({ DEV: true, VITE_DEMO_AUTH_ENABLED: "false" })).toBe(false);
+    expect(isDemoBypassEnabled({ DEV: false, VITE_AUTH_DEV_BYPASS: "true" })).toBe(false);
+    expect(isLiveDemoAuthEnabled({ VITE_DEMO_AUTH_ENABLED: "true" })).toBe(true);
+    expect(isLiveDemoAuthEnabled({ VITE_DEMO_AUTH_ENABLED: "false" })).toBe(false);
   });
 
   it("hides demo identities when live demo auth is not explicitly enabled", () => {

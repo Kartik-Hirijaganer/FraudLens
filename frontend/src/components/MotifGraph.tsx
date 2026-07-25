@@ -20,6 +20,8 @@
  * - Selection is driven by click AND focus (keyboard), so the detail panel updates without
  *   any hover — hover is never the only way to read an element (DESIGN.md accessibility).
  */
+import type { CSSProperties } from "react";
+
 import { agencyStyle } from "../lib/agencyStyle";
 import { cx } from "../lib/cx";
 
@@ -89,7 +91,8 @@ export function MotifGraph({
       role="group"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="h-auto w-full"
+      className="h-auto w-full min-w-[var(--motif-width)] md:min-w-0"
+      style={{ "--motif-width": `${width}px` } as CSSProperties}
     >
       <title id={titleId}>{title}</title>
       <desc id={descId}>{description}</desc>
@@ -112,6 +115,16 @@ export function MotifGraph({
             onFocus={() => onSelect({ kind: "edge", id: edge.id })}
             onKeyDown={(event) => activate(event, () => onSelect({ kind: "edge", id: edge.id }))}
           >
+            <line
+              x1={edge.x1}
+              y1={edge.y1}
+              x2={edge.x2}
+              y2={edge.y2}
+              stroke="transparent"
+              strokeWidth={48}
+              pointerEvents="stroke"
+              data-hit-target="edge"
+            />
             <line
               x1={edge.x1}
               y1={edge.y1}
@@ -150,6 +163,7 @@ export function MotifGraph({
             onFocus={() => onSelect({ kind: "node", id: node.id })}
             onKeyDown={(event) => activate(event, () => onSelect({ kind: "node", id: node.id }))}
           >
+            <circle cx={node.x} cy={node.y} r={24} fill="transparent" data-hit-target="node" />
             <circle
               cx={node.x}
               cy={node.y}

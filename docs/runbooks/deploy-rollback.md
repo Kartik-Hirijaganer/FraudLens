@@ -13,7 +13,7 @@ workflow before anything ships:
 push dev/release → ci.yml (make ci + docker-build + tf-validate)
    → deploy-backend.yml:  verify → build-push (GHCR, build-once SHA) → infra (apply only if changed)
                           → stage revision @0% → gated migration → smoke → promote-or-abort
-   → deploy-frontend.yml: verify → vercel build (VITE_API_BASE_URL) → deploy → smoke
+   → deploy-frontend.yml: verify → vercel build (HTTPS API + real-auth demo) → deploy → smoke
 tag v*           → release.yml: verify → git-cliff CHANGELOG → GitHub release
 ```
 
@@ -43,7 +43,10 @@ and path setup.
    `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID`. (The backend image source is public GHCR by default —
    no `AZURE_ACR_NAME` needed unless `acr_enabled = true`; the staged-revision URL is derived at
    deploy time, so no `BACKEND_STAGING_URL`.)
-3. Flip `AZURE_DEPLOY_ENABLED=true` and/or `VERCEL_DEPLOY_ENABLED=true`.
+3. Configure the Vercel production project with publishable `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY`. The workflow explicitly bakes `VITE_DEMO_AUTH_ENABLED=true`; it
+   never enables `VITE_AUTH_DEV_BYPASS`, so every public demo persona uses Supabase + `/api/v1/me`.
+4. Flip `AZURE_DEPLOY_ENABLED=true` and/or `VERCEL_DEPLOY_ENABLED=true`.
 
 ## Deploy verification
 
