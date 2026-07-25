@@ -15,6 +15,13 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { ADR_ASSET_DIRECTORY, FRONTEND_ROOT } from "./configPaths";
+
 export default defineConfig({
   plugins: [react()],
+  server: {
+    fs: {
+      allow: [FRONTEND_ROOT, ADR_ASSET_DIRECTORY],
+    },
+  },
 });

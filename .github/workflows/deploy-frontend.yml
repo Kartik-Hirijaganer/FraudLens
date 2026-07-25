@@ -2,7 +2,7 @@
 # VERCEL_DEPLOY_ENABLED). Deploys run only from `dev` / `release/*` after CI succeeds. The Vercel
 # token is fetched short-lived from Infisical via GitHub Actions OIDC, masked, and never persisted.
 # Vercel deploys are already atomic with instant rollback (see docs/runbooks/deploy-rollback.md).
-# Flow: verify -> build (HTTPS-only VITE_API_BASE_URL baked in) -> deploy -> smoke.
+# Flow: verify -> build (HTTPS API + real-auth portfolio demo baked in) -> deploy -> smoke.
 name: deploy-frontend
 
 on:
@@ -55,8 +55,10 @@ jobs:
         working-directory: frontend
         env:
           # The SPA calls ONLY the gateway base URL, over HTTPS — sourced from config, never
-          # hardcoded. Baked into the build so the prebuilt artifact targets the gateway.
+          # hardcoded. The explicit demo gate exposes public synthetic personas in production;
+          # it never enables the dev bypass, and every login still resolves through Supabase /me.
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_DEMO_AUTH_ENABLED: "true"
         run: |
           set -euo pipefail
           case "$VITE_API_BASE_URL" in

@@ -2,9 +2,9 @@
  * Summary: The FraudLens sign-in screen (plan §16 Phase 11) — the pre-auth gate rendered
  * by the shell whenever there is no session. Matches the approved design brief: a navy brand
  * panel (wordmark, animated grid motif, product promise) beside a light sign-in form. The
- * "Demo · sign in as" picker lists synthetic `DEMO_ROLES` only when Vite dev mode and either the
- * backend bypass or live demo auth is explicitly enabled. It auto-fills credentials; live mode
- * still uses Supabase email/password plus `/api/v1/me` and stores the server-returned role/token.
+ * "Demo · sign in as" picker lists synthetic `DEMO_ROLES` when either the local-only dev bypass
+ * or the explicit live-demo flag is enabled. The live flag works in portfolio production builds:
+ * it still uses Supabase email/password plus `/api/v1/me` and stores the verified role/agency.
  *
  * Key classes:
  * - (none)
@@ -12,7 +12,7 @@
  * Key functions:
  * - isDemoBypassEnabled: expose the local-only tokenless bypass gate.
  * - isLiveDemoAuthEnabled: expose the explicit live-demo-auth gate (real Supabase sign-in).
- * - isDemoPickerEnabled: expose the explicit Vite-dev demo picker gates.
+ * - isDemoPickerEnabled: expose the local-bypass or live-portfolio demo picker gates.
  * - Login: render the split-panel sign-in screen and start a demo or Supabase session on submit.
  *
  * Notes:
@@ -45,7 +45,7 @@ export type LoginEnv = Pick<
 >;
 
 export function isDemoPickerEnabled(env: LoginEnv = import.meta.env): boolean {
-  return env.DEV && (env.VITE_AUTH_DEV_BYPASS === "true" || env.VITE_DEMO_AUTH_ENABLED === "true");
+  return isDemoBypassEnabled(env) || isLiveDemoAuthEnabled(env);
 }
 
 export function isDemoBypassEnabled(
@@ -58,9 +58,9 @@ export function isDemoBypassEnabled(
 // (and any `requiresLiveAuth` persona) needs an agency-bound JWT, so it is offered only here —
 // never via the tokenless dev bypass, which mints Agency One claims only.
 export function isLiveDemoAuthEnabled(
-  env: Pick<ImportMetaEnv, "DEV" | "VITE_DEMO_AUTH_ENABLED"> = import.meta.env,
+  env: Pick<ImportMetaEnv, "VITE_DEMO_AUTH_ENABLED"> = import.meta.env,
 ): boolean {
-  return env.DEV && env.VITE_DEMO_AUTH_ENABLED === "true";
+  return env.VITE_DEMO_AUTH_ENABLED === "true";
 }
 
 export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
