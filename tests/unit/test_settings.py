@@ -35,6 +35,7 @@ def test_prod_overlay_selected(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = AppSettings()
     assert settings.environment == "prod"
     assert settings.auth_dev_bypass is False
+    assert settings.allow_candidate_scoring_in_dev is False
 
 
 def test_config_dir_override_empty_uses_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,6 +67,27 @@ def test_dev_bypass_is_inert_in_prod() -> None:
     assert AppSettings(environment="dev", auth_dev_bypass=False).is_dev_bypass_enabled is False
 
 
+def test_candidate_scoring_fallback_is_inert_in_prod() -> None:
+    assert (
+        AppSettings(
+            environment="prod", allow_candidate_scoring_in_dev=True
+        ).is_candidate_scoring_fallback_enabled
+        is False
+    )
+    assert (
+        AppSettings(
+            environment="dev", allow_candidate_scoring_in_dev=True
+        ).is_candidate_scoring_fallback_enabled
+        is True
+    )
+    assert (
+        AppSettings(
+            environment="dev", allow_candidate_scoring_in_dev=False
+        ).is_candidate_scoring_fallback_enabled
+        is False
+    )
+
+
 def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
     with tempfile.TemporaryDirectory() as empty_dir:  # no yaml -> pure field defaults
@@ -77,9 +99,12 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.storage_backend == "local"
     assert settings.queue_backend == "local"
     assert settings.local_job_execute_on_submit is False
+    assert settings.allow_candidate_scoring_in_dev is False
     assert settings.azure_arm_endpoint == ""
     assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
+    assert settings.rag_embedding_mode == "offline"
+    assert settings.investigation_rag_min_similarity == 0.2
     assert settings.database_url is None
     assert settings.auth_role_claim == "user_role"
     assert settings.supabase_url is None
@@ -102,6 +127,7 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.storage_backend == "azure_blob"
     assert settings.queue_backend == "container_apps_jobs"
     assert settings.llm_mode == "live"
+    assert settings.rag_embedding_mode == "offline"
     assert settings.azure_managed_identity_token_url.startswith("http://")
     assert settings.azure_arm_endpoint.startswith("https://")
     assert settings.azure_arm_token_resource.startswith("https://")
