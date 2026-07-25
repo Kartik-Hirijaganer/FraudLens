@@ -216,8 +216,8 @@ class _HeadlineRecords:
     source: str
     arm_a: ArmMetrics
     arm_c_global: ArmMetrics
-    delta_a_c_global: "ArmDelta"
-    comparison: "ScopeComparison"
+    delta_a_c_global: ArmDelta
+    comparison: ScopeComparison
 
 
 def _headline_records(report: StudyReport) -> _HeadlineRecords:
@@ -246,7 +246,11 @@ def _headline_records(report: StudyReport) -> _HeadlineRecords:
     )
     comparison = next(c for c in report.comparisons if c.dataset_source == source)
     return _HeadlineRecords(
-        source=source, arm_a=arm_a, arm_c_global=arm_c, delta_a_c_global=delta, comparison=comparison
+        source=source,
+        arm_a=arm_a,
+        arm_c_global=arm_c,
+        delta_a_c_global=delta,
+        comparison=comparison,
     )
 
 

@@ -1,24 +1,20 @@
 {
-  "agencyNames": [
-    "Demo Financial Agency",
-    "AML Demo Agency Two",
-    "AML Demo Agency Three"
-  ],
+  "agencyNames": ["Demo Financial Agency", "AML Demo Agency Two", "AML Demo Agency Three"],
   "metrics": {
-    "armAPrAuc": 0.25,
-    "armAToCCiLower": 0.0,
-    "armAToCCiUpper": 0.0,
-    "armAToCLift": 0.0,
-    "armCPrAuc": 0.25,
-    "armCPrAucNormalized": 1.0,
+    "armAPrAuc": 0.3155571357102214,
+    "armAToCCiLower": 0.1218385650174205,
+    "armAToCCiUpper": 0.1965290848201876,
+    "armAToCLift": 0.18530897472140845,
+    "armCPrAuc": 0.5008661104316299,
+    "armCPrAucNormalized": 281.90535096221845,
     "datasetSource": "ibm-aml",
-    "isolationDeltaC": 0.0
+    "isolationDeltaC": 0.0020985132511836535
   },
   "motifs": [
     {
       "edges": [
         {
-          "amountBand": "100-1k",
+          "amountBand": "10k-100k",
           "edgeId": "edge-01",
           "ownerAgencyIndex": 0,
           "sourceNodeId": "node-01",
@@ -26,20 +22,20 @@
           "timeOffsetS": 0
         },
         {
-          "amountBand": "1k-10k",
+          "amountBand": "10k-100k",
           "edgeId": "edge-02",
           "ownerAgencyIndex": 0,
           "sourceNodeId": "node-01",
           "targetNodeId": "node-03",
-          "timeOffsetS": 60
+          "timeOffsetS": 7680
         },
         {
-          "amountBand": "lt-100",
+          "amountBand": "1k-10k",
           "edgeId": "edge-03",
-          "ownerAgencyIndex": 0,
+          "ownerAgencyIndex": 2,
           "sourceNodeId": "node-02",
           "targetNodeId": "node-04",
-          "timeOffsetS": 120
+          "timeOffsetS": 12720
         },
         {
           "amountBand": "10k-100k",
@@ -47,17 +43,17 @@
           "ownerAgencyIndex": 0,
           "sourceNodeId": "node-03",
           "targetNodeId": "node-04",
-          "timeOffsetS": 180
+          "timeOffsetS": 18660
         }
       ],
-      "motifId": "scatter_gather-84deff01f199",
+      "motifId": "scatter_gather-16716a1fb7ed",
       "nodes": [
         {
           "agencyIndex": 0,
           "nodeId": "node-01"
         },
         {
-          "agencyIndex": 0,
+          "agencyIndex": 2,
           "nodeId": "node-02"
         },
         {
@@ -69,7 +65,7 @@
           "nodeId": "node-04"
         }
       ],
-      "servable": true,
+      "servable": false,
       "typology": "scatter_gather"
     },
     {
@@ -86,20 +82,20 @@
           "amountBand": "100-1k",
           "edgeId": "edge-02",
           "ownerAgencyIndex": 0,
-          "sourceNodeId": "node-02",
-          "targetNodeId": "node-03",
-          "timeOffsetS": 60
-        },
-        {
-          "amountBand": "100-1k",
-          "edgeId": "edge-03",
-          "ownerAgencyIndex": 0,
           "sourceNodeId": "node-03",
           "targetNodeId": "node-01",
-          "timeOffsetS": 120
+          "timeOffsetS": 53460
+        },
+        {
+          "amountBand": "10k-100k",
+          "edgeId": "edge-03",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-02",
+          "targetNodeId": "node-03",
+          "timeOffsetS": 75240
         }
       ],
-      "motifId": "intra_tenant_cycle-084adc872cdf",
+      "motifId": "intra_tenant_cycle-4f2347134921",
       "nodes": [
         {
           "agencyIndex": 0,
@@ -122,46 +118,58 @@
         {
           "amountBand": "100-1k",
           "edgeId": "edge-01",
-          "ownerAgencyIndex": 0,
+          "ownerAgencyIndex": 2,
           "sourceNodeId": "node-01",
           "targetNodeId": "node-02",
           "timeOffsetS": 0
         },
         {
-          "amountBand": "100-1k",
+          "amountBand": "10k-100k",
           "edgeId": "edge-02",
-          "ownerAgencyIndex": 1,
-          "sourceNodeId": "node-02",
-          "targetNodeId": "node-03",
-          "timeOffsetS": 60
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-03",
+          "targetNodeId": "node-01",
+          "timeOffsetS": 3240
         },
         {
           "amountBand": "100-1k",
           "edgeId": "edge-03",
-          "ownerAgencyIndex": 2,
-          "sourceNodeId": "node-03",
-          "targetNodeId": "node-01",
-          "timeOffsetS": 120
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-02",
+          "targetNodeId": "node-04",
+          "timeOffsetS": 35040
+        },
+        {
+          "amountBand": "100-1k",
+          "edgeId": "edge-04",
+          "ownerAgencyIndex": 0,
+          "sourceNodeId": "node-04",
+          "targetNodeId": "node-03",
+          "timeOffsetS": 56940
         }
       ],
-      "motifId": "cross_tenant_cycle-57a770bf9f60",
+      "motifId": "cross_tenant_cycle-7f195c7e8145",
       "nodes": [
         {
-          "agencyIndex": 0,
+          "agencyIndex": 2,
           "nodeId": "node-01"
         },
         {
-          "agencyIndex": 1,
+          "agencyIndex": 0,
           "nodeId": "node-02"
         },
         {
-          "agencyIndex": 2,
+          "agencyIndex": 0,
           "nodeId": "node-03"
+        },
+        {
+          "agencyIndex": 0,
+          "nodeId": "node-04"
         }
       ],
       "servable": false,
       "typology": "cross_tenant_cycle"
     }
   ],
-  "reportSha256": "c13151f6ec4f49a5dbc5e931b5562ccae6a30df672cbe5fb4b346469227707a2"
+  "reportSha256": "13f42a924007e9040947c19e8e37e7cd1ac49bbf3846fdf07ca68cb8ed50f7ad"
 }
