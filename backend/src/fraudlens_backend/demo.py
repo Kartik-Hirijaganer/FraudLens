@@ -19,6 +19,9 @@ Notes:
   tooling; it is not an application secret and never grants access outside the demo tenant.
 - This module holds identity constants ONLY; the rest of the seed payload (config, fixture
   model) lives in `scripts/seed.py` so the runtime image carries no demo data.
+- `DEMO_USERS` are the primary tenant's roles (seeded + dev-bypass reachable); `LIVE_DEMO_USERS`
+  adds the second tenant's analyst, provisioned only into live Supabase auth (agency-bound JWT)
+  so the research page's two-tenant view is demonstrable end to end.
 """
 
 from __future__ import annotations
@@ -71,7 +74,7 @@ DEMO_USER_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 
 class DemoUserSpec(BaseModel):
-    """A seeded demo user's identity (fixed id, email, display name, role)."""
+    """A seeded demo user's identity (fixed id, email, display name, role, owning tenant)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -79,6 +82,10 @@ class DemoUserSpec(BaseModel):
     email: str = Field(..., description="Synthetic demo login email (no real identity).")
     display_name: str = Field(..., description="Human-readable demo user name.")
     role: UserRole = Field(..., description="RBAC role granted to the demo user.")
+    agency_id: uuid.UUID = Field(
+        default=DEMO_AGENCY_ID,
+        description="Owning tenant id; defaults to the primary demo agency.",
+    )
 
 
 # The demo agency's users: one of each role, seeded idempotently by (agency_id, email). The
@@ -107,5 +114,22 @@ DEMO_USERS: tuple[DemoUserSpec, ...] = (
         email="admin@demo-agency.test",
         display_name="Demo Admin",
         role=UserRole.ADMIN,
+    ),
+)
+
+# The second isolated demo tenant's analyst. Unlike DEMO_USERS (seeded into the primary tenant and
+# reachable through the tokenless dev bypass), this identity is provisioned ONLY into live Supabase
+# auth by scripts/provision_demo_auth.py, so the research page's cross-tenant view can be
+# demonstrated by signing into a genuinely separate agency. Never seeded into the offline demo.
+AML_DEMO_AGENCY_TWO_ID = AML_DEMO_AGENCIES[1].agency_id
+
+LIVE_DEMO_USERS: tuple[DemoUserSpec, ...] = (
+    *DEMO_USERS,
+    DemoUserSpec(
+        user_id=uuid.UUID("66666666-6666-4666-8666-666666666666"),
+        email="analyst@aml-demo-agency-two.test",
+        display_name="Agency Two Analyst",
+        role=UserRole.ANALYST,
+        agency_id=AML_DEMO_AGENCY_TWO_ID,
     ),
 )

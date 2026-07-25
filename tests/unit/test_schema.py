@@ -38,6 +38,12 @@ def test_build_canonical_normalizes_codes_and_amount() -> None:
     assert canonical.amount == Decimal("100.50")
 
 
+def test_build_canonical_quantizes_amounts_to_cents_half_up() -> None:
+    assert _build(amount="10.005").amount == Decimal("10.01")
+    assert _build(amount="0.005").amount == Decimal("0.01")
+    assert _build(amount="10.204").amount == Decimal("10.20")
+
+
 def test_build_canonical_assumes_utc_for_naive_timestamp() -> None:
     canonical = _build(occurred_at=datetime(2026, 1, 1))  # naive
     assert canonical.occurred_at.tzinfo is not None
@@ -52,6 +58,9 @@ def test_build_canonical_assumes_utc_for_naive_timestamp() -> None:
         ({"amount": "0"}, "amount", "not_positive"),
         ({"amount": "abc"}, "amount", "not_a_number"),
         ({"amount": "NaN"}, "amount", "not_finite"),
+        # Sub-half-cent dust rounds to zero at the persisted cent precision -> rejected, so a
+        # stored transaction can never violate the downstream `amount > 0` contract.
+        ({"amount": "0.004"}, "amount", "not_positive"),
         ({"external_id": "   "}, "external_id", "required"),
         ({"channel": "x" * 200}, "channel", "too_long"),
         ({"occurred_at": _NOW + timedelta(days=1)}, "occurred_at", "in_future"),
