@@ -1,6 +1,8 @@
-"""Summary: Idempotently provision the four synthetic demo personas in Supabase Auth and
-mirror their auth UUIDs into the live demo tenant's `public.users` rows. Fixed seed users remain
-as history-only actors so existing alert/SAR/training audit foreign keys are never rewritten.
+"""Summary: Idempotently provision the synthetic demo personas in Supabase Auth and mirror their
+auth UUIDs into each tenant's `public.users` rows. Covers both demo tenants (`LIVE_DEMO_USERS`):
+the primary agency's four roles plus Agency Two's analyst, so the research page's cross-tenant
+view can be exercised by signing into a genuinely separate agency. Fixed seed users remain as
+history-only actors so existing alert/SAR/training audit foreign keys are never rewritten.
 
 Key classes:
 - DemoAuthProvisionSummary: safe counts emitted by the provisioning command.
@@ -27,11 +29,9 @@ from fraudlens_backend.db.models import Agency, AuditLog
 from fraudlens_backend.db.repositories import UserRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.demo import (
-    DEMO_AGENCY_ID,
-    DEMO_AGENCY_NAME,
-    DEMO_AGENCY_SLUG,
+    AML_DEMO_AGENCIES,
     DEMO_AUTH_PASSWORD,
-    DEMO_USERS,
+    LIVE_DEMO_USERS,
     DemoUserSpec,
 )
 from fraudlens_backend.services.supabase_admin import (
@@ -52,15 +52,19 @@ class DemoAuthProvisionSummary(BaseModel):
     reconciled_users: int = Field(..., description="Application identities changed this run.")
 
 
+_AGENCY_BY_ID = {spec.agency_id: spec for spec in AML_DEMO_AGENCIES}
+
+
 def _history_email(spec: DemoUserSpec) -> str:
     """Return the deterministic non-login email retained by a fixed historical seed actor."""
-    return f"seed-{spec.role.value}@demo-agency.test"
+    return f"seed-{spec.role.value}@{_AGENCY_BY_ID[spec.agency_id].slug}.test"
 
 
-async def _ensure_agency(session: AsyncSession) -> None:
-    """Ensure the synthetic tenant exists before inserting its auth-backed users."""
-    if await session.get(Agency, DEMO_AGENCY_ID) is None:
-        session.add(Agency(id=DEMO_AGENCY_ID, name=DEMO_AGENCY_NAME, slug=DEMO_AGENCY_SLUG))
+async def _ensure_agency(session: AsyncSession, agency_id: uuid.UUID) -> None:
+    """Ensure one synthetic tenant exists before inserting its auth-backed users."""
+    if await session.get(Agency, agency_id) is None:
+        spec = _AGENCY_BY_ID[agency_id]
+        session.add(Agency(id=spec.agency_id, name=spec.name, slug=spec.slug))
         await session.flush()
 
 
@@ -70,8 +74,8 @@ async def _reconcile_app_user(
     spec: DemoUserSpec,
     auth_user_id: uuid.UUID,
 ) -> bool:
-    """Mirror one auth UUID while preserving any fixed seed actor referenced by history."""
-    repository = UserRepository(session, DEMO_AGENCY_ID)
+    """Mirror one auth UUID into its owning tenant, preserving any fixed seed actor by history."""
+    repository = UserRepository(session, spec.agency_id)
     canonical = await repository.get_by_email(spec.email)
     auth_user = await repository.get_by_id(auth_user_id)
     changed = (
@@ -95,13 +99,13 @@ async def _reconcile_app_user(
     if changed:
         session.add(
             AuditLog(
-                agency_id=DEMO_AGENCY_ID,
+                agency_id=spec.agency_id,
                 actor_id=None,
                 action="demo_auth.provision",
                 resource_type="user",
                 resource_id=str(user.id),
                 meta={"role": spec.role.value},
-                request_id=f"demo-auth-{spec.role.value}",
+                request_id=f"demo-auth-{spec.agency_id}-{spec.role.value}",
             )
         )
     return changed
@@ -111,15 +115,16 @@ async def provision_demo_auth(
     session: AsyncSession,
     client: SupabaseAdminClient,
 ) -> DemoAuthProvisionSummary:
-    """Ensure all demo Auth users and their tenant-scoped application identity rows."""
-    await _ensure_agency(session)
+    """Ensure every demo Auth user and its tenant-scoped application identity row (all tenants)."""
+    for agency_id in dict.fromkeys(spec.agency_id for spec in LIVE_DEMO_USERS):
+        await _ensure_agency(session, agency_id)
     reconciled = 0
-    for spec in DEMO_USERS:
+    for spec in LIVE_DEMO_USERS:
         auth_user_id = await client.ensure_password_user(
             email=spec.email,
             password=DEMO_AUTH_PASSWORD,
             app_metadata=SupabaseAuthAppMetadata(
-                agency_id=str(DEMO_AGENCY_ID),
+                agency_id=str(spec.agency_id),
                 user_role=spec.role.value,
             ),
         )
@@ -127,8 +132,8 @@ async def provision_demo_auth(
             reconciled += 1
     await session.flush()
     return DemoAuthProvisionSummary(
-        auth_users=len(DEMO_USERS),
-        app_users=len(DEMO_USERS),
+        auth_users=len(LIVE_DEMO_USERS),
+        app_users=len(LIVE_DEMO_USERS),
         reconciled_users=reconciled,
     )
 

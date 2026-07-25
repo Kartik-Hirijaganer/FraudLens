@@ -384,6 +384,14 @@ make gfp-publish GFP_RUN=<run-id>   # validate completeness/redaction, then writ
 make gfp-container CMD='make gfp-benchmark'
 ```
 
+**Resource budget (measured).** The `ibm-aml` full-context arm (~5.05M edges, every servable
+row a target) peaks at roughly **20 GiB RAM** while materializing the two scope feature matrices
+and training the paired XGBoost arms — so the full three-dataset run needs a native x86-64 host
+with ≥24 GiB (or ≥32 GiB with headroom); an emulated arm64/QEMU VM at 16–20 GiB OOM-kills on
+this arm. The node-induced Medium arms (≤1M targets over ~2.3–2.6M context edges) are lighter.
+On an 8-vCPU x86-64 host the full run completes in roughly an hour. If a host cannot hold the
+full HI-Small graph, node-sample it too (`graph_context: node_induced`) and record the deviation.
+
 **Limitations (reported, not hidden).** Node-induced Medium samples omit paths crossing
 discarded nodes, biasing graph-pattern counts downward. GFP's per-batch transform is
 paper-aligned batch-causal, **not** strict row-at-a-time serving parity — the anti-skew evidence
