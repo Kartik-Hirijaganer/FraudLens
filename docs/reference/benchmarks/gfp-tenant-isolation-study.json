@@ -1,0 +1,1220 @@
+{
+  "armFeatureCounts": {
+    "A": 19,
+    "B": 187,
+    "C": 254
+  },
+  "comparisons": [
+    {
+      "datasetSource": "ibm-aml",
+      "isolationDeltaB": 0.006601715550121123,
+      "isolationDeltaC": 0.0020985132511836535,
+      "lostGraphLift": 0.0020985132511836535,
+      "retainedGraphLift": 0.9886755983926924,
+      "retainedLiftNote": null
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "isolationDeltaB": 0.01889813656770667,
+      "isolationDeltaC": 0.005513212316213129,
+      "lostGraphLift": 0.005513212316213101,
+      "retainedGraphLift": 0.9689134985811416,
+      "retainedLiftNote": null
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "isolationDeltaB": 0.007300298870332841,
+      "isolationDeltaC": 0.0029516810673295875,
+      "lostGraphLift": 0.0029516810673295875,
+      "retainedGraphLift": 0.7841130114882513,
+      "retainedLiftNote": null
+    }
+  ],
+  "configSha256": "8a479c80f0654821962c0a027ed2fb3ac157d58cf343ee69c65eec29d1c09bde",
+  "datasets": [
+    {
+      "contextEdgeCount": 5054380,
+      "fileSha256": "b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040",
+      "foldAssignment": {
+        "boundaryEpochsS": [
+          1662471600,
+          1662653640
+        ],
+        "foldPositiveCounts": [
+          2299,
+          1081,
+          1796
+        ],
+        "foldSizes": [
+          3032849,
+          1010678,
+          1010853
+        ],
+        "fractions": [
+          "3/5",
+          "1/5",
+          "1/5"
+        ]
+      },
+      "foldTargetCounts": [
+        3032849,
+        1010678,
+        1010853
+      ],
+      "foldTargetPositiveCounts": [
+        2299,
+        1081,
+        1796
+      ],
+      "illicitRatio": 0.0010240622984421432,
+      "nodeHashFraction": null,
+      "servableRowCount": 5054380,
+      "sourceRowCount": 5078345,
+      "spec": {
+        "graphContext": "full",
+        "source": "ibm-aml",
+        "targetQuota": null,
+        "variant": "HI-Small_Trans.csv"
+      },
+      "targetCount": 5054380
+    },
+    {
+      "contextEdgeCount": 2550078,
+      "fileSha256": "3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5",
+      "foldAssignment": {
+        "boundaryEpochsS": [
+          1662686880,
+          1663089720
+        ],
+        "foldPositiveCounts": [
+          876,
+          598,
+          727
+        ],
+        "foldSizes": [
+          1530128,
+          509995,
+          509955
+        ],
+        "fractions": [
+          "3/5",
+          "1/5",
+          "1/5"
+        ]
+      },
+      "foldTargetCounts": [
+        600000,
+        200000,
+        200000
+      ],
+      "foldTargetPositiveCounts": [
+        344,
+        235,
+        285
+      ],
+      "illicitRatio": 0.0008631108538640779,
+      "nodeHashFraction": "1/4",
+      "servableRowCount": 2550078,
+      "sourceRowCount": 31898238,
+      "spec": {
+        "graphContext": "node_induced",
+        "source": "ibm-aml-hi-medium",
+        "targetQuota": 1000000,
+        "variant": "HI-Medium_Trans.csv"
+      },
+      "targetCount": 1000000
+    },
+    {
+      "contextEdgeCount": 2314977,
+      "fileSha256": "0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910",
+      "foldAssignment": {
+        "boundaryEpochsS": [
+          1662677280,
+          1663082280
+        ],
+        "foldPositiveCounts": [
+          382,
+          231,
+          249
+        ],
+        "foldSizes": [
+          1389051,
+          463002,
+          462924
+        ],
+        "fractions": [
+          "3/5",
+          "1/5",
+          "1/5"
+        ]
+      },
+      "foldTargetCounts": [
+        600000,
+        200000,
+        200000
+      ],
+      "foldTargetPositiveCounts": [
+        165,
+        100,
+        108
+      ],
+      "illicitRatio": 0.0003723579111153156,
+      "nodeHashFraction": "1/4",
+      "servableRowCount": 2314977,
+      "sourceRowCount": 31251483,
+      "spec": {
+        "graphContext": "node_induced",
+        "source": "ibm-aml-li-medium",
+        "targetQuota": 1000000,
+        "variant": "LI-Medium_Trans.csv"
+      },
+      "targetCount": 1000000
+    }
+  ],
+  "deltas": [
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.10950987485685558,
+        "replicates": 200,
+        "upper": 0.18186783939050927
+      },
+      "prAucDelta": 0.17768228907133315,
+      "scope": "global",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.002286512171791369,
+        "replicates": 200,
+        "upper": 0.02548444857355727
+      },
+      "prAucDelta": 0.007626685650075293,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.1218385650174205,
+        "replicates": 200,
+        "upper": 0.1965290848201876
+      },
+      "prAucDelta": 0.18530897472140845,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.11360457601448955,
+        "replicates": 200,
+        "upper": 0.1822617431674428
+      },
+      "prAucDelta": 0.17108057352121203,
+      "scope": "per_tenant",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.0003921158106704168,
+        "replicates": 200,
+        "upper": 0.019646346716130535
+      },
+      "prAucDelta": 0.012129887949012763,
+      "scope": "per_tenant",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.12469111261364652,
+        "replicates": 200,
+        "upper": 0.1945975826247005
+      },
+      "prAucDelta": 0.1832104614702248,
+      "scope": "per_tenant",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.13217980752035433,
+        "replicates": 200,
+        "upper": 0.23002795860544326
+      },
+      "prAucDelta": 0.17926361935755336,
+      "scope": "global",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": -0.013805851842358993,
+        "replicates": 200,
+        "upper": 0.010295957203545711
+      },
+      "prAucDelta": -0.0019129345079373916,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.12818813613213614,
+        "replicates": 200,
+        "upper": 0.22554942850863166
+      },
+      "prAucDelta": 0.17735068484961597,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.11850617082029666,
+        "replicates": 200,
+        "upper": 0.2031077861792767
+      },
+      "prAucDelta": 0.1603654827898467,
+      "scope": "per_tenant",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": -0.0014245438430979158,
+        "replicates": 200,
+        "upper": 0.026459439467544338
+      },
+      "prAucDelta": 0.011471989743556149,
+      "scope": "per_tenant",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-hi-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.12765375147970412,
+        "replicates": 200,
+        "upper": 0.21560910089456137
+      },
+      "prAucDelta": 0.17183747253340287,
+      "scope": "per_tenant",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.006494844788322845,
+        "replicates": 200,
+        "upper": 0.045679313959328484
+      },
+      "prAucDelta": 0.017887743302203243,
+      "scope": "global",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": -0.01804414417335987,
+        "replicates": 200,
+        "upper": 0.0007587541779746421
+      },
+      "prAucDelta": -0.004215399787304681,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.005843410259592198,
+        "replicates": 200,
+        "upper": 0.031931155121129054
+      },
+      "prAucDelta": 0.013672343514898561,
+      "scope": "global",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.0042480806677492175,
+        "replicates": 200,
+        "upper": 0.023347862403164808
+      },
+      "prAucDelta": 0.010587444431870402,
+      "scope": "per_tenant",
+      "toArm": "B"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "B",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": -0.003413335992302721,
+        "replicates": 200,
+        "upper": 0.004151283163101543
+      },
+      "prAucDelta": 0.00013321801569857183,
+      "scope": "per_tenant",
+      "toArm": "C"
+    },
+    {
+      "datasetSource": "ibm-aml-li-medium",
+      "fromArm": "A",
+      "interval": {
+        "holdoutSubsetCap": 250000,
+        "lower": 0.003441598637646341,
+        "replicates": 200,
+        "upper": 0.02392420549334092
+      },
+      "prAucDelta": 0.010720662447568974,
+      "scope": "per_tenant",
+      "toArm": "C"
+    }
+  ],
+  "engineName": "snapml",
+  "engineVersion": "1.17.2",
+  "graphFeatureNames": [
+    "gfp_fan_in_ge_2_lt_3",
+    "gfp_fan_in_ge_3_lt_4",
+    "gfp_fan_in_ge_4_lt_5",
+    "gfp_fan_in_ge_5_lt_6",
+    "gfp_fan_in_ge_6_lt_7",
+    "gfp_fan_in_ge_7_lt_8",
+    "gfp_fan_in_ge_8_lt_9",
+    "gfp_fan_in_ge_9_lt_10",
+    "gfp_fan_in_ge_10_lt_11",
+    "gfp_fan_in_ge_11_lt_12",
+    "gfp_fan_in_ge_12_lt_13",
+    "gfp_fan_in_ge_13_lt_14",
+    "gfp_fan_in_ge_14_lt_15",
+    "gfp_fan_in_ge_15_lt_16",
+    "gfp_fan_in_ge_16_lt_17",
+    "gfp_fan_in_ge_17_lt_18",
+    "gfp_fan_in_ge_18_lt_19",
+    "gfp_fan_in_ge_19_lt_20",
+    "gfp_fan_in_ge_20_lt_21",
+    "gfp_fan_in_ge_21_lt_22",
+    "gfp_fan_in_ge_22_lt_23",
+    "gfp_fan_in_ge_23_lt_24",
+    "gfp_fan_in_ge_24_lt_25",
+    "gfp_fan_in_ge_25_lt_26",
+    "gfp_fan_in_ge_26_lt_27",
+    "gfp_fan_in_ge_27_lt_28",
+    "gfp_fan_in_ge_28_lt_29",
+    "gfp_fan_in_ge_29_lt_30",
+    "gfp_fan_in_ge_30",
+    "gfp_fan_out_ge_2_lt_3",
+    "gfp_fan_out_ge_3_lt_4",
+    "gfp_fan_out_ge_4_lt_5",
+    "gfp_fan_out_ge_5_lt_6",
+    "gfp_fan_out_ge_6_lt_7",
+    "gfp_fan_out_ge_7_lt_8",
+    "gfp_fan_out_ge_8_lt_9",
+    "gfp_fan_out_ge_9_lt_10",
+    "gfp_fan_out_ge_10_lt_11",
+    "gfp_fan_out_ge_11_lt_12",
+    "gfp_fan_out_ge_12_lt_13",
+    "gfp_fan_out_ge_13_lt_14",
+    "gfp_fan_out_ge_14_lt_15",
+    "gfp_fan_out_ge_15_lt_16",
+    "gfp_fan_out_ge_16_lt_17",
+    "gfp_fan_out_ge_17_lt_18",
+    "gfp_fan_out_ge_18_lt_19",
+    "gfp_fan_out_ge_19_lt_20",
+    "gfp_fan_out_ge_20_lt_21",
+    "gfp_fan_out_ge_21_lt_22",
+    "gfp_fan_out_ge_22_lt_23",
+    "gfp_fan_out_ge_23_lt_24",
+    "gfp_fan_out_ge_24_lt_25",
+    "gfp_fan_out_ge_25_lt_26",
+    "gfp_fan_out_ge_26_lt_27",
+    "gfp_fan_out_ge_27_lt_28",
+    "gfp_fan_out_ge_28_lt_29",
+    "gfp_fan_out_ge_29_lt_30",
+    "gfp_fan_out_ge_30",
+    "gfp_degree_in_ge_2_lt_3",
+    "gfp_degree_in_ge_3_lt_4",
+    "gfp_degree_in_ge_4_lt_5",
+    "gfp_degree_in_ge_5_lt_6",
+    "gfp_degree_in_ge_6_lt_7",
+    "gfp_degree_in_ge_7_lt_8",
+    "gfp_degree_in_ge_8_lt_9",
+    "gfp_degree_in_ge_9_lt_10",
+    "gfp_degree_in_ge_10_lt_11",
+    "gfp_degree_in_ge_11_lt_12",
+    "gfp_degree_in_ge_12_lt_13",
+    "gfp_degree_in_ge_13_lt_14",
+    "gfp_degree_in_ge_14_lt_15",
+    "gfp_degree_in_ge_15_lt_16",
+    "gfp_degree_in_ge_16_lt_17",
+    "gfp_degree_in_ge_17_lt_18",
+    "gfp_degree_in_ge_18_lt_19",
+    "gfp_degree_in_ge_19_lt_20",
+    "gfp_degree_in_ge_20_lt_21",
+    "gfp_degree_in_ge_21_lt_22",
+    "gfp_degree_in_ge_22_lt_23",
+    "gfp_degree_in_ge_23_lt_24",
+    "gfp_degree_in_ge_24_lt_25",
+    "gfp_degree_in_ge_25_lt_26",
+    "gfp_degree_in_ge_26_lt_27",
+    "gfp_degree_in_ge_27_lt_28",
+    "gfp_degree_in_ge_28_lt_29",
+    "gfp_degree_in_ge_29_lt_30",
+    "gfp_degree_in_ge_30",
+    "gfp_degree_out_ge_2_lt_3",
+    "gfp_degree_out_ge_3_lt_4",
+    "gfp_degree_out_ge_4_lt_5",
+    "gfp_degree_out_ge_5_lt_6",
+    "gfp_degree_out_ge_6_lt_7",
+    "gfp_degree_out_ge_7_lt_8",
+    "gfp_degree_out_ge_8_lt_9",
+    "gfp_degree_out_ge_9_lt_10",
+    "gfp_degree_out_ge_10_lt_11",
+    "gfp_degree_out_ge_11_lt_12",
+    "gfp_degree_out_ge_12_lt_13",
+    "gfp_degree_out_ge_13_lt_14",
+    "gfp_degree_out_ge_14_lt_15",
+    "gfp_degree_out_ge_15_lt_16",
+    "gfp_degree_out_ge_16_lt_17",
+    "gfp_degree_out_ge_17_lt_18",
+    "gfp_degree_out_ge_18_lt_19",
+    "gfp_degree_out_ge_19_lt_20",
+    "gfp_degree_out_ge_20_lt_21",
+    "gfp_degree_out_ge_21_lt_22",
+    "gfp_degree_out_ge_22_lt_23",
+    "gfp_degree_out_ge_23_lt_24",
+    "gfp_degree_out_ge_24_lt_25",
+    "gfp_degree_out_ge_25_lt_26",
+    "gfp_degree_out_ge_26_lt_27",
+    "gfp_degree_out_ge_27_lt_28",
+    "gfp_degree_out_ge_28_lt_29",
+    "gfp_degree_out_ge_29_lt_30",
+    "gfp_degree_out_ge_30",
+    "gfp_scatter_gather_ge_2_lt_3",
+    "gfp_scatter_gather_ge_3_lt_4",
+    "gfp_scatter_gather_ge_4_lt_5",
+    "gfp_scatter_gather_ge_5_lt_6",
+    "gfp_scatter_gather_ge_6_lt_7",
+    "gfp_scatter_gather_ge_7_lt_8",
+    "gfp_scatter_gather_ge_8_lt_9",
+    "gfp_scatter_gather_ge_9_lt_10",
+    "gfp_scatter_gather_ge_10_lt_11",
+    "gfp_scatter_gather_ge_11_lt_12",
+    "gfp_scatter_gather_ge_12_lt_13",
+    "gfp_scatter_gather_ge_13_lt_14",
+    "gfp_scatter_gather_ge_14_lt_15",
+    "gfp_scatter_gather_ge_15_lt_16",
+    "gfp_scatter_gather_ge_16_lt_17",
+    "gfp_scatter_gather_ge_17_lt_18",
+    "gfp_scatter_gather_ge_18_lt_19",
+    "gfp_scatter_gather_ge_19_lt_20",
+    "gfp_scatter_gather_ge_20_lt_21",
+    "gfp_scatter_gather_ge_21_lt_22",
+    "gfp_scatter_gather_ge_22_lt_23",
+    "gfp_scatter_gather_ge_23_lt_24",
+    "gfp_scatter_gather_ge_24_lt_25",
+    "gfp_scatter_gather_ge_25_lt_26",
+    "gfp_scatter_gather_ge_26_lt_27",
+    "gfp_scatter_gather_ge_27_lt_28",
+    "gfp_scatter_gather_ge_28_lt_29",
+    "gfp_scatter_gather_ge_29_lt_30",
+    "gfp_scatter_gather_ge_30",
+    "gfp_temporal_cycle_ge_2_lt_3",
+    "gfp_temporal_cycle_ge_3_lt_4",
+    "gfp_temporal_cycle_ge_4_lt_5",
+    "gfp_temporal_cycle_ge_5_lt_6",
+    "gfp_temporal_cycle_ge_6_lt_7",
+    "gfp_temporal_cycle_ge_7_lt_8",
+    "gfp_temporal_cycle_ge_8_lt_9",
+    "gfp_temporal_cycle_ge_9_lt_10",
+    "gfp_temporal_cycle_ge_10_lt_11",
+    "gfp_temporal_cycle_ge_11_lt_12",
+    "gfp_temporal_cycle_ge_12_lt_13",
+    "gfp_temporal_cycle_ge_13_lt_14",
+    "gfp_temporal_cycle_ge_14_lt_15",
+    "gfp_temporal_cycle_ge_15_lt_16",
+    "gfp_temporal_cycle_ge_16_lt_17",
+    "gfp_temporal_cycle_ge_17_lt_18",
+    "gfp_temporal_cycle_ge_18_lt_19",
+    "gfp_temporal_cycle_ge_19_lt_20",
+    "gfp_temporal_cycle_ge_20_lt_21",
+    "gfp_temporal_cycle_ge_21_lt_22",
+    "gfp_temporal_cycle_ge_22_lt_23",
+    "gfp_temporal_cycle_ge_23_lt_24",
+    "gfp_temporal_cycle_ge_24_lt_25",
+    "gfp_temporal_cycle_ge_25_lt_26",
+    "gfp_temporal_cycle_ge_26_lt_27",
+    "gfp_temporal_cycle_ge_27_lt_28",
+    "gfp_temporal_cycle_ge_28_lt_29",
+    "gfp_temporal_cycle_ge_29_lt_30",
+    "gfp_temporal_cycle_ge_30",
+    "gfp_simple_cycle_ge_2_lt_3",
+    "gfp_simple_cycle_ge_3_lt_4",
+    "gfp_simple_cycle_ge_4_lt_5",
+    "gfp_simple_cycle_ge_5_lt_6",
+    "gfp_simple_cycle_ge_6_lt_7",
+    "gfp_simple_cycle_ge_7_lt_8",
+    "gfp_simple_cycle_ge_8_lt_9",
+    "gfp_simple_cycle_ge_9_lt_10",
+    "gfp_simple_cycle_ge_10",
+    "gfp_source_out_fan",
+    "gfp_source_out_degree",
+    "gfp_source_out_ratio",
+    "gfp_source_out_utc_epoch_s_avg",
+    "gfp_source_out_utc_epoch_s_sum",
+    "gfp_source_out_utc_epoch_s_var",
+    "gfp_source_out_utc_epoch_s_skew",
+    "gfp_source_out_utc_epoch_s_kurtosis",
+    "gfp_source_out_usd_amount_avg",
+    "gfp_source_out_usd_amount_sum",
+    "gfp_source_out_usd_amount_var",
+    "gfp_source_out_usd_amount_skew",
+    "gfp_source_out_usd_amount_kurtosis",
+    "gfp_source_in_fan",
+    "gfp_source_in_degree",
+    "gfp_source_in_ratio",
+    "gfp_source_in_utc_epoch_s_avg",
+    "gfp_source_in_utc_epoch_s_sum",
+    "gfp_source_in_utc_epoch_s_var",
+    "gfp_source_in_utc_epoch_s_skew",
+    "gfp_source_in_utc_epoch_s_kurtosis",
+    "gfp_source_in_usd_amount_avg",
+    "gfp_source_in_usd_amount_sum",
+    "gfp_source_in_usd_amount_var",
+    "gfp_source_in_usd_amount_skew",
+    "gfp_source_in_usd_amount_kurtosis",
+    "gfp_target_out_fan",
+    "gfp_target_out_degree",
+    "gfp_target_out_ratio",
+    "gfp_target_out_utc_epoch_s_avg",
+    "gfp_target_out_utc_epoch_s_sum",
+    "gfp_target_out_utc_epoch_s_var",
+    "gfp_target_out_utc_epoch_s_skew",
+    "gfp_target_out_utc_epoch_s_kurtosis",
+    "gfp_target_out_usd_amount_avg",
+    "gfp_target_out_usd_amount_sum",
+    "gfp_target_out_usd_amount_var",
+    "gfp_target_out_usd_amount_skew",
+    "gfp_target_out_usd_amount_kurtosis",
+    "gfp_target_in_fan",
+    "gfp_target_in_degree",
+    "gfp_target_in_ratio",
+    "gfp_target_in_utc_epoch_s_avg",
+    "gfp_target_in_utc_epoch_s_sum",
+    "gfp_target_in_utc_epoch_s_var",
+    "gfp_target_in_utc_epoch_s_skew",
+    "gfp_target_in_utc_epoch_s_kurtosis",
+    "gfp_target_in_usd_amount_avg",
+    "gfp_target_in_usd_amount_sum",
+    "gfp_target_in_usd_amount_var",
+    "gfp_target_in_usd_amount_skew",
+    "gfp_target_in_usd_amount_kurtosis"
+  ],
+  "libraryVersions": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "scikit-learn": "1.9.0",
+    "xgboost": "3.2.0"
+  },
+  "metrics": [
+    {
+      "arm": "A",
+      "brier": 0.0014271275140345097,
+      "datasetSource": "ibm-aml",
+      "ece": 0.0004875846854358932,
+      "holdout": {
+        "illicitRatio": 0.0017767172872811378,
+        "negatives": 1009057,
+        "positives": 1796
+      },
+      "minorityF1": 0.3654434250764526,
+      "minorityF1Threshold": 0.11545407027006149,
+      "prAuc": 0.3155571357102214,
+      "prAucNormalized": 177.6068359154145,
+      "rocAuc": 0.9467182029684541,
+      "scope": "shared",
+      "topK": [
+        {
+          "capturedPositives": 505,
+          "fraction": 0.001,
+          "precision": 0.49950544015825915,
+          "recall": 0.2811804008908686
+        },
+        {
+          "capturedPositives": 769,
+          "fraction": 0.005,
+          "precision": 0.15212660731948566,
+          "recall": 0.428173719376392
+        },
+        {
+          "capturedPositives": 914,
+          "fraction": 0.01,
+          "precision": 0.09041448214462361,
+          "recall": 0.5089086859688196
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.0011493723141029477,
+      "datasetSource": "ibm-aml",
+      "ece": 0.00015593877615277502,
+      "holdout": {
+        "illicitRatio": 0.0017767172872811378,
+        "negatives": 1009057,
+        "positives": 1796
+      },
+      "minorityF1": 0.5387840670859538,
+      "minorityF1Threshold": 0.19499006867408752,
+      "prAuc": 0.4932394247815546,
+      "prAucNormalized": 277.61277965406947,
+      "rocAuc": 0.9642851257960658,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 754,
+          "fraction": 0.001,
+          "precision": 0.7457962413452027,
+          "recall": 0.4198218262806236
+        },
+        {
+          "capturedPositives": 1036,
+          "fraction": 0.005,
+          "precision": 0.2049455984174085,
+          "recall": 0.576837416481069
+        },
+        {
+          "capturedPositives": 1144,
+          "fraction": 0.01,
+          "precision": 0.11316648531011969,
+          "recall": 0.6369710467706013
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0011316097807139158,
+      "datasetSource": "ibm-aml",
+      "ece": 0.00026871175385895685,
+      "holdout": {
+        "illicitRatio": 0.0017767172872811378,
+        "negatives": 1009057,
+        "positives": 1796
+      },
+      "minorityF1": 0.5426515930113053,
+      "minorityF1Threshold": 0.19369928538799286,
+      "prAuc": 0.5008661104316299,
+      "prAucNormalized": 281.90535096221845,
+      "rocAuc": 0.964580444689728,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 766,
+          "fraction": 0.001,
+          "precision": 0.7576656775469832,
+          "recall": 0.4265033407572383
+        },
+        {
+          "capturedPositives": 1043,
+          "fraction": 0.005,
+          "precision": 0.2063303659742829,
+          "recall": 0.5807349665924276
+        },
+        {
+          "capturedPositives": 1148,
+          "fraction": 0.01,
+          "precision": 0.11356217232169354,
+          "recall": 0.6391982182628062
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.00116070918738842,
+      "datasetSource": "ibm-aml",
+      "ece": 0.00020626478259536623,
+      "holdout": {
+        "illicitRatio": 0.0017767172872811378,
+        "negatives": 1009057,
+        "positives": 1796
+      },
+      "minorityF1": 0.5309352517985612,
+      "minorityF1Threshold": 0.23282849788665771,
+      "prAuc": 0.48663770923143346,
+      "prAucNormalized": 273.8970981568609,
+      "rocAuc": 0.9643143742557951,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 743,
+          "fraction": 0.001,
+          "precision": 0.734915924826904,
+          "recall": 0.4136971046770601
+        },
+        {
+          "capturedPositives": 1030,
+          "fraction": 0.005,
+          "precision": 0.20375865479723046,
+          "recall": 0.5734966592427617
+        },
+        {
+          "capturedPositives": 1132,
+          "fraction": 0.01,
+          "precision": 0.11197942427539816,
+          "recall": 0.6302895322939867
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0011397082125768065,
+      "datasetSource": "ibm-aml",
+      "ece": 0.00023784899488605023,
+      "holdout": {
+        "illicitRatio": 0.0017767172872811378,
+        "negatives": 1009057,
+        "positives": 1796
+      },
+      "minorityF1": 0.5420092956739364,
+      "minorityF1Threshold": 0.2281164973974228,
+      "prAuc": 0.4987675971804462,
+      "prAucNormalized": 280.7242326907826,
+      "rocAuc": 0.9641865751620313,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 761,
+          "fraction": 0.001,
+          "precision": 0.7527200791295747,
+          "recall": 0.4237193763919822
+        },
+        {
+          "capturedPositives": 1045,
+          "fraction": 0.005,
+          "precision": 0.20672601384767555,
+          "recall": 0.5818485523385301
+        },
+        {
+          "capturedPositives": 1135,
+          "fraction": 0.01,
+          "precision": 0.11227618953407854,
+          "recall": 0.6319599109131403
+        }
+      ]
+    },
+    {
+      "arm": "A",
+      "brier": 0.0013977335765957832,
+      "datasetSource": "ibm-aml-hi-medium",
+      "ece": 0.00041022211617790157,
+      "holdout": {
+        "illicitRatio": 0.001425,
+        "negatives": 199715,
+        "positives": 285
+      },
+      "minorityF1": 0.07425742574257425,
+      "minorityF1Threshold": 0.0701618567109108,
+      "prAuc": 0.04163538325851958,
+      "prAucNormalized": 29.217812812996193,
+      "rocAuc": 0.8811667415540829,
+      "scope": "shared",
+      "topK": [
+        {
+          "capturedPositives": 22,
+          "fraction": 0.001,
+          "precision": 0.11,
+          "recall": 0.07719298245614035
+        },
+        {
+          "capturedPositives": 56,
+          "fraction": 0.005,
+          "precision": 0.056,
+          "recall": 0.19649122807017544
+        },
+        {
+          "capturedPositives": 76,
+          "fraction": 0.01,
+          "precision": 0.038,
+          "recall": 0.26666666666666666
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.0012357579544186592,
+      "datasetSource": "ibm-aml-hi-medium",
+      "ece": 0.00018193855947116393,
+      "holdout": {
+        "illicitRatio": 0.001425,
+        "negatives": 199715,
+        "positives": 285
+      },
+      "minorityF1": 0.31042128603104213,
+      "minorityF1Threshold": 0.1932610720396042,
+      "prAuc": 0.22089900261607295,
+      "prAucNormalized": 155.01684394110382,
+      "rocAuc": 0.9203184713655557,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 79,
+          "fraction": 0.001,
+          "precision": 0.395,
+          "recall": 0.2771929824561403
+        },
+        {
+          "capturedPositives": 122,
+          "fraction": 0.005,
+          "precision": 0.122,
+          "recall": 0.4280701754385965
+        },
+        {
+          "capturedPositives": 138,
+          "fraction": 0.01,
+          "precision": 0.069,
+          "recall": 0.4842105263157895
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0012421287829056382,
+      "datasetSource": "ibm-aml-hi-medium",
+      "ece": 0.00011997411840769932,
+      "holdout": {
+        "illicitRatio": 0.001425,
+        "negatives": 199715,
+        "positives": 285
+      },
+      "minorityF1": 0.296127562642369,
+      "minorityF1Threshold": 0.2049671709537506,
+      "prAuc": 0.21898606810813556,
+      "prAucNormalized": 153.67443376009513,
+      "rocAuc": 0.9227300482134411,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 77,
+          "fraction": 0.001,
+          "precision": 0.385,
+          "recall": 0.27017543859649124
+        },
+        {
+          "capturedPositives": 116,
+          "fraction": 0.005,
+          "precision": 0.116,
+          "recall": 0.4070175438596491
+        },
+        {
+          "capturedPositives": 143,
+          "fraction": 0.01,
+          "precision": 0.0715,
+          "recall": 0.5017543859649123
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.0012550837127491832,
+      "datasetSource": "ibm-aml-hi-medium",
+      "ece": 0.00019053780594782438,
+      "holdout": {
+        "illicitRatio": 0.001425,
+        "negatives": 199715,
+        "positives": 285
+      },
+      "minorityF1": 0.2585034013605442,
+      "minorityF1Threshold": 0.20225106179714203,
+      "prAuc": 0.20200086604836628,
+      "prAucNormalized": 141.75499371815178,
+      "rocAuc": 0.9220035392539633,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 69,
+          "fraction": 0.001,
+          "precision": 0.345,
+          "recall": 0.24210526315789474
+        },
+        {
+          "capturedPositives": 119,
+          "fraction": 0.005,
+          "precision": 0.119,
+          "recall": 0.41754385964912283
+        },
+        {
+          "capturedPositives": 141,
+          "fraction": 0.01,
+          "precision": 0.0705,
+          "recall": 0.49473684210526314
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0012458374258130789,
+      "datasetSource": "ibm-aml-hi-medium",
+      "ece": 0.00019032111318549138,
+      "holdout": {
+        "illicitRatio": 0.001425,
+        "negatives": 199715,
+        "positives": 285
+      },
+      "minorityF1": 0.3076923076923077,
+      "minorityF1Threshold": 0.15138214826583862,
+      "prAuc": 0.21347285579192243,
+      "prAucNormalized": 149.80551283643678,
+      "rocAuc": 0.9197752411221078,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 76,
+          "fraction": 0.001,
+          "precision": 0.38,
+          "recall": 0.26666666666666666
+        },
+        {
+          "capturedPositives": 120,
+          "fraction": 0.005,
+          "precision": 0.12,
+          "recall": 0.42105263157894735
+        },
+        {
+          "capturedPositives": 145,
+          "fraction": 0.01,
+          "precision": 0.0725,
+          "recall": 0.5087719298245614
+        }
+      ]
+    },
+    {
+      "arm": "A",
+      "brier": 0.0005402442766353488,
+      "datasetSource": "ibm-aml-li-medium",
+      "ece": 0.00010833151922415714,
+      "holdout": {
+        "illicitRatio": 0.00054,
+        "negatives": 199892,
+        "positives": 108
+      },
+      "minorityF1": 0.011494252873563218,
+      "minorityF1Threshold": 0.03424158692359924,
+      "prAuc": 0.006024484937440247,
+      "prAucNormalized": 11.15645358785231,
+      "rocAuc": 0.868836555999499,
+      "scope": "shared",
+      "topK": [
+        {
+          "capturedPositives": 2,
+          "fraction": 0.001,
+          "precision": 0.01,
+          "recall": 0.018518518518518517
+        },
+        {
+          "capturedPositives": 9,
+          "fraction": 0.005,
+          "precision": 0.009,
+          "recall": 0.08333333333333333
+        },
+        {
+          "capturedPositives": 15,
+          "fraction": 0.01,
+          "precision": 0.0075,
+          "recall": 0.1388888888888889
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.0005341673386283219,
+      "datasetSource": "ibm-aml-li-medium",
+      "ece": 2.766324139200149e-05,
+      "holdout": {
+        "illicitRatio": 0.00054,
+        "negatives": 199892,
+        "positives": 108
+      },
+      "minorityF1": 0.06976744186046512,
+      "minorityF1Threshold": 0.03129776567220688,
+      "prAuc": 0.02391222823964349,
+      "prAucNormalized": 44.28190414748794,
+      "rocAuc": 0.9074448118650738,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 11,
+          "fraction": 0.001,
+          "precision": 0.055,
+          "recall": 0.10185185185185185
+        },
+        {
+          "capturedPositives": 29,
+          "fraction": 0.005,
+          "precision": 0.029,
+          "recall": 0.26851851851851855
+        },
+        {
+          "capturedPositives": 34,
+          "fraction": 0.01,
+          "precision": 0.017,
+          "recall": 0.3148148148148148
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0005361022776924074,
+      "datasetSource": "ibm-aml-li-medium",
+      "ece": 3.29662119800923e-05,
+      "holdout": {
+        "illicitRatio": 0.00054,
+        "negatives": 199892,
+        "positives": 108
+      },
+      "minorityF1": 0.06557377049180328,
+      "minorityF1Threshold": 0.024283112958073616,
+      "prAuc": 0.01969682845233881,
+      "prAucNormalized": 36.47560824507187,
+      "rocAuc": 0.9146135440915872,
+      "scope": "global",
+      "topK": [
+        {
+          "capturedPositives": 10,
+          "fraction": 0.001,
+          "precision": 0.05,
+          "recall": 0.09259259259259259
+        },
+        {
+          "capturedPositives": 26,
+          "fraction": 0.005,
+          "precision": 0.026,
+          "recall": 0.24074074074074073
+        },
+        {
+          "capturedPositives": 34,
+          "fraction": 0.01,
+          "precision": 0.017,
+          "recall": 0.3148148148148148
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "brier": 0.0005393349565565586,
+      "datasetSource": "ibm-aml-li-medium",
+      "ece": 5.7627882351516764e-05,
+      "holdout": {
+        "illicitRatio": 0.00054,
+        "negatives": 199892,
+        "positives": 108
+      },
+      "minorityF1": 0.043243243243243246,
+      "minorityF1Threshold": 0.04629325121641159,
+      "prAuc": 0.01661192936931065,
+      "prAucNormalized": 30.76283216539009,
+      "rocAuc": 0.9224860359779467,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 11,
+          "fraction": 0.001,
+          "precision": 0.055,
+          "recall": 0.10185185185185185
+        },
+        {
+          "capturedPositives": 24,
+          "fraction": 0.005,
+          "precision": 0.024,
+          "recall": 0.2222222222222222
+        },
+        {
+          "capturedPositives": 35,
+          "fraction": 0.01,
+          "precision": 0.0175,
+          "recall": 0.32407407407407407
+        }
+      ]
+    },
+    {
+      "arm": "C",
+      "brier": 0.0005390618462115526,
+      "datasetSource": "ibm-aml-li-medium",
+      "ece": 5.334118942497296e-05,
+      "holdout": {
+        "illicitRatio": 0.00054,
+        "negatives": 199892,
+        "positives": 108
+      },
+      "minorityF1": 0.07349081364829396,
+      "minorityF1Threshold": 0.02282656542956829,
+      "prAuc": 0.01674514738500922,
+      "prAucNormalized": 31.00953219446152,
+      "rocAuc": 0.9164367971667663,
+      "scope": "per_tenant",
+      "topK": [
+        {
+          "capturedPositives": 13,
+          "fraction": 0.001,
+          "precision": 0.065,
+          "recall": 0.12037037037037036
+        },
+        {
+          "capturedPositives": 24,
+          "fraction": 0.005,
+          "precision": 0.024,
+          "recall": 0.2222222222222222
+        },
+        {
+          "capturedPositives": 32,
+          "fraction": 0.01,
+          "precision": 0.016,
+          "recall": 0.2962962962962963
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "GFP transforms are batch-causal (128-edge batches), not strict row-at-a-time serving parity; the existing anti-skew evidence covers only Arm A's 19 served features.",
+    "Node-induced medium samples omit paths crossing discarded nodes, biasing graph-pattern counts downward on those datasets.",
+    "Paired bootstrap intervals use 200 deterministic stratified replicates over a fixed <=250,000-row holdout subset per dataset."
+  ],
+  "runId": "gfp-c41b1fbb266f44d4",
+  "seed": 1729,
+  "servingEligible": false
+}
