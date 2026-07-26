@@ -11,6 +11,9 @@ UV ?= uv
 NPM ?= npm
 FRONTEND := frontend
 PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src packages/fraudlens-ml/src scripts
+# Row budget for `make ingest-aml-demo` ONLY. `make run` / `make local-demo` drive
+# scripts/ingest_aml_demo.py through scripts/local_demo.py, which uses the script's own
+# default — this knob does not change them.
 AML_DEMO_ROWS ?= 1600
 AML_SAMPLE_ROWS ?= 50000
 
@@ -173,8 +176,9 @@ docker-build: ## Build the backend image (no push).
 
 # ---------------------------------------------------------------------------
 # Local demo & data lifecycle. `make run` is the clean one-command path: preserve/fetch IBM
-# AML-Data -> Docker Postgres -> migrate + foundation seed -> masked ingest -> RAG -> production
-# pipeline batch score -> gateway + frontend. The running application remains local/keyless.
+# AML-Data -> Docker Postgres -> migrate + foundation seed -> activate the best gates-passed
+# model bundle -> masked ingest -> RAG -> production pipeline batch score -> gateway + frontend.
+# The running application remains local/keyless.
 # ---------------------------------------------------------------------------
 local-demo: ## Boot the IBM-backed local stack; fetches via Infisical /ml when absent.
 	infisical run --env=prod --path=/ml -- $(UV) run python scripts/local_demo.py up
@@ -195,9 +199,10 @@ db-migrate: ## Apply database migrations.
 	$(UV) run alembic upgrade head
 db-seed: ## Seed foundation identity/config/rules + the active fixture pointer (dev only).
 	$(UV) run python scripts/seed.py
-import-ieee: ## Import the committed synthetic IEEE-CIS sample.
-	$(UV) run python scripts/import_ieee.py
-ingest-aml-demo: ## Ingest a bounded real IBM AML prefix across three demo tenants.
+import-ieee: ## Import the committed synthetic IEEE-CIS sample (AGENCY_ID=<uuid> required).
+	@test -n "$(AGENCY_ID)" || { echo "AGENCY_ID=<uuid> is required: the importer is tenant-generic"; exit 1; }
+	$(UV) run python scripts/import_ieee.py --agency-id $(AGENCY_ID)
+ingest-aml-demo: ## Ingest a bounded real IBM AML case pack into the configured demo tenant.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/ingest_aml_demo.py --rows $(AML_DEMO_ROWS)
 ingest-rag: ## Build the offline FinCEN/BSA hashing RAG index.
 	$(UV) run python scripts/ingest_rag.py
