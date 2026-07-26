@@ -188,6 +188,21 @@ class AppSettings(BaseSettings):
         default="Bootstrap Admin",
         description="Display name used when scripts/seed.py upserts the optional first admin.",
     )
+    portfolio_demo_enabled: bool = Field(
+        default=False,
+        description="Enable the config-driven portfolio demo story; a security gate that fails "
+        "closed in code, so a missing YAML key leaves it off (like auth_dev_bypass).",
+    )
+    portfolio_demo_config_file: str = Field(
+        default="portfolio-demo.yaml",
+        description="Portfolio-demo story config FILENAME, resolved relative to find_config_dir(); "
+        "absolute paths and upward traversal are rejected by the loader.",
+    )
+    demo_auth_password: str | None = Field(
+        default=None,
+        description="Public synthetic demo credential supplied by FRAUDLENS_DEMO_AUTH_PASSWORD / "
+        "Infisical; deliberately non-secret demo data, but never an inline YAML value.",
+    )
 
     # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
     cors_allow_origins: list[str] = Field(
