@@ -76,7 +76,12 @@ async def get_current_user(tenant: TenantDep, session: DbSessionDep) -> CurrentU
         role = UserRole(tenant.role)
     except ValueError as exc:
         raise AppError("user_not_provisioned") from exc
-    return CurrentUserResponse(email=user.email, role=role, agency_id=tenant.agency_id)
+    return CurrentUserResponse(
+        email=user.email,
+        display_name=user.display_name,
+        role=role,
+        agency_id=tenant.agency_id,
+    )
 
 
 @router.post("/users", response_model=UserInviteResponse, status_code=201)
