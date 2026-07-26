@@ -7,8 +7,9 @@ RAG→SAR. The runner reuses the warm `PipelineComponents` (model cache + retrie
 the per-run `RunStore`, so a batch
 sweep produces exactly the same durable results/events/alerts an interactive run would. Runs are
 sequential on one session (the store commits incrementally), so a mid-batch failure leaves prior
-runs durable. `main` is the dev/demo entry point that scores the demo agency's un-investigated
-transactions; the Container Apps Jobs trigger is wired by Terraform, and the local-vs-cloud seam is
+runs durable. `main` is the dev/demo entry point; it scores `--agency-id`, defaulting to the
+CONFIGURED portfolio demo agency (`config/portfolio-demo.yaml`) rather than a source constant.
+The Container Apps Jobs trigger is wired by Terraform; the local-vs-cloud seam is
 `backends/jobs.py`.
 
 Key classes:
@@ -17,7 +18,7 @@ Key classes:
 Key functions:
 - run_batch_score: investigate a set of transactions sequentially + record a `job_executions` row.
 - select_uninvestigated: the ids of an agency's not-yet-investigated transactions (capped).
-- main: dev/demo entry point — build the engine + components and batch-score the demo agency.
+- main: dev/demo entry point — build the engine + components and batch-score one tenant.
 
 Notes:
 - The live `EventEmitter` is a no-op here (batch has no observers); the pipeline still persists each
@@ -27,10 +28,13 @@ Notes:
   sweep continues — one poisoned row never aborts the batch.
 - `main` is dev/demo-oriented (like `scripts/seed.py`) and scores un-investigated transactions, so
   re-running it is naturally incremental.
+- `run_batch_score` stays generic and explicitly tenant-scoped; only the CLI default resolves the
+  configured demo agency, and there is no "score every tenant" mode (one runtime agency exists).
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import uuid
 from collections.abc import Sequence
@@ -42,13 +46,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
 from fraudlens_backend.db.repositories import AnalysisRunRepository, TransactionRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.pipeline_wiring import (
     PipelineComponents,
     build_pipeline_components,
     build_pipeline_deps,
     build_pipeline_input,
 )
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_ml.pipeline import Runner, StreamMessage
 
@@ -149,8 +153,8 @@ async def run_batch_score(
     )
 
 
-async def _amain() -> int:
-    """Build the engine + components and batch-score the demo agency's un-investigated rows."""
+async def _amain(agency_id: uuid.UUID) -> int:
+    """Build the engine + components and batch-score one tenant's un-investigated rows."""
     settings = get_settings()
     engine = create_engine_from_settings(settings)
     if engine is None:
@@ -160,13 +164,13 @@ async def _amain() -> int:
     try:
         async with build_sessionmaker(engine)() as session:
             transaction_ids = await select_uninvestigated(
-                session, agency_id=DEMO_AGENCY_ID, limit=settings.batch_score_limit
+                session, agency_id=agency_id, limit=settings.batch_score_limit
             )
             result = await run_batch_score(
                 session=session,
                 components=components,
                 settings=settings,
-                agency_id=DEMO_AGENCY_ID,
+                agency_id=agency_id,
                 transaction_ids=transaction_ids,
             )
     finally:
@@ -178,9 +182,24 @@ async def _amain() -> int:
     return 0
 
 
-def main() -> int:
-    """CLI entry point: run the async batch-score and return its exit code."""
-    return asyncio.run(_amain())
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point: resolve the target tenant, run the async batch-score, return its code."""
+    parser = argparse.ArgumentParser(description="Batch-investigate a tenant's un-scored rows.")
+    parser.add_argument(
+        "--agency-id",
+        default=None,
+        help="Target agency id; defaults to the configured portfolio demo agency.",
+    )
+    args = parser.parse_args(argv)
+    if args.agency_id is None:
+        agency_id = load_portfolio_demo_config().agency.id
+    else:
+        try:
+            agency_id = uuid.UUID(args.agency_id)
+        except ValueError:
+            print("batch-score failed: --agency-id must be a UUID")
+            return 1
+    return asyncio.run(_amain(agency_id))
 
 
 if __name__ == "__main__":

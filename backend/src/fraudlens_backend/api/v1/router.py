@@ -1,7 +1,8 @@
 """Summary: Aggregates the versioned /api/v1 business surface. It mounts the health,
 user identity/admin-invite, transaction-ingestion, AML-rules, investigation (create/snapshot/SSE),
 alert/review-workflow, model-registry, admin model-lifecycle (retrain/shadow/approve/canary/
-rollback/drift), dashboard metrics, runtime-config, dev-utility, and telemetry sub-routers, and
+rollback/drift), dashboard metrics, runtime-config, dev-utility, telemetry, and portfolio-demo
+projection sub-routers, and
 serves the tenant-scoped
 GET /api/v1/agencies/{agencyId}
 lookup,
@@ -42,6 +43,7 @@ from fraudlens_backend.api.v1 import (
     investigations,
     model_lifecycle,
     model_versions,
+    portfolio_demo,
     rules,
     telemetry,
     transactions,
@@ -63,6 +65,7 @@ api_router.include_router(dashboard.router)
 api_router.include_router(config.router)
 api_router.include_router(dev.router)
 api_router.include_router(telemetry.router)
+api_router.include_router(portfolio_demo.router)
 
 TenantDep = Annotated[TenantContext, Depends(get_tenant_for_path)]
 
