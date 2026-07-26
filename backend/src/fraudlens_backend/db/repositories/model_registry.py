@@ -24,6 +24,9 @@ Notes:
 - `build_canary_deployment` resolves the active + optional canary (at its percent) into the
   `fraudlens_ml` `CanaryDeployment` the wiring routes per-transaction through (Phase 10, §10.5);
   the canary arm is offered only when its version row resolves (else it stays active-only).
+- `FIXTURE_MODEL_LABEL` names the synthetic bundle the foundation seed installs as the initial
+  active pointer. It lives beside `build_pointer` because both the seed (which writes it) and the
+  portfolio-demo bootstrap (which may displace it) must agree on one value, not two copies.
 """
 
 from __future__ import annotations
@@ -38,6 +41,11 @@ from fraudlens_backend.db.models import ModelDeployment, ModelVersion, ModelVers
 from fraudlens_ml.scoring import CanaryDeployment, DeploymentPointer
 
 _DEFAULT_LIST_LIMIT = 50
+
+# The committed synthetic bundle the foundation seed registers and points at, so a fresh database
+# always has a loadable active model. It is the ONLY active label a real promotion may displace
+# automatically — anything else is an operator's deliberate choice.
+FIXTURE_MODEL_LABEL = "v0-fixture"
 
 
 class ModelRegistryRepository:

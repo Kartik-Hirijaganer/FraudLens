@@ -107,6 +107,7 @@ from fraudlens_ml.scoring import (
 
 _RISK_BAND_THRESHOLDS_KEY = "riskBandThresholds"
 _ALERT_THRESHOLD_KEY = "alertThreshold"
+_RISK_BLEND_MODEL_WEIGHT_KEY = "riskBlendModelWeight"
 
 
 def _anchored(path_value: str) -> Path:
@@ -417,14 +418,25 @@ async def load_risk_policy(session: AsyncSession) -> RiskPolicy:
     try:
         stmt = select(SystemConfig).where(
             SystemConfig.agency_id.is_(None),
-            SystemConfig.key.in_([_RISK_BAND_THRESHOLDS_KEY, _ALERT_THRESHOLD_KEY]),
+            SystemConfig.key.in_(
+                [
+                    _RISK_BAND_THRESHOLDS_KEY,
+                    _ALERT_THRESHOLD_KEY,
+                    _RISK_BLEND_MODEL_WEIGHT_KEY,
+                ]
+            ),
         )
         rows = {row.key: row.value for row in (await session.execute(stmt)).scalars().all()}
     except Exception:  # DB hiccup → safe cached in-process defaults (plan §9.1)
         return default
     thresholds = _parse_thresholds(rows.get(_RISK_BAND_THRESHOLDS_KEY), default.band_thresholds)
     alert_threshold = _parse_float(rows.get(_ALERT_THRESHOLD_KEY), default.alert_threshold)
-    return RiskPolicy(band_thresholds=thresholds, alert_threshold=alert_threshold)
+    model_weight = _parse_float(rows.get(_RISK_BLEND_MODEL_WEIGHT_KEY), default.model_weight)
+    return RiskPolicy(
+        model_weight=model_weight,
+        band_thresholds=thresholds,
+        alert_threshold=alert_threshold,
+    )
 
 
 def _parse_thresholds(raw: Any, fallback: dict[RiskBand, float]) -> dict[RiskBand, float]:

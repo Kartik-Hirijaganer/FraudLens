@@ -42,11 +42,12 @@ per-replica counter is correct (a shared store is the documented multi-replica s
 - enforce_tenant delegates to fraudlens_core.require_agency_id and maps its
 TenantIsolationError to 401 (missing claim) or 403 (mismatch) — no agency id
 value ever appears in the raised message (FraudLens tenant/PHI hygiene).
-- The dev-bypass agency id is the shared demo tenant (fraudlens_backend.demo), so a
-bypassed identity resolves to the seeded demo agency in local-demo (still inert in prod);
-the bypass mints the CONFIGURED role (settings.auth_dev_bypass_role, default admin so local-demo
-can exercise the admin-only model lifecycle, Phase 10). A dev-only header/query param can vary
-that role for the portfolio demo login; production ignores it because the bypass is disabled.
+- The dev-bypass tenant and personas come from config/portfolio-demo.yaml (never a source
+constant), so a bypassed identity resolves to the seeded demo agency in local-demo (still inert
+in prod); the bypass mints the CONFIGURED role (settings.auth_dev_bypass_role, default admin so
+local-demo can exercise the admin-only model lifecycle, Phase 10) with the matching persona's
+seeded user id. A dev-only header/query param can vary that role for the portfolio demo login;
+production ignores it because the bypass is disabled, and no client may select a tenant.
 - RBAC is claim-based (§6.3): the role rides the verified claim and is re-checked in services
 via permission dependencies; a non-admin on an admin route fails closed with
 admin_role_required (403).
@@ -77,16 +78,14 @@ from starlette.requests import Request
 
 from fraudlens_backend.db.models.enums import UserRole
 from fraudlens_backend.db.repositories import AuditLogRepository
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID, DEMO_USERS
 from fraudlens_backend.middleware.logging import bind_identity
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
+from fraudlens_backend.portfolio_demo import PortfolioDemoPersona, load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_security_event
 from fraudlens_core import TenantIsolationError, require_agency_id
 
-DEV_BYPASS_AGENCY_ID = str(DEMO_AGENCY_ID)
-DEV_BYPASS_USER_ID = str(DEMO_USER_ID)
 # The dev-bypass role is config-driven (settings.auth_dev_bypass_role, default admin so local-demo
 # can drive the model lifecycle); a dev-only request header can override it for the demo login.
 DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role"
@@ -195,25 +194,30 @@ def _parse_role(value: object) -> UserRole | None:
 
 
 def _dev_bypass_claims(request: Request, settings: AppSettings) -> AccessClaims:
-    """Mint dev-only claims, optionally varying by the selected demo login role."""
+    """Mint dev-only claims for the CONFIGURED demo tenant and persona (prod-inert).
+
+    The tenant and every persona come from `config/portfolio-demo.yaml`, never a source
+    constant, and a client-supplied tenant id is still refused — only the ROLE may be selected,
+    and only by the non-prod bypass. A requested role resolves to the persona holding it; with
+    no request the configured `auth_dev_bypass_role` persona is used, falling back to
+    `default_bypass_persona`.
+    """
+    config = load_portfolio_demo_config(settings=settings)
     requested = request.headers.get(DEMO_ROLE_HEADER) or request.query_params.get(
         DEMO_ROLE_QUERY_PARAM
     )
+    fallback: PortfolioDemoPersona = config.persona(config.default_bypass_persona)
     if requested:
         role = _parse_role(requested)
         if role is None:
             raise HTTPException(status_code=401, detail="invalid demo role")
-        demo_user = next((spec for spec in DEMO_USERS if spec.role is role), None)
-        user_id = str(demo_user.user_id) if demo_user is not None else DEV_BYPASS_USER_ID
-        return AccessClaims(
-            agency_id=DEV_BYPASS_AGENCY_ID,
-            user_id=user_id,
-            role=role.value,
-        )
+    else:
+        role = _parse_role(settings.auth_dev_bypass_role) or fallback.role
+    persona = config.persona_for_role(role) or fallback
     return AccessClaims(
-        agency_id=DEV_BYPASS_AGENCY_ID,
-        user_id=DEV_BYPASS_USER_ID,
-        role=settings.auth_dev_bypass_role,
+        agency_id=str(config.agency.id),
+        user_id=str(persona.seed_user_id),
+        role=role.value,
     )
 
 
