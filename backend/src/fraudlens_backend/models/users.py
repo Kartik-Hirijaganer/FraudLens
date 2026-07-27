@@ -14,8 +14,9 @@ Key functions:
 
 Notes:
 - Role values reuse the canonical UserRole enum, avoiding a parallel frontend/backend role list.
-- The response never returns secrets or raw token claims; it reports the DB-backed email plus
-  the already-verified tenant/role context.
+- The response never returns secrets or raw token claims; it reports the DB-backed email and
+  display name plus the already-verified tenant/role context. The display name is what the
+  signed-in shell greets a LIVE user by, so that identity is never a frontend constant.
 """
 
 from __future__ import annotations
@@ -30,6 +31,12 @@ class CurrentUserResponse(CamelModel):
     """The authenticated caller identity used by the frontend session store."""
 
     email: str = Field(..., min_length=3, max_length=320, description="Provisioned email address.")
+    display_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Provisioned display name; the shell's display identity for a live session.",
+    )
     role: UserRole = Field(..., description="FraudLens RBAC role enforced for this request.")
     agency_id: str = Field(..., description="Tenant agency id from the verified access token.")
 

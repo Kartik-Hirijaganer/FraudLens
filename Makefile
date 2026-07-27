@@ -22,11 +22,12 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
-        run rebuild run-live local-demo local-demo-down local-demo-reset local-demo-smoke \
-        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish train-model train-aml train-aml-sample activate-model retrain drift-scan tf-validate \
+        run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
+        portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -120,6 +121,8 @@ secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	$(UV) run python scripts/check_no_secrets.py
 no-hardcoding-check: ## Flag hardcoded URLs/IPs/model-ids in source (rule 4 / §12.1).
 	$(UV) run python scripts/check_no_hardcoding.py
+demo-literals-check: ## Flag portfolio-demo values restated outside config/portfolio-demo.yaml (rule 4).
+	$(UV) run python scripts/check_no_demo_literals.py
 tenancy-check: ## Assert every tenant-scoped table has indexed agency_id (plan §9.3).
 	$(UV) run python scripts/check_tenancy.py
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
@@ -188,12 +191,37 @@ rebuild: ## Alias for `make run`.
 	$(MAKE) run
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live
+run-live-demo: ## Boot live dev AND bootstrap the exact portfolio demo story (mutating; prints the URL).
+	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live-demo
 local-demo-down: ## Stop the local demo stack and remove its containers.
 	$(UV) run python scripts/local_demo.py down
 local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
 	$(UV) run python scripts/local_demo.py reset
 local-demo-smoke: ## Boot, hit the health probes, then tear down (local E2E gate).
 	$(UV) run python scripts/local_demo.py smoke
+
+# ---------------------------------------------------------------------------
+# Portfolio demo story (config/portfolio-demo.yaml). Every target resolves the story
+# location from the LAYERED settings (portfolio_demo_config_file), so none of them names
+# a path; pass `--config` to the script directly for a one-off document. DATABASE_URL is
+# supplied the same way `db-seed` and `activate-model` get it (env/.env locally).
+# ---------------------------------------------------------------------------
+PORTFOLIO_DEMO := $(UV) run python scripts/bootstrap_portfolio_demo.py
+
+portfolio-demo-bootstrap: ## Apply (or resume) the configured portfolio demo story; idempotent.
+	$(PORTFOLIO_DEMO)
+portfolio-demo-probe: ## Report calibration (resolved policy + per-row p/r/codes/band); writes no run.
+	$(PORTFOLIO_DEMO) --probe
+portfolio-demo-verify: ## Read-only expected-vs-actual table; non-zero exit on any mismatch.
+	$(PORTFOLIO_DEMO) --verify
+portfolio-demo-reset: ## Delete the demo tenant's operational rows, then rebuild the pinned baseline.
+	$(PORTFOLIO_DEMO) --reset
+# `--no-cov`: the smoke selection deliberately exercises a REMOTE process, so the repo-wide
+# --cov-fail-under=90 in `addopts` can never be met by it (the code under test runs elsewhere).
+# Coverage stays enforced by `make coverage`, which runs the real suite in-process.
+portfolio-demo-smoke: ## Run the smoke suite against a RUNNING demo (SMOKE_BASE_URL=<url> required).
+	@test -n "$(SMOKE_BASE_URL)" || { echo "SMOKE_BASE_URL=<url> is required: this target boots nothing itself"; exit 1; }
+	SMOKE_BASE_URL=$(SMOKE_BASE_URL) PORTFOLIO_DEMO_SMOKE_ENABLED=true $(UV) run pytest -m smoke --no-cov
 
 db-migrate: ## Apply database migrations.
 	$(UV) run alembic upgrade head
@@ -222,6 +250,8 @@ train-aml-sample: ## Fast real-data candidate smoke using a deterministic strati
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml --sample-rows $(AML_SAMPLE_ROWS)
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
+batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).
+	$(UV) run python -m fraudlens_backend.jobs.runner $(if $(AGENCY_ID),--agency-id $(AGENCY_ID),)
 retrain: ## Retrain a candidate from matured reviewed labels.
 	$(UV) run python scripts/retrain.py
 drift-scan: ## Run the advisory model drift scan.
@@ -282,7 +312,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check tenancy-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).

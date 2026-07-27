@@ -199,6 +199,26 @@ jobs:
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
           uv sync --all-packages
           retry uv run alembic upgrade head
+      # Portfolio demo story (plan §16 Phase 7). DOUBLE-GATED: the job already requires
+      # AZURE_DEPLOY_ENABLED, and this step additionally requires PORTFOLIO_DEMO_BOOTSTRAP_ENABLED
+      # — the same shape deploy-frontend.yml uses. Gated on repo `vars`, never `secrets`:
+      # enablement is a deployment decision, not a credential. It lives here because this is the
+      # only job already holding the deployed-SHA checkout, uv, and DATABASE_URL from Infisical
+      # /backend, and it runs PRE-PROMOTE, so a story that does not match its configuration fails
+      # the job, blocks promotion, and lets the existing `abort` job deactivate the revision.
+      #
+      # The bootstrap is idempotent (it resumes rather than duplicates) and refuses rather than
+      # guesses. Two prerequisites before flipping the variable on: the pinned model bundle named
+      # by config/portfolio-demo.yaml must be reachable at the artifacts root, and the runner's
+      # resolved llm_mode / rag_embedding_mode must equal the story's `execution:` block (the
+      # default overlay this step runs under already does).
+      - name: Bootstrap the portfolio demo story (gated, pre-promote)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        env:
+          FRAUDLENS_PORTFOLIO_DEMO_ENABLED: "true"
+        run: |
+          set -euo pipefail
+          uv run python scripts/bootstrap_portfolio_demo.py
 
   # Smoke the STAGED revision (still at 0% traffic) before any traffic shift.
   smoke:
@@ -213,15 +233,27 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # This job already sits exactly where the portfolio-demo story check belongs (plan §16
+      # Phase 10a): AFTER the `migrate` job's gated bootstrap step and BEFORE `promote`, against
+      # a revision still at 0% traffic. PORTFOLIO_DEMO_SMOKE_ENABLED is driven by the SAME repo
+      # variable that gates the bootstrap, so a deployment carrying no demo runs only the generic
+      # ops probes, while one that does bootstrap the story must match config/portfolio-demo.yaml
+      # or it never takes traffic. SMOKE_AUTH_TOKEN is optional here: without it the story's
+      # authenticated assertions FAIL rather than skip, which is the intended signal until a
+      # machine identity for the demo tenant is wired.
+      #
+      # `--no-cov`: the suite drives a REMOTE process, so the repo-wide --cov-fail-under=90 in
+      # `addopts` cannot apply to it. Coverage is enforced by the `quality` job's real suite.
       - name: Smoke the staged revision (/healthz, /readyz, pytest -m smoke)
         env:
           SMOKE_BASE_URL: ${{ needs.stage.outputs.revision_fqdn }}
+          PORTFOLIO_DEMO_SMOKE_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
         run: |
           set -euo pipefail
           curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/healthz"
           curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/readyz"
           uv sync --all-packages
-          uv run pytest -m smoke
+          uv run pytest -m smoke --no-cov
 
   # Promote: smoke passed -> shift 100% traffic to the new revision (zero-downtime).
   promote:
