@@ -48,8 +48,9 @@ jobs:
 
   quality:
     # Cross-cutting checks that `make ci` includes but the per-stack jobs above do not:
-    # SUMMARY headers, secret scan, generated-doc freshness, duplication, LLM catalog.
-    # Lives here so every caller (PR, Renovate, release, deploy) enforces them.
+    # SUMMARY headers, secret scan, generated-doc freshness, duplication, LLM catalog, and the
+    # portfolio-demo literal guard (values derived from config/portfolio-demo.yaml must appear
+    # nowhere else). Lives here so every caller (PR, Renovate, release, deploy) enforces them.
     name: quality
     runs-on: ubuntu-latest
     steps:
@@ -73,8 +74,8 @@ jobs:
           url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
           curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
-      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog, tenancy)
-        run: make header-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check
+      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog, tenancy, demo literals)
+        run: make header-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check
 
   docker-build:
     name: docker-build
