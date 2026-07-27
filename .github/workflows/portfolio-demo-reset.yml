@@ -1,0 +1,61 @@
+# Scheduled portfolio-demo reset (plan §16 Phase 7) — WIRED BUT INERT until the repo variable
+# PORTFOLIO_DEMO_RESET_ENABLED == 'true'. It returns the deployed demo tenant to its pinned
+# baseline after visitors have investigated rows, resolved alerts, or reviewed SARs: the bootstrap
+# deletes ONLY that tenant's operational records (its agency, users, identities, rules, model
+# registry, job history, and audit logs all survive) and rebuilds the story through the real
+# pipeline, then verifies the result against config/portfolio-demo.yaml and fails on any delta.
+#
+# Because it DESTROYS visitor state it carries two gates the other scheduled workflow
+# (build-base.yml) does not need: `environment: production`, so the run is attributable and can
+# require review, and an explicit repo-variable check on the job. Gated on `vars`, never
+# `secrets` — enablement is a deployment decision, not a credential.
+#
+# The cron below is the one honest hardcoded value in this feature: GitHub Actions cannot read a
+# repo variable in `on.schedule.cron`. Only the SCHEDULE is a literal — enablement is the variable
+# above, and `workflow_dispatch` covers ad-hoc runs. Do not duplicate this cron in Python, Make, or
+# config/portfolio-demo.yaml.
+name: portfolio-demo-reset
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # daily 05:00 UTC — the demo opens each day on its pinned baseline
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # Infisical OIDC machine identity (no stored client secret)
+
+concurrency:
+  group: portfolio-demo-reset
+  cancel-in-progress: false # never interrupt a reset mid-rebuild
+
+jobs:
+  reset:
+    if: ${{ vars.PORTFOLIO_DEMO_RESET_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Fetch DATABASE_URL from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /backend
+      # --reset rebuilds through the same ensure path the bootstrap uses and verifies the result,
+      # so a rebuild that no longer matches the configured story exits non-zero and fails the run.
+      - name: Reset and rebuild the pinned story
+        env:
+          FRAUDLENS_PORTFOLIO_DEMO_ENABLED: "true"
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/bootstrap_portfolio_demo.py --reset
