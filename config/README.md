@@ -34,6 +34,8 @@ deploy platform, never written to a YAML file, `.env`, fixture, or source.
 | `api_v1_prefix` | str | Business-API prefix (`/api/v1`). Ops endpoints stay unprefixed. |
 | `request_id_header` | str | Response header carrying the per-request correlation id. |
 | `auth_dev_bypass` | bool | Dev-only auth bypass. Honored **only** when `environment != "prod"`; inert in prod. |
+| `portfolio_demo_enabled` | bool | Gates the portfolio demo story surface. A security gate, so it also defaults to `False` **in Python** — a missing YAML key leaves it off instead of failing boot. |
+| `portfolio_demo_config_file` | str | **Filename** of the story document, resolved under the config directory; absolute paths and upward traversal are rejected by the loader. |
 
 ## LLM registry files
 
@@ -65,3 +67,26 @@ it and rejects bad windows/bins/fractions/quotas/paths/engine-versions. The valu
 frozen with [ADR-017](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md)
 and never influence live scoring. Non-secret (Golden Rule 2): dataset files and study
 outputs stay under gitignored `.local/`.
+
+## Portfolio demo story (`portfolio-demo.yaml`)
+
+`config/portfolio-demo.yaml` is the single source of every **demo-specific** value: the one runtime
+demo tenant, its login personas, the pinned scoring model, the authored case pack, and the
+distribution a real pipeline run must reproduce. Like `gfp-benchmark.yaml` it is **not** loaded by
+`AppSettings`: `backend/src/fraudlens_backend/portfolio_demo/config.py`
+(`PortfolioDemoConfig`, frozen + `extra="forbid"`) validates it and rejects unknown keys, unresolved
+persona references, roles the RBAC policy does not permit, unknown rule codes, colliding masked
+accounts, and any `expected:` block that is not the algebraic consequence of the scenario list. Only
+the **filename** comes from `AppSettings` (`portfolio_demo_config_file`), resolved under this
+directory with traversal and symlink escapes rejected.
+
+Non-secret (Golden Rule 2): the public synthetic demo password is **not** written here. The document
+carries `auth.public_synthetic_password_env` — the env-reference form `check_no_secrets.py`
+sanctions — and the value resolves from Infisical `prod`. `scripts/check_no_demo_literals.py` derives
+its forbidden literals from this file, so any story value restated in code, docs, tests, or workflows
+fails `make demo-literals-check`.
+
+Which values belong here versus in layered app config, workflow YAML, or Infisical — and which edits
+force a recalibration — is documented in
+[`docs/runbooks/portfolio-demo.md`](../docs/runbooks/portfolio-demo.md); the provenance rationale is
+[ADR-018](../docs/architecture/adr/ADR-018-portfolio-demo-data-provenance.md).

@@ -32,6 +32,11 @@ data, not the old hand-written IEEE sample and not real customer data. Only the 
 the Infisical `/ml` Kaggle token; the running app uses local backends and the keyless mock SAR
 drafter.
 
+For the curated walkthrough — one demo tenant whose risk bands, alerts, and SAR states are produced
+by the real pipeline and then asserted against
+[config/portfolio-demo.yaml](config/portfolio-demo.yaml) — use `make run-live-demo` and verify it with
+`make portfolio-demo-verify`. See [docs/runbooks/portfolio-demo.md](docs/runbooks/portfolio-demo.md).
+
 ## Source Of Truth
 
 | Need | File |
@@ -39,6 +44,7 @@ drafter.
 | Agent/contributor rules | [AGENTS.md](AGENTS.md) |
 | Current architecture | [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) |
 | Local demo runbook | [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) |
+| Portfolio demo story | [docs/runbooks/portfolio-demo.md](docs/runbooks/portfolio-demo.md) |
 | Security posture | [docs/runbooks/security.md](docs/runbooks/security.md) |
 | PHI guardrails | [docs/runbooks/phi-guardrails.md](docs/runbooks/phi-guardrails.md) |
 | API reference | [docs/reference/generated/api/openapi.json](docs/reference/generated/api/openapi.json) |
