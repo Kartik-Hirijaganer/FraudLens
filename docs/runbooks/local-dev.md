@@ -24,9 +24,10 @@ make run
 
 `make run` drops the local Postgres volume and generated caches, but preserves the 454 MB
 gitignored IBM download. It then verifies/fetches the configured `HI-Small_Trans.csv`, applies
-migrations, foundation-seeds identity/config/rules, masks and ingests 300 IBM rows across three
-demo tenants, builds RAG, and batch-investigates the primary tenant before starting the servers.
-It never falls back to IEEE/sample alerts. Postgres uses port `55432` by default:
+migrations, foundation-seeds identity/config/rules, promotes the best gates-passed local model
+bundle, masks and ingests 1600 IBM rows into the configured demo tenant, builds RAG, and
+batch-investigates that tenant before starting the servers. It never falls back to IEEE/sample
+alerts. Postgres uses port `55432` by default:
 
 ```bash
 POSTGRES_PORT=5432 make run
@@ -110,11 +111,11 @@ database, and LLM path before any Azure deployment.
 | --- | --- |
 | `/backend` | `DATABASE_URL` using the direct/non-pooled connection for migrations, plus `SUPABASE_SERVICE_ROLE_KEY` |
 | `/llm` | `OPENROUTER_API_KEY` |
-| `/` | `SUPABASE_URL` and publishable `VITE_SUPABASE_ANON_KEY` |
+| `/` | `SUPABASE_URL`, publishable `VITE_SUPABASE_ANON_KEY`, and `FRAUDLENS_DEMO_AUTH_PASSWORD` (the public synthetic demo credential — non-secret, but injected rather than committed) |
 
-4. Run migrations. `make run-live` then idempotently creates/updates the four synthetic demo
-   identities through the server-only Supabase Admin API and mirrors their Auth UUIDs into the
-   demo tenant before starting either dev server:
+4. Run migrations. `make run-live` then idempotently creates/updates the personas configured in
+   `config/portfolio-demo.yaml` through the server-only Supabase Admin API and mirrors their Auth
+   UUIDs into the configured demo tenant before starting either dev server:
 
 ```bash
 infisical run --env=prod --path=/ --recursive -- make db-migrate
@@ -125,15 +126,60 @@ infisical run --env=prod --path=/ --recursive -- make db-migrate
 
 ```bash
 make ingest-rag-live
-make ingest-aml-demo        # optional: 300 actual IBM AML rows, masked across 3 tenants
+make ingest-aml-demo        # optional: AML_DEMO_ROWS (default 1600) IBM rows, masked
 make run-live
 ```
 
 Real users sign in with Supabase email/password. In live mode, the demo persona picker selects one
-of the four provisioned Supabase users; it never creates a tokenless session or enables the backend
+of the provisioned Supabase users; it never creates a tokenless session or enables the backend
 auth bypass. When the actual-data training gates leave models as candidates and no active deployment
 exists, `make run-live` evaluates the newest candidate without promoting it or creating a deployment
 row. This fallback is disabled by default and remains inert whenever `FRAUDLENS_ENVIRONMENT=prod`.
+
+## Running the portfolio demo story
+
+`make run-live` boots the live stack but ingests nothing. Use `make run-live-demo` when you want the
+**exact, pinned portfolio story** — 20 authored transactions, a real risk-band mix, five held-unscored
+rows to investigate live, and the alert/SAR states declared in
+[`config/portfolio-demo.yaml`](../../config/portfolio-demo.yaml):
+
+```bash
+infisical run --env=prod --path=/ --recursive -- make db-migrate
+make run-live-demo            # migrate -> seed -> provision auth -> RAG -> bootstrap -> servers
+```
+
+It takes the same repository-scoped process lock as `make run` / `make run-live`, prints the URL when
+the servers are up, and overlays two things for the whole command: the story's `execution:` provider
+modes — the RAG index, the bootstrap, and the servers a visitor investigates on must all agree on the
+embedder, and the bootstrap refuses a mismatch rather than telling a differently-calibrated story —
+and `portfolio_demo_enabled`, without which the persona picker has no personas to offer (live mode
+runs with the dev bypass off, so the projection route would 404). `make run-live` overlays neither.
+
+Every number the demo shows is produced by the real rules → model → blend → alert → SAR pipeline and
+then **asserted** against the configuration; a mismatch fails instead of adapting
+([ADR-018](../architecture/adr/ADR-018-portfolio-demo-data-provenance.md)).
+
+- `make run-live` is unchanged and non-mutating: it provisions demo auth and boots, nothing else.
+- **Switching from the IBM demo data to the exact portfolio story requires an explicit reset.** The
+  bootstrap refuses to guess when it finds rows it did not author in the demo tenant — run
+  `make portfolio-demo-reset`, which deletes only that tenant's operational records (agency, users,
+  identities, rules, model registry, job history, and audit logs all survive) and rebuilds the
+  pinned baseline.
+- After a visitor investigates a row or resolves an alert, `make portfolio-demo-verify` reports the
+  drift as a table and `make portfolio-demo-reset` restores the baseline.
+
+| Command | What it does |
+|---|---|
+| `make run-live-demo` | Boot live dev **and** bootstrap the pinned story (mutating). |
+| `make portfolio-demo-bootstrap` | Apply or resume the story against the current database; idempotent. |
+| `make portfolio-demo-probe` | Calibration report; persists no run, band, alert, or draft. |
+| `make portfolio-demo-verify` | Read-only expected-vs-actual table; non-zero exit on any delta. |
+| `make portfolio-demo-reset` | Delete the demo tenant's operational rows and rebuild the baseline. |
+| `make portfolio-demo-smoke` | Smoke the running demo (`SMOKE_BASE_URL=<printed URL>`). |
+
+Validation paths: [portfolio-demo-uat.md](portfolio-demo-uat.md) is the human acceptance checklist,
+and [portfolio-demo.md](portfolio-demo.md) documents which values live where and which edits force a
+recalibration.
 
 ## Companion commands
 
@@ -141,12 +187,13 @@ row. This fallback is disabled by default and remains inert whenever `FRAUDLENS_
 |---|---|
 | `make run` | Reset DB/caches, preserve/fetch IBM data, ingest + pipeline-score, then boot. |
 | `make run-live` | Boot backend + frontend against real Supabase/Postgres + OpenRouter via Infisical. |
+| `make run-live-demo` | Boot live dev and bootstrap the pinned portfolio story; prints the URL. |
 | `make rebuild` | Alias for `make run`. |
 | `make local-demo` | Idempotently ingest/score IBM data, boot, and print the URL. |
 | `make local-demo-down` | Stop the stack (containers removed, data volume kept). |
 | `make local-demo-reset` | Stop, drop the volume, and remove `.local/` including IBM data. |
 | `make local-demo-smoke` | Headless gate: boot Postgres + backend, assert `/healthz` + `/readyz`, tear down. |
-| `make ingest-aml-demo` | Ingest a bounded actual IBM AML prefix across three synthetic tenants. |
+| `make ingest-aml-demo` | Ingest a bounded actual IBM AML prefix into the configured demo tenant. |
 
 ## Configuration & backends
 
@@ -171,7 +218,7 @@ row. This fallback is disabled by default and remains inert whenever `FRAUDLENS_
 |---|---|---|
 | `make db-migrate` | Apply Alembic migrations | Phase 2 |
 | `make db-seed` | Seed identity/config/rules/model pointer only; no operational evidence | Phase 2 |
-| `make import-ieee` | Import the synthetic IEEE-CIS sample | Phase 3 |
+| `make import-ieee AGENCY_ID=<uuid>` | Import the synthetic IEEE-CIS sample into an explicit tenant | Phase 3 |
 | `make ingest-rag` | Build the FinCEN/BSA RAG index | Phase 6 |
 | `make train-model` | Train + register an XGBoost model | Phase 5 |
 | `make retrain` | Matured reviewed labels → gated candidate model | Phase 10 |
