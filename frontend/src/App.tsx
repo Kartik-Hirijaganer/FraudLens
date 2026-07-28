@@ -1,6 +1,7 @@
 /**
  * Summary: The FraudLens app shell (plan §16 Phase 11, redesigned). It gates on the session
- * (`useSession`): with no session it renders the <Login/> screen, otherwise it frames the app as
+ * (`useSession`): with no session it renders the <Login/> screen — handing it the login personas
+ * fetched from the backend's public portfolio-demo projection — otherwise it frames the app as
  * a white app-window card over the sage canvas — a branded header (wordmark + analyst avatar +
  * sign-out), a grouped Workspace/Admin sidebar (the sole primary nav), and a sage content panel
  * that switches on the hash route (`useHashRoute`). Each page owns its own data + states; the
@@ -16,6 +17,8 @@
  * Notes:
  * - The sidebar is the only nav; contextual screens (alert review, investigation) are reached by
  *   selecting a record from a list, so they need no standalone nav entry.
+ * - The demo-persona projection is requested only while signed out AND only when this build
+ *   renders a picker, so the shell never fetches demo configuration for a real session.
  * - Unknown ids deep-link straight to the relevant page (which resolves existence); an
  *   unrecognized route renders a not-found empty state.
  */
@@ -28,10 +31,11 @@ import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
 import { Dashboard } from "./pages/Dashboard";
 import { Investigation } from "./pages/Investigation";
-import { Login } from "./pages/Login";
+import { Login, isDemoPickerEnabled } from "./pages/Login";
 import { ModelAdmin } from "./pages/ModelAdmin";
 import { Transactions } from "./pages/Transactions";
 import { cx } from "./lib/cx";
+import { usePortfolioDemoPersonas } from "./lib/portfolioDemo";
 
 // Lazily loaded so the committed study artifact (and d3-force) load only when the research
 // view is opened — the rest of the app never pulls that build-time data import.
@@ -140,10 +144,13 @@ function renderRoute(route: Route, session: Session) {
 export function App() {
   const session = useSession();
   const route = useHashRoute();
+  // Fetched only for the signed-out screen that renders the picker, and only when this build
+  // actually offers one — so a hardened build issues no demo request at all.
+  const demo = usePortfolioDemoPersonas(session === null && isDemoPickerEnabled());
   if (!session) {
     return (
       <>
-        <Login />
+        <Login personas={demo.personas} personasStatus={demo.status} />
         <Toaster richColors position="bottom-right" />
       </>
     );

@@ -1,7 +1,8 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEMO_ROLES, signIn, signOut } from "./lib/session";
+import { signIn, signOut } from "./lib/session";
+import { demoPersona } from "./test/factories";
 
 // Keep the shell test focused on routing + chrome: stub the data calls the rendered pages
 // make so they stay in their loading state (no post-test async updates). Page headers /
@@ -89,14 +90,14 @@ describe("App shell", () => {
   });
 
   it("shows admin navigation to admin sessions", () => {
-    signIn(DEMO_ROLES[2].email, false, "admin");
+    signIn(demoPersona("admin").email, false, "admin");
     render(<App />);
     const workspace = screen.getByRole("navigation", { name: "Workspace" });
     expect(within(workspace).getByRole("link", { name: "Model admin" })).toBeInTheDocument();
   });
 
   it("shows the reviewer persona label", () => {
-    signIn(DEMO_ROLES[1].email, false, "reviewer");
+    signIn(demoPersona("reviewer").email, false, "reviewer");
     render(<App />);
     expect(screen.getByText("Reviewer")).toBeInTheDocument();
   });
@@ -111,7 +112,7 @@ describe("App shell", () => {
   });
 
   it("switches pages on hash navigation", () => {
-    signIn(DEMO_ROLES[2].email, false, "admin");
+    signIn(demoPersona("admin").email, false, "admin");
     render(<App />);
     goTo("#/transactions");
     expect(screen.getByRole("heading", { level: 1, name: "Transactions" })).toBeInTheDocument();
