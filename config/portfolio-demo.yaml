@@ -1,0 +1,477 @@
+# FraudLens — the portfolio demo STORY (non-secret).
+#
+# The single source of every demo-specific value: the one runtime agency, its login personas,
+# the pinned scoring model, the authored case pack, and the distribution a real pipeline run
+# must reproduce. Loaded and validated by
+# `backend/src/fraudlens_backend/portfolio_demo/config.py` (frozen Pydantic, extra="forbid");
+# the filename comes from `portfolio_demo_config_file` in the layered app config.
+#
+# SECRETS NEVER LIVE HERE (Golden Rule 2). The demo password is deliberately public synthetic
+# data, yet it is still supplied through env/Infisical via the `*_env` pointer below so
+# `make secrets-scan` stays strict and no credential value is ever committed.
+#
+# Nothing here is written directly into `transactions.risk_band`, `alerts`, or `sar_drafts`:
+# `expected` is ASSERTED against what the real rules -> model -> blend -> alert -> SAR pipeline
+# produces, and a mismatch fails rather than adapts.
+schema_version: 1
+
+# Story revision. Every derived transaction external id, the Postgres advisory-lock key, and
+# the bootstrap's audit request id are built from `external_id_namespace` + this value, so a
+# bump re-keys the whole story at once.
+story_version: v1
+external_id_namespace: PORTFOLIO-DEMO
+
+# Every scenario's `occurred_offset_hours` is relative to this instant, so re-runs place the
+# story identically instead of drifting with wall-clock time.
+story_anchor: 2026-07-01T09:00:00Z
+
+# --- The single persistent runtime tenant -------------------------------------------------
+# Exactly one demo agency exists at runtime. `research_partition_key` names the OFFLINE study
+# partition this tenant mirrors in the committed GFP tenant-isolation artifact; research
+# partitions are an analysis concept, never additional runtime tenants.
+agency:
+  id: 11111111-1111-4111-8111-111111111111
+  name: Demo Financial Agency
+  slug: demo-agency
+  research_partition_key: Demo Financial Agency
+
+# --- Login personas ------------------------------------------------------------------------
+# `seed_user_id` is the fixed `users.id` the seed creates and every audited action is recorded
+# under. `picker_*` is presentation only; `picker_accent` selects from the semantic accent set
+# the frontend code owns, so DESIGN.md's palette rules cannot be violated from here.
+personas:
+  - key: analyst
+    seed_user_id: 22222222-2222-4222-8222-222222222222
+    email: analyst@demo-agency.test
+    display_name: Alex Rivera
+    initials: AR
+    role: analyst
+    picker_name: Fraud Analyst
+    picker_tag: Queue
+    picker_accent: green
+  - key: reviewer
+    seed_user_id: 33333333-3333-4333-8333-333333333333
+    email: reviewer@demo-agency.test
+    display_name: Morgan Diaz
+    initials: MD
+    role: reviewer
+    picker_name: Reviewer
+    picker_tag: Approve
+    picker_accent: cyan
+  - key: admin
+    seed_user_id: 44444444-4444-4444-8444-444444444444
+    email: admin@demo-agency.test
+    display_name: Priya Shah
+    initials: PS
+    role: admin
+    picker_name: Compliance Admin
+    picker_tag: Model
+    picker_accent: amber
+  - key: auditor
+    seed_user_id: 55555555-5555-4555-8555-555555555555
+    email: auditor@demo-agency.test
+    display_name: Jordan Lee
+    initials: JL
+    role: auditor
+    picker_name: Auditor
+    picker_tag: Read-only
+    picker_accent: slate
+
+# Persona the non-prod dev bypass mints when no role is requested and no persona carries the
+# configured `auth_dev_bypass_role`. Admin keeps the model lifecycle drivable locally.
+default_bypass_persona: admin
+
+# --- Public synthetic credential (pointer only) --------------------------------------------
+auth:
+  public_synthetic_password_env: FRAUDLENS_DEMO_AUTH_PASSWORD
+
+# --- Pinned scoring model -------------------------------------------------------------------
+# The only committed bundle carrying a `manifest.json` sidecar AND `gates_passed == 1.0`, so
+# `make activate-model` already promotes it. Its non-null `risk_thresholds` switch the blend
+# onto the operating-point map. Changing either value requires re-calibrating the case pack.
+model:
+  version_label: xgb-ibm-aml-fs2-9d43c5f92a
+  feature_spec_version: 2
+
+# Provider modes the expected distribution assumes (deterministic, keyless).
+execution:
+  llm_mode: mock
+  rag_embedding_mode: offline
+
+# --- Case-pack partitioning -------------------------------------------------------------
+# The demo ingests into ONE tenant, so the anchor-selection cycle is a single partition. The
+# offline GFP study keeps its own three-partition default in `scripts/lib/aml_fraud.py`, so
+# this value never moves the committed study artifact.
+case_pack_partition_count: 1
+case_pack_tenant_weights: [0]
+
+# --- Workflow actors and synthetic review text ---------------------------------------------
+# Values are persona KEYS; their roles are validated against the RBAC policy at load, and RBAC
+# itself is never configurable from here.
+workflow:
+  assignment_actor: reviewer
+  resolution_actor: reviewer
+  sar_review_actor: reviewer
+  assignee: analyst
+  resolution_note: Synthetic demo note - cluster reviewed and closed after analyst write-up.
+  approval_note: Synthetic demo note - narrative and citations accepted for filing.
+  rejection_note: Synthetic demo note - insufficient corroboration, returned to the analyst.
+
+# --- Calibration reporting -------------------------------------------------------------
+# `low_confidence_margin` is cross-checked at load against `review_low_confidence_margin`, so
+# the probe report and the runtime review gate can never drift apart.
+probe:
+  low_confidence_margin: 0.1
+  report_top_n: 5
+
+# --- The pinned distribution ---------------------------------------------------------------
+# Asserted against real pipeline output. Every count is the algebraic consequence of
+# `scenarios` below and is validated as such at load.
+expected:
+  transactions: 20
+  unscored: 5
+  risk_bands:
+    low: 6
+    medium: 4
+    high: 3
+    critical: 2
+  alert_states:
+    open: 3
+    in_review: 1
+    resolved: 1
+  sar_states:
+    draft: 2
+    approved: 1
+    rejected: 2
+
+# --- The authored case pack -----------------------------------------------------------------
+# Authored payloads calibrated against the live seeded `aml_rules.params` and the pinned model
+# (`make portfolio-demo-probe`), then pinned by hand together with the `expected` block above.
+# `expected_risk_band` / `expected_triggered_rules` are ASSERTIONS: a re-tuned rule param or a
+# different model makes the bootstrap fail loudly instead of quietly telling a different story.
+#
+# Calibration notes (why the payloads look the way they do):
+#   * The suspicious cluster settles over ACH because that is where the pinned bundle's signal
+#     lives — it was trained on the IBM AML case pack, whose laundering rows are ACH-heavy
+#     (`scripts/lib/aml_mapping.py` maps `Payment Format` -> channel). Authoring wire-only
+#     "suspicious" rows would look plausible to a human and score near zero, which is exactly
+#     the drift `expected_triggered_rules` exists to prevent.
+#   * The same fact is why two ORDINARY ACH rows (payroll, consulting) settle at MEDIUM while
+#     larger card/wire rows settle at LOW. That is the pinned model's real opinion, not a
+#     mislabelled row: it reads mid-size ACH as the risky shape and large wires as routine.
+#     Recording it here keeps a reader from "fixing" a correct expectation.
+#   * CRITICAL requires rule corroboration by design (the critical band bound exceeds the blend
+#     weight), so the two critical rows sit late in a structuring cluster where structuring,
+#     threshold evasion, round amount, rapid movement, and velocity all fire.
+#   * Every history a scored row needs is another row in this same list: history is windowed on
+#     the MASKED account and `occurred_at < before`, so the early cluster members double as the
+#     low/medium fillers that make the later ones fire.
+#   * Accounts are obviously synthetic and differ in their last four characters, because
+#     persistence masks them to that suffix and history groups on the masked value.
+#   * The five `score: false` rows sit closest to the anchor, after every scored row, so a
+#     visitor investigating one live cannot change any pinned expectation.
+#   * Band margins observed at pinning time (band bounds: medium 0.30, high 0.60, critical 0.85).
+#     These are a MAINTENANCE NOTE, not a contract — the contract is
+#     `tests/integration/test_portfolio_demo_calibration.py`, which re-derives every band from
+#     the live policy and the pinned bundle. Two rows sit close to a boundary and will be the
+#     first to move if the blend weight, band bounds, or rule weights are retuned:
+#       - ring-payout-hop-2  high      combined 0.8235  (0.0265 below the critical bound)
+#       - ring-payout-hop-5  critical  combined 0.8744  (0.0244 above the critical bound)
+#     Everything else clears its nearest boundary by more than 0.05. A retune that flips either
+#     row is meant to fail the calibration test, not to be absorbed by widening the story.
+scenarios:
+  # --- Ordinary business activity (the quiet baseline the ring hides in) --------------------
+  - scenario_id: retail-card-purchase
+    external_id_suffix: TXN-001
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: []
+    transaction:
+      amount: 250.75
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5001
+      dest_account: DEMO-SYNTH-ACCT-9001
+      channel: card
+      country: US
+      occurred_offset_hours: -70
+
+  - scenario_id: supplier-settlement-wire
+    external_id_suffix: TXN-002
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: [round_amount]
+    transaction:
+      amount: 48000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5002
+      dest_account: DEMO-SYNTH-ACCT-9002
+      channel: wire
+      country: US
+      occurred_offset_hours: -64
+
+  - scenario_id: customer-refund-card
+    external_id_suffix: TXN-003
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: []
+    transaction:
+      amount: 1240.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5003
+      dest_account: DEMO-SYNTH-ACCT-9003
+      channel: card
+      country: US
+      occurred_offset_hours: -58
+
+  - scenario_id: equipment-purchase-wire
+    external_id_suffix: TXN-004
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: [round_amount]
+    transaction:
+      amount: 25000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5004
+      dest_account: DEMO-SYNTH-ACCT-9004
+      channel: wire
+      country: US
+      occurred_offset_hours: -52
+
+  - scenario_id: vendor-crypto-settlement
+    external_id_suffix: TXN-005
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: [round_amount, threshold_evasion]
+    transaction:
+      amount: 9000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5005
+      dest_account: DEMO-SYNTH-ACCT-9005
+      channel: crypto
+      country: US
+      occurred_offset_hours: -46
+
+  - scenario_id: payroll-batch-ach
+    external_id_suffix: TXN-006
+    score: true
+    expected_risk_band: medium
+    expected_triggered_rules: []
+    transaction:
+      amount: 2400.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5006
+      dest_account: DEMO-SYNTH-ACCT-9006
+      channel: ach
+      country: US
+      occurred_offset_hours: -40
+
+  - scenario_id: contractor-invoice-ach
+    external_id_suffix: TXN-007
+    score: true
+    expected_risk_band: low
+    expected_triggered_rules: []
+    transaction:
+      amount: 1100.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5007
+      dest_account: DEMO-SYNTH-ACCT-9007
+      channel: ach
+      country: US
+      occurred_offset_hours: -34
+
+  - scenario_id: consulting-fee-ach
+    external_id_suffix: TXN-008
+    score: true
+    expected_risk_band: medium
+    expected_triggered_rules: []
+    transaction:
+      amount: 4800.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-5008
+      dest_account: DEMO-SYNTH-ACCT-9008
+      channel: ach
+      country: US
+      occurred_offset_hours: -28
+
+  # --- The structuring ring on the operating account (4001) --------------------------------
+  # A single large inbound funds the account, then a burst of payouts fans out to five
+  # different mule accounts inside one day. Four sit in the sub-threshold band (so structuring
+  # and threshold evasion accumulate as the cluster grows) and one deliberately clears the
+  # reporting threshold, which is why it fires neither and stays a band below its neighbours.
+  # The last two payouts complete the cluster with velocity as well, and are the only rows the
+  # pipeline bands CRITICAL — critical needs rule corroboration, not model score alone.
+  - scenario_id: ring-funding-inbound
+    external_id_suffix: TXN-009
+    score: true
+    expected_risk_band: medium
+    expected_triggered_rules: []
+    transaction:
+      amount: 42800.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-7001
+      dest_account: DEMO-SYNTH-ACCT-4001
+      channel: ach
+      country: US
+      occurred_offset_hours: -26
+
+  - scenario_id: ring-test-transfer
+    external_id_suffix: TXN-010
+    score: true
+    expected_risk_band: medium
+    expected_triggered_rules: [rapid_movement]
+    transaction:
+      amount: 1850.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8100
+      channel: ach
+      country: US
+      occurred_offset_hours: -23
+
+  - scenario_id: ring-payout-hop-1
+    external_id_suffix: TXN-011
+    score: true
+    expected_risk_band: high
+    expected_triggered_rules: [rapid_movement, round_amount, threshold_evasion]
+    alert_target: open
+    sar_target: rejected
+    transaction:
+      amount: 9000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8101
+      channel: ach
+      country: US
+      occurred_offset_hours: -22
+
+  - scenario_id: ring-payout-hop-2
+    external_id_suffix: TXN-012
+    score: true
+    expected_risk_band: high
+    expected_triggered_rules: [rapid_movement, threshold_evasion]
+    alert_target: open
+    sar_target: draft
+    transaction:
+      amount: 9500.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8102
+      channel: ach
+      country: US
+      occurred_offset_hours: -20
+
+  # Above the reporting threshold on purpose: no threshold evasion, and it is not counted by
+  # structuring either, so the cluster's next two hops still need three sub-threshold siblings.
+  - scenario_id: ring-payout-hop-3
+    external_id_suffix: TXN-013
+    score: true
+    expected_risk_band: high
+    expected_triggered_rules: [rapid_movement]
+    alert_target: open
+    sar_target: draft
+    transaction:
+      amount: 10400.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8103
+      channel: ach
+      country: US
+      occurred_offset_hours: -18
+
+  - scenario_id: ring-payout-hop-4
+    external_id_suffix: TXN-014
+    score: true
+    expected_risk_band: critical
+    expected_triggered_rules:
+      [rapid_movement, round_amount, structuring, threshold_evasion, velocity]
+    alert_target: in_review
+    sar_target: approved
+    transaction:
+      amount: 9000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8104
+      channel: ach
+      country: US
+      occurred_offset_hours: -16
+
+  - scenario_id: ring-payout-hop-5
+    external_id_suffix: TXN-015
+    score: true
+    expected_risk_band: critical
+    expected_triggered_rules:
+      [rapid_movement, round_amount, structuring, threshold_evasion, velocity]
+    alert_target: resolved
+    sar_target: rejected
+    transaction:
+      amount: 9000.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4001
+      dest_account: DEMO-SYNTH-ACCT-8105
+      channel: ach
+      country: US
+      occurred_offset_hours: -14
+
+  # --- Held unscored for a live investigation ----------------------------------------------
+  # Deliberately never passed to the batch scorer, so `risk_band IS NULL` and the Dashboard's
+  # `unscored` chip is real. They sit after every scored row, so investigating one on the
+  # visitor's screen cannot move a pinned expectation.
+  - scenario_id: unscored-inbound-wire
+    external_id_suffix: TXN-016
+    score: false
+    transaction:
+      amount: 18500.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-6001
+      dest_account: DEMO-SYNTH-ACCT-4002
+      channel: wire
+      country: US
+      occurred_offset_hours: -8
+
+  - scenario_id: unscored-ach-payout
+    external_id_suffix: TXN-017
+    score: false
+    transaction:
+      amount: 9400.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-4002
+      dest_account: DEMO-SYNTH-ACCT-8201
+      channel: ach
+      country: US
+      occurred_offset_hours: -6
+
+  - scenario_id: unscored-crypto-transfer
+    external_id_suffix: TXN-018
+    score: false
+    transaction:
+      amount: 12750.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-6002
+      dest_account: DEMO-SYNTH-ACCT-9101
+      channel: crypto
+      country: US
+      occurred_offset_hours: -4
+
+  - scenario_id: unscored-cash-deposit
+    external_id_suffix: TXN-019
+    score: false
+    transaction:
+      amount: 9800.00
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-6003
+      dest_account: DEMO-SYNTH-ACCT-4003
+      channel: cash
+      country: US
+      occurred_offset_hours: -2
+
+  - scenario_id: unscored-card-refund
+    external_id_suffix: TXN-020
+    score: false
+    transaction:
+      amount: 610.25
+      currency: USD
+      origin_account: DEMO-SYNTH-ACCT-6004
+      dest_account: DEMO-SYNTH-ACCT-9102
+      channel: card
+      country: US
+      occurred_offset_hours: -1
