@@ -20,6 +20,13 @@ request_id_header: X-Request-Id
 auth_dev_bypass: false
 allow_candidate_scoring_in_dev: false
 
+# Portfolio demo story: gates the config-driven single-agency demo, and names the story document
+# it loads. Fails closed in code as well (AppSettings default), so removing the flag never opens
+# the gate. The filename is resolved under the config directory; absolute paths and upward
+# traversal are rejected by the loader.
+portfolio_demo_enabled: false
+portfolio_demo_config_file: portfolio-demo.yaml
+
 # --- Gateway edge — BOOT-CRITICAL config (loaded at startup, never DB-dependent) ---
 # The security posture (CORS, rate limits, headers) is fully determined here before
 # DB readiness. Exact CORS origins are set in the per-environment overlay, never in

@@ -42,3 +42,11 @@ routes:
   - path_prefix: /api/v1/drift-reports
     service: model-lifecycle
     required_role: admin
+  # The portfolio-demo projection is deliberately UNAUTHENTICATED (no required_role): the
+  # pre-auth login screen reads it to render the persona picker, and the route itself 404s
+  # unless the portfolio demo (or the non-prod dev bypass) is enabled. It is read-only,
+  # DB-free, and returns only public synthetic story values, so it carries a tighter budget
+  # than the authenticated business routes.
+  - path_prefix: /api/v1/portfolio-demo
+    service: portfolio-demo
+    rate_limit_per_minute: 30

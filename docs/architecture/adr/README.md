@@ -29,3 +29,4 @@ indexes stay complete.
 | ADR-015 | Tenant-safe global model training | Accepted | master plan §22 |
 | ADR-016 | Run owns execution; SSE is a pure observer/replay | Accepted | master plan §22 |
 | ADR-017 | Graph-feature serving boundary: GFP measured offline, never served | Accepted (2026-07-14) | [ADR-017-graph-feature-serving-boundary.md](ADR-017-graph-feature-serving-boundary.md) |
+| ADR-018 | Portfolio demo data provenance: pipeline-produced, config-asserted, single-tenant | Accepted (2026-07-26) | [ADR-018-portfolio-demo-data-provenance.md](ADR-018-portfolio-demo-data-provenance.md) |

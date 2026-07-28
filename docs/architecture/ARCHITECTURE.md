@@ -271,6 +271,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | POST | `/api/v1/model-versions/{versionId}/approve` | `approve_version` |
 | POST | `/api/v1/model-versions/{versionId}/canary` | `set_canary` |
 | POST | `/api/v1/model-versions/{versionId}/shadow` | `promote_to_shadow` |
+| GET | `/api/v1/portfolio-demo/config` | `read_portfolio_demo_config` |
 | GET | `/api/v1/rules` | `list_rules` |
 | POST | `/api/v1/rules` | `create_rule` |
 | DELETE | `/api/v1/rules/{ruleId}` | `delete_rule` |
@@ -316,6 +317,9 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `bootstrap_admin_user_id` | `str | None` | `None` | Optional first-admin auth.users id for scripts/seed.py bootstrap reconciliation. |
 | `bootstrap_admin_email` | `str | None` | `None` | Optional first-admin email for scripts/seed.py bootstrap reconciliation. |
 | `bootstrap_admin_display_name` | `str` | `'Bootstrap Admin'` | Display name used when scripts/seed.py upserts the optional first admin. |
+| `portfolio_demo_enabled` | `bool` | `False` | Enable the config-driven portfolio demo story; a security gate that fails closed in code, so a missing YAML key leaves it off (like auth_dev_bypass). |
+| `portfolio_demo_config_file` | `str` | `'portfolio-demo.yaml'` | Portfolio-demo story config FILENAME, resolved relative to find_config_dir(); absolute paths and upward traversal are rejected by the loader. |
+| `demo_auth_password` | `str | None` | `None` | Public synthetic demo credential supplied by FRAUDLENS_DEMO_AUTH_PASSWORD / Infisical; deliberately non-secret demo data, but never an inline YAML value. |
 | `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
 | `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
 | `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |

@@ -77,6 +77,30 @@ canary flow. All thresholds are documented defaults and configurable via
 `system_config.modelGates`; the retrain eligibility + canary-guard knobs are `FRAUDLENS_RETRAIN_*`
 / `FRAUDLENS_CANARY_GUARD_*` settings.
 
+### The portfolio demo pins one model version
+
+The portfolio demo story ([`config/portfolio-demo.yaml`](../../config/portfolio-demo.yaml)) declares
+a `model.version_label` and `model.feature_spec_version`, because its pinned band distribution is
+only meaningful against the bundle it was calibrated on — a different bundle has different calibrated
+probabilities and its own `ModelRiskThresholds`, which is precisely the map from model score onto the
+band scale described above.
+
+`make activate-model` is unaffected and stays generic: it discovers the best gates-passed local bundle
+and promotes it, knowing nothing about the demo. The **bootstrap** is the piece that cares, and it
+resolves a four-way model state rather than assuming one:
+
+| State found | What the bootstrap does |
+|---|---|
+| The configured version is already active | Verify provenance and continue |
+| No active model | Register the configured bundle and promote it |
+| The seed's fixture pointer is active | Promote the configured bundle, with an audit row |
+| A different non-fixture model is active | **Fail** — a demo scored by an unpinned model is not the pinned story |
+
+The fixture label itself lives in `db/repositories/model_registry.FIXTURE_MODEL_LABEL`, imported by
+both the seed and the bootstrap so the two can never disagree. Re-pinning `model.version_label` is a
+Tier-3 change: it requires re-running `make portfolio-demo-probe` and pinning a new `expected:` block
+by hand (see [portfolio-demo.md](portfolio-demo.md)).
+
 ## Dataset strategy
 
 FraudLens separates demo input data from the active model lifecycle. The default local application
@@ -363,9 +387,10 @@ retained topology rather than random row sampling, which would destroy cycles/pa
 | HI-Medium (`ibm-aml-hi-medium`) | label-blind node-induced subgraph | ≤1,000,000 stratified | scale / base-rate replication |
 | LI-Medium (`ibm-aml-li-medium`) | label-blind node-induced subgraph | ≤1,000,000 stratified | illicit-ratio comparison (HI≈0.1% vs LI≈0.05%) |
 
-Tenant ownership reuses the existing synthetic demo partition (`AML_DEMO_AGENCIES` +
-`demo_agency_index` — the same mapping as `map_ibm_demo_row`); it is an **experimental proxy,
-not a claim about real legal ownership**. Arms: **A** = the 19 `FEATURE_NAMES`; **B** = A + GFP
+Tenant ownership uses the study's own offline partitions (`RESEARCH_PARTITIONS` in
+`scripts/lib/gfp/partitions.py` + `demo_agency_index` — the same mapping as `map_ibm_demo_row`).
+These are analysis partitions, never runtime tenants, and are an **experimental proxy, not a
+claim about real legal ownership**. Arms: **A** = the 19 `FEATURE_NAMES`; **B** = A + GFP
 fan/degree/vertex features; **C** = B + scatter-gather + temporal/simple-cycle features. The
 signed `isolationDelta = globalMetric − perTenantMetric` is reported (called "cost of isolation"
 only when positive). See the published report for the actual numbers.
