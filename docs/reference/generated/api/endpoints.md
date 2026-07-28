@@ -29,6 +29,7 @@
 | POST | `/api/v1/model-versions/{versionId}/approve` | `approve_version` |
 | POST | `/api/v1/model-versions/{versionId}/canary` | `set_canary` |
 | POST | `/api/v1/model-versions/{versionId}/shadow` | `promote_to_shadow` |
+| GET | `/api/v1/portfolio-demo/config` | `read_portfolio_demo_config` |
 | GET | `/api/v1/rules` | `list_rules` |
 | POST | `/api/v1/rules` | `create_rule` |
 | DELETE | `/api/v1/rules/{ruleId}` | `delete_rule` |
