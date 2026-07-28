@@ -784,6 +784,13 @@
             "title": "Agencyid",
             "type": "string"
           },
+          "displayName": {
+            "description": "Provisioned display name; the shell's display identity for a live session.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Displayname",
+            "type": "string"
+          },
           "email": {
             "description": "Provisioned email address.",
             "maxLength": 320,
@@ -798,6 +805,7 @@
         },
         "required": [
           "email",
+          "displayName",
           "role",
           "agencyId"
         ],
@@ -1533,6 +1541,139 @@
         ],
         "title": "ModelVersionStatus",
         "type": "string"
+      },
+      "PortfolioDemoAgencyView": {
+        "additionalProperties": false,
+        "description": "The single runtime demo tenant, as the pre-auth login screen may know it.",
+        "properties": {
+          "id": {
+            "description": "The demo agency id the picked persona signs in against.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Synthetic display name of the demo agency.",
+            "title": "Name",
+            "type": "string"
+          },
+          "researchPartitionKey": {
+            "description": "Name of the OFFLINE study partition this tenant mirrors in the committed GFP artifact; an analysis concept, never a second runtime tenant.",
+            "title": "Researchpartitionkey",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Stable URL-safe slug of the demo agency.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "researchPartitionKey"
+        ],
+        "title": "PortfolioDemoAgencyView",
+        "type": "object"
+      },
+      "PortfolioDemoConfigResponse": {
+        "additionalProperties": false,
+        "description": "The public portfolio-demo projection consumed by the unauthenticated login screen.",
+        "properties": {
+          "agency": {
+            "$ref": "#/components/schemas/PortfolioDemoAgencyView",
+            "description": "The single runtime demo tenant."
+          },
+          "personas": {
+            "description": "Selectable demo personas, in configured order.",
+            "items": {
+              "$ref": "#/components/schemas/PortfolioDemoPersonaView"
+            },
+            "title": "Personas",
+            "type": "array"
+          },
+          "storyVersion": {
+            "description": "Story revision the running demo state was built from.",
+            "title": "Storyversion",
+            "type": "string"
+          },
+          "syntheticPassword": {
+            "description": "The deliberately public synthetic demo password the picker auto-fills; empty when no credential is configured, which disables auto-fill rather than the screen.",
+            "title": "Syntheticpassword",
+            "type": "string"
+          }
+        },
+        "required": [
+          "storyVersion",
+          "agency",
+          "personas",
+          "syntheticPassword"
+        ],
+        "title": "PortfolioDemoConfigResponse",
+        "type": "object"
+      },
+      "PortfolioDemoPersonaView": {
+        "additionalProperties": false,
+        "description": "One selectable demo login persona, with only what the picker and shell render.",
+        "properties": {
+          "displayName": {
+            "description": "Display identity shown in the signed-in shell.",
+            "title": "Displayname",
+            "type": "string"
+          },
+          "email": {
+            "description": "Synthetic login email the picker auto-fills.",
+            "title": "Email",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Avatar initials shown in the signed-in shell.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "key": {
+            "description": "Stable config key identifying the persona.",
+            "title": "Key",
+            "type": "string"
+          },
+          "pickerAccent": {
+            "description": "Semantic accent token colouring the picker dot (code owns the set).",
+            "enum": [
+              "green",
+              "cyan",
+              "amber",
+              "slate"
+            ],
+            "title": "Pickeraccent",
+            "type": "string"
+          },
+          "pickerName": {
+            "description": "Label the login picker lists the persona under.",
+            "title": "Pickername",
+            "type": "string"
+          },
+          "pickerTag": {
+            "description": "Short picker tag (e.g. 'Queue').",
+            "title": "Pickertag",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "RBAC role the persona signs in with."
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "email",
+          "displayName",
+          "initials",
+          "pickerName",
+          "pickerTag",
+          "pickerAccent"
+        ],
+        "title": "PortfolioDemoPersonaView",
+        "type": "object"
       },
       "ReadinessResponse": {
         "additionalProperties": false,
@@ -3729,6 +3870,28 @@
         "summary": "Promote To Shadow",
         "tags": [
           "model-lifecycle"
+        ]
+      }
+    },
+    "/api/v1/portfolio-demo/config": {
+      "get": {
+        "description": "Return the public portfolio-demo projection; 404 when the demo surface is disabled.",
+        "operationId": "read_portfolio_demo_config_api_v1_portfolio_demo_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioDemoConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Portfolio Demo Config",
+        "tags": [
+          "portfolio-demo"
         ]
       }
     },
