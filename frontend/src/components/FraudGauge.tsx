@@ -1,10 +1,10 @@
 /**
- * Summary: The animated circular fraud-risk gauge (plan §16 Phase 11 "animated gauges").
- * It renders the blended risk as a ring that fills from 0 to the value on mount, coloured
- * by the risk band via the semantic palette (`riskTone`) — never the brand green. The fill
- * animates with a CSS stroke transition, which is skipped when the user prefers reduced
- * motion (the gauge then renders its final state immediately). Exposes `role="meter"` with
- * an aria value + text so the score is announced accessibly.
+ * Summary: The animated circular risk gauge (plan §16 Phase 11 "animated gauges"). It renders a
+ * risk value as a ring that fills from 0 to the value on mount, coloured by the risk band via the
+ * semantic palette (`riskTone`) — never the brand green. The fill animates with a CSS stroke
+ * transition, which is skipped when the user prefers reduced motion (the gauge then renders its
+ * final state immediately). Exposes `role="meter"` with an aria value + text so the score is
+ * announced accessibly.
  *
  * Key classes:
  * - (none)
@@ -14,6 +14,12 @@
  *
  * Notes:
  * - `value` is clamped to [0,1]; a non-finite value renders as 0 so the gauge never breaks.
+ * - `label` MUST name what the number is, because the two candidate values are not the same
+ *   quantity: the blended `risk_score` is a policy score on the band scale, while
+ *   `fraud_probability` is the model's calibrated probability, and they can differ by orders of
+ *   magnitude (a rare-event model bands a row CRITICAL at ~1% probability). Captioning a blended
+ *   score "fraud risk" told the reader the model had assigned a probability it never assigned, so
+ *   the caller passes the caption that matches the field it actually read.
  */
 import { useEffect, useState } from "react";
 
@@ -37,9 +43,10 @@ const STROKE_CLASSES: Record<StatusTone, string> = {
 interface FraudGaugeProps {
   value: number;
   band: string;
+  label: string;
 }
 
-export function FraudGauge({ value, band }: FraudGaugeProps) {
+export function FraudGauge({ value, band, label }: FraudGaugeProps) {
   const reduced = usePrefersReducedMotion();
   const clamped = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
   const [filled, setFilled] = useState(reduced);
@@ -59,7 +66,7 @@ export function FraudGauge({ value, band }: FraudGaugeProps) {
         aria-valuenow={percent}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuetext={`${humanize(band)} risk, ${formatPercent(clamped)}`}
+        aria-valuetext={`${humanize(band)} risk, ${formatPercent(clamped)} ${label}`}
       >
         <circle
           cx={64}
@@ -88,7 +95,7 @@ export function FraudGauge({ value, band }: FraudGaugeProps) {
           {percent}%
         </text>
         <text x={64} y={84} textAnchor="middle" className="fill-body text-caption">
-          fraud risk
+          {label}
         </text>
       </svg>
       <Badge tone={tone}>{humanize(band)}</Badge>
