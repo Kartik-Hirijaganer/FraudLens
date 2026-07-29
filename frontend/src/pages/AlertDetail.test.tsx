@@ -5,16 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
-import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
-import { alertDetail, alertView, makeClient } from "../test/factories";
+import { signIn, signOut, type UserRole } from "../lib/session";
+import { alertDetail, alertView, demoPersona, makeClient } from "../test/factories";
 import { AlertDetail } from "./AlertDetail";
 
 function signInAs(role: UserRole): void {
-  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
-  if (!demoRole) {
-    throw new Error(`Missing demo role: ${role}`);
-  }
-  signIn(demoRole.email, false, demoRole.role);
+  const persona = demoPersona(role);
+  signIn(persona.email, false, persona.role);
 }
 
 afterEach(() => {

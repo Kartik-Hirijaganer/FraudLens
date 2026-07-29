@@ -1,24 +1,21 @@
 /**
  * Summary: The signed-in identity and demo-session store for the app (plan §16 Phase 11,
- * RBAC hardening Phase 1 / Track B; GFP study Phase 7). `DEMO_ROLES` are synthetic portfolio/demo
- * personas — each bound to a specific demo AGENCY (`DEMO_AGENCIES`) as well as a canonical backend
- * role — offered by the login picker; `signIn` persists the selected persona so local-demo API
- * calls can send the dev-only role header. Real Supabase auth passes an access token and the
- * verified `/me` agency id, preserving the same `Session` shape for shell, API, SSE, and permission
- * helpers. Personas resolve by EMAIL first (the picker's unique key) so two personas that share a
- * role — e.g. the Agency One and Agency Two analysts — never mis-resolve to whichever comes first.
+ * RBAC hardening Phase 1 / Track B; GFP study Phase 7). It holds NO demo identity data: the
+ * login picker's personas are supplied by the backend's safe public projection of
+ * `config/portfolio-demo.yaml`, typed here as `DemoRole`, and `signIn` persists the selected
+ * role so local-demo API calls can send the dev-only role header. Real Supabase auth passes an
+ * access token and the verified `/me` agency id, preserving the same `Session` shape for shell,
+ * API, SSE, and permission helpers. The DISPLAY identity is supplied by the caller too — the
+ * picked persona's configured name/initials, or the verified `/me` display name — and is
+ * persisted with the session, so a reload restores it without any identity constant in source.
  *
  * Key classes:
  * - Analyst: display identity for the shell and dashboard.
- * - DemoAgency: a synthetic demo tenant (id + visual-study index + display name).
- * - DemoRole: a selectable demo persona (canonical role + owning agency + live-auth gate).
+ * - DemoRole: a selectable demo persona supplied by the backend projection.
  * - Session: authenticated session state (email, role, agency, display identity, optional token).
  *
  * Key functions:
- * - DEMO_AGENCIES: the synthetic demo tenants, indexed to match the study visual data.
- * - DEMO_ROLES: portfolio/demo personas offered by the login picker.
- * - demoAgencyById: resolve a demo agency by its tenant id (null when unknown).
- * - currentAnalyst: fallback display identity when a non-demo email signs in.
+ * - analystFromDisplayName: build a display identity from a backend-supplied display name.
  * - DEMO_ROLE_HEADER: the dev-only header name the local-demo bypass honors.
  * - roleHasPermission: role-level permission helper used for UX gating.
  * - hasPermission: session-level permission helper used by the shell.
@@ -30,12 +27,14 @@
  * - useSession: subscribe to the session so a component re-renders on change.
  *
  * Notes:
- * - Demo credentials are synthetic (no PHI, no real secret). The client-sent demo role is honored
- * only by the backend's non-prod dev bypass; production auth ignores it and uses verified JWTs.
+ * - Demo credentials are synthetic (no PHI, no real secret) and never declared here. The
+ * client-sent demo role is honored only by the backend's non-prod dev bypass; production auth
+ * ignores it and uses verified JWTs.
  * - The agency id is never sent as a client header (there is no client-selectable tenant); it is
- * read back from the verified `/me` response and only persisted for display + the research view.
- * - `DEMO_AGENCIES` ids mirror the backend `AML_DEMO_AGENCIES` fixed UUIDs so a verified `/me`
- * agency id resolves to the same synthetic tenant the study visual data is indexed by.
+ * read back from the verified `/me` response and only persisted for display.
+ * - Exactly one persistent demo tenant exists, so there is no client-side tenant table.
+ * - With no display identity supplied (a rehydrated pre-projection entry), one is DERIVED from
+ * the session email — generic string handling, never a named identity.
  */
 import { useSyncExternalStore } from "react";
 
@@ -62,23 +61,8 @@ export interface Analyst {
 // The accent that colours a role's status dot in the login picker.
 export type RoleAccent = "green" | "cyan" | "amber" | "slate";
 
-export interface DemoAgency {
-  // Fixed synthetic tenant id — mirrors the backend `AML_DEMO_AGENCIES` UUIDs so a verified
-  // `/me` agency id resolves to the tenant the study visual data is indexed by.
-  id: string;
-  // Agency index used by the study visual data (node/edge `agencyIndex`).
-  index: number;
-  name: string;
-}
-
-// Synthetic demo tenants (ids mirror backend `AML_DEMO_AGENCIES`). Agency One is the seeded
-// dev-bypass tenant; Agency Two/Three exist only as real Supabase-authenticated demo tenants.
-export const DEMO_AGENCIES: readonly DemoAgency[] = [
-  { id: "11111111-1111-4111-8111-111111111111", index: 0, name: "Demo Financial Agency" },
-  { id: "11111111-1111-4111-8111-111111111112", index: 1, name: "AML Demo Agency Two" },
-  { id: "11111111-1111-4111-8111-111111111113", index: 2, name: "AML Demo Agency Three" },
-];
-
+// One selectable demo persona. Every value is supplied by the backend's public projection of
+// `config/portfolio-demo.yaml` — never declared in TypeScript.
 export interface DemoRole {
   id: string;
   role: UserRole;
@@ -87,13 +71,9 @@ export interface DemoRole {
   accent: RoleAccent;
   analyst: Analyst;
   email: string;
-  legacyEmails?: readonly string[];
   demoPassword: string;
-  // The synthetic tenant this persona belongs to.
+  // The synthetic tenant this persona belongs to (the one runtime demo agency).
   agencyId: string;
-  // True when the persona can only sign in through real Supabase auth (an agency-bound JWT):
-  // the tokenless dev bypass mints Agency One claims only, so non-Agency-One personas need it.
-  requiresLiveAuth?: boolean;
 }
 
 export interface Session {
@@ -133,109 +113,40 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly SessionPermission[]> = {
   ],
 };
 
-// Synthetic, non-secret demo passphrase shared by every demo role. Displayed and
-// auto-filled purely client-side for the personal demo build -- never a real credential.
-const DEMO_PASSWORD = "demo-access-2026";
-
-const AGENCY_ONE_ID = DEMO_AGENCIES[0].id;
-const AGENCY_TWO_ID = DEMO_AGENCIES[1].id;
-
-export const DEMO_ROLES: readonly DemoRole[] = [
-  {
-    id: "analyst",
-    role: "analyst",
-    name: "Fraud Analyst",
-    tag: "Queue",
-    accent: "green",
-    analyst: { name: "Alex Rivera", initials: "AR" },
-    email: "analyst@demo-agency.test",
-    legacyEmails: ["analyst@fraudlens.demo"],
-    demoPassword: DEMO_PASSWORD,
-    agencyId: AGENCY_ONE_ID,
-  },
-  {
-    id: "reviewer",
-    role: "reviewer",
-    name: "Reviewer",
-    tag: "Approve",
-    accent: "cyan",
-    analyst: { name: "Morgan Diaz", initials: "MD" },
-    email: "reviewer@demo-agency.test",
-    legacyEmails: ["senior@fraudlens.demo"],
-    demoPassword: DEMO_PASSWORD,
-    agencyId: AGENCY_ONE_ID,
-  },
-  {
-    id: "admin",
-    role: "admin",
-    name: "Compliance Admin",
-    tag: "Model",
-    accent: "amber",
-    analyst: { name: "Priya Shah", initials: "PS" },
-    email: "admin@demo-agency.test",
-    legacyEmails: ["admin@fraudlens.demo"],
-    demoPassword: DEMO_PASSWORD,
-    agencyId: AGENCY_ONE_ID,
-  },
-  {
-    id: "auditor",
-    role: "auditor",
-    name: "Auditor",
-    tag: "Read-only",
-    accent: "slate",
-    analyst: { name: "Jordan Lee", initials: "JL" },
-    email: "auditor@demo-agency.test",
-    legacyEmails: ["auditor@fraudlens.demo"],
-    demoPassword: DEMO_PASSWORD,
-    agencyId: AGENCY_ONE_ID,
-  },
-  {
-    // Agency Two analyst — the second isolated tenant. Only usable through real Supabase auth
-    // (an agency-bound JWT); the dev bypass mints Agency One, so this persona is hidden unless
-    // live demo auth is enabled. It makes the tenant-isolation study's two perspectives feelable.
-    id: "analyst-agency-two",
-    role: "analyst",
-    name: "Fraud Analyst · Agency Two",
-    tag: "Agency Two",
-    accent: "cyan",
-    analyst: { name: "Sam Okafor", initials: "SO" },
-    email: "analyst@aml-demo-agency-two.test",
-    demoPassword: DEMO_PASSWORD,
-    agencyId: AGENCY_TWO_ID,
-    requiresLiveAuth: true,
-  },
-];
-
-export const currentAnalyst: Analyst = {
-  name: "Alex",
-  initials: "AR",
-};
-
 const STORAGE_KEY = "fraudlens.session";
 export const DEMO_ROLE_HEADER = "X-FraudLens-Demo-Role";
+const MAX_INITIALS = 2;
 
 function isUserRole(value: unknown): value is UserRole {
   return typeof value === "string" && USER_ROLES.includes(value as UserRole);
 }
 
-export function demoAgencyById(agencyId: string | undefined): DemoAgency | null {
-  if (!agencyId) {
-    return null;
-  }
-  return DEMO_AGENCIES.find((agency) => agency.id === agencyId) ?? null;
+// Initials from any display name: the first letter of up to the first two words, falling back
+// to the first character so a single-token name still yields an avatar.
+function initialsFrom(name: string): string {
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const letters = words
+    .slice(0, MAX_INITIALS)
+    .map((word) => word.slice(0, 1).toUpperCase())
+    .join("");
+  return letters || name.slice(0, 1).toUpperCase();
 }
 
-function demoRoleByEmail(email: string): DemoRole | undefined {
-  const normalized = email.toLowerCase();
-  return DEMO_ROLES.find(
-    (role) =>
-      role.email.toLowerCase() === normalized ||
-      role.legacyEmails?.some((legacyEmail) => legacyEmail.toLowerCase() === normalized),
-  );
+export function analystFromDisplayName(displayName: string): Analyst {
+  const name = displayName.trim();
+  return { name, initials: initialsFrom(name) };
 }
 
-function demoRoleByRole(role: UserRole): DemoRole | undefined {
-  return DEMO_ROLES.find((demoRole) => demoRole.role === role);
+// Last resort when no display identity was supplied: title-case the email's local part. Pure
+// string handling — it invents no name that is not already in the session's own email.
+function analystFromEmail(email: string): Analyst {
+  const local = email.split("@")[0] ?? "";
+  const name = local
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
+    .join(" ");
+  return analystFromDisplayName(name || email);
 }
 
 function buildSession(
@@ -243,17 +154,16 @@ function buildSession(
   role?: UserRole,
   accessToken?: string,
   agencyId?: string,
+  analyst?: Analyst,
 ): Session {
-  // Resolve by email first (the picker's unique key) so two personas that share a role — the
-  // Agency One and Agency Two analysts — never mis-resolve to whichever is declared first.
-  const demoRole = demoRoleByEmail(email) ?? (role ? demoRoleByRole(role) : undefined);
-  const resolvedRole = demoRole?.role ?? role ?? "analyst";
-  const resolvedAgencyId = agencyId ?? demoRole?.agencyId;
+  // The role is the caller's (a picked persona, or the verified `/me` claim); there is no
+  // client-side persona table to resolve against.
+  const resolvedRole = role ?? "analyst";
   return {
     email,
     role: resolvedRole,
-    analyst: demoRole?.analyst ?? currentAnalyst,
-    ...(resolvedAgencyId ? { agencyId: resolvedAgencyId } : {}),
+    analyst: analyst ?? analystFromEmail(email),
+    ...(agencyId ? { agencyId } : {}),
     ...(accessToken ? { accessToken } : { demoRole: resolvedRole }),
   };
 }
@@ -279,6 +189,22 @@ function safeStorage(store: Storage): Storage | null {
   }
 }
 
+// The persisted display identity, or undefined when the stored entry predates it (or is
+// malformed) so the caller falls back to deriving one.
+function readAnalyst(value: unknown): Analyst | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const { name, initials } = value as { name?: unknown; initials?: unknown };
+  if (typeof name !== "string" || name.length === 0) {
+    return undefined;
+  }
+  return {
+    name,
+    initials: typeof initials === "string" && initials.length > 0 ? initials : initialsFrom(name),
+  };
+}
+
 function readStoredSession(): Session | null {
   for (const store of [window.localStorage, window.sessionStorage]) {
     const safe = safeStorage(store);
@@ -295,6 +221,7 @@ function readStoredSession(): Session | null {
         role?: unknown;
         accessToken?: unknown;
         agencyId?: unknown;
+        analyst?: unknown;
       };
       if (typeof parsed.email === "string" && parsed.email.length > 0) {
         const role = isUserRole(parsed.role) ? parsed.role : undefined;
@@ -306,7 +233,7 @@ function readStoredSession(): Session | null {
           typeof parsed.agencyId === "string" && parsed.agencyId.length > 0
             ? parsed.agencyId
             : undefined;
-        return buildSession(parsed.email, role, accessToken, agencyId);
+        return buildSession(parsed.email, role, accessToken, agencyId, readAnalyst(parsed.analyst));
       }
     } catch {
       // Malformed entry -- ignore and fall through to a signed-out state.
@@ -369,8 +296,9 @@ export function signIn(
   role?: UserRole,
   accessToken?: string,
   agencyId?: string,
+  analyst?: Analyst,
 ): Session {
-  currentSession = buildSession(email, role, accessToken, agencyId);
+  currentSession = buildSession(email, role, accessToken, agencyId, analyst);
   const target = safeStorage(remember ? window.localStorage : window.sessionStorage);
   const other = safeStorage(remember ? window.sessionStorage : window.localStorage);
   target?.setItem(STORAGE_KEY, JSON.stringify(currentSession));
@@ -390,6 +318,7 @@ export function updateAccessToken(accessToken: string): Session | null {
     accessToken,
     ...(currentSession.agencyId ? { agencyId: currentSession.agencyId } : {}),
   };
+  // The display identity rides through a refresh, so the shell keeps greeting the same person.
   storageContainingSession()?.setItem(STORAGE_KEY, JSON.stringify(currentSession));
   emit();
   return currentSession;
