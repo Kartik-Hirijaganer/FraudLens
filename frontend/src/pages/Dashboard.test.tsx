@@ -3,16 +3,21 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../lib/api";
-import { currentAnalyst } from "../lib/session";
+import { signIn, signOut } from "../lib/session";
 import { alertView, dashboardMetrics, makeClient } from "../test/factories";
 import { Dashboard } from "./Dashboard";
 
+// The signed-in display identity the shell greets — supplied by the session, never a constant.
+const DISPLAY_IDENTITY = { name: "Test Analyst", initials: "TA" };
+
 afterEach(() => {
   window.location.hash = "";
+  signOut();
 });
 
 describe("Dashboard", () => {
   it("greets the analyst and calls out the high-risk backlog", async () => {
+    signIn("analyst@agency.gov", false, "analyst", undefined, undefined, DISPLAY_IDENTITY);
     const client = makeClient({
       getDashboardMetrics: vi.fn(() =>
         Promise.resolve(dashboardMetrics({ alerts: { ...dashboardMetrics().alerts, open: 24 } })),
@@ -28,10 +33,16 @@ describe("Dashboard", () => {
     });
     render(<Dashboard client={client} />);
     expect(
-      await screen.findByRole("heading", { level: 1, name: new RegExp(currentAnalyst.name) }),
+      await screen.findByRole("heading", { level: 1, name: new RegExp(DISPLAY_IDENTITY.name) }),
     ).toBeInTheDocument();
     expect(screen.getByText(/24 open alerts/)).toBeInTheDocument();
     expect(screen.getByText(/1 high-risk one\b/)).toBeInTheDocument();
+  });
+
+  it("greets without a name when there is no session identity", async () => {
+    render(<Dashboard client={makeClient()} />);
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading.textContent).not.toContain(",");
   });
 
   it("notes when no open alerts are high-risk", async () => {
@@ -61,6 +72,29 @@ describe("Dashboard", () => {
     expect(screen.getByText(/Healthy · drift low/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(window.location.hash).toBe("#/alerts/alert-1");
+  });
+
+  it("renders the risk-band mix from the already-fetched metrics, with band deep links", async () => {
+    const client = makeClient({
+      getDashboardMetrics: vi.fn(() =>
+        Promise.resolve(
+          dashboardMetrics({
+            transactions: {
+              total: 20,
+              byRiskBand: { low: 6, medium: 4, high: 3, critical: 2, unscored: 5 },
+            },
+          }),
+        ),
+      ),
+    });
+    render(<Dashboard client={client} />);
+    expect(await screen.findByText("Transactions by risk band")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /High/ })).toHaveAttribute(
+      "href",
+      "#/transactions?riskBand=high",
+    );
+    // One aggregate request feeds both the KPI cards and the band mix.
+    expect(client.getDashboardMetrics).toHaveBeenCalledOnce();
   });
 
   it("humanizes the active model label (drops the -fixture tag)", async () => {
