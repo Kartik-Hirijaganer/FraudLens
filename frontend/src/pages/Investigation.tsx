@@ -256,7 +256,12 @@ export function Investigation({
   const terminal = state.status === "completed" || state.status === "failed";
   const showColdStart = state.status === "starting" && state.completedSteps.length === 0;
   const streaming = state.sarStarted && state.status === "running";
+  // The gauge shows whichever value has landed, and is captioned to match it. `riskScore` is the
+  // BLENDED policy score on the band scale; `fraudProbability` is the model's calibrated
+  // probability. With a rare-event model the two differ by orders of magnitude, so a single
+  // "fraud risk" caption misreported one of them as the other.
   const gaugeValue = state.riskScore ?? state.fraudProbability;
+  const gaugeLabel = state.riskScore !== undefined ? "risk score" : "fraud probability";
   const pill = statusPill(state.status);
   const isNoAlertOutcome = state.status === "completed" && state.alertId === undefined;
   const chips = evidenceChips(state, !isNoAlertOutcome);
@@ -352,7 +357,7 @@ export function Investigation({
         }
         return (
           <div className="gap-xl flex flex-col items-center lg:flex-row lg:items-start">
-            <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} />
+            <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} label={gaugeLabel} />
             {state.ruleHits.length > 0 ? (
               <ul className="gap-sm flex w-full grow flex-col">
                 {state.ruleHits.map((hit) => (
