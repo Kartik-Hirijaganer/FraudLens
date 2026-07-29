@@ -12,7 +12,10 @@
  * Key classes:
  * - ApiError: thrown on a non-2xx response (carries status + envelope code + requestId).
  * - ApiHealth: shape of GET /api/v1/health.
- * - CurrentUser: GET /api/v1/me identity after Supabase login.
+ * - CurrentUser: GET /api/v1/me identity (email, display name, role, tenant) after Supabase login.
+ * - PortfolioDemoAgencyConfig: the demo tenant's public identity from the backend projection.
+ * - PortfolioDemoPersonaConfig: one login persona's public presentation metadata.
+ * - PortfolioDemoConfig: GET /api/v1/portfolio-demo/config — the safe public story projection.
  * - TransactionResponse: a persisted transaction (masked accounts).
  * - ListTransactionsParams: query params for the transactions list (limit/cursor/riskBand/search).
  * - TransactionListResponse: a page of transactions + nextCursor + total matching count.
@@ -54,6 +57,7 @@
  * - statusLabel: display a known alert status or humanize an unknown fallback.
  * - fetchApiHealth: standalone GET /api/v1/health (the walking-skeleton heartbeat).
  * - fetchCurrentUser: GET /api/v1/me with a just-issued Supabase bearer token.
+ * - fetchPortfolioDemoConfig: standalone GET /api/v1/portfolio-demo/config (pre-auth, tokenless).
  * - createApiClient: build an ApiClient bound to an injectable fetch.
  * - apiClient: the default ApiClient for app use.
  *
@@ -64,7 +68,13 @@
  */
 import { config } from "./config";
 import { humanize } from "./format";
-import { signOut, updateAccessToken, withSessionHeaders, type UserRole } from "./session";
+import {
+  signOut,
+  updateAccessToken,
+  withSessionHeaders,
+  type RoleAccent,
+  type UserRole,
+} from "./session";
 import { refreshAccessToken } from "./supabase";
 import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
 
@@ -124,8 +134,36 @@ export interface ApiHealth {
 
 export interface CurrentUser {
   email: string;
+  displayName: string;
   role: UserRole;
   agencyId: string;
+}
+
+// The backend's safe public projection of `config/portfolio-demo.yaml`. Persona presentation
+// data is fetched, never declared in TypeScript, so the frontend holds no demo identity.
+export interface PortfolioDemoAgencyConfig {
+  id: string;
+  name: string;
+  slug: string;
+  researchPartitionKey: string;
+}
+
+export interface PortfolioDemoPersonaConfig {
+  key: string;
+  role: UserRole;
+  email: string;
+  displayName: string;
+  initials: string;
+  pickerName: string;
+  pickerTag: string;
+  pickerAccent: RoleAccent;
+}
+
+export interface PortfolioDemoConfig {
+  storyVersion: string;
+  agency: PortfolioDemoAgencyConfig;
+  personas: PortfolioDemoPersonaConfig[];
+  syntheticPassword: string;
 }
 
 export interface TransactionResponse {
@@ -515,6 +553,18 @@ export async function fetchCurrentUser(
     throw await errorFromResponse(response);
   }
   return (await response.json()) as CurrentUser;
+}
+
+export async function fetchPortfolioDemoConfig(
+  fetchImpl: typeof fetch = fetch,
+): Promise<PortfolioDemoConfig> {
+  // Deliberately session-free: the login screen calls this before any session exists, so it
+  // sends no auth headers and never triggers the 401 refresh/sign-out path in `send<T>()`.
+  const response = await fetchImpl(`${config.apiBaseUrl}/api/v1/portfolio-demo/config`);
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as PortfolioDemoConfig;
 }
 
 export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
