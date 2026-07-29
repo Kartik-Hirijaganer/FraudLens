@@ -14,7 +14,8 @@ import {
   type TransactionListResponse,
 } from "./api";
 import { refreshAccessToken } from "./supabase";
-import { DEMO_ROLES, getSession, signIn, signOut } from "./session";
+import { getSession, signIn, signOut } from "./session";
+import { demoPersona } from "../test/factories";
 
 afterEach(() => {
   signOut();
@@ -121,10 +122,7 @@ describe("createApiClient", () => {
   });
 
   it("attaches the selected demo role to API requests", async () => {
-    const role = DEMO_ROLES.find((candidate) => candidate.role === "auditor");
-    if (!role) {
-      throw new Error("auditor demo role missing");
-    }
+    const role = demoPersona("auditor");
     signIn(role.email, false, role.role);
     const fetchMock = vi.fn(() =>
       Promise.resolve(fakeResponse(true, 200, { transactions: [], nextCursor: null, total: 0 })),
