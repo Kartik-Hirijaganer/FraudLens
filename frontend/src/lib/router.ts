@@ -18,12 +18,15 @@
  * Notes:
  * - Unknown ids in `#/alerts/:id` / `#/investigations/:runId` are still routed (the page
  *   resolves existence and renders a not-found / error state), so deep links never 404.
+ * - A hash may carry a `?query` (currently only `#/transactions?riskBand=`): the query is split
+ *   off BEFORE path parsing, so a filtered deep link still resolves to its page rather than
+ *   falling through to notFound. `paths` is the only place that builds it.
  */
 import { useEffect, useState } from "react";
 
 export type Route =
   | { name: "dashboard" }
-  | { name: "transactions" }
+  | { name: "transactions"; riskBand?: string }
   | { name: "alerts" }
   | { name: "alertDetail"; alertId: string }
   | { name: "investigation"; runId: string }
@@ -32,13 +35,15 @@ export type Route =
   | { name: "notFound" };
 
 export function parseHash(hash: string): Route {
-  const segments = hash.replace(/^#/, "").split("/").filter(Boolean);
+  const [path, query] = hash.replace(/^#/, "").split("?");
+  const segments = path.split("/").filter(Boolean);
   if (segments.length === 0) {
     return { name: "dashboard" };
   }
   const [head, second] = segments;
   if (head === "transactions" && segments.length === 1) {
-    return { name: "transactions" };
+    const riskBand = new URLSearchParams(query).get("riskBand");
+    return riskBand ? { name: "transactions", riskBand } : { name: "transactions" };
   }
   if (head === "alerts") {
     if (segments.length === 1) {
@@ -82,4 +87,8 @@ export const paths = {
   researchGraphTypologies: "#/research/graph-typologies",
   alertDetail: (alertId: string): string => `#/alerts/${alertId}`,
   investigation: (runId: string): string => `#/investigations/${runId}`,
+  // The band-filtered transactions link; an empty band means "no filter", so the same builder
+  // serves the dashboard's chips and the page's own filter control.
+  transactionsByRiskBand: (riskBand: string): string =>
+    riskBand ? `#/transactions?riskBand=${encodeURIComponent(riskBand)}` : "#/transactions",
 };
