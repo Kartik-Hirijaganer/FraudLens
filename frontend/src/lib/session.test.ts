@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  DEMO_AGENCIES,
-  DEMO_ROLES,
-  currentAnalyst,
-  demoAgencyById,
+  analystFromDisplayName,
   getSession,
   hasPermission,
   roleHasPermission,
@@ -13,6 +10,7 @@ import {
   updateAccessToken,
   withSessionHeaders,
 } from "./session";
+import { TEST_DEMO_AGENCY_ID, demoPersona } from "../test/factories";
 
 afterEach(() => {
   signOut();
@@ -27,51 +25,20 @@ async function importFreshSession(): Promise<typeof import("./session")> {
   return import("./session");
 }
 
-describe("currentAnalyst", () => {
-  it("exposes a display name and non-empty avatar initials", () => {
-    expect(currentAnalyst.name).toBeTruthy();
-    expect(currentAnalyst.initials).toMatch(/^[A-Z]+$/);
-  });
-});
-
-describe("DEMO_ROLES", () => {
-  it("has unique ids and a complete identity per role", () => {
-    const ids = DEMO_ROLES.map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const role of DEMO_ROLES) {
-      expect(role.name).toBeTruthy();
-      expect(["auditor", "analyst", "reviewer", "admin"]).toContain(role.role);
-      expect(role.tag).toBeTruthy();
-      expect(["green", "cyan", "amber", "slate"]).toContain(role.accent);
-      expect(role.email).toMatch(/@/);
-      expect(role.demoPassword.length).toBeGreaterThan(0);
-      expect(role.analyst.initials).toMatch(/^[A-Z]+$/);
-    }
-    expect(DEMO_ROLES.find((role) => role.role === "reviewer")?.name).toBe("Reviewer");
-  });
-});
-
-describe("demo agencies", () => {
-  const agencyTwo = DEMO_ROLES.find((role) => role.requiresLiveAuth);
-
-  it("binds every persona to a declared demo agency", () => {
-    const agencyIds = new Set(DEMO_AGENCIES.map((agency) => agency.id));
-    for (const role of DEMO_ROLES) {
-      expect(agencyIds.has(role.agencyId)).toBe(true);
-    }
-    expect(DEMO_AGENCIES.map((agency) => agency.index)).toEqual([0, 1, 2]);
+describe("analystFromDisplayName", () => {
+  it("derives avatar initials from a backend-supplied display name", () => {
+    expect(analystFromDisplayName("Casey Nolan-Reed")).toEqual({
+      name: "Casey Nolan-Reed",
+      initials: "CN",
+    });
   });
 
-  it("offers exactly one live-auth-only Agency Two analyst persona", () => {
-    expect(agencyTwo).toBeDefined();
-    expect(agencyTwo?.role).toBe("analyst");
-    expect(agencyTwo?.agencyId).toBe(DEMO_AGENCIES[1].id);
+  it("falls back to the first character for a single-token name", () => {
+    expect(analystFromDisplayName("  casey  ")).toEqual({ name: "casey", initials: "C" });
   });
 
-  it("resolves a demo agency by id and null otherwise", () => {
-    expect(demoAgencyById(DEMO_AGENCIES[1].id)?.index).toBe(1);
-    expect(demoAgencyById("not-an-agency")).toBeNull();
-    expect(demoAgencyById(undefined)).toBeNull();
+  it("keeps a name with no letters usable", () => {
+    expect(analystFromDisplayName("...")).toEqual({ name: "...", initials: "." });
   });
 });
 
@@ -85,52 +52,62 @@ describe("session store", () => {
     expect(getSession()).toMatchObject({ email: "analyst@agency.gov", role: "analyst" });
   });
 
-  it("derives the selected demo role identity", () => {
-    signIn(DEMO_ROLES[2].email, false, DEMO_ROLES[2].role);
+  it("keeps the caller-supplied role for a picked persona", () => {
+    const admin = demoPersona("admin");
+    signIn(admin.email, false, admin.role);
     expect(getSession()).toMatchObject({
-      email: DEMO_ROLES[2].email,
+      email: admin.email,
       role: "admin",
-      analyst: DEMO_ROLES[2].analyst,
       demoRole: "admin",
     });
   });
 
-  it("persists the persona's agency for a demo session", () => {
-    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
-    expect(getSession()?.agencyId).toBe(DEMO_AGENCIES[0].id);
+  it("carries the caller-supplied display identity and persists it for a reload", () => {
+    const reviewer = demoPersona("reviewer");
+    signIn(reviewer.email, false, reviewer.role, undefined, reviewer.agencyId, reviewer.analyst);
+    expect(getSession()?.analyst).toEqual(reviewer.analyst);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toContain(reviewer.analyst.name);
   });
 
-  it("resolves two same-role personas distinctly by email (no role mis-selection)", () => {
-    const agencyOne = DEMO_ROLES.find((r) => r.role === "analyst" && !r.requiresLiveAuth)!;
-    const agencyTwo = DEMO_ROLES.find((r) => r.requiresLiveAuth)!;
-    // Both are analysts; resolving by role alone would always pick the first-declared one.
-    signIn(agencyTwo.email, false, "analyst", "token-two", agencyTwo.agencyId);
+  it("derives a display identity from the email when none is supplied", () => {
+    // No identity constant exists client-side, so the fallback can only use the session's email.
+    signIn("dana.quill@agency.gov");
+    expect(getSession()?.analyst).toEqual({ name: "Dana Quill", initials: "DQ" });
+  });
+
+  it("keeps the display identity across a token refresh", () => {
+    const analyst = demoPersona("analyst");
+    signIn(analyst.email, false, analyst.role, "token-1", analyst.agencyId, analyst.analyst);
+    updateAccessToken("token-2");
+    expect(getSession()?.analyst).toEqual(analyst.analyst);
+  });
+
+  it("persists the persona's agency for a demo session", () => {
+    const analyst = demoPersona("analyst");
+    signIn(analyst.email, false, analyst.role, undefined, analyst.agencyId);
+    expect(getSession()?.agencyId).toBe(TEST_DEMO_AGENCY_ID);
+  });
+
+  it("never infers a role or tenant from the email (no client-side persona table)", () => {
+    // Two personas may share a role; the client resolves neither, so an unknown email with an
+    // explicit role/tenant is honoured verbatim and nothing is silently mis-selected.
+    signIn("someone@agency.gov", false, "reviewer", "token-two", TEST_DEMO_AGENCY_ID);
     expect(getSession()).toMatchObject({
-      email: agencyTwo.email,
-      role: "analyst",
-      analyst: agencyTwo.analyst,
-      agencyId: DEMO_AGENCIES[1].id,
+      email: "someone@agency.gov",
+      role: "reviewer",
+      agencyId: TEST_DEMO_AGENCY_ID,
     });
-    expect(getSession()?.analyst).not.toEqual(agencyOne.analyst);
+    signIn("someone@agency.gov");
+    expect(getSession()?.role).toBe("analyst");
+    expect(getSession()?.agencyId).toBeUndefined();
   });
 
   it("persists a verified /me agency for a live session and through a token refresh", () => {
-    signIn("real@agency.gov", false, "analyst", "token-1", DEMO_AGENCIES[1].id);
-    expect(getSession()?.agencyId).toBe(DEMO_AGENCIES[1].id);
+    signIn("real@agency.gov", false, "analyst", "token-1", TEST_DEMO_AGENCY_ID);
+    expect(getSession()?.agencyId).toBe(TEST_DEMO_AGENCY_ID);
     updateAccessToken("token-2");
-    expect(getSession()).toMatchObject({ accessToken: "token-2", agencyId: DEMO_AGENCIES[1].id });
-    expect(window.sessionStorage.getItem("fraudlens.session")).toContain(DEMO_AGENCIES[1].id);
-  });
-
-  it("maps legacy demo emails to the same role identities", () => {
-    signIn("auditor@fraudlens.demo");
-    const auditor = DEMO_ROLES.find((role) => role.role === "auditor");
-    expect(getSession()).toMatchObject({
-      email: "auditor@fraudlens.demo",
-      role: "auditor",
-      analyst: auditor?.analyst,
-      demoRole: "auditor",
-    });
+    expect(getSession()).toMatchObject({ accessToken: "token-2", agencyId: TEST_DEMO_AGENCY_ID });
+    expect(window.sessionStorage.getItem("fraudlens.session")).toContain(TEST_DEMO_AGENCY_ID);
   });
 
   it("signs out and clears the session", () => {
@@ -164,7 +141,8 @@ describe("session store", () => {
       Authorization: "Bearer token-1",
     });
     signOut();
-    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
+    const analyst = demoPersona("analyst");
+    signIn(analyst.email, false, analyst.role);
     expect(withSessionHeaders()?.headers).toMatchObject({ "X-FraudLens-Demo-Role": "analyst" });
   });
 });
@@ -195,10 +173,43 @@ describe("session rehydration on load", () => {
   it("rehydrates the persisted agency id", async () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ email: "kept@agency.gov", agencyId: DEMO_AGENCIES[1].id }),
+      JSON.stringify({ email: "kept@agency.gov", agencyId: TEST_DEMO_AGENCY_ID }),
     );
     const mod = await importFreshSession();
-    expect(mod.getSession()?.agencyId).toBe(DEMO_AGENCIES[1].id);
+    expect(mod.getSession()?.agencyId).toBe(TEST_DEMO_AGENCY_ID);
+  });
+
+  it("rehydrates the persisted display identity", async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        email: "kept@agency.gov",
+        analyst: { name: "Robin Vale", initials: "RV" },
+      }),
+    );
+    const mod = await importFreshSession();
+    expect(mod.getSession()?.analyst).toEqual({ name: "Robin Vale", initials: "RV" });
+  });
+
+  it("recomputes initials when the persisted identity has none", async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ email: "kept@agency.gov", analyst: { name: "Robin Vale" } }),
+    );
+    const mod = await importFreshSession();
+    expect(mod.getSession()?.analyst).toEqual({ name: "Robin Vale", initials: "RV" });
+  });
+
+  it("derives a display identity when the persisted one is unusable", async () => {
+    // A pre-projection entry (or a malformed one) still yields a usable shell identity.
+    for (const analyst of [undefined, "nope", { name: "" }]) {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ email: "dana.quill@agency.gov", analyst }),
+      );
+      const mod = await importFreshSession();
+      expect(mod.getSession()?.analyst).toEqual({ name: "Dana Quill", initials: "DQ" });
+    }
   });
 
   it("ignores a malformed storage entry", async () => {
@@ -233,7 +244,8 @@ describe("permissions", () => {
 
   it("checks permissions from the current session shape", () => {
     expect(hasPermission(null, "view")).toBe(false);
-    signIn(DEMO_ROLES[1].email, false, DEMO_ROLES[1].role);
+    const reviewer = demoPersona("reviewer");
+    signIn(reviewer.email, false, reviewer.role);
     expect(hasPermission(getSession(), "reviewSar")).toBe(true);
     expect(hasPermission(getSession(), "manageAdmin")).toBe(false);
   });
