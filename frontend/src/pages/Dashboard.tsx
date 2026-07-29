@@ -1,22 +1,28 @@
 /**
- * Summary: The analyst landing page (plan §16 Phase 11 Dashboard, redesigned). It reads
+ * Summary: The analyst landing page (plan §16 Phase 11 Dashboard, redesigned; band mix added in
+ * the portfolio-demo story Phase 3b). It reads
  * the tenant-scoped `/dashboard/metrics` aggregate plus the open-alert list and greets
  * the analyst by time of day, calls out the high-risk backlog, and surfaces four headline
  * KPI cards (open alerts + severity mix, in-review load, SARs approved, active-model health)
- * above the open-alert triage queue. Loading, error+retry, and empty states all flow
- * through the shared AsyncBoundary, and the metrics + alerts load concurrently.
+ * plus the transaction risk-band mix above the open-alert triage queue. Loading, error+retry, and
+ * empty states all flow through the shared AsyncBoundary, and the metrics + alerts load
+ * concurrently.
  *
  * Key classes:
  * - (none)
  *
  * Key functions:
- * - Dashboard: render the greeting, KPI cards, and open-alert queue.
+ * - Dashboard: render the greeting, KPI cards, risk-band mix, and open-alert queue.
  *
  * Notes:
  * - A null active model label degrades to an em dash rather than failing the page, so a
  *   fresh environment without a promoted model still renders.
  * - The severity mix and high-risk callout are derived from the loaded open alerts, so the
  *   headline stays consistent with the queue below it.
+ * - `RiskBandBar` reads `metrics.transactions`, which this page ALREADY fetches — it adds no
+ *   second request and invents no counter.
+ * - The greeting name is the session's display identity (the picked persona, or the verified
+ *   `/me` display name); with none it greets without a name rather than naming anyone.
  */
 import { useCallback } from "react";
 
@@ -24,11 +30,12 @@ import { AlertQueue } from "../components/AlertQueue";
 import { DashboardSkeleton } from "../components/DashboardSkeleton";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { MetricCard } from "../components/MetricCard";
+import { RiskBandBar } from "../components/RiskBandBar";
 import { apiClient, type AlertView, type ApiClient, type DashboardMetrics } from "../lib/api";
 import { formatModelVersion, greeting } from "../lib/format";
 import { riskTone, severityCounts, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
-import { currentAnalyst, useSession } from "../lib/session";
+import { useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
 
 interface DashboardData {
@@ -86,7 +93,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
           <section className="gap-2xl flex flex-col">
             <header className="gap-sm flex flex-col">
               <h1 className="text-display-sm md:text-display-md text-ink">
-                {greeting()}, {session?.analyst.name ?? currentAnalyst.name}
+                {session ? `${greeting()}, ${session.analyst.name}` : greeting()}
               </h1>
               <p className="text-body-lg text-body">{subtitle(open, counts.high)}</p>
             </header>
@@ -114,6 +121,8 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
                 hintTone={model.tone}
               />
             </div>
+
+            <RiskBandBar metrics={metrics.transactions} />
 
             <AlertQueue
               alerts={openAlerts}
