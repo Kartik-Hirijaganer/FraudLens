@@ -129,6 +129,7 @@ describe("Research", () => {
     expect(screen.getByText("+0.0200")).toBeInTheDocument(); // signed isolation delta
     const adr = screen.getByRole("link", { name: /ADR-017/ });
     expect(adr).toHaveAttribute("href", ADR_017_HREF);
+    expect(adr).toHaveAttribute("target", "_blank");
   });
 
   it("names the isolation stat a cost only for a positive delta", () => {
@@ -161,14 +162,11 @@ describe("Research", () => {
     render(<Research data={studyData()} viewerAgencyIndex={0} />);
     await user.click(screen.getByRole("radio", { name: /Cross-tenant cycle/ }));
 
-    // Global: every edge present.
-    expect(screen.queryByText("unavailable")).not.toBeInTheDocument();
+    // Tenant scope is the safe default: other agencies' edges ghost out immediately.
+    expect(screen.getByRole("radio", { name: "Demo Financial Agency" })).toBeChecked();
+    expect(screen.getAllByText("unavailable").length).toBeGreaterThan(0);
     const owned = screen.getByRole("button", { name: /Edge edge-01/ });
     expect(owned).toHaveAttribute("data-present", "true");
-
-    // Switch to the viewer's agency (index 0): edges owned by agencies 1 & 2 ghost out.
-    await user.click(screen.getByRole("radio", { name: "Demo Financial Agency" }));
-    expect(screen.getAllByText("unavailable").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Edge edge-02.*unavailable/ })).toHaveAttribute(
       "data-present",
       "false",
@@ -178,15 +176,23 @@ describe("Research", () => {
       "data-present",
       "true",
     );
+
+    // Global is an explicit comparison: every edge becomes present.
+    await user.click(screen.getByRole("radio", { name: "Global" }));
+    expect(screen.queryByText("unavailable")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edge edge-02/ })).toHaveAttribute(
+      "data-present",
+      "true",
+    );
   });
 
   it("resolves each agency persona into its own scope control", () => {
     const one = render(<Research data={studyData()} viewerAgencyIndex={0} />);
-    expect(screen.getByRole("radio", { name: "Demo Financial Agency" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Demo Financial Agency" })).toBeChecked();
     one.unmount();
 
     const two = render(<Research data={studyData()} viewerAgencyIndex={1} />);
-    expect(screen.getByRole("radio", { name: "AML Demo Agency Two" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "AML Demo Agency Two" })).toBeChecked();
     two.unmount();
 
     // A non-demo / absent agency falls back to the first agency.
@@ -199,6 +205,29 @@ describe("Research", () => {
     const legend = screen.getByRole("list");
     expect(within(legend).getByText("A")).toBeInTheDocument();
     expect(within(legend).getByText("Demo Financial Agency")).toBeInTheDocument();
+  });
+
+  it("explains when the viewer's tenant cannot see a single-agency motif", async () => {
+    const user = userEvent.setup();
+    render(<Research data={studyData()} viewerAgencyIndex={1} />);
+
+    await user.click(screen.getByRole("radio", { name: "Intra-tenant cycle" }));
+
+    expect(
+      screen.getByText(
+        "Every edge is owned by Demo Financial Agency; AML Demo Agency Two cannot see this motif in its isolated graph.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the mobile graph pannable with explicit node and edge hit targets", () => {
+    render(<Research data={studyData()} viewerAgencyIndex={0} />);
+    const graph = screen.getByRole("group", { name: /Scatter/ });
+
+    expect(graph.style.getPropertyValue("--motif-width")).toBe("640px");
+    expect(graph).toHaveClass("min-w-[var(--motif-width)]", "md:min-w-0");
+    expect(graph.querySelectorAll('[data-hit-target="node"]')).toHaveLength(3);
+    expect(graph.querySelectorAll('[data-hit-target="edge"]')).toHaveLength(2);
   });
 
   it("updates the non-hover detail panel when a node or edge is selected", async () => {
@@ -242,5 +271,30 @@ describe("Research", () => {
     expect(within(accounts).getByText("node-01")).toBeInTheDocument();
     const transfers = screen.getByRole("table", { name: /Transfers/ });
     expect(within(transfers).getByText("edge-01")).toBeInTheDocument();
+  });
+
+  it("leads with the finding derived from the metrics, not typed prose", () => {
+    render(<Research data={studyData()} viewerAgencyIndex={0} />);
+    const finding = screen.getByTestId("study-finding");
+    // Both numbers come from the fixture, so re-pinning the study cannot leave stale prose.
+    expect(finding).toHaveTextContent("+0.050");
+    expect(finding).toHaveTextContent("+0.020");
+    expect(finding).toHaveTextContent(/declines to cross them/);
+  });
+
+  it("states the finding honestly when isolation costs nothing measurable", () => {
+    // A zero or negative delta is a VALID result (ADR-017); the sentence must not imply a cost.
+    render(<Research data={studyData({ isolationDeltaC: -0.01 })} viewerAgencyIndex={0} />);
+    const finding = screen.getByTestId("study-finding");
+    expect(finding).toHaveTextContent(/costs nothing measurable/);
+    expect(finding).not.toHaveTextContent(/declines to cross them/);
+  });
+
+  it("anchors the study to the signed-in agency without calling a partition a tenant", () => {
+    render(<Research data={studyData()} viewerAgencyIndex={0} />);
+    const anchor = screen.getByTestId("partition-anchor");
+    expect(anchor).toHaveTextContent("Demo Financial Agency");
+    expect(anchor).toHaveTextContent(/offline study partition/);
+    expect(anchor).toHaveTextContent(/only one runtime tenant exists/);
   });
 });

@@ -17,6 +17,9 @@
  * - Paging, search, and the risk filter are all SERVER-side: each page is one keyset request
  *   (limit + cursor), search is a debounced `search` query, and the "Showing X–Y of Z" total
  *   comes from the list response so it stays exact under any filter without scanning client-side.
+ * - The risk filter is mirrored in the route as `?riskBand=`, so the dashboard's band chips deep
+ *   link here and a filtered view is shareable; the page reads that param on entry and rewrites
+ *   it whenever the filter changes.
  * - The cursor stack records each visited page's cursor so Prev pops and Next pushes; changing
  *   the filter or search resets it to the first page. The in-flight Investigate is guarded.
  * - Model override is admin-only: non-admin roles load transactions without calling the
@@ -41,7 +44,7 @@ import {
 } from "../lib/api";
 import { formatCurrency, formatDateTime } from "../lib/format";
 import { RISK_BAND_OPTIONS } from "../lib/options";
-import { navigate, paths } from "../lib/router";
+import { navigate, paths, useHashRoute } from "../lib/router";
 import { hasPermission, useSession } from "../lib/session";
 import { notify, notifyError } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
@@ -61,7 +64,9 @@ interface TransactionsProps {
 }
 
 export function Transactions({ client = apiClient }: TransactionsProps) {
-  const [riskBand, setRiskBand] = useState("");
+  const route = useHashRoute();
+  const routeRiskBand = route.name === "transactions" ? (route.riskBand ?? "") : "";
+  const [riskBand, setRiskBand] = useState(routeRiskBand);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [override, setOverride] = useState<string | undefined>(undefined);
@@ -75,6 +80,13 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
   const pageIndex = cursorStack.length - 1;
   const cursor = cursorStack[pageIndex];
+
+  // A `?riskBand=` deep link (a dashboard band chip, a shared URL, or Back) drives the filter.
+  // `changeRiskBand` writes the same param, so after a click this simply re-affirms the value.
+  useEffect(() => {
+    setRiskBand(routeRiskBand);
+    setCursorStack([undefined]);
+  }, [routeRiskBand]);
 
   // Debounce the search box, and reset to the first page when the applied query changes
   // (both state writes happen together so the list refetches once, not twice).
@@ -106,6 +118,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   function changeRiskBand(next: string): void {
     setRiskBand(next);
     setCursorStack([undefined]); // a new filter restarts paging at the first page
+    navigate(paths.transactionsByRiskBand(next)); // keep the URL shareable/bookmarkable
   }
 
   async function investigate(transactionId: string): Promise<void> {
