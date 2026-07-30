@@ -1,10 +1,11 @@
 /**
- * Summary: The route wrapper that binds the committed study data + the viewer's verified
- * agency to the presentational <Research/> page (GFP study Phase 7). It is the default
+ * Summary: The route wrapper that binds the committed study data to the presentational
+ * <Research/> page (GFP study Phase 7). It is the default
  * export the app lazily imports for `#/research/graph-typologies`, so the committed
- * artifact is only loaded when the research view is actually opened. The viewer's agency
- * comes from the session's verified `/me` agency id (mapped to a study agency index);
- * there is no client-selectable tenant and no backend call.
+ * artifact is only loaded when the research view is actually opened. Research partitions are an
+ * OFFLINE study concept, not runtime tenants, so the route passes no viewer index and the page
+ * defaults its tenant view to the study's primary partition — the one the single runtime demo
+ * agency mirrors. There is no client-selectable tenant and no backend call.
  *
  * Key classes:
  * - (none)
@@ -13,15 +14,12 @@
  * - (none) — the default export is a route wrapper (default exports are not inventoried).
  *
  * Notes:
- * - A non-demo or absent agency resolves to `null`, and the page defaults the tenant view to
- *   the first agency; the app shell only renders this route for a signed-in session.
+ * - `null` makes the page default the tenant view to the study's first partition; the app shell
+ *   only renders this route for a signed-in session.
  */
 import { Research } from "./Research";
 import { studyData } from "../data/gfpStudy.data";
-import { demoAgencyById, useSession } from "../lib/session";
 
 export default function ResearchRoute() {
-  const session = useSession();
-  const agency = demoAgencyById(session?.agencyId);
-  return <Research data={studyData} viewerAgencyIndex={agency ? agency.index : null} />;
+  return <Research data={studyData} viewerAgencyIndex={null} />;
 }

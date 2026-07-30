@@ -6,6 +6,7 @@ vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
 import { notify } from "../lib/toast";
+import { paths } from "../lib/router";
 import { deployment, makeClient, modelVersion } from "../test/factories";
 import { ModelAdmin } from "./ModelAdmin";
 
@@ -96,5 +97,21 @@ describe("ModelAdmin", () => {
     });
     render(<ModelAdmin client={client} />);
     expect(await screen.findByText("Admin only")).toBeInTheDocument();
+  });
+
+  it("explains the single-hop served contract and links to the study that measured it", async () => {
+    const client = makeClient({
+      listModelVersions: vi.fn(() =>
+        Promise.resolve({ versions: [modelVersion()], activeVersionLabel: "model-v1" }),
+      ),
+      getDeployment: vi.fn(() => Promise.resolve(deployment())),
+      listDriftReports: vi.fn(() => Promise.resolve({ driftReports: [] })),
+    });
+    render(<ModelAdmin client={client} />);
+    expect(await screen.findByText(/no cross-account graph features/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /what that boundary costs/ })).toHaveAttribute(
+      "href",
+      paths.researchGraphTypologies,
+    );
   });
 });

@@ -64,7 +64,7 @@ from fraudlens_backend.db.repositories.model_lifecycle import (
     can_shadow,
 )
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import DEMO_USERS
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import get_settings
 from fraudlens_ml.scoring import ArtifactError, load_artifact
 from fraudlens_ml.scoring.artifacts import ModelArtifactMetadata
@@ -138,9 +138,9 @@ def discover_bundles(root: Path, *, label: str | None) -> list[EligibleBundle]:
 
 
 async def _resolve_admin_id(session: AsyncSession) -> Any:
-    """Return the approving admin: the seeded demo admin, else any admin, else None."""
-    demo_admin = next(spec for spec in DEMO_USERS if spec.role == UserRole.ADMIN)
-    admin = await session.get(User, demo_admin.user_id)
+    """Return the approving admin: the configured demo admin persona, else any admin, else None."""
+    persona = load_portfolio_demo_config().persona_for_role(UserRole.ADMIN)
+    admin = None if persona is None else await session.get(User, persona.seed_user_id)
     if admin is not None:
         return admin.id
     stmt = select(User).where(User.role == UserRole.ADMIN).order_by(User.created_at).limit(1)

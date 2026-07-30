@@ -73,8 +73,8 @@ class GfpEdgeSet:
 
     gfp_matrix: np.ndarray  # (n, 5) float64 in CANONICAL_EDGE_COLUMNS order
     labels: np.ndarray  # (n,) int8 public illicit labels — NEVER handed to the engine
-    source_agency: np.ndarray  # (n,) int16 demo-agency of the SOURCE node (edge owner)
-    dest_agency: np.ndarray  # (n,) int16 demo-agency of the destination node
+    source_agency: np.ndarray  # (n,) int16 research partition of the SOURCE node (edge owner)
+    dest_agency: np.ndarray  # (n,) int16 research partition of the destination node
     folds: np.ndarray  # (n,) int8 fold ids (0=train, 1=calibration, 2=holdout)
     is_target: np.ndarray  # (n,) bool — True when the row is a training example
     original_row_id: np.ndarray  # (n,) int64 position in the servable input frame
