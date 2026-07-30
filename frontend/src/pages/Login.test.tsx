@@ -19,13 +19,17 @@ import {
   type LoginEnv,
 } from "./Login";
 import { fetchCurrentUser } from "../lib/api";
-import { DEMO_AGENCIES, DEMO_ROLES, getSession, signOut } from "../lib/session";
+import { getSession, signOut } from "../lib/session";
+import {
+  TEST_DEMO_AGENCY_ID,
+  TEST_EMAIL_DOMAIN,
+  demoPersona,
+  demoPersonas,
+} from "../test/factories";
 import { signInWithPassword } from "../lib/supabase";
 
-// Personas offered by the tokenless dev bypass (Agency One only).
-const BYPASS_PERSONAS = DEMO_ROLES.filter((role) => !role.requiresLiveAuth);
-// The Agency Two analyst — only offered through real Supabase auth (an agency-bound JWT).
-const LIVE_ONLY_PERSONA = DEMO_ROLES.find((role) => role.requiresLiveAuth);
+// The personas the backend projection hands the picker; the component owns no persona data.
+const PERSONAS = demoPersonas();
 
 const LOCAL_DEMO_ENV: LoginEnv = {
   DEV: true,
@@ -51,8 +55,8 @@ const HIDDEN_DEMO_ENV: LoginEnv = {
   VITE_DEMO_AUTH_ENABLED: "false",
 };
 
-// Both gates on: the picker shows Agency Two AND the tokenless bypass is available, so the
-// `requiresLiveAuth` guard (not the gate) must route Agency Two through Supabase.
+// Both gates on: the picker renders and the tokenless bypass is available, so a picked persona
+// signs in without Supabase.
 const FULL_DEMO_ENV: LoginEnv = {
   DEV: true,
   VITE_AUTH_DEV_BYPASS: "true",
@@ -71,7 +75,7 @@ async function openRolePicker(user: ReturnType<typeof userEvent.setup>): Promise
 
 describe("Login", () => {
   it("renders the sign-in heading and the empty credential fields", () => {
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
     ).toBeInTheDocument();
@@ -81,8 +85,8 @@ describe("Login", () => {
 
   it("auto-fills the email and password when a demo role is chosen", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
-    const role = DEMO_ROLES[1];
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
+    const role = demoPersona("reviewer");
 
     await openRolePicker(user);
     await user.click(screen.getByRole("option", { name: new RegExp(role.name) }));
@@ -91,97 +95,105 @@ describe("Login", () => {
     expect(screen.getByLabelText("Password")).toHaveValue(role.demoPassword);
   });
 
-  it("lists every dev-bypass persona once the picker is open, then closes on select", async () => {
+  it("lists exactly the supplied personas once the picker is open, then closes on select", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     await openRolePicker(user);
-    const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(BYPASS_PERSONAS.length);
-    for (const role of BYPASS_PERSONAS) {
+    expect(screen.getAllByRole("option")).toHaveLength(PERSONAS.length);
+    for (const role of PERSONAS) {
       expect(screen.getByRole("option", { name: new RegExp(role.name) })).toBeInTheDocument();
     }
-    await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[0].name) }));
+    await user.click(screen.getByRole("option", { name: new RegExp(PERSONAS[0].name) }));
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
-  it("offers the Agency Two persona only when live demo auth is enabled", async () => {
-    expect(LIVE_ONLY_PERSONA).toBeDefined();
-    const name = new RegExp(LIVE_ONLY_PERSONA!.name);
+  it("renders no options when the backend supplied no personas", async () => {
     const user = userEvent.setup();
-
-    const local = render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} />);
     await openRolePicker(user);
-    expect(screen.queryByRole("option", { name })).not.toBeInTheDocument();
-    local.unmount();
-
-    render(<Login env={LIVE_DEMO_ENV} />);
-    await openRolePicker(user);
-    expect(screen.getByRole("option", { name })).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 
-  it("offers the real-auth demo personas in a production portfolio build", async () => {
-    expect(LIVE_ONLY_PERSONA).toBeDefined();
-    const user = userEvent.setup();
-    render(<Login env={PORTFOLIO_DEMO_ENV} />);
-
-    await openRolePicker(user);
-
-    expect(screen.getAllByRole("option")).toHaveLength(DEMO_ROLES.length);
-    expect(
-      screen.getByRole("option", { name: new RegExp(LIVE_ONLY_PERSONA!.email) }),
-    ).toBeInTheDocument();
+  it("says the projection is loading and offers nothing to pick yet", () => {
+    render(<Login env={LOCAL_DEMO_ENV} personasStatus="loading" />);
+    const trigger = screen.getByRole("button", { name: "Demo · sign in as" });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveTextContent("Loading demo personas…");
+    expect(screen.getByText("loading personas…")).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
-  it("routes the Agency Two persona through Supabase even when the bypass is on", async () => {
-    expect(LIVE_ONLY_PERSONA).toBeDefined();
-    vi.mocked(signInWithPassword).mockResolvedValue("agency-two-token");
-    vi.mocked(fetchCurrentUser).mockResolvedValue({
-      email: LIVE_ONLY_PERSONA!.email,
-      role: LIVE_ONLY_PERSONA!.role,
-      agencyId: LIVE_ONLY_PERSONA!.agencyId,
-    });
+  it("says so plainly when the projection is unavailable, rather than showing an empty list", () => {
+    render(<Login env={LOCAL_DEMO_ENV} personasStatus="failed" />);
+    const trigger = screen.getByRole("button", { name: "Demo · sign in as" });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveTextContent("Demo personas unavailable — sign in above");
+    expect(screen.getByText("personas unavailable")).toBeInTheDocument();
+  });
+
+  it("invites a selection once the projection is ready", () => {
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} personasStatus="ready" />);
+    const trigger = screen.getByRole("button", { name: "Demo · sign in as" });
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveTextContent("Choose a role to auto-fill…");
+    expect(screen.getByText("credentials auto-filled")).toBeInTheDocument();
+  });
+
+  it.each(["loading", "failed", "ready"] as const)(
+    "keeps ordinary email-password sign-in usable while the projection is %s",
+    async (personasStatus) => {
+      // A missing or slow demo projection must never block a real user from signing in.
+      vi.mocked(signInWithPassword).mockResolvedValue("real-token");
+      vi.mocked(fetchCurrentUser).mockResolvedValue({
+        email: "real@agency.gov",
+        displayName: "Real User",
+        role: "analyst",
+        agencyId: "agency-1",
+      });
+      const user = userEvent.setup();
+      const view = render(<Login env={LIVE_DEMO_ENV} personasStatus={personasStatus} />);
+
+      await user.type(screen.getByLabelText("Work email"), "real@agency.gov");
+      await user.type(screen.getByLabelText("Password"), "real-password");
+      const submit = screen.getByRole("button", { name: /Sign in/ });
+      expect(submit).toBeEnabled();
+      await user.click(submit);
+
+      await waitFor(() => expect(getSession()).toMatchObject({ email: "real@agency.gov" }));
+      view.unmount();
+      signOut();
+    },
+  );
+
+  it("offers the same personas in a production portfolio build", async () => {
     const user = userEvent.setup();
-    render(<Login env={FULL_DEMO_ENV} />);
+    render(<Login env={PORTFOLIO_DEMO_ENV} personas={PERSONAS} />);
 
     await openRolePicker(user);
-    await user.click(screen.getByRole("option", { name: new RegExp(LIVE_ONLY_PERSONA!.name) }));
+
+    expect(screen.getAllByRole("option")).toHaveLength(PERSONAS.length);
+    expect(screen.getByRole("option", { name: new RegExp(PERSONAS[0].email) })).toBeInTheDocument();
+  });
+
+  it("keeps the dev bypass tokenless and persists the configured agency", async () => {
+    const user = userEvent.setup();
+    render(<Login env={FULL_DEMO_ENV} personas={PERSONAS} />);
+    await openRolePicker(user);
+    await user.click(screen.getByRole("option", { name: new RegExp(PERSONAS[0].email) }));
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
-    await waitFor(() =>
-      expect(getSession()).toMatchObject({
-        email: LIVE_ONLY_PERSONA!.email,
-        accessToken: "agency-two-token",
-        agencyId: LIVE_ONLY_PERSONA!.agencyId,
-      }),
-    );
-    // The verified /me agency (index 1) is persisted; the bypass was NOT used for this persona.
-    expect(signInWithPassword).toHaveBeenCalledWith(
-      LIVE_ONLY_PERSONA!.email,
-      LIVE_ONLY_PERSONA!.demoPassword,
-    );
-    expect(getSession()?.agencyId).toBe(DEMO_AGENCIES[1].id);
-  });
-
-  it("keeps the dev bypass on Agency One and persists its agency", async () => {
-    const user = userEvent.setup();
-    render(<Login env={FULL_DEMO_ENV} />);
-    await openRolePicker(user);
-    // Match by email — two analyst personas share the "Fraud Analyst" name under FULL_DEMO_ENV.
-    await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[0].email) }));
-    await user.click(screen.getByRole("button", { name: /Sign in/ }));
-
-    // A tokenless bypass session: no Supabase call, demo role set, Agency One persisted.
+    // A tokenless bypass session: no Supabase call, demo role set, configured agency persisted.
     expect(signInWithPassword).not.toHaveBeenCalled();
     expect(getSession()).toMatchObject({
-      email: DEMO_ROLES[0].email,
-      demoRole: DEMO_ROLES[0].role,
-      agencyId: DEMO_AGENCIES[0].id,
+      email: PERSONAS[0].email,
+      demoRole: PERSONAS[0].role,
+      agencyId: TEST_DEMO_AGENCY_ID,
     });
   });
 
   it("closes the picker on Escape", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     await openRolePicker(user);
     expect(screen.getByRole("listbox")).toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -190,7 +202,7 @@ describe("Login", () => {
 
   it("toggles password visibility with the Show/Hide control", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     const password = screen.getByLabelText("Password");
     expect(password).toHaveAttribute("type", "password");
 
@@ -203,47 +215,48 @@ describe("Login", () => {
 
   it("keeps the submit button disabled until both fields are filled", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     const submit = screen.getByRole("button", { name: /Sign in/ });
     expect(submit).toBeDisabled();
 
-    await user.type(screen.getByLabelText("Work email"), "analyst@demo-agency.test");
-    await user.type(screen.getByLabelText("Password"), "demo-access-2026");
+    await user.type(screen.getByLabelText("Work email"), `analyst@${TEST_EMAIL_DOMAIN}`);
+    await user.type(screen.getByLabelText("Password"), "any-non-empty-value");
     expect(submit).toBeEnabled();
   });
 
   it("does not start a session when the form is submitted with empty fields", () => {
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     fireEvent.submit(screen.getByRole("form", { name: "Sign in" }));
     expect(getSession()).toBeNull();
   });
 
   it("surfaces a notice from the Forgot? control without starting a session", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     await user.click(screen.getByRole("button", { name: "Forgot?" }));
     expect(getSession()).toBeNull();
   });
 
   it("starts a session on submit", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     await openRolePicker(user);
-    await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[0].name) }));
+    await user.click(screen.getByRole("option", { name: new RegExp(PERSONAS[0].name) }));
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
-    expect(getSession()).toMatchObject({ email: DEMO_ROLES[0].email, role: DEMO_ROLES[0].role });
+    expect(getSession()).toMatchObject({ email: PERSONAS[0].email, role: PERSONAS[0].role });
   });
 
   it("signs in with Supabase and stores the server-returned role and token", async () => {
     vi.mocked(signInWithPassword).mockResolvedValue("access-token");
     vi.mocked(fetchCurrentUser).mockResolvedValue({
       email: "reviewer@example.test",
+      displayName: "Live Reviewer",
       role: "reviewer",
       agencyId: "agency-1",
     });
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
 
     await user.type(screen.getByLabelText("Work email"), "reviewer@example.test");
     await user.type(screen.getByLabelText("Password"), "correct-password");
@@ -255,6 +268,8 @@ describe("Login", () => {
         role: "reviewer",
         accessToken: "access-token",
         agencyId: "agency-1",
+        // The display identity for a live user comes from the verified /me response.
+        analyst: { name: "Live Reviewer", initials: "LR" },
       }),
     );
     expect(signInWithPassword).toHaveBeenCalledWith("reviewer@example.test", "correct-password");
@@ -297,43 +312,42 @@ describe("Login", () => {
   });
 
   it("hides demo identities when live demo auth is not explicitly enabled", () => {
-    render(<Login env={HIDDEN_DEMO_ENV} />);
+    render(<Login env={HIDDEN_DEMO_ENV} personas={PERSONAS} />);
     expect(screen.queryByText("Demo · sign in as")).not.toBeInTheDocument();
   });
 
   it("uses real Supabase auth for a live demo persona", async () => {
     vi.mocked(signInWithPassword).mockResolvedValue("demo-access-token");
+    const reviewer = demoPersona("reviewer");
     vi.mocked(fetchCurrentUser).mockResolvedValue({
-      email: DEMO_ROLES[1].email,
-      role: DEMO_ROLES[1].role,
+      email: reviewer.email,
+      displayName: reviewer.analyst.name,
+      role: reviewer.role,
       agencyId: "agency-1",
     });
     const user = userEvent.setup();
-    render(<Login env={LIVE_DEMO_ENV} />);
+    render(<Login env={LIVE_DEMO_ENV} personas={PERSONAS} />);
 
     await openRolePicker(user);
-    await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[1].name) }));
+    await user.click(screen.getByRole("option", { name: new RegExp(reviewer.name) }));
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
     await waitFor(() =>
       expect(getSession()).toMatchObject({
-        email: DEMO_ROLES[1].email,
-        role: DEMO_ROLES[1].role,
+        email: reviewer.email,
+        role: reviewer.role,
         accessToken: "demo-access-token",
       }),
     );
-    expect(signInWithPassword).toHaveBeenCalledWith(
-      DEMO_ROLES[1].email,
-      DEMO_ROLES[1].demoPassword,
-    );
+    expect(signInWithPassword).toHaveBeenCalledWith(reviewer.email, reviewer.demoPassword);
     expect(fetchCurrentUser).toHaveBeenCalledWith("demo-access-token");
   });
 
   it("persists the session to localStorage only when 'keep me signed in' is checked", async () => {
     const user = userEvent.setup();
-    render(<Login env={LOCAL_DEMO_ENV} />);
+    render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     await openRolePicker(user);
-    await user.click(screen.getByRole("option", { name: new RegExp(DEMO_ROLES[0].name) }));
+    await user.click(screen.getByRole("option", { name: new RegExp(PERSONAS[0].name) }));
     await user.click(screen.getByLabelText("Keep me signed in on this device"));
     await user.click(screen.getByRole("button", { name: /Sign in/ }));
 
@@ -342,7 +356,7 @@ describe("Login", () => {
   });
 
   it("renders an animated brand motif (drawing lines, pulse-nodes, panning grid, sweep)", () => {
-    const { container } = render(<Login env={LOCAL_DEMO_ENV} />);
+    const { container } = render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
     expect(container.querySelectorAll(".motion-safe\\:animate-draw").length).toBe(2);
     expect(container.querySelectorAll(".motion-safe\\:animate-node-pulse").length).toBe(5);
     expect(container.querySelectorAll(".motion-safe\\:animate-grid-pan").length).toBe(2);
