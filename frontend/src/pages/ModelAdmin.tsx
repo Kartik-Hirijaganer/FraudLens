@@ -15,6 +15,9 @@
  * Notes:
  * - A missing deployment (404) degrades to "none" rather than failing the page; admin-only
  * 403s surface as an "Admin only" toast via lib/errors.
+ * - It also states the served feature contract's single-hop, tenant-scoped limit and links to the
+ *   graph-typology study that measured what that boundary costs (ADR-017) — this is the page where
+ *   a reader asks why cross-account graph features are absent, so the answer belongs here.
  */
 import { useCallback } from "react";
 
@@ -29,6 +32,7 @@ import {
   type DriftReportListResponse,
   type ModelVersionListResponse,
 } from "../lib/api";
+import { paths } from "../lib/router";
 import { notify } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
 import { useAsyncAction } from "../lib/useAsyncAction";
@@ -86,6 +90,16 @@ export function ModelAdmin({ client = apiClient }: ModelAdminProps) {
         title="Model administration"
         description="Retrain, promote, and roll back the scoring model — human-gated, no redeploy."
       />
+      {/* The served feature contract stops at single-hop, tenant-scoped aggregates, and this is
+          the page where a reader wonders why. Point at the study that measured the answer rather
+          than leaving it as an unexplained absence (ADR-017). */}
+      <p className="text-body-sm text-body">
+        The scored vector stays single-hop and tenant-scoped — no cross-account graph features.{" "}
+        <a href={paths.researchGraphTypologies} className="text-ink font-semibold underline">
+          See what that boundary costs
+        </a>
+        .
+      </p>
       <AsyncBoundary state={state}>
         {(data) => (
           <ModelLifecyclePanel
