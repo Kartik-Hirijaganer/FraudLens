@@ -14,18 +14,26 @@
  * - ResearchProps: the committed study data + the viewer's verified agency index.
  *
  * Key functions:
- * - ADR_017_HREF: the link to the serving-boundary ADR shown in the banner.
- * - Research: render the metric hero, banner, motif tabs, scope control, graph, and panels.
+ * - ADR_017_HREF: bundle the canonical ADR text into a UTF-8 browser-readable URL.
+ * - Research: render the finding, metric hero, banner, motif tabs, scope control, graph, panels.
  * - RESEARCH_PATH: the canonical hash route for the research page.
  *
  * Notes:
  * - The isolation-delta copy says "isolation delta" and only "cost of isolation" when the
- *   signed delta is positive; the lift resume reads positive only when the interval supports it.
+ * signed delta is positive; the lift resume reads positive only when the interval supports it.
+ * - `headlineFinding` leads the page because the four tiles state PR-AUC and a normalized multiple
+ * but not the CONCLUSION; it is derived from the artifact and its wording follows the measured
+ * signs, so a zero or negative isolation delta reads as the valid result ADR-017 says it is.
+ * - The partition anchor names which study partition the runtime demo agency mirrors WITHOUT
+ * calling it a tenant: partitions are an offline analysis concept and exactly one runtime tenant
+ * exists (ADR-017, ADR-018). Model admin links here so the served contract's single-hop limit is
+ * an answered question rather than an unexplained absence.
  * - The current-agency option is bound to the viewer's VERIFIED agency (never client-selected);
- *   a text-alternative table lists every node and edge for non-visual and keyboard users.
+ * a text-alternative table lists every node and edge for non-visual and keyboard users.
  */
 import { useMemo, useState } from "react";
 
+import adr017Text from "../../../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md?raw";
 import {
   MotifGraph,
   type EdgeView,
@@ -41,7 +49,14 @@ import { layoutGraph } from "../lib/graphLayout";
 import { TYPOLOGIES, type GfpStudyData, type Typology } from "../lib/gfpStudy";
 import { paths } from "../lib/router";
 
-export const ADR_017_HREF = "/docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md";
+function createAdrHref(): string {
+  if (typeof URL.createObjectURL === "function") {
+    return URL.createObjectURL(new Blob([adr017Text], { type: "text/plain;charset=utf-8" }));
+  }
+  return `data:text/plain;charset=utf-8,${encodeURIComponent(adr017Text)}`;
+}
+
+export const ADR_017_HREF = createAdrHref();
 
 const TYPOLOGY_LABELS: Record<Typology, string> = {
   scatter_gather: "Scatter–gather",
@@ -53,6 +68,34 @@ type Scope = "global" | "tenant";
 
 function signed(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
+}
+
+// Shorter precision for the plain-language finding: four decimals read as noise in a sentence.
+function signedShort(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(3)}`;
+}
+
+/**
+ * Build the study's headline finding as one plain sentence, DERIVED from the metrics.
+ *
+ * The four tiles below it lead with PR-AUC and a normalized multiple, which a non-ML reader cannot
+ * turn into a conclusion. The conclusion is the relationship between two of them: the graph lift is
+ * large, and almost none of it needs a cross-tenant graph. Every number here is read from the
+ * artifact, and the wording follows the sign of the measured values rather than assuming the
+ * favourable result — a zero or negative isolation delta is a valid outcome (ADR-017).
+ */
+function headlineFinding(metrics: GfpStudyData["metrics"]): string {
+  const lift = `Multi-hop graph features move holdout PR-AUC by ${signedShort(metrics.armAToCLift)}`;
+  if (metrics.isolationDeltaC > 0) {
+    return (
+      `${lift}. Only ${signedShort(metrics.isolationDeltaC)} of that depends on seeing across ` +
+      `tenant boundaries — so FraudLens declines to cross them, at almost none of the benefit.`
+    );
+  }
+  return (
+    `${lift}. Restricting the graph to a single tenant costs nothing measurable ` +
+    `(${signedShort(metrics.isolationDeltaC)}), so the isolation boundary is free here.`
+  );
 }
 
 function clampAgency(index: number | null, count: number): number {
@@ -74,7 +117,7 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
     [data.motifs],
   );
   const [activeTypology, setActiveTypology] = useState<Typology>(available[0]);
-  const [scope, setScope] = useState<Scope>("global");
+  const [scope, setScope] = useState<Scope>("tenant");
   const [selected, setSelected] = useState<GraphSelection>(null);
 
   const tenantIndex = clampAgency(viewerAgencyIndex, data.agencyNames.length);
@@ -132,6 +175,9 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
   });
 
   const ghostCount = edgeViews.filter((edge) => !edge.present).length;
+  const motifOwnerName = motif.servable
+    ? agencyName(motif.edges[0]?.ownerAgencyIndex ?? tenantIndex)
+    : null;
   const motifAgencies = [
     ...new Set([
       ...motif.nodes.map((node) => node.agencyIndex),
@@ -168,11 +214,20 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
           These graph features are measured offline and serve in no scope. A static page behind
           login is not tenant-confidentiality authorization; it is safe only because the data is
           public, synthetic, aggregated, and opaque.{" "}
-          <a href={ADR_017_HREF} className="text-ink font-semibold underline">
+          <a
+            href={ADR_017_HREF}
+            target="_blank"
+            rel="noreferrer"
+            className="text-ink font-semibold underline"
+          >
             ADR-017 · Graph feature serving boundary
           </a>
         </p>
       </div>
+
+      <p className="text-body-md text-ink max-w-[70ch] font-semibold" data-testid="study-finding">
+        {headlineFinding(metrics)}
+      </p>
 
       <dl className="gap-lg grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
@@ -227,7 +282,7 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
         </div>
 
         <div className="gap-xl flex flex-col lg:flex-row">
-          <div className="bg-canvas-soft grow rounded-lg">
+          <div className="bg-canvas-soft grow overflow-x-auto rounded-lg">
             <MotifGraph
               titleId="motif-graph-title"
               descId="motif-graph-desc"
@@ -260,7 +315,19 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                 ))}
               </ul>
               <p className="text-caption text-mute">
-                Solid = owned by the current view · dashed = unavailable to this tenant.
+                {scope === "global"
+                  ? "Global scope shows every agency's edges as solid."
+                  : `Solid = owned by ${tenantName} · dashed = unavailable to this tenant.`}
+              </p>
+              {/* Anchors the study to the app the reader is signed into WITHOUT claiming a
+                  partition is a tenant: these are offline analysis partitions, and the runtime
+                  demo agency declares which one it mirrors (`agency.research_partition_key`). */}
+              <p className="text-caption text-mute" data-testid="partition-anchor">
+                <span className="text-ink font-semibold">
+                  {agencyStyle(tenantIndex).letter} · {tenantName}
+                </span>{" "}
+                is the offline study partition the agency you are signed into mirrors. Partitions
+                are an analysis concept — only one runtime tenant exists.
               </p>
             </div>
 
@@ -273,6 +340,10 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                 nodeViews={nodeViews}
                 edgeViews={edgeViews}
                 motifServable={motif.servable}
+                motifOwnerName={motifOwnerName}
+                scope={scope}
+                tenantName={tenantName}
+                ghostCount={ghostCount}
               />
             </div>
           </aside>
@@ -337,9 +408,22 @@ interface DetailBodyProps {
   nodeViews: NodeView[];
   edgeViews: EdgeView[];
   motifServable: boolean;
+  motifOwnerName: string | null;
+  scope: Scope;
+  tenantName: string;
+  ghostCount: number;
 }
 
-function DetailBody({ selected, nodeViews, edgeViews, motifServable }: DetailBodyProps) {
+function DetailBody({
+  selected,
+  nodeViews,
+  edgeViews,
+  motifServable,
+  motifOwnerName,
+  scope,
+  tenantName,
+  ghostCount,
+}: DetailBodyProps) {
   if (selected?.kind === "node") {
     const node = nodeViews.find((candidate) => candidate.id === selected.id);
     if (node) {
@@ -352,10 +436,19 @@ function DetailBody({ selected, nodeViews, edgeViews, motifServable }: DetailBod
       return <p className="text-body-sm text-body">{edge.label}</p>;
     }
   }
+  if (motifServable && scope === "tenant") {
+    return (
+      <p className="text-body-sm text-body">
+        {ghostCount === 0
+          ? `Every edge is owned by ${tenantName}; this motif survives the isolation boundary.`
+          : `Every edge is owned by ${motifOwnerName ?? "one agency"}; ${tenantName} cannot see this motif in its isolated graph.`}
+      </p>
+    );
+  }
   return (
     <p className="text-body-sm text-body">
       {motifServable
-        ? "Every displayed edge is owned by one tenant — this motif is servable within a single agency."
+        ? `Every edge is owned by ${motifOwnerName ?? "one agency"}; the motif is servable within that single agency.`
         : "This motif spans multiple tenants, so no single agency can see it — the point of the isolation boundary. Select a node or edge for detail."}
     </p>
   );
