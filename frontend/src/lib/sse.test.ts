@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSseClient, type SseMessage } from "./sse";
-import { DEMO_ROLES, signIn, signOut } from "./session";
+import { signIn, signOut } from "./session";
+import { demoPersona } from "../test/factories";
 
 function streamResponse(...frames: string[]): Response {
   const encoder = new TextEncoder();
@@ -110,7 +111,8 @@ describe("createSseClient", () => {
   });
 
   it("sends the demo role header for dev-bypass sessions", async () => {
-    signIn(DEMO_ROLES[0].email, false, DEMO_ROLES[0].role);
+    const persona = demoPersona("analyst");
+    signIn(persona.email, false, persona.role);
     const fetchMock = vi.fn(() =>
       Promise.resolve(streamResponse('event: run.started\ndata: {"ok":true}\n\n')),
     );

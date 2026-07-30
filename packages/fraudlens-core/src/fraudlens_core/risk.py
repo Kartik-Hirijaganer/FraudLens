@@ -47,8 +47,9 @@ _MIN_SCORE = 0.0
 _MAX_SCORE = 1.0
 
 # Documented default blend/banding policy — mirrored by the seeded global `system_config`
-# (`riskBandThresholds` / `alertThreshold`); the model-vs-rules weight is a core default
-# (no `system_config` key in v1), so a single source of truth lives here (plan §10.1 / §9.1).
+# (`riskBandThresholds` / `alertThreshold` / `riskBlendModelWeight`). These stay the documented
+# in-process fallbacks a DB outage degrades to, so a single source of truth lives here
+# (plan §10.1 / §9.1).
 _DEFAULT_MODEL_WEIGHT = 0.7
 _DEFAULT_BAND_THRESHOLDS: dict[RiskBand, float] = {
     RiskBand.LOW: 0.0,

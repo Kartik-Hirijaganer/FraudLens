@@ -5,18 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import type { SarDraftView } from "../lib/api";
-import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
+import { signIn, signOut, type UserRole } from "../lib/session";
 import type { SseClientOptions, SseHandle } from "../lib/sse";
 import { notify, notifyError } from "../lib/toast";
-import { makeClient, sarDraft, snapshot } from "../test/factories";
+import { demoPersona, makeClient, sarDraft, snapshot } from "../test/factories";
 import { Investigation } from "./Investigation";
 
 function signInAs(role: UserRole): void {
-  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
-  if (!demoRole) {
-    throw new Error(`Missing demo role: ${role}`);
-  }
-  signIn(demoRole.email, false, demoRole.role);
+  const persona = demoPersona(role);
+  signIn(persona.email, false, persona.role);
 }
 
 beforeEach(() => {

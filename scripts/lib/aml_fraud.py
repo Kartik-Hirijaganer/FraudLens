@@ -16,7 +16,7 @@ all-negative CSV prefix — where the public label steers offline selection ONLY
 persisted or converted into an alert.
 
 Key classes:
-- IbmDemoTransaction: a canonical IBM row paired with its deterministic demo-agency partition.
+- IbmDemoTransaction: a canonical IBM row paired with its deterministic tenant partition.
 
 Key functions:
 - load_frame: read a fetched dataset CSV, keeping only the columns the features consume.
@@ -146,14 +146,16 @@ _ANCHOR_MIN = 6  # small budgets still get a handful of laundering neighborhoods
 _NEIGHBORHOOD_WINDOW_SECONDS = 3 * 86_400.0  # ±3 days around an anchor's first laundering row.
 _NEIGHBORHOOD_MAX_ROWS = 24  # per-anchor row cap keeps one busy account from eating the pack.
 _BENIGN_OVERSAMPLE = 2  # benign stride candidates buffered vs the final benign quota.
-# 60/20/20 anchor spread across the demo agencies; index 0 is the primary (batch-scored) tenant.
-_TENANT_PATTERN: tuple[int, ...] = (0, 0, 0, 1, 2)
+# Default 60/20/20 anchor spread; index 0 is the primary (batch-scored) tenant. Callers that
+# partition differently (the single-tenant portfolio demo) pass their own `tenant_weights`;
+# this default keeps the offline GFP study path byte-for-byte unchanged.
+_DEFAULT_TENANT_WEIGHTS: tuple[int, ...] = (0, 0, 0, 1, 2)
 _LAUNDERING_LABEL = "1"
 _BENIGN_LABEL = "0"
 
 
 class IbmDemoTransaction(BaseModel):
-    """A canonical IBM transaction paired with its deterministic demo-agency partition."""
+    """A canonical IBM transaction paired with its deterministic tenant partition."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -682,13 +684,16 @@ def _epoch_seconds(value: str) -> float:
 
 
 def _select_anchors(
-    csv_path: Path, anchor_budget: int, agency_count: int
+    csv_path: Path,
+    anchor_budget: int,
+    agency_count: int,
+    tenant_weights: tuple[int, ...] = _DEFAULT_TENANT_WEIGHTS,
 ) -> dict[str, _AnchorSpec]:
     """Pick the earliest distinct laundering origin accounts and assign their tenants.
 
-    Deterministic: laundering rows are ordered by (timestamp, file position); the 60/20/20
-    `_TENANT_PATTERN` cycles tenants so the primary (batch-scored) demo agency receives the
-    majority of laundering neighborhoods.
+    Deterministic: laundering rows are ordered by (timestamp, file position); `tenant_weights`
+    cycles tenants so the primary (batch-scored) tenant receives the caller's chosen share of
+    laundering neighborhoods (the default is the study's 60/20/20 spread).
     """
     laundering: list[tuple[float, int, str]] = []
     for chunk in _ibm_chunks(csv_path):
@@ -703,12 +708,14 @@ def _select_anchors(
             "case pack found no laundering ground truth in the dataset file — "
             "verify the fetched variant is HI-Small_Trans.csv"
         )
+    if not tenant_weights:
+        raise ValueError("tenant_weights must contain at least one partition index")
     laundering.sort(key=lambda item: (item[0], item[1], item[2]))
     anchors: dict[str, _AnchorSpec] = {}
     for moment, _, key in laundering:
         if key in anchors:
             continue
-        tenant = _TENANT_PATTERN[len(anchors) % len(_TENANT_PATTERN)] % agency_count
+        tenant = tenant_weights[len(anchors) % len(tenant_weights)] % agency_count
         anchors[key] = _AnchorSpec(
             tenant=tenant,
             window_start=moment - _NEIGHBORHOOD_WINDOW_SECONDS,
@@ -720,7 +727,11 @@ def _select_anchors(
 
 
 def load_ibm_case_pack(
-    paths: DatasetPaths, *, rows: int, agency_count: int = _DEFAULT_DEMO_AGENCIES
+    paths: DatasetPaths,
+    *,
+    rows: int,
+    agency_count: int = _DEFAULT_DEMO_AGENCIES,
+    tenant_weights: tuple[int, ...] = _DEFAULT_TENANT_WEIGHTS,
 ) -> list[IbmDemoTransaction]:
     """Build the deterministic demo case pack: laundering neighborhoods + benign controls.
 
@@ -737,7 +748,7 @@ def load_ibm_case_pack(
     csv_path = Path(paths.directory) / paths.files[0].name
     total_rows = paths.files[0].row_count
     anchor_budget = max(_ANCHOR_MIN, rows // _ANCHOR_ROW_DIVISOR)
-    anchors = _select_anchors(csv_path, anchor_budget, agency_count)
+    anchors = _select_anchors(csv_path, anchor_budget, agency_count, tenant_weights)
 
     stride = max(1, total_rows // max(1, rows))
     benign_cap = rows * _BENIGN_OVERSAMPLE
