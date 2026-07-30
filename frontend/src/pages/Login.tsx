@@ -2,9 +2,12 @@
  * Summary: The FraudLens sign-in screen (plan §16 Phase 11) — the pre-auth gate rendered
  * by the shell whenever there is no session. Matches the approved design brief: a navy brand
  * panel (wordmark, animated grid motif, product promise) beside a light sign-in form. The
- * "Demo · sign in as" picker lists synthetic `DEMO_ROLES` when either the local-only dev bypass
- * or the explicit live-demo flag is enabled. The live flag works in portfolio production builds:
- * it still uses Supabase email/password plus `/api/v1/me` and stores the verified role/agency.
+ * "Demo · sign in as" picker lists the `personas` it is handed — the backend's public projection
+ * of `config/portfolio-demo.yaml`, never a TypeScript constant — when either the local-only dev
+ * bypass or the explicit live-demo flag is enabled. The live flag works in portfolio production
+ * builds: it still uses Supabase email/password plus `/api/v1/me` and stores the verified
+ * role/agency. Whichever path signs in, the session carries a display identity from the same
+ * source as the credentials (the picked persona, or the verified `/me` display name).
  *
  * Key classes:
  * - (none)
@@ -16,7 +19,10 @@
  * - Login: render the split-panel sign-in screen and start a demo or Supabase session on submit.
  *
  * Notes:
- * - Auto-filled credentials are synthetic demo values (see session.ts) — no PHI, no real secret.
+ * - Auto-filled credentials are synthetic demo values fetched from the backend projection — no
+ *   PHI, no real secret, and no credential literal in this bundle.
+ * - The projection's loading / unavailable states only affect the picker: the email-password form
+ *   stays usable, so a failed (or disabled) demo projection never blocks a real sign-in.
  * - The login uses its own `auth-*` slate/sky palette (tailwind.config) to match the design brief,
  *   deliberately distinct from the wise tokens used by the signed-in shell.
  * - All motion is gated behind `motion-safe:` so reduced-motion users get the static final frame.
@@ -25,7 +31,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { cx } from "../lib/cx";
 import { fetchCurrentUser } from "../lib/api";
-import { DEMO_ROLES, signIn as startSession, type DemoRole, type RoleAccent } from "../lib/session";
+import type { PortfolioDemoStatus } from "../lib/portfolioDemo";
+import {
+  analystFromDisplayName,
+  signIn as startSession,
+  type DemoRole,
+  type RoleAccent,
+} from "../lib/session";
 import { signInWithPassword } from "../lib/supabase";
 import { notify, notifyError } from "../lib/toast";
 
@@ -54,16 +66,36 @@ export function isDemoBypassEnabled(
   return env.DEV && env.VITE_AUTH_DEV_BYPASS === "true";
 }
 
-// Live demo auth = real Supabase email/password sign-in against seeded demo tenants. Agency Two
-// (and any `requiresLiveAuth` persona) needs an agency-bound JWT, so it is offered only here —
-// never via the tokenless dev bypass, which mints Agency One claims only.
+// Live demo auth = real Supabase email/password sign-in against the seeded demo tenant. It is
+// the picker gate for portfolio production builds, where the tokenless dev bypass is off.
 export function isLiveDemoAuthEnabled(
   env: Pick<ImportMetaEnv, "VITE_DEMO_AUTH_ENABLED"> = import.meta.env,
 ): boolean {
   return env.VITE_DEMO_AUTH_ENABLED === "true";
 }
 
-export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
+// What the picker says while the backend projection is loading or unusable. `disabled` never
+// renders (the whole picker is hidden), and only `ready` invites a selection — a failed
+// projection says so plainly instead of offering an empty list.
+const PERSONA_STATUS_TEXT: Record<PortfolioDemoStatus, { note: string; placeholder: string }> = {
+  disabled: { note: "", placeholder: "" },
+  loading: { note: "loading personas…", placeholder: "Loading demo personas…" },
+  failed: {
+    note: "personas unavailable",
+    placeholder: "Demo personas unavailable — sign in above",
+  },
+  ready: { note: "credentials auto-filled", placeholder: "Choose a role to auto-fill…" },
+};
+
+export function Login({
+  env = import.meta.env,
+  personas = [],
+  personasStatus = "ready",
+}: {
+  env?: LoginEnv;
+  personas?: readonly DemoRole[];
+  personasStatus?: PortfolioDemoStatus;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -74,10 +106,7 @@ export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const showDemoPicker = isDemoPickerEnabled(env);
-  // Agency-Two (live-auth) personas appear only when live demo auth is on; the dev bypass
-  // mints Agency One only, so a live-auth persona picked under the bypass still uses Supabase.
-  const liveDemoAuth = isLiveDemoAuthEnabled(env);
-  const visiblePersonas = DEMO_ROLES.filter((r) => !r.requiresLiveAuth || liveDemoAuth);
+  const visiblePersonas = personas;
   const selectedRole = visiblePersonas.find((r) => r.id === roleId) ?? null;
   const canSubmit = email.trim().length > 0 && password.length > 0 && !signingIn;
 
@@ -115,27 +144,31 @@ export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
     if (!canSubmit) {
       return;
     }
-    if (
-      showDemoPicker &&
-      selectedRole &&
-      !selectedRole.requiresLiveAuth &&
-      isDemoBypassEnabled(env)
-    ) {
-      // Tokenless dev bypass — Agency One only; persist the persona's agency for the shell/study.
-      startSession(email.trim(), remember, selectedRole.role, undefined, selectedRole.agencyId);
+    if (showDemoPicker && selectedRole && isDemoBypassEnabled(env)) {
+      // Tokenless dev bypass; persist the configured persona's agency + display identity.
+      startSession(
+        email.trim(),
+        remember,
+        selectedRole.role,
+        undefined,
+        selectedRole.agencyId,
+        selectedRole.analyst,
+      );
       return;
     }
     setSigningIn(true);
     try {
       const accessToken = await signInWithPassword(email.trim(), password);
       const currentUser = await fetchCurrentUser(accessToken);
-      // The tenant comes from the VERIFIED /me claim, never a client-selected agency.
+      // The tenant and the display identity both come from the VERIFIED /me response, never a
+      // client-selected agency or a bundled name.
       startSession(
         currentUser.email,
         remember,
         currentUser.role,
         accessToken,
         currentUser.agencyId,
+        currentUser.displayName ? analystFromDisplayName(currentUser.displayName) : undefined,
       );
     } catch (caught) {
       notifyError(caught);
@@ -298,7 +331,7 @@ export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
                   Demo · sign in as
                 </span>
                 <span className="text-auth-faint font-mono text-[10px]">
-                  credentials auto-filled
+                  {PERSONA_STATUS_TEXT[personasStatus].note}
                 </span>
               </div>
               <div className="relative">
@@ -307,9 +340,10 @@ export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
                   aria-haspopup="listbox"
                   aria-expanded={menuOpen}
                   aria-labelledby="login-role-label"
+                  disabled={personasStatus === "loading" || personasStatus === "failed"}
                   onClick={() => setMenuOpen((v) => !v)}
                   className={cx(
-                    "border-auth-border hover:border-auth-border-strong gap-md flex w-full items-center rounded-sm border bg-canvas px-lg py-md text-left transition",
+                    "border-auth-border hover:border-auth-border-strong gap-md flex w-full items-center rounded-sm border bg-canvas px-lg py-md text-left transition disabled:cursor-not-allowed disabled:opacity-50",
                     menuOpen && "border-auth-panel shadow-auth-focus",
                   )}
                 >
@@ -325,7 +359,9 @@ export function Login({ env = import.meta.env }: { env?: LoginEnv }) {
                       selectedRole ? "text-auth-panel" : "text-auth-faint",
                     )}
                   >
-                    {selectedRole ? selectedRole.name : "Choose a role to auto-fill…"}
+                    {selectedRole
+                      ? selectedRole.name
+                      : PERSONA_STATUS_TEXT[personasStatus].placeholder}
                   </span>
                   <span
                     className={cx(
