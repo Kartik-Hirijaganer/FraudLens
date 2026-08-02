@@ -20,7 +20,7 @@ Notes:
   the benchmark fails fast on absent files rather than downloading.
 - engine=snapml requires the installed snapml version to EQUAL the protocol pin —
   a mismatched engine invalidates the frozen protocol and aborts before any work.
-- Tenant ownership reuses the existing demo partition (`AML_DEMO_AGENCIES` +
+- Tenant ownership reuses the study's own offline partitions (`RESEARCH_PARTITIONS` +
   `demo_agency_index`) — never a second ownership model (plan "Tenant ownership").
 """
 
@@ -35,7 +35,6 @@ import numpy as np
 import pandas as pd
 
 import fetch_dataset
-from fraudlens_backend.demo import AML_DEMO_AGENCIES
 from fraudlens_backend.settings import get_settings
 from lib.aml_fraud import IBM_AML, build_feature_matrix, load_frame, servable_frame
 from lib.gfp.benchmark import (
@@ -55,6 +54,7 @@ from lib.gfp.curation import CurationResult, curate_motifs
 from lib.gfp.edges import GfpEdgeSet, build_gfp_edge_set, with_targets
 from lib.gfp.fake import FakeGraphPreprocessor
 from lib.gfp.materialize import EngineFactory
+from lib.gfp.partitions import RESEARCH_PARTITIONS
 from lib.gfp.publish import CuratedRunPayload, publish_run, write_run_artifacts
 from lib.gfp.reference import ReferenceGraphPreprocessor
 from lib.gfp.sampling import select_context_with_escalation, stratify_targets
@@ -199,7 +199,7 @@ def _run(config_path: Path, engine_name: str) -> int:
     )
     settings = get_settings()
     data_dir = REPO_ROOT / config.paths.data_dir
-    agency_count = len(AML_DEMO_AGENCIES)
+    agency_count = len(RESEARCH_PARTITIONS)
 
     provenance: list[DatasetProvenance] = []
     results: list[DatasetBenchmarkResult] = []
@@ -245,7 +245,7 @@ def _run(config_path: Path, engine_name: str) -> int:
         results=tuple(results),
     )
     payload = CuratedRunPayload(
-        agency_names=tuple(spec.name for spec in AML_DEMO_AGENCIES),
+        agency_names=RESEARCH_PARTITIONS,
         missing_typologies=curation.missing_typologies,
         motifs=curation.motifs,
     )
