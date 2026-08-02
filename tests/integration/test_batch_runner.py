@@ -37,6 +37,7 @@ from fraudlens_backend.db.repositories import (
 )
 from fraudlens_backend.jobs.runner import BatchScoreResult, run_batch_score, select_uninvestigated
 from fraudlens_backend.pipeline_wiring import PipelineRunStore, build_pipeline_components
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RiskPolicy
 from fraudlens_ml.pipeline import PipelineDeps
@@ -193,3 +194,37 @@ async def test_run_batch_score_isolates_a_poisoned_transaction(
         ).scalar_one()
         assert failed_run.status is RunStatus.FAILED
         assert failed_run.error_code == "batch_input_error"
+
+
+def _record_cli_target(monkeypatch: pytest.MonkeyPatch, seen: list[uuid.UUID]) -> None:
+    """Capture the tenant the CLI resolves without touching a database or an event loop."""
+
+    async def _fake_amain(agency_id: uuid.UUID) -> int:
+        seen.append(agency_id)
+        return 0
+
+    monkeypatch.setattr(batch, "_amain", _fake_amain)
+
+
+def test_cli_defaults_to_the_configured_demo_agency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No `--agency-id` resolves the configured portfolio demo tenant, never a source constant."""
+    seen: list[uuid.UUID] = []
+    _record_cli_target(monkeypatch, seen)
+
+    assert batch.main([]) == 0
+    assert seen == [load_portfolio_demo_config().agency.id]
+
+
+def test_cli_accepts_an_explicit_agency_and_rejects_a_non_uuid(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--agency-id` targets any tenant; a malformed value fails closed with a PHI-free message."""
+    seen: list[uuid.UUID] = []
+    _record_cli_target(monkeypatch, seen)
+
+    assert batch.main(["--agency-id", str(_AGENCY_ID)]) == 0
+    assert seen == [_AGENCY_ID]
+
+    assert batch.main(["--agency-id", "not-a-uuid"]) == 1
+    assert "must be a UUID" in capsys.readouterr().out
+    assert seen == [_AGENCY_ID]
