@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 import pytest
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID, demo_user_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from tenancy import new_user_id
 
 from fraudlens_backend.api.deps import get_tenant
 from fraudlens_backend.db.models import (
@@ -52,7 +54,6 @@ from fraudlens_backend.db.repositories import (
     SarDraftRepository,
 )
 from fraudlens_backend.db.repositories.alerts import load_label_maturity_days
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID
 from fraudlens_backend.main import create_app
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.pipeline_wiring import PipelineRunStore
@@ -61,7 +62,7 @@ from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RiskBand
 from fraudlens_ml.pipeline import AlertRecord
 
-_REVIEWER_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
+_REVIEWER_ID = new_user_id()
 _OTHER_AGENCY_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
 _OTHER_USER_ID = uuid.UUID("77777777-7777-4777-8777-777777777777")
 
@@ -88,18 +89,18 @@ async def _ensure_identities(session: AsyncSession) -> None:
         session.add(Agency(id=_OTHER_AGENCY_ID, name="Other", slug="other-alerts"))
         session.add(
             User(
-                id=DEMO_USER_ID,
+                id=DEMO_BYPASS_USER_ID,
                 agency_id=DEMO_AGENCY_ID,
-                email="analyst@demo-agency.test",
-                display_name="Demo Analyst",
-                role=UserRole.ANALYST,
+                email="bypass-actor@alerts.test",
+                display_name="Demo Bypass Actor",
+                role=UserRole.ADMIN,
             )
         )
         session.add(
             User(
                 id=_REVIEWER_ID,
                 agency_id=DEMO_AGENCY_ID,
-                email="reviewer@demo-agency.test",
+                email="reviewer@alerts.test",
                 display_name="Demo Reviewer",
                 role=UserRole.REVIEWER,
             )
@@ -284,13 +285,13 @@ async def test_assign_moves_to_in_review_and_audits(
             )
         ).scalar_one()
         assert action.action.value == "assign"
-        assert action.actor_id == DEMO_USER_ID  # the dev-bypass acting user
+        assert action.actor_id == DEMO_BYPASS_USER_ID  # the dev-bypass acting user
         assert action.to_status == "in_review"
         audit = (
             await session.execute(select(AuditLog).where(AuditLog.action == "alert.assign"))
         ).scalar_one()
         assert audit.resource_id == str(ids["alert_id"])
-        assert audit.actor_id == DEMO_USER_ID
+        assert audit.actor_id == DEMO_BYPASS_USER_ID
         assert audit.meta["assigneeId"] == str(_REVIEWER_ID)
 
 
@@ -349,7 +350,7 @@ async def test_resolve_writes_training_label(
         ).scalar_one()
         assert label.label.value == "confirmed_fraud"
         assert label.source.value == "analyst_review"
-        assert label.created_by == DEMO_USER_ID
+        assert label.created_by == DEMO_BYPASS_USER_ID
         assert label.transaction_id == ids["transaction_id"]
         assert label.matured_at is not None  # a future maturity is stamped for the retrain job
 
@@ -441,7 +442,8 @@ async def test_analyst_cannot_finalize_alert_or_review_sar(
         ).scalar_one()
     assert label.label.value == "false_positive"
     assert label.source.value == "analyst_dismiss"
-    assert label.created_by == DEMO_USER_ID
+    # This app runs the bypass as `analyst`, so the actor is the ANALYST persona, not the default.
+    assert label.created_by == demo_user_id(UserRole.ANALYST)
 
 
 async def test_comment_note_is_phi_masked(
@@ -537,7 +539,7 @@ async def test_sar_reject_sets_rejected(
         draft = await session.get(SarDraft, ids["sar_id"])
         assert draft is not None
         assert draft.status is SarStatus.REJECTED
-        assert draft.reviewed_by == DEMO_USER_ID
+        assert draft.reviewed_by == DEMO_BYPASS_USER_ID
 
 
 async def test_sar_edit_creates_new_reviewed_version(
@@ -890,7 +892,7 @@ async def test_alert_detail_includes_action_history(
     actions = detail.json()["actions"]
     assert len(actions) == 1
     assert actions[0]["action"] == "comment"
-    assert actions[0]["actorId"] == str(DEMO_USER_ID)
+    assert actions[0]["actorId"] == str(DEMO_BYPASS_USER_ID)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -951,7 +953,7 @@ async def test_triage_high_risk_alert_end_to_end(
             )
         ).scalar_one()
         assert label.label.value == "confirmed_fraud"
-        assert label.created_by == DEMO_USER_ID
+        assert label.created_by == DEMO_BYPASS_USER_ID
         alert_actions = (
             (
                 await session.execute(
