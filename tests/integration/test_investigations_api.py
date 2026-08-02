@@ -25,6 +25,7 @@ from pipeline_fakes import (
     FakeSarDrafter,
     FakeScorerPort,
 )
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -60,7 +61,6 @@ from fraudlens_backend.db.repositories import (
     ModelRegistryRepository,
     SarDraftRepository,
 )
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.main import create_app
 from fraudlens_backend.pipeline_wiring import PipelineRunStore, RunManager
 from fraudlens_backend.settings import AppSettings
