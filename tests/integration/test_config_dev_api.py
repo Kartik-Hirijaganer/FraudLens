@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import AccessClaims, get_token_verifier
 from fraudlens_backend.db.models import AuditLog, SystemConfig
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 from seed import seed
@@ -113,7 +113,7 @@ async def test_dev_utility_routes_are_disabled_in_prod_with_real_auth(
     app.dependency_overrides[get_token_verifier] = lambda: (
         lambda _token: AccessClaims(
             agency_id=str(DEMO_AGENCY_ID),
-            user_id=str(DEMO_USER_ID),
+            user_id=str(DEMO_BYPASS_USER_ID),
             role="admin",
         )
     )

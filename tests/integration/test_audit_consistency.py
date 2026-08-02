@@ -8,11 +8,11 @@ audit (Phase 10) is re-verified here so the consistent-audit property is guarded
 from __future__ import annotations
 
 import json
-import uuid
 from collections.abc import Callable
 from typing import Any
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from training_label_fakes import add_matured_training_labels
@@ -33,7 +33,6 @@ from fraudlens_backend.middleware.logging import scrub_text
 from fraudlens_backend.settings import AppSettings
 from seed import seed
 
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 _CSV_HEADER = "externalId,amount,currency,occurredAt,originAccount,destAccount,channel,country"
 
 
@@ -70,7 +69,7 @@ async def _audit_rows(sm: async_sessionmaker[AsyncSession]) -> list[AuditLog]:
     """Return every audit_logs row for the demo agency."""
     async with sm() as session:
         rows = (
-            (await session.execute(select(AuditLog).where(AuditLog.agency_id == _DEMO_AGENCY_ID)))
+            (await session.execute(select(AuditLog).where(AuditLog.agency_id == DEMO_AGENCY_ID)))
             .scalars()
             .all()
         )
@@ -179,7 +178,7 @@ async def test_investigation_start_writes_audit_row(
         transaction_id = str(
             (
                 await session.execute(
-                    select(Transaction.id).where(Transaction.agency_id == _DEMO_AGENCY_ID).limit(1)
+                    select(Transaction.id).where(Transaction.agency_id == DEMO_AGENCY_ID).limit(1)
                 )
             ).scalar_one()
         )

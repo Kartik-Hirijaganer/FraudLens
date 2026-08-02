@@ -6,10 +6,10 @@ inference log records which arm scored ("canary logs both models")."""
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from portfolio_demo_identity import DEMO_ANALYST_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,8 +27,6 @@ from fraudlens_backend.pipeline_wiring import ScorerAdapter, resolve_scoring_poi
 from fraudlens_core import RuleContext
 from fraudlens_ml.scoring import DeploymentPointer, ModelCache, Scorer
 from seed import seed
-
-_DEMO_USER_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 
 async def _set_canary(session: AsyncSession, *, label: str, percent: int) -> ModelVersion:
@@ -133,8 +131,8 @@ async def _activate_new_version(session: AsyncSession, *, label: str) -> None:
     await session.flush()
     lifecycle = ModelLifecycleRepository(session)
     await lifecycle.promote_to_shadow(version)
-    await lifecycle.approve(version, approved_by=_DEMO_USER_ID)
-    await lifecycle.activate(version, updated_by=_DEMO_USER_ID)
+    await lifecycle.approve(version, approved_by=DEMO_ANALYST_ID)
+    await lifecycle.activate(version, updated_by=DEMO_ANALYST_ID)
 
 
 async def test_pointer_reloads_after_activation(db_session: AsyncSession) -> None:

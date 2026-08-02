@@ -8,11 +8,11 @@ import uuid
 from typing import Any
 
 import pytest
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import Agency, Transaction
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_core import SchemaValidationError
 from import_ieee import ingest_rows, load_sample_rows, map_ieee_row, seed_sample_transactions
 
