@@ -151,7 +151,7 @@ class CuratedMotifNode(BaseModel):
     node_id: str = Field(
         ..., pattern=r"^node-\d{2,}$", description="Opaque sequential id, e.g. 'node-01'."
     )
-    agency_index: int = Field(..., ge=0, description="Owning demo-agency index of the node.")
+    agency_index: int = Field(..., ge=0, description="Owning research-partition index of the node.")
 
 
 class CuratedMotifEdge(BaseModel):

@@ -5,17 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
-import { DEMO_ROLES, signIn, signOut, type UserRole } from "../lib/session";
+import { signIn, signOut, type UserRole } from "../lib/session";
 import { notify } from "../lib/toast";
-import { makeClient, transaction } from "../test/factories";
+import { demoPersona, makeClient, transaction } from "../test/factories";
 import { Transactions } from "./Transactions";
 
 function signInAs(role: UserRole): void {
-  const demoRole = DEMO_ROLES.find((candidate) => candidate.role === role);
-  if (!demoRole) {
-    throw new Error(`Missing demo role: ${role}`);
-  }
-  signIn(demoRole.email, false, demoRole.role);
+  const persona = demoPersona(role);
+  signIn(persona.email, false, persona.role);
 }
 
 beforeEach(() => {
@@ -80,7 +77,7 @@ describe("Transactions", () => {
     expect(client.startInvestigation).not.toHaveBeenCalled();
   });
 
-  it("re-queries the server when the risk-band filter changes", async () => {
+  it("re-queries the server when the risk-band filter changes, and mirrors it in the URL", async () => {
     const listTransactions = vi.fn(() =>
       Promise.resolve({ transactions: [transaction()], nextCursor: null, total: 1 }),
     );
@@ -95,6 +92,29 @@ describe("Transactions", () => {
         cursor: undefined,
       }),
     );
+    // The filtered view is shareable: the dashboard's chips link to exactly this URL.
+    expect(window.location.hash).toBe("#/transactions?riskBand=high");
+  });
+
+  it("applies a ?riskBand= deep link on entry", async () => {
+    window.location.hash = "#/transactions?riskBand=critical";
+    const listTransactions = vi.fn(() =>
+      Promise.resolve({ transactions: [transaction()], nextCursor: null, total: 1 }),
+    );
+    render(<Transactions client={makeClient({ listTransactions })} />);
+    await screen.findByText("ext-1");
+    expect(listTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({ riskBand: "critical" }),
+    );
+    expect(screen.getByRole("radio", { name: "Critical" })).toBeChecked();
+  });
+
+  it("clears the URL filter when the band goes back to All", async () => {
+    window.location.hash = "#/transactions?riskBand=high";
+    render(<Transactions client={makeClient()} />);
+    await screen.findByText("ext-1");
+    await userEvent.click(screen.getByRole("radio", { name: "All" }));
+    expect(window.location.hash).toBe("#/transactions");
   });
 
   it("re-queries the server with a debounced search term", async () => {

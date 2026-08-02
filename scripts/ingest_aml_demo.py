@@ -1,4 +1,4 @@
-"""Summary: Bounded, idempotent IBM AML-Data demo ingestion across three synthetic tenants.
+"""Summary: Bounded, idempotent IBM AML-Data demo ingestion into the CONFIGURED demo tenant.
 The command verifies the locally fetched `HI-Small_Trans.csv`, selects the deterministic
 representative CASE PACK (complete laundering-account time neighborhoods plus benign stride
 controls — never the old all-negative CSV prefix), validates rows through `build_canonical`, and
@@ -8,15 +8,16 @@ deliberately not persisted and never converted into an alert; labels remain huma
 
 Key classes:
 - DemoIngestRequest: validated CLI request for a bounded number of public-dataset rows.
-- AgencyIngestSummary: PHI-free inserted/duplicate counts for one synthetic tenant.
 - AmlDemoIngestSummary: PHI-free aggregate result recorded with the import job.
 
 Key functions:
-- ensure_demo_agencies: idempotently create the three deterministic synthetic tenant roots.
-- ingest_demo_transactions: persist mapped rows through tenant-bound repositories.
+- ensure_demo_agency: idempotently create the configured synthetic tenant root.
+- ingest_demo_transactions: persist mapped rows through the tenant-bound repository.
 - main: verify local data, ingest it into the configured database, and record the job.
 
 Notes:
+- Every tenant value (agency identity, partition count, anchor weights) comes from
+  `config/portfolio-demo.yaml`; this script holds no demo identity literal.
 - Raw IBM rows remain in gitignored `.local/aml_data/` and are never logged or copied.
 - External ids are deterministic hashes; source bank/account values live only in memory and are
   masked by the canonical repository path before any database write.
@@ -36,7 +37,7 @@ import fetch_dataset
 from fraudlens_backend.db.models import Agency, JobExecution, JobStatus, JobType
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import AML_DEMO_AGENCIES
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
 from fraudlens_backend.settings import get_settings
 from fraudlens_core import SchemaValidationError
 from lib.aml_fraud import IBM_AML, IbmDemoTransaction, load_ibm_case_pack
@@ -58,75 +59,53 @@ class DemoIngestRequest(BaseModel):
     )
 
 
-class AgencyIngestSummary(BaseModel):
-    """PHI-free inserted/duplicate counts for one synthetic tenant."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    agency_index: int = Field(..., ge=0, description="Deterministic tenant partition index.")
-    accepted: int = Field(..., ge=0, description="Rows newly inserted for this tenant.")
-    duplicates: int = Field(..., ge=0, description="Rows already present for this tenant.")
-
-
 class AmlDemoIngestSummary(BaseModel):
-    """PHI-free aggregate result recorded on the global multi-tenant import job."""
+    """PHI-free aggregate result recorded on the demo tenant's import job."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     source: str = Field(..., description="Public dataset source identifier.")
-    processed: int = Field(..., ge=0, description="Mapped rows processed across all tenants.")
-    accepted: int = Field(..., ge=0, description="Rows newly inserted across all tenants.")
-    duplicates: int = Field(..., ge=0, description="Rows already present across all tenants.")
-    agencies: list[AgencyIngestSummary] = Field(
-        ..., description="Per-tenant counts without raw source identifiers."
-    )
+    processed: int = Field(..., ge=0, description="Mapped rows processed for the tenant.")
+    accepted: int = Field(..., ge=0, description="Rows newly inserted for the tenant.")
+    duplicates: int = Field(..., ge=0, description="Rows already present for the tenant.")
 
 
-async def ensure_demo_agencies(session: AsyncSession) -> None:
-    """Idempotently create the deterministic synthetic agencies used by IBM row partitioning."""
-    for spec in AML_DEMO_AGENCIES:
-        existing = await session.get(Agency, spec.agency_id)
-        if existing is not None:
-            continue
-        slug_owner = (
-            await session.execute(select(Agency).where(Agency.slug == spec.slug))
-        ).scalar_one_or_none()
-        if slug_owner is not None:
-            raise RuntimeError("configured AML demo agency slug is already assigned")
-        session.add(Agency(id=spec.agency_id, name=spec.name, slug=spec.slug))
+async def ensure_demo_agency(session: AsyncSession, config: PortfolioDemoConfig) -> None:
+    """Idempotently create the configured synthetic tenant the IBM rows are ingested into."""
+    agency = config.agency
+    if await session.get(Agency, agency.id) is not None:
+        return
+    slug_owner = (
+        await session.execute(select(Agency).where(Agency.slug == agency.slug))
+    ).scalar_one_or_none()
+    if slug_owner is not None:
+        raise RuntimeError("configured AML demo agency slug is already assigned")
+    session.add(Agency(id=agency.id, name=agency.name, slug=agency.slug))
     await session.flush()
 
 
 async def ingest_demo_transactions(
-    session: AsyncSession, transactions: list[IbmDemoTransaction]
+    session: AsyncSession,
+    transactions: list[IbmDemoTransaction],
+    config: PortfolioDemoConfig,
 ) -> AmlDemoIngestSummary:
-    """Persist mapped rows through one tenant-bound repository per deterministic agency."""
-    await ensure_demo_agencies(session)
-    repositories = [TransactionRepository(session, spec.agency_id) for spec in AML_DEMO_AGENCIES]
-    accepted = [0] * len(repositories)
-    duplicates = [0] * len(repositories)
+    """Persist every mapped row through the one tenant-bound repository."""
+    await ensure_demo_agency(session, config)
+    repository = TransactionRepository(session, config.agency.id)
+    accepted = duplicates = 0
     for transaction in transactions:
-        if transaction.agency_index >= len(repositories):
+        if transaction.agency_index >= config.case_pack_partition_count:
             raise ValueError("mapped demo agency index is outside the configured tenant set")
-        outcome = await repositories[transaction.agency_index].ingest(transaction.canonical)
+        outcome = await repository.ingest(transaction.canonical)
         if outcome.created:
-            accepted[transaction.agency_index] += 1
+            accepted += 1
         else:
-            duplicates[transaction.agency_index] += 1
-    agencies = [
-        AgencyIngestSummary(
-            agency_index=index,
-            accepted=accepted[index],
-            duplicates=duplicates[index],
-        )
-        for index in range(len(repositories))
-    ]
+            duplicates += 1
     return AmlDemoIngestSummary(
         source=IBM_AML,
         processed=len(transactions),
-        accepted=sum(accepted),
-        duplicates=sum(duplicates),
-        agencies=agencies,
+        accepted=accepted,
+        duplicates=duplicates,
     )
 
 
@@ -136,6 +115,7 @@ async def _amain(request: DemoIngestRequest) -> int:
     if settings.environment == "prod":
         print("AML demo ingest refused: never imports public demo data in prod")
         return 1
+    config = load_portfolio_demo_config(settings=settings)
     spec = fetch_dataset.dataset_spec(IBM_AML)
     try:
         paths = fetch_dataset._verify_present(
@@ -144,7 +124,8 @@ async def _amain(request: DemoIngestRequest) -> int:
         transactions = load_ibm_case_pack(
             paths,
             rows=request.rows,
-            agency_count=len(AML_DEMO_AGENCIES),
+            agency_count=config.case_pack_partition_count,
+            tenant_weights=config.case_pack_tenant_weights,
         )
     except (FileNotFoundError, OSError, SchemaValidationError, ValueError) as exc:
         print(f"AML demo ingest failed: {exc}")
@@ -156,10 +137,10 @@ async def _amain(request: DemoIngestRequest) -> int:
     sessionmaker = build_sessionmaker(engine)
     try:
         async with sessionmaker() as session:
-            summary = await ingest_demo_transactions(session, transactions)
+            summary = await ingest_demo_transactions(session, transactions, config)
             session.add(
                 JobExecution(
-                    agency_id=None,
+                    agency_id=config.agency.id,
                     job_type=JobType.CSV_IMPORT,
                     status=JobStatus.SUCCEEDED,
                     payload={
@@ -178,15 +159,15 @@ async def _amain(request: DemoIngestRequest) -> int:
     finally:
         await engine.dispose()
     print(
-        f"AML demo ingest OK: {summary.accepted} inserted, {summary.duplicates} duplicate, "
-        f"{len(summary.agencies)} tenant partitions"
+        f"AML demo ingest OK: {summary.accepted} inserted, {summary.duplicates} duplicate "
+        f"(of {summary.processed} processed)"
     )
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for bounded real IBM AML demo ingestion."""
-    parser = argparse.ArgumentParser(description="Ingest real IBM AML rows into demo tenants.")
+    parser = argparse.ArgumentParser(description="Ingest real IBM AML rows into the demo tenant.")
     parser.add_argument(
         "--rows",
         type=int,

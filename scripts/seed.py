@@ -1,11 +1,12 @@
 """Summary: Idempotent dev/demo foundation seed (plan §9.3). Re-runnable safely — every
 entity is upserted by its natural key (or a fixed id), so `make db-seed` and local-demo bootstrap
-can run repeatedly without duplicates. It creates only the shared application foundation: the demo
-agency + auditor/analyst/reviewer/admin users, default global `system_config` tunables, six global
-baseline AML rules, and the active committed fixture-model pointer. Transactions come from the
-separate IBM AML demo ingest and alerts/SARs come only from the investigation pipeline; this seed
-never fabricates operational evidence. The seed execution itself is recorded in `job_executions`.
-Refuses to run when `environment == "prod"`.
+can run repeatedly without duplicates. It creates only the shared application foundation: the
+CONFIGURED demo agency and its personas (`config/portfolio-demo.yaml`, so this script knows no
+demo identity values), default global `system_config` tunables, six global baseline AML rules,
+and the active committed fixture-model pointer. Transactions come from the separate IBM AML demo
+ingest and alerts/SARs come only from the investigation pipeline; this seed never fabricates
+operational evidence. The seed execution itself is recorded in `job_executions`. Refuses to run
+when `environment == "prod"`.
 
 Key classes:
 - SeedSummary: counts of the demo entities the seed ensured exist.
@@ -15,8 +16,9 @@ Key functions:
 - main: build the engine from settings, run the seed in a transaction (dev/demo only).
 
 Notes:
-- Fixed UUIDs (agency, fixture dataset/run/version/deployment, seed job) make the seed
-  deterministic and idempotent across runs and easy to assert in tests.
+- Fixed UUIDs make the seed deterministic and idempotent across runs. The agency/persona ids
+  come from `config/portfolio-demo.yaml`; only the fixture dataset/run/version/deployment and
+  the seed job itself keep script-owned ids (they are infrastructure, not demo identity).
 - The fixture model carries only feature NAMES + a content hash — no PHI, no agency_id as a
   feature (ADR-015); its ACTIVE pointer resolves to the committed real XGBoost+SHAP artifact
   bundle (`make train-model --fixture`), so local-demo scores via a real model (Phase 5).
@@ -54,15 +56,11 @@ from fraudlens_backend.db.models import (
     User,
     UserRole,
 )
+from fraudlens_backend.db.repositories.model_registry import FIXTURE_MODEL_LABEL
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import (
-    DEMO_AGENCY_ID,
-    DEMO_AGENCY_NAME,
-    DEMO_AGENCY_SLUG,
-    DEMO_USERS,
-)
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings, get_settings
-from fraudlens_core import DEFAULT_RULE_DEFINITIONS
+from fraudlens_core import DEFAULT_RULE_DEFINITIONS, RiskPolicy
 from fraudlens_ml.scoring import ModelGates, current_feature_spec
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -73,7 +71,10 @@ _FIXTURE_DATASET_ID = uuid.UUID("22222222-2222-4222-8222-000000000002")
 _FIXTURE_TRAINING_RUN_ID = uuid.UUID("22222222-2222-4222-8222-000000000003")
 _FIXTURE_MODEL_VERSION_ID = uuid.UUID("22222222-2222-4222-8222-000000000004")
 _FIXTURE_DEPLOYMENT_ID = uuid.UUID("22222222-2222-4222-8222-000000000005")
-_FIXTURE_MODEL_LABEL = "v0-fixture"
+
+# The fixture label lives in the registry repository so the seed (which installs it) and the
+# portfolio-demo bootstrap (which may displace it) share one value, never two copies (rule 5).
+_FIXTURE_MODEL_LABEL = FIXTURE_MODEL_LABEL
 
 # The fixture's artifact uri (relative to settings.model_artifacts_dir = data/models) — the
 # committed Phase 5 bundle the scorer's active pointer resolves to (`make train-model --fixture`).
@@ -89,6 +90,9 @@ _FIXTURE_FEATURE_SPEC: dict[str, Any] = current_feature_spec().model_dump()
 _DEFAULT_CONFIG: dict[str, Any] = {
     "riskBandThresholds": {"low": 0.0, "medium": 0.3, "high": 0.6, "critical": 0.85},
     "alertThreshold": 0.6,
+    # Sourced from the core policy so the seeded key IS the documented fallback, never a
+    # second copy of it (`load_risk_policy` reads this key; `risk.py` keeps the fallback).
+    "riskBlendModelWeight": RiskPolicy().model_weight,
     "llmDailyBudgetUsd": 5.0,
     "llmSessionBudgetUsd": 0.5,
     "defaultModelId": _FIXTURE_MODEL_LABEL,
@@ -127,30 +131,46 @@ def _feature_spec_hash(spec: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-async def _ensure_agency(session: AsyncSession) -> None:
-    """Insert the demo agency at its fixed id if absent."""
-    if await session.get(Agency, DEMO_AGENCY_ID) is None:
-        session.add(Agency(id=DEMO_AGENCY_ID, name=DEMO_AGENCY_NAME, slug=DEMO_AGENCY_SLUG))
+async def _ensure_agency(session: AsyncSession, config: PortfolioDemoConfig) -> None:
+    """Insert the configured demo agency at its fixed id if absent."""
+    agency = config.agency
+    if await session.get(Agency, agency.id) is None:
+        session.add(Agency(id=agency.id, name=agency.name, slug=agency.slug))
 
 
-async def _ensure_users(session: AsyncSession) -> int:
-    """Insert each demo user (by agency_id + email) if absent; return the demo user count."""
-    for spec in DEMO_USERS:
-        stmt = select(User).where(User.agency_id == DEMO_AGENCY_ID, User.email == spec.email)
-        if (await session.execute(stmt)).scalar_one_or_none() is None:
-            session.add(
-                User(
-                    id=spec.user_id,
-                    agency_id=DEMO_AGENCY_ID,
-                    email=spec.email,
-                    display_name=spec.display_name,
-                    role=spec.role,
-                )
+async def _ensure_users(session: AsyncSession, config: PortfolioDemoConfig) -> int:
+    """Ensure each persona's FIXED seed actor row exists at `seed_user_id`; return the count.
+
+    Keyed on the id, not the email, because the two are not interchangeable: the bootstrap records
+    `alert_actions.actor_id` / `sar_drafts.reviewed_by` against `seed_user_id`, so that row must
+    exist even when the login address is already taken. It is taken whenever
+    `provision_demo_auth.py` ran first — it mirrors a Supabase auth UUID onto the login email, and
+    an email-keyed check would then skip, leaving the transitions to die on a foreign key. In that
+    order the seed actor takes the same derived history address provisioning would have moved it
+    to, so both rows coexist under the global `uq_users_email` constraint and the seed converges on
+    the intended state whichever script ran first.
+    """
+    agency_id = config.agency.id
+    for persona in config.personas:
+        if await session.get(User, persona.seed_user_id) is not None:
+            continue
+        stmt = select(User).where(User.agency_id == agency_id, User.email == persona.email)
+        displaced = (await session.execute(stmt)).scalar_one_or_none() is not None
+        session.add(
+            User(
+                id=persona.seed_user_id,
+                agency_id=agency_id,
+                email=config.history_email(persona) if displaced else persona.email,
+                display_name=persona.display_name,
+                role=persona.role,
             )
-    return len(DEMO_USERS)
+        )
+    return len(config.personas)
 
 
-async def _ensure_bootstrap_admin(session: AsyncSession, settings: AppSettings) -> int:
+async def _ensure_bootstrap_admin(
+    session: AsyncSession, settings: AppSettings, config: PortfolioDemoConfig
+) -> int:
     """Upsert the optional dashboard-created first admin into public.users.
 
     The admin must already exist in Supabase Auth; these settings only reconcile the app-owned
@@ -170,14 +190,14 @@ async def _ensure_bootstrap_admin(session: AsyncSession, settings: AppSettings) 
         session.add(
             User(
                 id=user_id,
-                agency_id=DEMO_AGENCY_ID,
+                agency_id=config.agency.id,
                 email=settings.bootstrap_admin_email,
                 display_name=settings.bootstrap_admin_display_name,
                 role=UserRole.ADMIN,
             )
         )
     else:
-        user.agency_id = DEMO_AGENCY_ID
+        user.agency_id = config.agency.id
         user.email = settings.bootstrap_admin_email
         user.display_name = settings.bootstrap_admin_display_name
         user.role = UserRole.ADMIN
@@ -267,7 +287,9 @@ async def _ensure_fixture_model(session: AsyncSession) -> None:
         )
 
 
-async def _record_seed_job(session: AsyncSession, summary: SeedSummary) -> None:
+async def _record_seed_job(
+    session: AsyncSession, summary: SeedSummary, config: PortfolioDemoConfig
+) -> None:
     """Upsert the single seed job_executions row (idempotent audit of the seed run)."""
     job = await session.get(JobExecution, _SEED_JOB_ID)
     result = summary.model_dump()
@@ -275,7 +297,7 @@ async def _record_seed_job(session: AsyncSession, summary: SeedSummary) -> None:
         session.add(
             JobExecution(
                 id=_SEED_JOB_ID,
-                agency_id=DEMO_AGENCY_ID,
+                agency_id=config.agency.id,
                 job_type=JobType.SEED,
                 status=JobStatus.SUCCEEDED,
                 payload={"phase": 5},
@@ -289,13 +311,18 @@ async def _record_seed_job(session: AsyncSession, summary: SeedSummary) -> None:
         job.attempts = job.attempts + 1
 
 
-async def seed(session: AsyncSession, settings: AppSettings | None = None) -> SeedSummary:
-    """Idempotently upsert the Phase 2 demo dataset into the session (caller commits)."""
+async def seed(
+    session: AsyncSession,
+    settings: AppSettings | None = None,
+    config: PortfolioDemoConfig | None = None,
+) -> SeedSummary:
+    """Idempotently upsert the configured demo foundation into the session (caller commits)."""
     resolved_settings = settings or get_settings()
-    await _ensure_agency(session)
+    resolved_config = config or load_portfolio_demo_config(settings=resolved_settings)
+    await _ensure_agency(session, resolved_config)
     await session.flush()  # the agency must exist before its FKs (users, config, job)
-    user_count = await _ensure_users(session)
-    user_count += await _ensure_bootstrap_admin(session, resolved_settings)
+    user_count = await _ensure_users(session, resolved_config)
+    user_count += await _ensure_bootstrap_admin(session, resolved_settings, resolved_config)
     config_count = await _ensure_config(session)
     rules_count = await _ensure_rules(session)
     await _ensure_fixture_model(session)
@@ -307,7 +334,7 @@ async def seed(session: AsyncSession, settings: AppSettings | None = None) -> Se
         model_versions=1,
         deployments=1,
     )
-    await _record_seed_job(session, summary)
+    await _record_seed_job(session, summary, resolved_config)
     await session.flush()
     return summary
 
