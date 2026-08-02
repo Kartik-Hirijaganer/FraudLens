@@ -11,15 +11,18 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from tenancy import new_user_id
 
 from fraudlens_backend.api.deps import AccessClaims, TokenVerifier, get_token_verifier
 from fraudlens_backend.db.models import Agency
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 
 AUTH = {"Authorization": "Bearer test-token"}
+# The rules API authorizes on the ROLE claim, so the actor is only an opaque id in the token.
+_ACTOR_ID = new_user_id()
 
 
 def _rule(**overrides: Any) -> dict[str, Any]:
@@ -50,7 +53,7 @@ def _accept(
     agency_id: str,
     *,
     role: str = "admin",
-    user_id: str = "22222222-2222-4222-8222-222222222222",
+    user_id: str = str(_ACTOR_ID),
 ) -> Callable[[], TokenVerifier]:
     """Override factory: a verifier accepting any token as the given agency/role claim."""
     return lambda: lambda _token: AccessClaims(agency_id=agency_id, role=role, user_id=user_id)
