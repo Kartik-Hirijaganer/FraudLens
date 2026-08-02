@@ -8,7 +8,9 @@ and Vite. The local application remains keyless after download and uses the mock
 preferred ports are :8000/:5173, with free fallbacks when occupied. `rebuild` drops database
 volumes/generated caches while preserving the large gitignored IBM download; `reset` also deletes
 the download. `live` uses Infisical-backed Supabase/Postgres/OpenRouter services and provisions the
-four demo identities. `smoke` remains the fast foundation-only health/readiness gate.
+configured demo identities without touching data; `live-demo` is the portfolio path — the same live
+services, plus migrate, seed, persona provisioning, the story's RAG index, and the pinned portfolio
+demo story. `smoke` remains the fast foundation-only health/readiness gate.
 
 Key classes:
 - (none)
@@ -20,16 +22,20 @@ Key functions:
 - live_environment: dev-local overrides for real Supabase Auth/Postgres + OpenRouter.
 - up: boot Postgres + backend + frontend, print the URL, wait for Ctrl-C.
 - live: boot backend + frontend against real services, print the URL, wait for Ctrl-C.
+- live_demo: boot the live stack AND apply the configured portfolio demo story.
 - down: stop the compose stack.
 - reset: stop the stack and remove volumes + local state.
 - rebuild: reset local state/caches and boot the full stack from a clean seed.
 - smoke: boot Postgres + backend, assert the health probes, tear down (gate).
-- main: CLI entry; dispatch up/down/reset/rebuild/smoke.
+- main: CLI entry; dispatch up/down/live/live-demo/reset/rebuild/smoke.
 
 Notes:
 - Local Docker credentials are non-secret conveniences. The Kaggle token is injected from
   Infisical only for the fetch child and removed before database, backend, and frontend children.
 - Missing IBM data or credentials fail startup; this command never falls back to sample alerts.
+- `live` stays read-only: only `live-demo` migrates, seeds, or writes story rows. A database that
+  already holds the IBM case pack is NOT converted automatically — the bootstrap refuses a tenant
+  carrying rows outside the story and tells the operator to run `make portfolio-demo-reset`.
 """
 
 from __future__ import annotations
@@ -98,7 +104,7 @@ _REPO_PROCESS_MARKERS = (
     "scripts/local_demo.py",
     "npm --prefix frontend run dev",
 )
-_STACK_COMMANDS = frozenset({"up", "live", "rebuild", "run", "smoke"})
+_STACK_COMMANDS = frozenset({"up", "live", "live-demo", "rebuild", "run", "smoke"})
 
 
 @contextlib.contextmanager
@@ -451,20 +457,14 @@ def _start_postgres(env: dict[str, str]) -> None:
     subprocess.run(_compose("up", "-d", "--wait"), cwd=REPO_ROOT, env=env, check=True)
 
 
-def _maybe_migrate_and_seed(env: dict[str, str]) -> None:
-    """Run migrations + seed when they exist; skip (don't fail) until Phase 2 lands them."""
-    if (REPO_ROOT / "alembic.ini").is_file():
-        subprocess.run(
-            ["uv", "run", "alembic", "upgrade", "head"], cwd=REPO_ROOT, env=env, check=True
-        )
-    else:
-        print(">> migrations: skipped (Alembic config lands in Phase 2)")
-    if (REPO_ROOT / "scripts" / "seed.py").is_file():
-        subprocess.run(
-            ["uv", "run", "python", "scripts/seed.py"], cwd=REPO_ROOT, env=env, check=True
-        )
-    else:
-        print(">> seed: skipped (scripts/seed.py lands in Phase 2)")
+def _migrate_and_seed(env: dict[str, str]) -> None:
+    """Apply migrations then the foundation seed; a missing script is a broken checkout."""
+    if not (REPO_ROOT / "alembic.ini").is_file():
+        raise RuntimeError("Alembic config is missing; local demo cannot migrate the database")
+    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=REPO_ROOT, env=env, check=True)
+    if not (REPO_ROOT / "scripts" / "seed.py").is_file():
+        raise RuntimeError("foundation seed script is missing; local demo cannot seed identity")
+    subprocess.run(["uv", "run", "python", "scripts/seed.py"], cwd=REPO_ROOT, env=env, check=True)
 
 
 def _fetch_ibm_demo_data(env: dict[str, str]) -> None:
@@ -519,14 +519,55 @@ def _score_ibm_demo_data(env: dict[str, str]) -> None:
     )
 
 
-def _maybe_build_rag_index(env: dict[str, str]) -> None:
-    """Build the FinCEN/BSA RAG index when present; skip (don't fail) until Phase 6 lands it."""
-    if (REPO_ROOT / "scripts" / "ingest_rag.py").is_file():
-        subprocess.run(
-            ["uv", "run", "python", "scripts/ingest_rag.py"], cwd=REPO_ROOT, env=env, check=True
-        )
-    else:
-        print(">> rag index: skipped (scripts/ingest_rag.py lands in Phase 6)")
+def _build_rag_index(env: dict[str, str]) -> None:
+    """Build the FinCEN/BSA RAG index; a missing script is a broken checkout, not a skip."""
+    if not (REPO_ROOT / "scripts" / "ingest_rag.py").is_file():
+        raise RuntimeError("RAG ingest script is missing; local demo cannot build the index")
+    subprocess.run(
+        ["uv", "run", "python", "scripts/ingest_rag.py"], cwd=REPO_ROOT, env=env, check=True
+    )
+
+
+def _portfolio_story_environment(env: dict[str, str]) -> dict[str, str]:
+    """Overlay what the portfolio story needs: its calibrated provider modes, and its own gate.
+
+    Provider modes are not optional. The bootstrap refuses to run when the runtime `llm_mode` /
+    `rag_embedding_mode` differ from the story's `execution:` block, and a RAG index built with one
+    embedder cannot be queried with another — so the index build, the bootstrap, and the servers
+    that later answer a visitor's live investigation must all agree. Identity and the database stay
+    real; only the provider modes are pinned, and their values are READ from the story config
+    rather than restated here.
+
+    `portfolio_demo_enabled` is overlaid for the same reason. It defaults to False in code AND in
+    `config/default.yaml` (a security gate fails closed), and live mode turns the dev bypass off,
+    so without it `_projection_enabled` is False and `GET /api/v1/portfolio-demo/config` 404s: the
+    login picker renders "personas unavailable" and a visitor would have to TYPE the synthetic
+    password instead of clicking a persona. This command exists to serve that demo, so it asserts
+    the gate exactly as `portfolio-demo-reset.yml` and `deploy-backend.yml`'s bootstrap step do.
+    `live()` is untouched and still boots with the gate closed.
+    """
+    from fraudlens_backend.portfolio_demo import load_portfolio_demo_config  # noqa: PLC0415
+
+    execution = load_portfolio_demo_config().execution
+    return {
+        **env,
+        "FRAUDLENS_LLM_MODE": execution.llm_mode,
+        "FRAUDLENS_RAG_EMBEDDING_MODE": execution.rag_embedding_mode,
+        "FRAUDLENS_PORTFOLIO_DEMO_ENABLED": "true",
+    }
+
+
+def _bootstrap_portfolio_demo(env: dict[str, str]) -> None:
+    """Apply the configured portfolio demo story; a missing script is a broken checkout."""
+    if not (REPO_ROOT / "scripts" / "bootstrap_portfolio_demo.py").is_file():
+        raise RuntimeError("portfolio demo bootstrap script is missing")
+    print(">> applying the configured portfolio demo story", flush=True)
+    subprocess.run(
+        ["uv", "run", "python", "scripts/bootstrap_portfolio_demo.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+    )
 
 
 def _backend_command(env: dict[str, str]) -> list[str]:
@@ -560,70 +601,75 @@ def _frontend_command(env: dict[str, str]) -> list[str]:
     ]
 
 
+def _serve(env: dict[str, str], *, banner: str) -> int:
+    """Boot backend + frontend, print the URL banner every caller advertises, wait for Ctrl-C."""
+    backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
+    procs = [
+        subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
+        subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
+    ]
+    try:
+        if not _wait_for_http(f"{_base_url(backend_port)}/healthz"):
+            print("backend did not become healthy in time", file=sys.stderr)
+            return 1
+        print(f"\n{banner} — open {_base_url(frontend_port)}")
+        print(f"gateway/API: {_base_url(backend_port)}  (Ctrl-C to stop)\n")
+        signal.pause()
+    except KeyboardInterrupt:
+        print("\nshutting down…")
+    finally:
+        for proc in procs:
+            proc.terminate()
+        for proc in procs:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=10)
+    return 0
+
+
 def up() -> int:
     """Fetch IBM data, rebuild evidence through the pipeline, then boot backend + frontend."""
     _require_tools("docker", "uv", "npm")
     _assign_available_default_ports(("POSTGRES_PORT", "BACKEND_PORT", "FRONTEND_PORT"))
     env = demo_environment()
-    backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
     _fetch_ibm_demo_data(env)
     # The downloader is the only child that may receive the Kaggle credential.
     env.pop("KAGGLE_API_TOKEN", None)
     _start_postgres(env)
-    _maybe_migrate_and_seed(env)
+    _migrate_and_seed(env)
     _activate_trained_model(env)
     _ingest_ibm_demo_data(env)
-    _maybe_build_rag_index(env)
+    _build_rag_index(env)
     _score_ibm_demo_data(env)
-    procs = [
-        subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
-        subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
-    ]
-    try:
-        if not _wait_for_http(f"{_base_url(backend_port)}/healthz"):
-            print("backend did not become healthy in time", file=sys.stderr)
-            return 1
-        print(f"\nFraudLens local demo is up — open {_base_url(frontend_port)}")
-        print(f"gateway/API: {_base_url(backend_port)}  (Ctrl-C to stop)\n")
-        signal.pause()
-    except KeyboardInterrupt:
-        print("\nshutting down…")
-    finally:
-        for proc in procs:
-            proc.terminate()
-        for proc in procs:
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=10)
-    return 0
+    return _serve(env, banner="FraudLens local demo is up")
 
 
 def live() -> int:
-    """Boot backend + frontend against live Supabase/Postgres/OpenRouter services."""
+    """Boot backend + frontend against live Supabase/Postgres/OpenRouter services (no writes)."""
     _require_tools("uv", "npm")
     _assign_available_default_ports(("BACKEND_PORT", "FRONTEND_PORT"))
     env = live_environment()
-    backend_port, frontend_port = env["BACKEND_PORT"], env["FRONTEND_PORT"]
     _provision_live_demo_auth(env)
-    procs = [
-        subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env),
-        subprocess.Popen(_frontend_command(env), cwd=REPO_ROOT, env=env),
-    ]
-    try:
-        if not _wait_for_http(f"{_base_url(backend_port)}/healthz"):
-            print("backend did not become healthy in time", file=sys.stderr)
-            return 1
-        print(f"\nFraudLens live-local is up — open {_base_url(frontend_port)}")
-        print(f"gateway/API: {_base_url(backend_port)}  (Ctrl-C to stop)\n")
-        signal.pause()
-    except KeyboardInterrupt:
-        print("\nshutting down…")
-    finally:
-        for proc in procs:
-            proc.terminate()
-        for proc in procs:
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=10)
-    return 0
+    return _serve(env, banner="FraudLens live-local is up")
+
+
+def live_demo() -> int:
+    """Boot the live stack AND apply the exact configured portfolio demo story.
+
+    `live` only provisions identities; this command is the portfolio path, so it additionally
+    migrates, foundation-seeds, provisions the configured personas, builds the story's RAG index,
+    and applies the pinned story before the servers start. Converting a database that already
+    holds the IBM case pack is deliberately NOT automatic: the bootstrap refuses a tenant carrying
+    rows outside the story and names `--reset` (`make portfolio-demo-reset`) as the explicit
+    operator action.
+    """
+    _require_tools("uv", "npm")
+    _assign_available_default_ports(("BACKEND_PORT", "FRONTEND_PORT"))
+    env = _portfolio_story_environment(live_environment())
+    _migrate_and_seed(env)
+    _provision_live_demo_auth(env)
+    _build_rag_index(env)
+    _bootstrap_portfolio_demo(env)
+    return _serve(env, banner="FraudLens portfolio demo is up")
 
 
 def _provision_live_demo_auth(env: dict[str, str]) -> None:
@@ -676,8 +722,8 @@ def smoke() -> int:
     env = demo_environment()
     backend_port = env["BACKEND_PORT"]
     _start_postgres(env)
-    _maybe_migrate_and_seed(env)
-    _maybe_build_rag_index(env)
+    _migrate_and_seed(env)
+    _build_rag_index(env)
     backend = subprocess.Popen(_backend_command(env), cwd=REPO_ROOT, env=env)
     try:
         ok = _await_backend_ready(_base_url(backend_port), backend)
@@ -694,6 +740,7 @@ _COMMANDS = {
     "up": up,
     "down": down,
     "live": live,
+    "live-demo": live_demo,
     "rebuild": rebuild,
     "reset": reset,
     "run": rebuild,
