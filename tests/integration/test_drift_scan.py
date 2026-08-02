@@ -10,6 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from training_label_fakes import add_matured_training_labels
@@ -63,7 +64,7 @@ async def _add_inferences(
     for index, probability in enumerate(probabilities):
         session.add(
             ModelInferenceLog(
-                agency_id=uuid.UUID("11111111-1111-4111-8111-111111111111"),
+                agency_id=DEMO_AGENCY_ID,
                 run_id=run_id,
                 model_version_id=version_id,
                 was_canary=False,
