@@ -16,6 +16,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_ANALYST_ID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
@@ -27,8 +28,6 @@ from fraudlens_backend.db.models import (
     Transaction,
 )
 
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
-_DEMO_USER_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 _LABEL_CYCLE = (
     TrainingLabelType.CONFIRMED_FRAUD,
     TrainingLabelType.BENIGN,
@@ -44,7 +43,7 @@ async def add_matured_training_labels(session: AsyncSession, *, count: int = 12)
     fixture_scope = uuid.uuid4().hex
     for index in range(count):
         transaction = Transaction(
-            agency_id=_DEMO_AGENCY_ID,
+            agency_id=DEMO_AGENCY_ID,
             external_id=f"label-fixture-{fixture_scope}-{index}",
             amount=Decimal("100.00") + index,
             currency="USD",
@@ -59,7 +58,7 @@ async def add_matured_training_labels(session: AsyncSession, *, count: int = 12)
         session.add(transaction)
         await session.flush()
         run = AnalysisRun(
-            agency_id=_DEMO_AGENCY_ID,
+            agency_id=DEMO_AGENCY_ID,
             transaction_id=transaction.id,
             status=RunStatus.COMPLETED,
             model_version="test-fixture",
@@ -68,13 +67,13 @@ async def add_matured_training_labels(session: AsyncSession, *, count: int = 12)
         await session.flush()
         session.add(
             TrainingLabel(
-                agency_id=_DEMO_AGENCY_ID,
+                agency_id=DEMO_AGENCY_ID,
                 transaction_id=transaction.id,
                 run_id=run.id,
                 label=_LABEL_CYCLE[index % len(_LABEL_CYCLE)],
                 source=LabelSource.ANALYST_REVIEW,
                 matured_at=matured_at,
-                created_by=_DEMO_USER_ID,
+                created_by=DEMO_ANALYST_ID,
             )
         )
         run_ids.append(run.id)
