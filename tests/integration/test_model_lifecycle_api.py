@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Callable
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from training_label_fakes import add_matured_training_labels
@@ -34,8 +35,6 @@ from fraudlens_backend.db.models import (
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 from seed import seed
-
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 
 
 def _build_app(settings: AppSettings, engine: AsyncEngine, sm: async_sessionmaker[AsyncSession]):
@@ -342,7 +341,7 @@ async def _add_inference_logs(
         for _ in range(25):
             session.add(
                 ModelInferenceLog(
-                    agency_id=_DEMO_AGENCY_ID,
+                    agency_id=DEMO_AGENCY_ID,
                     run_id=run_id,
                     model_version_id=uuid.UUID(version_id),
                     was_canary=was_canary,
