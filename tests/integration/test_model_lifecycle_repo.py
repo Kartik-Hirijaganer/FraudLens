@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_ANALYST_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from training_label_fakes import add_matured_training_labels
@@ -26,9 +27,6 @@ from fraudlens_backend.db.models import (
 )
 from fraudlens_backend.db.repositories import ModelLifecycleRepository
 from seed import seed
-
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
-_DEMO_USER_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 
 async def _make_candidate(
@@ -115,15 +113,15 @@ async def test_shadow_approve_canary_activate_flips_pointer(db_session: AsyncSes
 
     await repo.promote_to_shadow(candidate)
     assert candidate.status is ModelVersionStatus.SHADOW
-    await repo.approve(candidate, approved_by=_DEMO_USER_ID)
+    await repo.approve(candidate, approved_by=DEMO_ANALYST_ID)
     assert candidate.approved_at is not None
-    await repo.start_canary(candidate, percent=25, updated_by=_DEMO_USER_ID)
+    await repo.start_canary(candidate, percent=25, updated_by=DEMO_ANALYST_ID)
     deployment = await repo.get_deployment()
     assert deployment.canary_version_id == candidate.id
     assert deployment.canary_percent == 25
     assert candidate.status is ModelVersionStatus.CANARY
 
-    await repo.activate(candidate, updated_by=_DEMO_USER_ID)
+    await repo.activate(candidate, updated_by=DEMO_ANALYST_ID)
     deployment = await repo.get_deployment()
     assert deployment.active_version_id == candidate.id
     assert deployment.previous_active_version_id == fixture_id
@@ -140,10 +138,10 @@ async def test_rollback_aborts_in_progress_canary(db_session: AsyncSession) -> N
     fixture_id = (await repo.get_deployment()).active_version_id
     candidate = await _make_candidate(db_session, label="cand-canary")
     await repo.promote_to_shadow(candidate)
-    await repo.approve(candidate, approved_by=_DEMO_USER_ID)
-    await repo.start_canary(candidate, percent=50, updated_by=_DEMO_USER_ID)
+    await repo.approve(candidate, approved_by=DEMO_ANALYST_ID)
+    await repo.start_canary(candidate, percent=50, updated_by=DEMO_ANALYST_ID)
 
-    outcome = await repo.rollback(updated_by=_DEMO_USER_ID)
+    outcome = await repo.rollback(updated_by=DEMO_ANALYST_ID)
     assert outcome is not None and outcome.action == "canary_aborted"
     deployment = await repo.get_deployment()
     assert deployment.canary_version_id is None
@@ -158,10 +156,10 @@ async def test_rollback_restores_previous_active(db_session: AsyncSession) -> No
     fixture_id = (await repo.get_deployment()).active_version_id
     candidate = await _make_candidate(db_session, label="cand-promote")
     await repo.promote_to_shadow(candidate)
-    await repo.approve(candidate, approved_by=_DEMO_USER_ID)
-    await repo.activate(candidate, updated_by=_DEMO_USER_ID)
+    await repo.approve(candidate, approved_by=DEMO_ANALYST_ID)
+    await repo.activate(candidate, updated_by=DEMO_ANALYST_ID)
 
-    outcome = await repo.rollback(updated_by=_DEMO_USER_ID)
+    outcome = await repo.rollback(updated_by=DEMO_ANALYST_ID)
     assert outcome is not None and outcome.action == "restored_previous"
     deployment = await repo.get_deployment()
     assert deployment.active_version_id == fixture_id
@@ -173,7 +171,8 @@ async def test_rollback_restores_previous_active(db_session: AsyncSession) -> No
 async def test_rollback_returns_none_when_nothing_to_do(db_session: AsyncSession) -> None:
     await seed(db_session)
     repo = ModelLifecycleRepository(db_session)
-    assert await repo.rollback(updated_by=_DEMO_USER_ID) is None  # active-only, no canary/previous
+    # Active-only pointer: no canary and no previous version, so there is nothing to roll back to.
+    assert await repo.rollback(updated_by=DEMO_ANALYST_ID) is None
 
 
 async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession) -> None:
@@ -184,15 +183,15 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
     active_id = deployment.active_version_id
     candidate = await _make_candidate(db_session, label="cand-stats")
     await repo.promote_to_shadow(candidate)
-    await repo.approve(candidate, approved_by=_DEMO_USER_ID)
-    await repo.start_canary(candidate, percent=50, updated_by=_DEMO_USER_ID)
+    await repo.approve(candidate, approved_by=DEMO_ANALYST_ID)
+    await repo.start_canary(candidate, percent=50, updated_by=DEMO_ANALYST_ID)
     run_id = await _seeded_run_id(db_session)
 
     base = datetime(2026, 1, 1, tzinfo=UTC)
     for index in range(4):
         db_session.add(
             ModelInferenceLog(
-                agency_id=_DEMO_AGENCY_ID,
+                agency_id=DEMO_AGENCY_ID,
                 run_id=run_id,
                 model_version_id=active_id,
                 was_canary=False,
@@ -203,7 +202,7 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
         )
         db_session.add(
             ModelInferenceLog(
-                agency_id=_DEMO_AGENCY_ID,
+                agency_id=DEMO_AGENCY_ID,
                 run_id=run_id,
                 model_version_id=candidate.id,
                 was_canary=True,

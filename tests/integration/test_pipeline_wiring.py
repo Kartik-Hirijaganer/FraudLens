@@ -14,7 +14,9 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tenancy import new_agency_id
 
 from fraudlens_backend.db.models import Agency, SystemConfig, Transaction
 from fraudlens_backend.db.repositories import TransactionRepository
@@ -39,7 +41,7 @@ from fraudlens_core.rules.base import TransactionDirection
 from fraudlens_ml.rag import HashingEmbedder, Retriever
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
 
-_AGENCY_ID = uuid.UUID("44444444-4444-4444-8444-444444444444")
+_AGENCY_ID = new_agency_id()
 _NOW = datetime(2026, 1, 10, 12, 0, tzinfo=UTC)
 
 
@@ -194,11 +196,49 @@ async def test_load_risk_policy_reads_config_then_falls_back(
             )
         )
         session.add(SystemConfig(agency_id=None, key="alertThreshold", value=0.5))
+        session.add(SystemConfig(agency_id=None, key="riskBlendModelWeight", value=0.25))
         await session.commit()
         policy = await load_risk_policy(session)
 
     assert policy.alert_threshold == 0.5
     assert policy.band_thresholds[RiskBand.MEDIUM] == 0.4
+    assert policy.model_weight == 0.25
+
+
+async def test_risk_blend_model_weight_moves_the_blend_and_the_band(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The blend weight is now a tunable `system_config` key, not a code-only constant.
+
+    Same subscores, two configured weights, two different bands — proof the key is actually in
+    the blend rather than merely parsed. Bands come from `RiskPolicy.band_for`, never a literal.
+    """
+    async with db_sessionmaker() as session:
+        session.add(Agency(id=_AGENCY_ID, name="C", slug="c"))
+        session.add(SystemConfig(agency_id=None, key="riskBlendModelWeight", value=1.0))
+        await session.commit()
+        model_only = await load_risk_policy(session)
+
+        row = (
+            await session.execute(
+                select(SystemConfig).where(SystemConfig.key == "riskBlendModelWeight")
+            )
+        ).scalar_one()
+        row.value = 0.0
+        await session.commit()
+        rules_only = await load_risk_policy(session)
+
+    # A high model probability with no rule corroboration.
+    high_model = model_only.assess(fraud_probability=0.95, rules_subscore=0.0)
+    ignored_model = rules_only.assess(fraud_probability=0.95, rules_subscore=0.0)
+
+    assert model_only.model_weight == 1.0
+    assert rules_only.model_weight == 0.0
+    assert high_model.combined_score == pytest.approx(0.95)
+    assert ignored_model.combined_score == pytest.approx(0.0)
+    assert high_model.risk_band is model_only.band_for(high_model.combined_score)
+    assert ignored_model.risk_band is rules_only.band_for(ignored_model.combined_score)
+    assert high_model.risk_band is not ignored_model.risk_band
 
 
 async def test_load_risk_policy_defaults_when_unset_or_malformed(
@@ -210,9 +250,12 @@ async def test_load_risk_policy_defaults_when_unset_or_malformed(
         session.add(Agency(id=_AGENCY_ID, name="C", slug="c"))
         session.add(SystemConfig(agency_id=None, key="alertThreshold", value="not-a-number"))
         session.add(SystemConfig(agency_id=None, key="riskBandThresholds", value="not-a-dict"))
+        session.add(SystemConfig(agency_id=None, key="riskBlendModelWeight", value="not-a-number"))
         await session.commit()
         malformed = await load_risk_policy(session)
 
     assert empty.alert_threshold == default.alert_threshold
+    assert empty.model_weight == default.model_weight  # absent key → the core fallback
     assert malformed.alert_threshold == default.alert_threshold
     assert malformed.band_thresholds == default.band_thresholds
+    assert malformed.model_weight == default.model_weight  # garbage → the core fallback
