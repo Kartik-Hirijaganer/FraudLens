@@ -1,8 +1,10 @@
-"""Summary: Idempotently provision the synthetic demo personas in Supabase Auth and mirror their
-auth UUIDs into each tenant's `public.users` rows. Covers both demo tenants (`LIVE_DEMO_USERS`):
-the primary agency's four roles plus Agency Two's analyst, so the research page's cross-tenant
-view can be exercised by signing into a genuinely separate agency. Fixed seed users remain as
-history-only actors so existing alert/SAR/training audit foreign keys are never rewritten.
+"""Summary: Idempotently provision the CONFIGURED demo personas in Supabase Auth and mirror their
+auth UUIDs into the single demo tenant's `public.users` rows. Every identity value — the agency,
+the persona emails/roles/display names — comes from `config/portfolio-demo.yaml`, and the shared
+synthetic password comes from settings (`FRAUDLENS_DEMO_AUTH_PASSWORD` via Infisical), so this
+script holds no demo identity or credential literal. Fixed seed users remain as history-only
+actors (at `PortfolioDemoConfig.history_email`, the one derivation the seed shares) so existing
+alert/SAR/training audit foreign keys are never rewritten.
 
 Key classes:
 - DemoAuthProvisionSummary: safe counts emitted by the provisioning command.
@@ -14,7 +16,10 @@ Key functions:
 Notes:
 - Service-role credentials are read from Infisical-backed settings and never logged or persisted.
 - The shared demo password is intentionally public and synthetic; live authorization still uses a
-  verified Supabase JWT and the server-owned role on the matching `public.users` row.
+  verified Supabase JWT and the server-owned role on the matching `public.users` row. It is still
+  supplied through env/Infisical so `make secrets-scan` stays strict.
+- Exactly one persistent demo tenant exists (see the portfolio demo story); generic multi-tenancy
+  is proven by tests that mint throwaway tenants, never by a second provisioned agency.
 """
 
 from __future__ import annotations
@@ -28,11 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fraudlens_backend.db.models import Agency, AuditLog
 from fraudlens_backend.db.repositories import UserRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import (
-    AML_DEMO_AGENCIES,
-    DEMO_AUTH_PASSWORD,
-    LIVE_DEMO_USERS,
-    DemoUserSpec,
+from fraudlens_backend.portfolio_demo import (
+    PortfolioDemoConfig,
+    PortfolioDemoPersona,
+    load_portfolio_demo_config,
 )
 from fraudlens_backend.services.supabase_admin import (
     SupabaseAdminClient,
@@ -52,60 +56,53 @@ class DemoAuthProvisionSummary(BaseModel):
     reconciled_users: int = Field(..., description="Application identities changed this run.")
 
 
-_AGENCY_BY_ID = {spec.agency_id: spec for spec in AML_DEMO_AGENCIES}
-
-
-def _history_email(spec: DemoUserSpec) -> str:
-    """Return the deterministic non-login email retained by a fixed historical seed actor."""
-    return f"seed-{spec.role.value}@{_AGENCY_BY_ID[spec.agency_id].slug}.test"
-
-
-async def _ensure_agency(session: AsyncSession, agency_id: uuid.UUID) -> None:
-    """Ensure one synthetic tenant exists before inserting its auth-backed users."""
-    if await session.get(Agency, agency_id) is None:
-        spec = _AGENCY_BY_ID[agency_id]
-        session.add(Agency(id=spec.agency_id, name=spec.name, slug=spec.slug))
+async def _ensure_agency(session: AsyncSession, config: PortfolioDemoConfig) -> None:
+    """Ensure the configured synthetic tenant exists before inserting its auth-backed users."""
+    agency = config.agency
+    if await session.get(Agency, agency.id) is None:
+        session.add(Agency(id=agency.id, name=agency.name, slug=agency.slug))
         await session.flush()
 
 
 async def _reconcile_app_user(
     session: AsyncSession,
     *,
-    spec: DemoUserSpec,
+    persona: PortfolioDemoPersona,
+    config: PortfolioDemoConfig,
     auth_user_id: uuid.UUID,
 ) -> bool:
-    """Mirror one auth UUID into its owning tenant, preserving any fixed seed actor by history."""
-    repository = UserRepository(session, spec.agency_id)
-    canonical = await repository.get_by_email(spec.email)
+    """Mirror one auth UUID into the demo tenant, preserving any fixed seed actor by history."""
+    repository = UserRepository(session, config.agency.id)
+    canonical = await repository.get_by_email(persona.email)
     auth_user = await repository.get_by_id(auth_user_id)
     changed = (
         canonical is None
         or canonical.id != auth_user_id
         or auth_user is None
-        or auth_user.display_name != spec.display_name
-        or auth_user.role != spec.role
+        or auth_user.display_name != persona.display_name
+        or auth_user.role != persona.role
     )
     if canonical is not None and canonical.id != auth_user_id:
-        canonical.email = _history_email(spec)
+        canonical.email = config.history_email(persona)
         await session.flush()
     user = await repository.upsert_invited_user(
         user_id=auth_user_id,
-        email=spec.email,
-        display_name=spec.display_name,
-        role=spec.role,
+        email=persona.email,
+        display_name=persona.display_name,
+        role=persona.role,
     )
-    user.display_name = spec.display_name
-    user.role = spec.role
+    user.display_name = persona.display_name
+    user.role = persona.role
     if changed:
         session.add(
             AuditLog(
-                agency_id=spec.agency_id,
+                agency_id=config.agency.id,
                 actor_id=None,
                 action="demo_auth.provision",
                 resource_type="user",
                 resource_id=str(user.id),
-                meta={"role": spec.role.value},
-                request_id=f"demo-auth-{spec.agency_id}-{spec.role.value}",
+                meta={"role": persona.role.value},
+                request_id=f"demo-auth-{config.story_identity}-{persona.key}",
             )
         )
     return changed
@@ -114,26 +111,31 @@ async def _reconcile_app_user(
 async def provision_demo_auth(
     session: AsyncSession,
     client: SupabaseAdminClient,
+    *,
+    password: str,
+    config: PortfolioDemoConfig | None = None,
 ) -> DemoAuthProvisionSummary:
-    """Ensure every demo Auth user and its tenant-scoped application identity row (all tenants)."""
-    for agency_id in dict.fromkeys(spec.agency_id for spec in LIVE_DEMO_USERS):
-        await _ensure_agency(session, agency_id)
+    """Ensure every configured Auth user and its tenant-scoped application identity row."""
+    resolved = config or load_portfolio_demo_config()
+    await _ensure_agency(session, resolved)
     reconciled = 0
-    for spec in LIVE_DEMO_USERS:
+    for persona in resolved.personas:
         auth_user_id = await client.ensure_password_user(
-            email=spec.email,
-            password=DEMO_AUTH_PASSWORD,
+            email=persona.email,
+            password=password,
             app_metadata=SupabaseAuthAppMetadata(
-                agency_id=str(spec.agency_id),
-                user_role=spec.role.value,
+                agency_id=str(resolved.agency.id),
+                user_role=persona.role.value,
             ),
         )
-        if await _reconcile_app_user(session, spec=spec, auth_user_id=auth_user_id):
+        if await _reconcile_app_user(
+            session, persona=persona, config=resolved, auth_user_id=auth_user_id
+        ):
             reconciled += 1
     await session.flush()
     return DemoAuthProvisionSummary(
-        auth_users=len(LIVE_DEMO_USERS),
-        app_users=len(LIVE_DEMO_USERS),
+        auth_users=len(resolved.personas),
+        app_users=len(resolved.personas),
         reconciled_users=reconciled,
     )
 
@@ -144,6 +146,9 @@ async def _amain(settings: AppSettings | None = None) -> int:
     if resolved_settings.environment == "prod":
         print("demo auth provisioning refused: application environment must not be prod")
         return 1
+    if not resolved_settings.demo_auth_password:
+        print("demo auth provisioning failed: FRAUDLENS_DEMO_AUTH_PASSWORD is not configured")
+        return 1
     engine = create_engine_from_settings(resolved_settings)
     if engine is None:
         print("demo auth provisioning failed: DATABASE_URL is not configured")
@@ -152,7 +157,12 @@ async def _amain(settings: AppSettings | None = None) -> int:
         client = SupabaseAdminClient.from_settings(resolved_settings)
         sessionmaker = build_sessionmaker(engine)
         async with sessionmaker() as session:
-            summary = await provision_demo_auth(session, client)
+            summary = await provision_demo_auth(
+                session,
+                client,
+                password=resolved_settings.demo_auth_password,
+                config=load_portfolio_demo_config(settings=resolved_settings),
+            )
             await session.commit()
     except SupabaseAdminError:
         print("demo auth provisioning failed: Supabase admin request was rejected")
