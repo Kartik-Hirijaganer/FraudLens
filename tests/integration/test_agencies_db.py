@@ -13,12 +13,12 @@ from collections.abc import Callable
 import httpx
 import pytest
 from fastapi import HTTPException
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_AGENCY_NAME, DEMO_AGENCY_SLUG
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import AccessClaims, TokenVerifier, get_token_verifier
 from fraudlens_backend.api.v1.router import read_agency
 from fraudlens_backend.db.models import Agency
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_AGENCY_NAME, DEMO_AGENCY_SLUG
 from fraudlens_backend.main import create_app
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.settings import AppSettings
