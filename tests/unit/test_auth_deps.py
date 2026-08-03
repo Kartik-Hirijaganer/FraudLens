@@ -7,9 +7,15 @@ from typing import Any
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from tenancy import new_agency_id, new_user_id
 
 from fraudlens_backend.api.deps import CredentialsError, JwksTokenVerifier
 from fraudlens_backend.settings import AppSettings
+
+# Opaque claim values: this suite verifies JWT decoding and the dev bypass, not any
+# particular tenant, so the ids must not be a real story identity.
+_AGENCY_CLAIM = str(new_agency_id())
+_USER_CLAIM = str(new_user_id())
 
 
 class _SigningKey:
@@ -64,8 +70,8 @@ def test_jwks_token_verifier_accepts_rs256_claims(monkeypatch: pytest.MonkeyPatc
     )
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
-            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "sub": _USER_CLAIM,
+            "agency_id": _AGENCY_CLAIM,
             "user_role": "admin",
             "iss": "issuer",
             "aud": "fraudlens",
@@ -76,8 +82,8 @@ def test_jwks_token_verifier_accepts_rs256_claims(monkeypatch: pytest.MonkeyPatc
 
     claims = verifier(token)
 
-    assert claims.agency_id == "11111111-1111-4111-8111-111111111111"
-    assert claims.user_id == "22222222-2222-4222-8222-222222222222"
+    assert claims.agency_id == _AGENCY_CLAIM
+    assert claims.user_id == _USER_CLAIM
     assert claims.role == "admin"
 
 
@@ -92,8 +98,8 @@ def test_jwks_token_verifier_accepts_es256_claims(monkeypatch: pytest.MonkeyPatc
     )
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
-            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "sub": _USER_CLAIM,
+            "agency_id": _AGENCY_CLAIM,
             "user_role": "admin",
             "iss": "issuer",
             "aud": "fraudlens",
@@ -104,8 +110,8 @@ def test_jwks_token_verifier_accepts_es256_claims(monkeypatch: pytest.MonkeyPatc
 
     claims = verifier(token)
 
-    assert claims.agency_id == "11111111-1111-4111-8111-111111111111"
-    assert claims.user_id == "22222222-2222-4222-8222-222222222222"
+    assert claims.agency_id == _AGENCY_CLAIM
+    assert claims.user_id == _USER_CLAIM
     assert claims.role == "admin"
 
 
@@ -122,9 +128,9 @@ def test_jwks_token_verifier_accepts_server_owned_app_metadata(
     )
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
+            "sub": _USER_CLAIM,
             "app_metadata": {
-                "agency_id": "11111111-1111-4111-8111-111111111111",
+                "agency_id": _AGENCY_CLAIM,
                 "user_role": "reviewer",
             },
             "iss": "issuer",
@@ -136,7 +142,7 @@ def test_jwks_token_verifier_accepts_server_owned_app_metadata(
 
     claims = verifier(token)
 
-    assert claims.agency_id == "11111111-1111-4111-8111-111111111111"
+    assert claims.agency_id == _AGENCY_CLAIM
     assert claims.role == "reviewer"
 
 
@@ -147,9 +153,9 @@ def test_jwks_token_verifier_rejects_user_editable_metadata(
     verifier = _verifier_with_key(monkeypatch, key.public_key())
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
+            "sub": _USER_CLAIM,
             "user_metadata": {
-                "agency_id": "11111111-1111-4111-8111-111111111111",
+                "agency_id": _AGENCY_CLAIM,
                 "user_role": "admin",
             },
         },
@@ -166,8 +172,8 @@ def test_jwks_token_verifier_rejects_invalid_role(monkeypatch: pytest.MonkeyPatc
     verifier = _verifier_with_key(monkeypatch, key.public_key())
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
-            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "sub": _USER_CLAIM,
+            "agency_id": _AGENCY_CLAIM,
             "user_role": "superuser",
         },
         key,
@@ -183,8 +189,8 @@ def test_jwks_token_verifier_accepts_auditor_role(monkeypatch: pytest.MonkeyPatc
     verifier = _verifier_with_key(monkeypatch, key.public_key())
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
-            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "sub": _USER_CLAIM,
+            "agency_id": _AGENCY_CLAIM,
             "user_role": "auditor",
         },
         key,
@@ -201,8 +207,8 @@ def test_jwks_token_verifier_can_use_custom_role_claim(
     verifier = _verifier_with_key(monkeypatch, key.public_key(), auth_role_claim="role")
     token = jwt.encode(
         {
-            "sub": "22222222-2222-4222-8222-222222222222",
-            "agency_id": "11111111-1111-4111-8111-111111111111",
+            "sub": _USER_CLAIM,
+            "agency_id": _AGENCY_CLAIM,
             "role": "reviewer",
         },
         key,

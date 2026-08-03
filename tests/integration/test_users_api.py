@@ -6,13 +6,18 @@ import uuid
 from collections.abc import Callable
 
 import httpx
+from portfolio_demo_identity import (
+    DEMO_AGENCY_ID,
+    DEMO_BYPASS_USER_ID,
+    DEMO_PERSONAS,
+    demo_user_id,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import AccessClaims, get_token_verifier
 from fraudlens_backend.api.v1.users import get_supabase_admin
 from fraudlens_backend.db.models import AuditLog, User, UserRole
-from fraudlens_backend.demo import DEMO_AGENCY_ID, DEMO_USER_ID, DEMO_USERS
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 from seed import seed
@@ -50,8 +55,8 @@ def _client(app: object) -> httpx.AsyncClient:
 
 
 def _demo_admin_id() -> uuid.UUID:
-    """Return the seeded demo admin id."""
-    return next(spec.user_id for spec in DEMO_USERS if spec.role == UserRole.ADMIN)
+    """Return the configured demo admin persona id."""
+    return demo_user_id(UserRole.ADMIN)
 
 
 async def test_me_returns_claim_role_and_provisioned_email(
@@ -68,7 +73,7 @@ async def test_me_returns_claim_role_and_provisioned_email(
         db_sessionmaker,
         AccessClaims(
             agency_id=str(DEMO_AGENCY_ID),
-            user_id=str(DEMO_USER_ID),
+            user_id=str(demo_user_id(UserRole.ANALYST)),
             role=UserRole.ANALYST.value,
         ),
     )
@@ -76,9 +81,13 @@ async def test_me_returns_claim_role_and_provisioned_email(
     async with _client(app) as client:
         response = await client.get("/api/v1/me", headers={"Authorization": "Bearer token"})
 
+    analyst = next(persona for persona in DEMO_PERSONAS if persona.role is UserRole.ANALYST)
     assert response.status_code == 200
+    # The display name comes from the provisioned row, so the shell greets a LIVE user by their
+    # own identity rather than a bundled frontend constant.
     assert response.json() == {
-        "email": "analyst@demo-agency.test",
+        "email": analyst.email,
+        "displayName": analyst.display_name,
         "role": "analyst",
         "agencyId": str(DEMO_AGENCY_ID),
     }
@@ -149,7 +158,7 @@ async def test_non_admin_cannot_invite_users(
         db_sessionmaker,
         AccessClaims(
             agency_id=str(DEMO_AGENCY_ID),
-            user_id=str(DEMO_USER_ID),
+            user_id=str(DEMO_BYPASS_USER_ID),
             role=UserRole.ANALYST.value,
         ),
     )

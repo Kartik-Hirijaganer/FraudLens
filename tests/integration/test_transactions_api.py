@@ -10,12 +10,12 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import AccessClaims, TokenVerifier, get_token_verifier
 from fraudlens_backend.db.models import Agency, JobExecution
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 

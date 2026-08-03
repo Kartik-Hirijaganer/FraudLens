@@ -4,6 +4,8 @@ rows (the single seed job row is updated in place)."""
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,7 @@ from fraudlens_backend.db.models import (
     Transaction,
     User,
 )
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from seed import seed
 
 _COUNTED = (
@@ -58,6 +61,45 @@ async def test_seed_creates_expected_entities(db_session: AsyncSession) -> None:
     assert await _count(db_session, User) == 4
     assert await _count(db_session, ModelVersion) == 1
     assert await _count(db_session, ModelDeployment) == 1
+
+
+async def test_seed_creates_the_fixed_actor_even_when_provisioning_ran_first(
+    db_session: AsyncSession,
+) -> None:
+    """A tenant provisioned before it was ever seeded must still get its history-only actors.
+
+    `provision_demo_auth` mirrors a Supabase auth UUID onto the persona's LOGIN email. An
+    email-keyed seed then skips, no `seed_user_id` row is ever created, and the portfolio bootstrap
+    dies on a foreign key when it records `alert_actions.actor_id` / `sar_drafts.reviewed_by`
+    against that id. The seed must converge whichever script ran first.
+    """
+    config = load_portfolio_demo_config()
+    db_session.add(Agency(id=config.agency.id, name=config.agency.name, slug=config.agency.slug))
+    auth_ids = {}
+    for persona in config.personas:
+        auth_ids[persona.key] = uuid.uuid4()  # a Supabase auth UUID, never the configured seed id
+        db_session.add(
+            User(
+                id=auth_ids[persona.key],
+                agency_id=config.agency.id,
+                email=persona.email,
+                display_name=persona.display_name,
+                role=persona.role,
+            )
+        )
+    await db_session.flush()
+
+    await seed(db_session)
+
+    for persona in config.personas:
+        seed_actor = await db_session.get(User, persona.seed_user_id)
+        assert seed_actor is not None, f"no fixed actor for persona '{persona.key}'"
+        # It yields the login address to the auth row and takes the derived history one, so both
+        # coexist under the global `uq_users_email` constraint.
+        assert seed_actor.email == config.history_email(persona)
+        assert seed_actor.role is persona.role
+        auth_user = await db_session.get(User, auth_ids[persona.key])
+        assert auth_user is not None and auth_user.email == persona.email
 
 
 async def test_seed_is_idempotent(db_session: AsyncSession) -> None:
