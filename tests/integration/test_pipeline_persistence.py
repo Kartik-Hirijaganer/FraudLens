@@ -20,6 +20,7 @@ from pipeline_fakes import (
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tenancy import new_agency_id
 
 from fraudlens_backend.db.models import (
     Agency,
@@ -50,7 +51,7 @@ from fraudlens_core import RiskBand, RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
 
-_AGENCY_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
+_AGENCY_ID = new_agency_id()
 _VERSION_ID = uuid.UUID("33333333-3333-4333-8333-0000000000aa")
 
 

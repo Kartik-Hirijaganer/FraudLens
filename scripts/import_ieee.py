@@ -6,8 +6,8 @@ externalId)` and stored with masked account identifiers + a feature hash — nev
 It is partial-accept: a malformed row becomes a PHI-free rejection rather than aborting the
 import. `seed_sample_transactions` is a test/explicit-import helper for the committed sample; the
 foundation seed and default local demo never call it. The CLI (`make import-ieee`) imports an
-arbitrary CSV into the demo agency and records a `csv_import` row in `job_executions`. Refuses to
-run against `environment == "prod"`.
+arbitrary CSV into an EXPLICIT `--agency-id` and records a `csv_import` row in `job_executions`.
+Refuses to run against `environment == "prod"`.
 
 Key classes:
 - ImportResult: counts (+ bounded PHI-free rejections) from an import run.
@@ -17,7 +17,7 @@ Key functions:
 - ingest_rows: ingest an iterable of IEEE-CIS rows into one agency (partial-accept).
 - load_sample_rows: read the curated synthetic IEEE-CIS sample CSV shipped in the repo.
 - seed_sample_transactions: explicitly ingest the curated sample into an agency.
-- main: CLI entry — import a CSV into the demo agency and record the job (dev/demo only).
+- main: CLI entry — import a CSV into an explicit agency and record the job (dev/demo only).
 
 Notes:
 - IEEE-CIS has no counterparty account, so originAccount←card1 and destAccount←addr1 (the
@@ -45,7 +45,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_backend.settings import get_settings
 from fraudlens_core import CanonicalTransaction, SchemaValidationError, build_canonical
 from lib.aml_mapping import IEEE_EPOCH, ieee_channel, ieee_country
@@ -144,7 +143,7 @@ async def seed_sample_transactions(session: AsyncSession, agency_id: uuid.UUID) 
 
 
 async def _amain(csv_path: Path, agency_id: uuid.UUID) -> int:
-    """Import a CSV into the demo agency, record the csv_import job, and print a summary."""
+    """Import a CSV into the target agency, record the csv_import job, and print a summary."""
     settings = get_settings()
     if settings.environment == "prod":
         print("import refused: never imports synthetic data in prod (FraudLens governance)")
@@ -178,13 +177,13 @@ async def _amain(csv_path: Path, agency_id: uuid.UUID) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point: import an IEEE-CIS CSV into the demo agency (dev/demo only)."""
+    """CLI entry point: import an IEEE-CIS CSV into an explicit agency (dev/demo only)."""
     parser = argparse.ArgumentParser(description="Import a synthetic IEEE-CIS CSV.")
     parser.add_argument(
         "csv_path", nargs="?", default=str(_SAMPLE_CSV), help="CSV to import (default: sample)."
     )
     parser.add_argument(
-        "--agency-id", default=str(DEMO_AGENCY_ID), help="Target agency id (default: demo)."
+        "--agency-id", required=True, help="Target agency id (no default: invocation is generic)."
     )
     args = parser.parse_args(argv)
     return asyncio.run(_amain(Path(args.csv_path), uuid.UUID(args.agency_id)))
