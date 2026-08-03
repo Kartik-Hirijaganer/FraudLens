@@ -10,10 +10,10 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from fraudlens_backend.db.models import Agency
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 from fraudlens_ml.rag import RetrievedChunk, build_rag_context
 
 _CLOSING_FENCE = "<<END_REGULATION_EXCERPTS>>"
