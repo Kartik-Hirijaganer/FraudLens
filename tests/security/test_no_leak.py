@@ -9,11 +9,11 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from fraudlens_backend.db.models import Agency
 from fraudlens_backend.db.models.mlops import DriftReport, ModelInferenceLog
-from fraudlens_backend.demo import DEMO_AGENCY_ID
 
 # Column-name fragments that would indicate raw PHI / direct identifiers leaking into a table.
 _PHI_COLUMN_FRAGMENTS = ("account", "ssn", "email", "phone", "pan", "card", "address", "name")
