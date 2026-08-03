@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
+from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -39,8 +40,6 @@ from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RiskBand
 from seed import seed
 
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
-
 
 def _build_app(settings: AppSettings, engine: AsyncEngine, sm: async_sessionmaker[AsyncSession]):
     """Build an app wired to the in-memory test engine/sessionmaker."""
@@ -65,7 +64,7 @@ async def _seed(sm: async_sessionmaker[AsyncSession]) -> None:
 async def _add_transaction_and_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
     """Create explicit tenant evidence for aggregate tests and return transaction/run ids."""
     transaction = Transaction(
-        agency_id=_DEMO_AGENCY_ID,
+        agency_id=DEMO_AGENCY_ID,
         external_id=f"dashboard-fixture-{uuid.uuid4().hex}",
         amount=Decimal("100.00"),
         currency="USD",
@@ -80,7 +79,7 @@ async def _add_transaction_and_run(session: AsyncSession) -> tuple[uuid.UUID, uu
     session.add(transaction)
     await session.flush()
     run = AnalysisRun(
-        agency_id=_DEMO_AGENCY_ID,
+        agency_id=DEMO_AGENCY_ID,
         transaction_id=transaction.id,
         status=RunStatus.COMPLETED,
     )
@@ -136,7 +135,7 @@ async def test_metrics_are_tenant_scoped(
     await _seed(db_sessionmaker)
     other_agency = uuid.uuid4()
     async with db_sessionmaker() as session:
-        demo = await DashboardRepository(session, _DEMO_AGENCY_ID).collect(as_of=datetime.now(UTC))
+        demo = await DashboardRepository(session, DEMO_AGENCY_ID).collect(as_of=datetime.now(UTC))
         other = await DashboardRepository(session, other_agency).collect(as_of=datetime.now(UTC))
     # Foundation seeding creates no tenant operational activity for either agency.
     assert demo.run_counts == {}
@@ -160,7 +159,7 @@ async def test_metrics_endpoint_maps_new_alert_status_counts(
         session.add_all(
             [
                 Alert(
-                    agency_id=_DEMO_AGENCY_ID,
+                    agency_id=DEMO_AGENCY_ID,
                     transaction_id=transaction_id,
                     run_id=run_id,
                     status=AlertStatus.PENDING_REVIEW,
@@ -168,7 +167,7 @@ async def test_metrics_endpoint_maps_new_alert_status_counts(
                     review_flags=[{"flag": "low_model_confidence", "reason": "Review required."}],
                 ),
                 Alert(
-                    agency_id=_DEMO_AGENCY_ID,
+                    agency_id=DEMO_AGENCY_ID,
                     transaction_id=transaction_id,
                     run_id=run_id,
                     status=AlertStatus.ESCALATED,
@@ -226,7 +225,7 @@ async def test_metrics_aggregate_all_signals(
         # A SAR draft with cost (today) + an inference log + a scored transaction.
         session.add(
             SarDraft(
-                agency_id=_DEMO_AGENCY_ID,
+                agency_id=DEMO_AGENCY_ID,
                 run_id=run_id,
                 model_id="mock",
                 prompt_version="v1",
@@ -239,7 +238,7 @@ async def test_metrics_aggregate_all_signals(
         )
         session.add(
             ModelInferenceLog(
-                agency_id=_DEMO_AGENCY_ID,
+                agency_id=DEMO_AGENCY_ID,
                 run_id=run_id,
                 model_version_id=deployment.active_version_id,
                 was_canary=False,
@@ -250,7 +249,7 @@ async def test_metrics_aggregate_all_signals(
         scored = await session.get(Transaction, transaction_id)
         scored.risk_band = RiskBand.HIGH
         await session.commit()
-        data = await DashboardRepository(session, _DEMO_AGENCY_ID).collect(as_of=datetime.now(UTC))
+        data = await DashboardRepository(session, DEMO_AGENCY_ID).collect(as_of=datetime.now(UTC))
 
     assert data.canary_version_label == "cand-canary"
     assert data.canary_percent == 25
