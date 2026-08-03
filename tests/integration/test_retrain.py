@@ -7,10 +7,10 @@ the fixture active model, registration is idempotent, and matured-label counting
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_ANALYST_ID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from training_label_fakes import add_matured_training_labels
@@ -44,8 +44,6 @@ from seed import seed
 
 _SEED = 1729
 _ROWS = 16000
-_DEMO_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
-_DEMO_USER_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 
 @pytest.fixture(scope="module")
@@ -188,22 +186,22 @@ async def test_matured_label_counts_excludes_immature(db_session: AsyncSession) 
     # An immature (future-matured) label is NOT counted toward eligibility.
     transaction_id = (
         await db_session.execute(
-            select(Transaction.id).where(Transaction.agency_id == _DEMO_AGENCY_ID).limit(1)
+            select(Transaction.id).where(Transaction.agency_id == DEMO_AGENCY_ID).limit(1)
         )
     ).scalar_one()
     run = AnalysisRun(
-        agency_id=_DEMO_AGENCY_ID, transaction_id=transaction_id, status=RunStatus.COMPLETED
+        agency_id=DEMO_AGENCY_ID, transaction_id=transaction_id, status=RunStatus.COMPLETED
     )
     db_session.add(run)
     await db_session.flush()
     db_session.add(
         TrainingLabel(
-            agency_id=_DEMO_AGENCY_ID,
+            agency_id=DEMO_AGENCY_ID,
             transaction_id=transaction_id,
             run_id=run.id,
             label=TrainingLabelType.CONFIRMED_FRAUD,
             matured_at=now + timedelta(days=30),  # not yet matured
-            created_by=_DEMO_USER_ID,
+            created_by=DEMO_ANALYST_ID,
         )
     )
     await db_session.flush()

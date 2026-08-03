@@ -21,6 +21,7 @@ from pipeline_fakes import (
     FakeScorerPort,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tenancy import new_agency_id
 
 import fraudlens_backend.pipeline_wiring as wiring
 from fraudlens_backend.api.v1.investigations import _event_stream
@@ -32,7 +33,7 @@ from fraudlens_core import RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, StreamMessage
 
-_AGENCY_ID = uuid.UUID("55555555-5555-4555-8555-555555555555")
+_AGENCY_ID = new_agency_id()
 
 
 def _components(make_settings: Callable[..., AppSettings]) -> PipelineComponents:
