@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import local_demo
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 
 
 def test_local_database_url_uses_async_driver_and_defaults() -> None:
@@ -135,13 +136,24 @@ def test_main_dispatches_to_the_named_command(monkeypatch: pytest.MonkeyPatch) -
         yield
 
     monkeypatch.setattr(local_demo, "runner_guard", guard)
-    for name in ("up", "down", "live", "rebuild", "reset", "run", "smoke"):
+    for name in ("up", "down", "live", "live-demo", "rebuild", "reset", "run", "smoke"):
         monkeypatch.setitem(local_demo._COMMANDS, name, lambda n=name: calls.append(n) or 0)
     assert local_demo.main(["down"]) == 0
     assert local_demo.main(["live"]) == 0
+    assert local_demo.main(["live-demo"]) == 0
     assert local_demo.main(["smoke"]) == 0
     assert local_demo.main(["run"]) == 0
-    assert calls == ["down", "guard", "live", "guard", "smoke", "guard", "run"]
+    assert calls == [
+        "down",
+        "guard",
+        "live",
+        "guard",
+        "live-demo",
+        "guard",
+        "smoke",
+        "guard",
+        "run",
+    ]
 
 
 def test_runner_guard_rejects_a_competing_stack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -175,10 +187,10 @@ def test_require_tools_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> N
         local_demo._require_tools("docker")
 
 
-def test_maybe_build_rag_index_runs_the_ingest_script(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_rag_index_runs_the_ingest_script(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(local_demo.subprocess, "run", lambda cmd, **_kw: calls.append(cmd))
-    local_demo._maybe_build_rag_index({"X": "1"})
+    local_demo._build_rag_index({"X": "1"})
     assert calls == [["uv", "run", "python", "scripts/ingest_rag.py"]]
 
 
@@ -226,15 +238,26 @@ def test_provision_live_demo_auth_runs_with_the_live_environment(
     ]
 
 
-def test_maybe_build_rag_index_skips_when_script_absent(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: object, capsys: pytest.CaptureFixture[str]
+def test_build_rag_index_fails_hard_when_script_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
     monkeypatch.setattr(local_demo, "REPO_ROOT", tmp_path)  # no scripts/ingest_rag.py here
     ran: list[object] = []
     monkeypatch.setattr(local_demo.subprocess, "run", lambda *a, **k: ran.append(a))
-    local_demo._maybe_build_rag_index({})
+    with pytest.raises(RuntimeError, match="RAG ingest script is missing"):
+        local_demo._build_rag_index({})
     assert ran == []
-    assert "rag index: skipped" in capsys.readouterr().out
+
+
+def test_migrate_and_seed_fails_hard_when_alembic_config_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    monkeypatch.setattr(local_demo, "REPO_ROOT", tmp_path)  # no alembic.ini here
+    ran: list[object] = []
+    monkeypatch.setattr(local_demo.subprocess, "run", lambda *a, **k: ran.append(a))
+    with pytest.raises(RuntimeError, match="Alembic config is missing"):
+        local_demo._migrate_and_seed({})
+    assert ran == []
 
 
 def test_clear_local_caches_removes_files_and_directories(
@@ -337,10 +360,10 @@ def test_up_exposes_kaggle_token_only_to_fetch(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(local_demo, "demo_environment", lambda: dict(env))
     monkeypatch.setattr(local_demo, "_fetch_ibm_demo_data", record("fetch"))
     monkeypatch.setattr(local_demo, "_start_postgres", record("postgres"))
-    monkeypatch.setattr(local_demo, "_maybe_migrate_and_seed", record("seed"))
+    monkeypatch.setattr(local_demo, "_migrate_and_seed", record("seed"))
     monkeypatch.setattr(local_demo, "_activate_trained_model", record("activate"))
     monkeypatch.setattr(local_demo, "_ingest_ibm_demo_data", record("ingest"))
-    monkeypatch.setattr(local_demo, "_maybe_build_rag_index", record("rag"))
+    monkeypatch.setattr(local_demo, "_build_rag_index", record("rag"))
     monkeypatch.setattr(local_demo, "_score_ibm_demo_data", record("score"))
     monkeypatch.setattr(local_demo.subprocess, "Popen", popen)
     monkeypatch.setattr(local_demo, "_wait_for_http", lambda _url: False)
@@ -388,3 +411,139 @@ def test_await_backend_ready_times_out_when_never_ready(
         is False
     )
     assert "timed out waiting for /healthz" in capsys.readouterr().err
+
+
+def test_bootstrap_portfolio_demo_runs_the_canonical_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def run(cmd: list[str], **kwargs: object) -> None:
+        calls.append((cmd, kwargs["env"]))
+
+    monkeypatch.setattr(local_demo.subprocess, "run", run)
+    env = {"SAFE": "value"}
+    local_demo._bootstrap_portfolio_demo(env)
+    assert calls == [(["uv", "run", "python", "scripts/bootstrap_portfolio_demo.py"], env)]
+
+
+def test_bootstrap_portfolio_demo_fails_hard_when_script_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(local_demo, "REPO_ROOT", tmp_path)  # no bootstrap script here
+    ran: list[object] = []
+    monkeypatch.setattr(local_demo.subprocess, "run", lambda *a, **k: ran.append(a))
+    with pytest.raises(RuntimeError, match="portfolio demo bootstrap script is missing"):
+        local_demo._bootstrap_portfolio_demo({})
+    assert ran == []
+
+
+def test_portfolio_story_environment_pins_the_configured_provider_modes() -> None:
+    execution = load_portfolio_demo_config().execution
+    env = local_demo._portfolio_story_environment({"FRAUDLENS_LLM_MODE": "live", "KEEP": "yes"})
+    # The story's own modes win over whatever live mode was inherited, and nothing else moves.
+    assert env["FRAUDLENS_LLM_MODE"] == execution.llm_mode
+    assert env["FRAUDLENS_RAG_EMBEDDING_MODE"] == execution.rag_embedding_mode
+    assert env["KEEP"] == "yes"
+
+
+def test_portfolio_story_environment_opens_the_demo_gate() -> None:
+    """Without this the projection 404s and the picker cannot auto-fill: live mode has no bypass."""
+    env = local_demo._portfolio_story_environment({"FRAUDLENS_AUTH_DEV_BYPASS": "false"})
+    assert env["FRAUDLENS_PORTFOLIO_DEMO_ENABLED"] == "true"
+    # Opening the demo gate must not also open the tokenless bypass; live mode keeps real auth.
+    assert env["FRAUDLENS_AUTH_DEV_BYPASS"] == "false"
+
+
+def test_live_environment_leaves_the_demo_gate_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make run-live` is not the portfolio path, so it must not open the demo surface."""
+    for name in ("SUPABASE_URL", "DATABASE_URL", "OPENROUTER_API_KEY"):
+        monkeypatch.setenv(name, "set-for-this-test")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "set-for-this-test")
+    monkeypatch.setenv("VITE_SUPABASE_ANON_KEY", "set-for-this-test")
+    monkeypatch.delenv("FRAUDLENS_PORTFOLIO_DEMO_ENABLED", raising=False)
+    assert "FRAUDLENS_PORTFOLIO_DEMO_ENABLED" not in local_demo.live_environment()
+
+
+def test_live_demo_seeds_provisions_and_bootstraps_before_serving(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    env = {"BACKEND_PORT": "18000", "FRONTEND_PORT": "15173"}
+
+    def record(name: str):
+        def inner(_child_env: dict[str, str]) -> None:
+            events.append(name)
+
+        return inner
+
+    monkeypatch.setattr(local_demo, "_require_tools", lambda *_tools: None)
+    monkeypatch.setattr(local_demo, "_assign_available_default_ports", lambda _names: None)
+    monkeypatch.setattr(local_demo, "live_environment", lambda: dict(env))
+    monkeypatch.setattr(local_demo, "_portfolio_story_environment", lambda child_env: child_env)
+    monkeypatch.setattr(local_demo, "_migrate_and_seed", record("seed"))
+    monkeypatch.setattr(local_demo, "_provision_live_demo_auth", record("provision"))
+    monkeypatch.setattr(local_demo, "_build_rag_index", record("rag"))
+    monkeypatch.setattr(local_demo, "_bootstrap_portfolio_demo", record("bootstrap"))
+    monkeypatch.setattr(
+        local_demo, "_serve", lambda _child_env, *, banner: events.append(banner) or 0
+    )
+
+    assert local_demo.live_demo() == 0
+    assert events == [
+        "seed",
+        "provision",
+        "rag",
+        "bootstrap",
+        "FraudLens portfolio demo is up",
+    ]
+
+
+def test_live_demo_hands_every_child_the_story_execution_modes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, str]] = []
+    story_env = {"BACKEND_PORT": "18000", "FRONTEND_PORT": "15173", "FRAUDLENS_LLM_MODE": "mock"}
+
+    monkeypatch.setattr(local_demo, "_require_tools", lambda *_tools: None)
+    monkeypatch.setattr(local_demo, "_assign_available_default_ports", lambda _names: None)
+    monkeypatch.setattr(local_demo, "live_environment", lambda: {"FRAUDLENS_LLM_MODE": "live"})
+    monkeypatch.setattr(local_demo, "_portfolio_story_environment", lambda _env: dict(story_env))
+
+    def observe(child_env: dict[str, str]) -> None:
+        seen.append(child_env)
+
+    steps = (
+        "_migrate_and_seed",
+        "_provision_live_demo_auth",
+        "_build_rag_index",
+        "_bootstrap_portfolio_demo",
+    )
+    for step in steps:
+        monkeypatch.setattr(local_demo, step, observe)
+    monkeypatch.setattr(
+        local_demo, "_serve", lambda child_env, *, banner: seen.append(child_env) or 0
+    )
+
+    assert local_demo.live_demo() == 0
+    # Index build, bootstrap, and the servers must agree, or the index is unusable at query time.
+    assert [child["FRAUDLENS_LLM_MODE"] for child in seen] == ["mock"] * len(seen)
+
+
+def test_live_stays_non_mutating(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make run-live` provisions identities only — it must never seed or write story rows."""
+    events: list[str] = []
+    monkeypatch.setattr(local_demo, "_require_tools", lambda *_tools: None)
+    monkeypatch.setattr(local_demo, "_assign_available_default_ports", lambda _names: None)
+    monkeypatch.setattr(
+        local_demo, "live_environment", lambda: {"BACKEND_PORT": "1", "FRONTEND_PORT": "2"}
+    )
+    monkeypatch.setattr(
+        local_demo, "_provision_live_demo_auth", lambda _env: events.append("provision")
+    )
+    for mutating in ("_migrate_and_seed", "_build_rag_index", "_bootstrap_portfolio_demo"):
+        monkeypatch.setattr(local_demo, mutating, lambda _env, name=mutating: events.append(name))
+    monkeypatch.setattr(local_demo, "_serve", lambda _env, *, banner: events.append("serve") or 0)
+
+    assert local_demo.live() == 0
+    assert events == ["provision", "serve"]
