@@ -37,7 +37,7 @@ async def test_ensure_password_user_creates_a_missing_confirmed_user(
     client = SupabaseAdminClient("https://project.supabase.test", "service-role-placeholder")
 
     user_id = await client.ensure_password_user(
-        email="analyst@demo-agency.test",
+        email="analyst@supabase-admin.test",
         password="synthetic-password",
         app_metadata=SupabaseAuthAppMetadata(agency_id="agency-1", user_role="analyst"),
     )
@@ -48,7 +48,7 @@ async def test_ensure_password_user_creates_a_missing_confirmed_user(
         "POST",
         "/auth/v1/admin/users",
         {
-            "email": "analyst@demo-agency.test",
+            "email": "analyst@supabase-admin.test",
             "password": "synthetic-password",
             "email_confirm": True,
             "app_metadata": {"agency_id": "agency-1", "user_role": "analyst"},
@@ -69,14 +69,14 @@ async def test_ensure_password_user_refreshes_an_existing_user(
     ) -> dict[str, Any]:
         calls.append((method, path))
         if method == "GET":
-            return {"users": [{"id": str(_AUTH_USER_ID), "email": "ADMIN@DEMO-AGENCY.TEST"}]}
+            return {"users": [{"id": str(_AUTH_USER_ID), "email": "ADMIN@SUPABASE-ADMIN.TEST"}]}
         return {"id": str(_AUTH_USER_ID)}
 
     monkeypatch.setattr(SupabaseAdminClient, "_request_json", request_json)
     client = SupabaseAdminClient("https://project.supabase.test", "service-role-placeholder")
 
     user_id = await client.ensure_password_user(
-        email="admin@demo-agency.test",
+        email="admin@supabase-admin.test",
         password="synthetic-password",
         app_metadata=SupabaseAuthAppMetadata(agency_id="agency-1", user_role="admin"),
     )

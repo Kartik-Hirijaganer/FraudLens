@@ -9,8 +9,8 @@ import uuid
 
 import pytest
 from pydantic import ValidationError
+from tenancy import new_agency_id
 
-from fraudlens_backend.api.v1.alerts import sar_decision_allowed
 from fraudlens_backend.db.models.enums import AlertActionType, AlertStatus, SarStatus
 from fraudlens_backend.db.repositories.alerts import compute_review_flags, next_alert_status
 from fraudlens_backend.models.alerts import (
@@ -19,6 +19,7 @@ from fraudlens_backend.models.alerts import (
     SarReviewRequest,
 )
 from fraudlens_backend.sar.pdf import render_sar_pdf, sar_pdf_key
+from fraudlens_backend.services.alert_workflow import AlertActionCommand, sar_decision_allowed
 from fraudlens_core import RiskBand
 
 
@@ -199,7 +200,7 @@ def test_render_sar_pdf_wraps_long_lines_and_blank_lines() -> None:
 
 
 def test_sar_pdf_key_is_phi_free() -> None:
-    agency = uuid.UUID("11111111-1111-4111-8111-111111111111")
+    agency = new_agency_id()
     draft = uuid.UUID("99999999-9999-4999-8999-999999999999")
     assert sar_pdf_key(agency, draft) == f"sar/{agency}/{draft}.pdf"
 
@@ -207,6 +208,26 @@ def test_sar_pdf_key_is_phi_free() -> None:
 def test_action_request_assign_requires_assignee() -> None:
     with pytest.raises(ValidationError):
         AlertActionRequest(action=AlertActionType.ASSIGN)
+
+
+def test_action_command_assign_requires_assignee() -> None:
+    # The domain command carries the same invariant, so a non-HTTP caller (the portfolio-demo
+    # bootstrap) cannot reach `record_action` with an unset assignee.
+    with pytest.raises(ValidationError):
+        AlertActionCommand(
+            alert_id=uuid.uuid4(), actor_id=uuid.uuid4(), action=AlertActionType.ASSIGN
+        )
+
+
+def test_action_command_ignores_assignee_on_other_actions() -> None:
+    # A comment carrying an assignee stays valid (the pre-extraction routes accepted it).
+    command = AlertActionCommand(
+        alert_id=uuid.uuid4(),
+        actor_id=uuid.uuid4(),
+        action=AlertActionType.COMMENT,
+        assignee_id=uuid.uuid4(),
+    )
+    assert command.action is AlertActionType.COMMENT
 
 
 def test_action_request_resolve_requires_label() -> None:
