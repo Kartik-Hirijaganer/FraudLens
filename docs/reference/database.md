@@ -69,7 +69,10 @@ drift.
 
 - **Migrations:** Alembic, hand-reviewed, **expand/contract**. The initial migration
   [`alembic/versions/0001_initial_schema.py`](../../alembic/versions/0001_initial_schema.py)
-  creates every table/index/FK. Apply with `make db-migrate` (`alembic upgrade head`);
+  creates every table/index/FK. Migration `0004_harden_supabase_access` closes the exposed
+  Supabase Data API by enabling RLS on every `public` table, revoking web-role grants/defaults,
+  and installing a DDL event trigger that applies the same deny-by-default posture to new
+  tables, sequences, views, and routines. Apply with `make db-migrate` (`alembic upgrade head`);
   up/down are tested on a temp DB. There is exactly one Alembic head.
 - **Seed (`make db-seed`, dev/demo only, idempotent):** the demo agency + users, default
   global `system_config`, and the active fixture model; recorded in `job_executions`.

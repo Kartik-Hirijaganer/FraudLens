@@ -77,6 +77,12 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                 </Badge>
                 {detail.alert.origin === "seed" ? <Badge tone="neutral">Sample data</Badge> : null}
                 <span className="text-body-md text-ink">{statusLabel(detail.alert.status)}</span>
+                {detail.alert.assignedToName ? (
+                  <span className="text-body-sm text-body">
+                    Assigned to{" "}
+                    <span className="text-ink font-semibold">{detail.alert.assignedToName}</span>
+                  </span>
+                ) : null}
                 {detail.alert.reviewFlags.map((flag) => (
                   <Badge key={flag.flag} tone="warning">
                     {flag.reason}

@@ -65,6 +65,7 @@ const FULL_DEMO_ENV: LoginEnv = {
 
 afterEach(() => {
   signOut();
+  window.location.hash = "";
   vi.mocked(fetchCurrentUser).mockReset();
   vi.mocked(signInWithPassword).mockReset();
 });
@@ -177,6 +178,7 @@ describe("Login", () => {
 
   it("keeps the dev bypass tokenless and persists the configured agency", async () => {
     const user = userEvent.setup();
+    window.location.hash = "#/alerts/retained-alert";
     render(<Login env={FULL_DEMO_ENV} personas={PERSONAS} />);
     await openRolePicker(user);
     await user.click(screen.getByRole("option", { name: new RegExp(PERSONAS[0].email) }));
@@ -189,6 +191,7 @@ describe("Login", () => {
       demoRole: PERSONAS[0].role,
       agencyId: TEST_DEMO_AGENCY_ID,
     });
+    expect(window.location.hash).toBe("#/");
   });
 
   it("closes the picker on Escape", async () => {
@@ -256,6 +259,7 @@ describe("Login", () => {
       agencyId: "agency-1",
     });
     const user = userEvent.setup();
+    window.location.hash = "#/research/graph-typologies";
     render(<Login env={LOCAL_DEMO_ENV} personas={PERSONAS} />);
 
     await user.type(screen.getByLabelText("Work email"), "reviewer@example.test");
@@ -274,6 +278,7 @@ describe("Login", () => {
     );
     expect(signInWithPassword).toHaveBeenCalledWith("reviewer@example.test", "correct-password");
     expect(fetchCurrentUser).toHaveBeenCalledWith("access-token");
+    expect(window.location.hash).toBe("#/");
   });
 
   it("keeps the bypass dev-only while allowing explicit live demo auth in production", () => {

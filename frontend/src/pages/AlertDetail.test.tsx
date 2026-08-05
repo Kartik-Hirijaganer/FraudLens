@@ -124,6 +124,27 @@ describe("AlertDetail", () => {
     expect(screen.queryByLabelText("Resolution label")).not.toBeInTheDocument();
   });
 
+  it("names the assigned reviewer in the alert summary", async () => {
+    signInAs("analyst");
+    const client = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(
+          alertDetail({
+            alert: alertView({
+              status: "in_review",
+              assignedTo: "reviewer-1",
+              assignedToName: "Demo Reviewer",
+            }),
+          }),
+        ),
+      ),
+    });
+    render(<AlertDetail alertId="alert-1" client={client} />);
+
+    expect(await screen.findByText("Assigned to")).toBeInTheDocument();
+    expect(screen.getByText("Demo Reviewer")).toBeInTheDocument();
+  });
+
   it("shows a read-only action rail for auditor sessions", async () => {
     signInAs("auditor");
     const client = makeClient();
