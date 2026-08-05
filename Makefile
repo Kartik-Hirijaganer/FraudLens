@@ -22,7 +22,7 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check deadcode deps-audit docs docs-check openapi \
+        header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -125,6 +125,9 @@ demo-literals-check: ## Flag portfolio-demo values restated outside config/portf
 	$(UV) run python scripts/check_no_demo_literals.py
 tenancy-check: ## Assert every tenant-scoped table has indexed agency_id (plan §9.3).
 	$(UV) run python scripts/check_tenancy.py
+supabase-security-check: ## Audit live Supabase DB CIDRs + TLS (SUPABASE_PROJECT_REF required).
+	@test -n "$(SUPABASE_PROJECT_REF)" || { echo "SUPABASE_PROJECT_REF is required"; exit 2; }
+	$(UV) run python scripts/check_supabase_security.py --project-ref "$(SUPABASE_PROJECT_REF)"
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).

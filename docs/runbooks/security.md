@@ -49,7 +49,54 @@ or duplicated.
 | **Error envelope** | [`api/errors.py`](../../backend/src/fraudlens_backend/api/errors.py) + [`models/errors.py`](../../backend/src/fraudlens_backend/models/errors.py) | `{code, message, details, requestId}` only — fixed catalog messages, field/reason detail pairs, never raw input, stack traces, or exception classes. |
 | **Secrets** | Infisical (runtime) | No secrets in `.env`/source/config/fixtures; `make secrets-scan` (gitleaks + guard) blocks regressions. |
 | **Dependency CVEs** | `make deps-audit` (CI) | `pip-audit` over the resolved Python tree + `npm audit --audit-level=high` over production frontend deps. |
-| **HTTPS/TLS** | Container Apps ingress (Terraform, Phase 14) | `allow_insecure_connections = false` + DB TLS; asserted in the Terraform plan test (Phase 14). |
+| **Supabase Data API** | Alembic `0004_harden_supabase_access` | Every exposed `public` table has RLS enabled; `anon`/`authenticated` table and sequence privileges are revoked, including defaults. Public function execution is denied by default. |
+| **Database network** | Supabase network restrictions + `make supabase-security-check` | Postgres/pooler ingress is an explicit least-privilege CIDR allowlist. Default IPv4/IPv6 routes and unapplied restrictions fail the live check. |
+| **HTTPS/TLS** | Container Apps ingress + Supabase SSL enforcement | `allow_insecure_connections = false`; Supabase rejects external non-TLS database connections. |
+
+### 3.1 Supabase database boundary
+
+FraudLens does not use PostgREST for application data. The SPA uses Supabase **Auth over
+HTTPS**; all AML/fraud data flows through the FastAPI gateway, which connects to Postgres with
+its backend-only role. Database network restrictions protect direct Postgres and pooler routes,
+but do **not** protect Auth, PostgREST, Storage, or other HTTPS APIs. The Alembic RLS/grant
+hardening is therefore a separate mandatory control.
+
+Audit the live network/TLS posture without printing CIDRs:
+
+```bash
+SUPABASE_PROJECT_REF=<project-ref> make supabase-security-check
+```
+
+Apply or rotate an allowlist entry only after resolving the trusted egress CIDR out of band:
+
+```bash
+export SUPABASE_PROJECT_REF=<project-ref>
+export TRUSTED_DB_CIDR=<trusted-ip-or-range>
+supabase network-restrictions update \
+  --project-ref "$SUPABASE_PROJECT_REF" \
+  --db-allow-cidr "$TRUSTED_DB_CIDR" \
+  --experimental
+supabase ssl-enforcement update \
+  --project-ref "$SUPABASE_PROJECT_REF" \
+  --enable-db-ssl-enforcement \
+  --experimental
+make supabase-security-check
+```
+
+The update command replaces the existing allowlist unless `--append` is supplied. Re-read and
+verify the result before ending the change window. Never use a default route as a temporary
+shortcut.
+
+The current Azure deployment is inert. Before enabling it, provision stable outbound egress
+(for example, Container Apps through an Azure NAT Gateway), append that exact CIDR, verify the
+backend can connect with TLS, and only then remove a workstation CIDR. The GitHub-hosted
+migration job also has dynamic egress; move migrations to the stable-egress environment or a
+dedicated runner before enabling deploy. Do not broaden the Supabase allowlist to accommodate
+ephemeral runners.
+
+No-policy RLS findings on backend-only tables are intentional deny-all behavior. Any future
+browser Data API feature requires a new reviewed plan, tenant-bound policies using the verified
+`agency_id` claim, least-privilege grants, and negative cross-tenant tests before access is added.
 
 ## 4. Threat model (STRIDE)
 
