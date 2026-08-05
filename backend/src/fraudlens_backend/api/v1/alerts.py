@@ -115,6 +115,7 @@ def _to_alert_view(row: AlertSummaryRow) -> AlertView:
         amount=row.amount,
         currency=row.currency,
         assigned_to=str(alert.assigned_to) if alert.assigned_to is not None else None,
+        assigned_to_name=row.assigned_to_name,
         review_flags=[dict(flag) for flag in (alert.review_flags or [])],
         created_at=alert.created_at,
         updated_at=alert.updated_at,

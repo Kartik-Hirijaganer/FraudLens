@@ -48,6 +48,7 @@ export function alertView(overrides: Partial<AlertView> = {}): AlertView {
     amount: "9500.00",
     currency: "USD",
     assignedTo: null,
+    assignedToName: null,
     reviewFlags: [{ flag: "critical_band", reason: "Risk band is critical" }],
     createdAt: "2026-06-11T10:00:00Z",
     updatedAt: "2026-06-11T10:00:00Z",

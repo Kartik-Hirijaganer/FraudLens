@@ -321,6 +321,18 @@
             "description": "User id the alert is currently assigned to, if any.",
             "title": "Assignedto"
           },
+          "assignedToName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name of the assigned user when that user belongs to the alert's agency.",
+            "title": "Assignedtoname"
+          },
           "createdAt": {
             "description": "When the alert was raised.",
             "format": "date-time",

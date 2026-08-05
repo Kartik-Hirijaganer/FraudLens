@@ -80,6 +80,12 @@ class AlertView(CamelModel):
     assigned_to: str | None = Field(
         default=None, description="User id the alert is currently assigned to, if any."
     )
+    assigned_to_name: str | None = Field(
+        default=None,
+        description=(
+            "Display name of the assigned user when that user belongs to the alert's agency."
+        ),
+    )
     review_flags: list[dict[str, str]] = Field(
         default_factory=list,
         description="PHI-free force-review reasons ({flag, reason}) set at investigation time.",
