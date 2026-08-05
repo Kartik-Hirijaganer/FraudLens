@@ -276,10 +276,12 @@ def test_in_review_alerts_expose_their_assignee(
     """`ASSIGN` is the only route into `in_review`, so each one must name who it moved to."""
     if not story.expected.alert_states.get(AlertStatus.IN_REVIEW):
         pytest.skip("the configured story leaves no alert in review")
+    expected_assignee = story.persona(story.workflow.assignee)
     for alert in _alerts_with_status(client, AlertStatus.IN_REVIEW):
         assigned_to = alert["assignedTo"]
         assert assigned_to, "an in_review alert must expose the assignee ASSIGN moved it to"
         uuid.UUID(str(assigned_to))
+        assert alert["assignedToName"] == expected_assignee.display_name
 
 
 @requires_live_story

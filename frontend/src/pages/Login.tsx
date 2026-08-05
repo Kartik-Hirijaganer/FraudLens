@@ -32,6 +32,7 @@ import { useEffect, useRef, useState } from "react";
 import { cx } from "../lib/cx";
 import { fetchCurrentUser } from "../lib/api";
 import type { PortfolioDemoStatus } from "../lib/portfolioDemo";
+import { navigate, paths } from "../lib/router";
 import {
   analystFromDisplayName,
   signIn as startSession,
@@ -154,6 +155,7 @@ export function Login({
         selectedRole.agencyId,
         selectedRole.analyst,
       );
+      navigate(paths.dashboard);
       return;
     }
     setSigningIn(true);
@@ -170,6 +172,7 @@ export function Login({
         currentUser.agencyId,
         currentUser.displayName ? analystFromDisplayName(currentUser.displayName) : undefined,
       );
+      navigate(paths.dashboard);
     } catch (caught) {
       notifyError(caught);
     } finally {

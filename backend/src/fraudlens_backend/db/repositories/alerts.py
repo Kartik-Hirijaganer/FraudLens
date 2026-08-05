@@ -35,8 +35,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from fraudlens_backend.db.models import (
     Alert,
@@ -96,6 +97,7 @@ class AlertSummaryRow:
     alert: Alert
     amount: Decimal
     currency: str
+    assigned_to_name: str | None
 
 
 def next_alert_status(current: AlertStatus, action: AlertActionType) -> AlertStatus | None:
@@ -167,39 +169,49 @@ class AlertRepository(TenantScopedRepository[Alert]):
         """Bind the session + agency scope to the `alerts` table."""
         super().__init__(session, Alert, agency_id)
 
+    def _summary_stmt(self) -> Select[tuple[Alert, Decimal, str, str]]:
+        """Build the shared tenant-scoped alert/transaction/assignee projection."""
+        return (
+            select(Alert, Transaction.amount, Transaction.currency, User.display_name)
+            .join(Transaction, Alert.transaction_id == Transaction.id)
+            .outerjoin(
+                User,
+                and_(Alert.assigned_to == User.id, User.agency_id == self._agency_id),
+            )
+            .where(Alert.agency_id == self._agency_id, Transaction.agency_id == self._agency_id)
+        )
+
     async def list_alerts(
         self, *, limit: int = 50, offset: int = 0, status: AlertStatus | None = None
     ) -> Sequence[AlertSummaryRow]:
         """Return the agency's alert summaries (newest first), optionally filtered by status."""
-        stmt = (
-            select(Alert, Transaction.amount, Transaction.currency)
-            .join(Transaction, Alert.transaction_id == Transaction.id)
-            .where(Alert.agency_id == self._agency_id, Transaction.agency_id == self._agency_id)
-        )
+        stmt = self._summary_stmt()
         if status is not None:
             stmt = stmt.where(Alert.status == status)
         stmt = stmt.order_by(Alert.created_at.desc(), Alert.id.desc()).limit(limit).offset(offset)
         return [
-            AlertSummaryRow(alert=alert, amount=amount, currency=currency)
-            for alert, amount, currency in await self._session.execute(stmt)
+            AlertSummaryRow(
+                alert=alert,
+                amount=amount,
+                currency=currency,
+                assigned_to_name=assigned_to_name,
+            )
+            for alert, amount, currency, assigned_to_name in await self._session.execute(stmt)
         ]
 
     async def get_alert_summary(self, alert_id: uuid.UUID) -> AlertSummaryRow | None:
         """Return one joined alert summary row, or None when missing/cross-tenant."""
-        stmt = (
-            select(Alert, Transaction.amount, Transaction.currency)
-            .join(Transaction, Alert.transaction_id == Transaction.id)
-            .where(
-                Alert.id == alert_id,
-                Alert.agency_id == self._agency_id,
-                Transaction.agency_id == self._agency_id,
-            )
-        )
+        stmt = self._summary_stmt().where(Alert.id == alert_id)
         row = (await self._session.execute(stmt)).one_or_none()
         if row is None:
             return None
-        alert, amount, currency = row
-        return AlertSummaryRow(alert=alert, amount=amount, currency=currency)
+        alert, amount, currency, assigned_to_name = row
+        return AlertSummaryRow(
+            alert=alert,
+            amount=amount,
+            currency=currency,
+            assigned_to_name=assigned_to_name,
+        )
 
     async def get_for_run(self, run_id: uuid.UUID) -> Alert | None:
         """Return this agency's alert for an investigation run, or None when none was raised."""

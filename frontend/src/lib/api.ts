@@ -272,6 +272,7 @@ export interface AlertView {
   amount: string;
   currency: string;
   assignedTo: string | null;
+  assignedToName: string | null;
   reviewFlags: { flag: string; reason: string }[];
   createdAt: string;
   updatedAt: string;

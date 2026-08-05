@@ -126,6 +126,7 @@ async def _seed_alert(
     sar_status: SarStatus = SarStatus.DRAFT,
     review_flags: list[dict[str, str]] | None = None,
     external_id: str | None = None,
+    assigned_to: uuid.UUID | None = None,
 ) -> dict[str, uuid.UUID]:
     """Seed an alert (+ its transaction, run, and optional SAR draft); return the relevant ids."""
     async with sm() as session:
@@ -178,6 +179,7 @@ async def _seed_alert(
             origin=origin,
             status=status,
             severity=Severity.HIGH,
+            assigned_to=assigned_to,
             review_flags=review_flags or [],
         )
         session.add(alert)
@@ -230,7 +232,12 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     flags = [{"flag": "critical_risk_band", "reason": "Risk band is critical."}]
-    ids = await _seed_alert(db_sessionmaker, review_flags=flags, origin=AlertOrigin.SEED)
+    ids = await _seed_alert(
+        db_sessionmaker,
+        review_flags=flags,
+        origin=AlertOrigin.SEED,
+        assigned_to=_REVIEWER_ID,
+    )
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
@@ -240,6 +247,8 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     assert body["alert"]["origin"] == "seed"
     assert body["alert"]["amount"] == "9500.00"
     assert body["alert"]["currency"] == "USD"
+    assert body["alert"]["assignedTo"] == str(_REVIEWER_ID)
+    assert body["alert"]["assignedToName"] == "Demo Reviewer"
     assert body["sarDraft"]["citations"][0]["citation"] == "31 CFR 1010.314"
     assert body["actions"] == []
 
@@ -278,6 +287,7 @@ async def test_assign_moves_to_in_review_and_audits(
     body = resp.json()
     assert body["status"] == "in_review"
     assert body["assignedTo"] == str(_REVIEWER_ID)
+    assert body["assignedToName"] == "Demo Reviewer"
     async with db_sessionmaker() as session:
         action = (
             await session.execute(
