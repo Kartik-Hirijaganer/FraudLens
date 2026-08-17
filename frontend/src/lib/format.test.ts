@@ -7,8 +7,12 @@ import {
   formatCurrency,
   formatDateTime,
   formatInvestigationRef,
+  formatMachineKey,
+  formatMaskedAccount,
+  formatModelBuild,
   formatModelVersion,
   formatPercent,
+  formatTransactionRef,
   greeting,
   humanize,
 } from "./format";
@@ -115,16 +119,74 @@ describe("formatInvestigationRef", () => {
   });
 });
 
+describe("formatTransactionRef", () => {
+  it("combines the backend id suffix with the UTC transaction date", () => {
+    expect(
+      formatTransactionRef("4b335aa3-a07c-4194-a2ea-96ed010dcdbe", "2026-07-01T04:00:00-04:00"),
+    ).toBe("TXN-260701-0DCDBE");
+  });
+
+  it("keeps a stable id-only fallback when the timestamp is invalid", () => {
+    expect(formatTransactionRef("tx-abc123", "not-a-date")).toBe("TXN-ABC123");
+    expect(formatTransactionRef("", "2026-07-01T00:00:00Z")).toBe("—");
+  });
+});
+
+describe("formatMaskedAccount", () => {
+  it("shows only the already-masked identifier's final four characters", () => {
+    expect(formatMaskedAccount("************9102")).toBe("•••• 9102");
+    expect(formatMaskedAccount("DEMO-SYNTH-ACCT-a1b2")).toBe("•••• A1B2");
+  });
+
+  it("returns a placeholder when no safe tail exists", () => {
+    expect(formatMaskedAccount("****")).toBe("—");
+  });
+});
+
 describe("formatModelVersion", () => {
-  it("drops the internal -fixture tag and leaves clean labels untouched", () => {
-    expect(formatModelVersion("v0-fixture")).toBe("v0");
-    expect(formatModelVersion("v2.4")).toBe("v2.4");
-    expect(formatModelVersion("model-v1")).toBe("model-v1");
+  it("normalizes explicit versions to three semantic-version parts", () => {
+    expect(formatModelVersion("v0-fixture")).toBe("v0.0.0");
+    expect(formatModelVersion("v2.4")).toBe("v2.4.0");
+    expect(formatModelVersion("model-v1")).toBe("v1.0.0");
+  });
+
+  it("uses a training bundle's feature-spec generation for its compact display version", () => {
+    expect(formatModelVersion("xgb-synthetic-fs2-a1b2c3d4e5")).toBe("v2.0.0");
+  });
+
+  it("leaves an unstructured registry label intact", () => {
+    expect(formatModelVersion("champion-blue")).toBe("champion-blue");
   });
 
   it("returns a dash for a missing label", () => {
     expect(formatModelVersion(null)).toBe("—");
     expect(formatModelVersion(undefined)).toBe("—");
+  });
+});
+
+describe("formatModelBuild", () => {
+  it("extracts a short build reference from a hash-suffixed registry label", () => {
+    expect(formatModelBuild("xgb-synthetic-fs2-a1b2c3d4e5")).toBe("Build a1b2c3d4");
+  });
+
+  it("omits build detail when the label has no build hash", () => {
+    expect(formatModelBuild("model-v1")).toBeNull();
+    expect(formatModelBuild(null)).toBeNull();
+  });
+});
+
+describe("formatMachineKey", () => {
+  it("uses explanatory labels for model features", () => {
+    expect(formatMachineKey("amount_log")).toBe("Transaction amount (log scale)");
+    expect(formatMachineKey("seconds_since_prev_txn_log")).toBe(
+      "Time since previous transaction (log scale)",
+    );
+  });
+
+  it("falls back to a readable sentence-case label", () => {
+    expect(formatMachineKey("rapid_movement")).toBe("Rapid movement");
+    expect(formatMachineKey("threshold.evasion")).toBe("Threshold evasion");
+    expect(formatMachineKey(" ")).toBe("—");
   });
 });
 
