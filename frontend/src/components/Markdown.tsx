@@ -15,10 +15,13 @@
  * Notes:
  * - Deliberately minimal (no links/images/tables/code) — the SAR draft only uses headings,
  *   bold, paragraphs, and bullets; anything else renders as plain text.
+ * - Machine rule/feature keys are converted only for display; the API/persisted narrative
+ *   remains unchanged for auditability and analyst editing.
  */
 import type { ReactNode } from "react";
 
 import { cx } from "../lib/cx";
+import { formatMachineKey } from "../lib/format";
 
 type Block =
   | { kind: "heading"; level: 1 | 2 | 3; text: string }
@@ -27,6 +30,24 @@ type Block =
 
 const HEADING = /^(#{1,3})\s+(.*)$/;
 const BULLET = /^[-*]\s+(.*)$/;
+const DUPLICATED_MACHINE_KEY = /\b([a-z][a-z\d]*(?:_[a-z\d]+)+)\s+\(\1\)/g;
+const MACHINE_KEY = /\b[a-z][a-z\d]*(?:_[a-z\d]+)+\b/g;
+const CURRENCY_AMOUNT = /\b(\d{4,}(?:\.\d{2})?)\s+([A-Z]{3})\b/g;
+
+function formatNarrativeText(text: string): string {
+  return text
+    .replace(DUPLICATED_MACHINE_KEY, (_, key: string) => formatMachineKey(key))
+    .replace(MACHINE_KEY, (key) => formatMachineKey(key))
+    .replace(/\bA ach\b/g, "An ACH")
+    .replace(/\bach\b/gi, "ACH")
+    .replace(CURRENCY_AMOUNT, (_, amount: string, currency: string) => {
+      const value = Number(amount);
+      return `${value.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })} ${currency}`;
+    });
+}
 
 function parseBlocks(source: string): Block[] {
   const blocks: Block[] = [];
@@ -68,10 +89,10 @@ function renderInline(text: string): ReactNode[] {
   return text.split("**").map((segment, index) =>
     index % 2 === 1 ? (
       <strong key={index} className="text-ink font-semibold">
-        {segment}
+        {formatNarrativeText(segment)}
       </strong>
     ) : (
-      <span key={index}>{segment}</span>
+      <span key={index}>{formatNarrativeText(segment)}</span>
     ),
   );
 }
