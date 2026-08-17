@@ -46,13 +46,13 @@ describe("AlertDetail", () => {
     expect(screen.getByText("needs a closer look")).toBeInTheDocument();
     expect(screen.getByText(/In Review → Completed/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve SAR" }));
     await waitFor(() =>
       expect(client.reviewSar).toHaveBeenCalledWith("alert-1", { decision: "approve" }),
     );
 
-    await userEvent.type(screen.getByLabelText("Rejection reason"), "dup");
-    await userEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await userEvent.type(screen.getByLabelText("Reason for rejection"), "dup");
+    await userEvent.click(screen.getByRole("button", { name: "Reject SAR" }));
     await waitFor(() =>
       expect(client.reviewSar).toHaveBeenCalledWith("alert-1", {
         decision: "reject",
@@ -70,41 +70,131 @@ describe("AlertDetail", () => {
     );
   });
 
-  it("runs the triage actions including resolve-with-label", async () => {
+  it("renders the SAR narrative as formatted, analyst-friendly content", async () => {
     signInAs("reviewer");
-    const client = makeClient();
+    const client = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(
+          alertDetail({
+            sarDraft: {
+              ...alertDetail().sarDraft!,
+              content:
+                "# Suspicious Activity Report\n\n**Subject:** Suspected ach activity\n\n" +
+                "## Risk indicators\n\nRules fired: rapid_movement (rapid_movement). " +
+                "Model drivers: amount_log.",
+            },
+          }),
+        ),
+      ),
+    });
+    render(<AlertDetail alertId="alert-1" client={client} />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Suspicious Activity Report" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Risk indicators" })).toBeInTheDocument();
+    expect(screen.getByText("Subject:").tagName).toBe("STRONG");
+    expect(screen.getByText(/Rapid movement/)).toBeInTheDocument();
+    expect(screen.getByText(/Transaction amount \(log scale\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/##|rapid_movement|amount_log/)).not.toBeInTheDocument();
+  });
+
+  it("keeps investigation updates separate from the final case outcome", async () => {
+    signInAs("reviewer");
+    const client = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(
+          alertDetail({ sarDraft: { ...alertDetail().sarDraft!, status: "approved" } }),
+        ),
+      ),
+    });
     render(<AlertDetail alertId="alert-1" client={client} />);
     await screen.findByText(/Suspicious structuring activity observed/);
 
-    await userEvent.click(screen.getByRole("button", { name: "Escalate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Escalate for review" }));
     await waitFor(() =>
       expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
         action: "escalate",
         note: undefined,
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await userEvent.type(screen.getByLabelText("Investigation note (optional)"), "checked");
+    await userEvent.click(screen.getByRole("button", { name: "Add note" }));
     await waitFor(() =>
       expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
         action: "comment",
-        note: undefined,
+        note: "checked",
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    await waitFor(() =>
-      expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
-        action: "dismiss",
-        note: undefined,
-      }),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close alert" }));
     await waitFor(() =>
       expect(client.actOnAlert).toHaveBeenCalledWith("alert-1", {
         action: "resolve",
         label: "confirmed_fraud",
-        note: undefined,
+        note: "checked",
       }),
     );
+  });
+
+  it("requires the SAR decision before showing a final outcome", async () => {
+    signInAs("reviewer");
+    render(<AlertDetail alertId="alert-1" client={makeClient()} />);
+    expect(await screen.findByText(/Complete step 1/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Final outcome")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close alert" })).not.toBeInTheDocument();
+  });
+
+  it("filters final outcomes to the recorded SAR decision", async () => {
+    signInAs("reviewer");
+    const approved = render(
+      <AlertDetail
+        alertId="approved-alert"
+        client={makeClient({
+          getAlert: vi.fn(() =>
+            Promise.resolve(
+              alertDetail({ sarDraft: { ...alertDetail().sarDraft!, status: "approved" } }),
+            ),
+          ),
+        })}
+      />,
+    );
+    const approvedSelect = await screen.findByLabelText("Final outcome");
+    expect(
+      Array.from(approvedSelect.querySelectorAll("option"), (option) => option.textContent),
+    ).toEqual(["Confirmed fraud", "False negative"]);
+    expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
+    approved.unmount();
+
+    render(
+      <AlertDetail
+        alertId="rejected-alert"
+        client={makeClient({
+          getAlert: vi.fn(() =>
+            Promise.resolve(
+              alertDetail({ sarDraft: { ...alertDetail().sarDraft!, status: "rejected" } }),
+            ),
+          ),
+        })}
+      />,
+    );
+    const rejectedSelect = await screen.findByLabelText("Final outcome");
+    expect(
+      Array.from(rejectedSelect.querySelectorAll("option"), (option) => option.textContent),
+    ).toEqual(["False positive", "Benign"]);
+  });
+
+  it("hides mutation controls after the case closes", async () => {
+    signInAs("reviewer");
+    const client = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(alertDetail({ alert: alertView({ status: "resolved" }) })),
+      ),
+    });
+    render(<AlertDetail alertId="alert-1" client={client} />);
+    expect(await screen.findByText("Case closed")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("shows only analyst-permitted actions", async () => {
@@ -113,15 +203,15 @@ describe("AlertDetail", () => {
     render(<AlertDetail alertId="alert-1" client={client} />);
     await screen.findByText(/Suspicious structuring activity observed/);
 
-    expect(screen.getByRole("button", { name: "Comment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add note" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send for review" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
-    expect(screen.getByText("Awaiting reviewer approval.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+    expect(screen.getByText("Awaiting reviewer decision.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject SAR" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Resolve" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Resolution label")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close alert" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Final outcome")).not.toBeInTheDocument();
   });
 
   it("names the assigned reviewer in the alert summary", async () => {
@@ -152,11 +242,11 @@ describe("AlertDetail", () => {
     await screen.findByText(/Suspicious structuring activity observed/);
 
     expect(screen.getByText(/Read-only access/)).toBeInTheDocument();
-    expect(screen.getByText("Awaiting reviewer approval.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Note (optional)")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Comment" })).not.toBeInTheDocument();
+    expect(screen.getByText("Awaiting reviewer decision.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Investigation note (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add note" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
   });
 
   it("shows an empty SAR state when there is no draft", async () => {

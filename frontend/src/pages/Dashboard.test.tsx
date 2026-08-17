@@ -66,7 +66,7 @@ describe("Dashboard", () => {
   it("renders KPI cards (severity mix + model health) and opens an alert", async () => {
     const client = makeClient();
     render(<Dashboard client={client} />);
-    expect(await screen.findByText("model-v1")).toBeInTheDocument(); // active model label
+    expect(await screen.findByText("v1.0.0")).toBeInTheDocument(); // presentable active model version
     expect(screen.getByText("Open alerts")).toBeInTheDocument();
     expect(screen.getByText("1 high · 0 medium · 0 low")).toBeInTheDocument(); // derived from the open alert
     expect(screen.getByText(/Healthy · drift low/)).toBeInTheDocument();
@@ -114,8 +114,33 @@ describe("Dashboard", () => {
       ),
     });
     render(<Dashboard client={client} />);
-    expect(await screen.findByText("v0")).toBeInTheDocument();
+    expect(await screen.findByText("v0.0.0")).toBeInTheDocument();
     expect(screen.queryByText("v0-fixture")).not.toBeInTheDocument();
+  });
+
+  it("presents a technical training label as a version plus traceable build", async () => {
+    const registryId = "xgb-synthetic-fs2-a1b2c3d4e5";
+    const client = makeClient({
+      getDashboardMetrics: vi.fn(() =>
+        Promise.resolve(
+          dashboardMetrics({
+            modelHealth: {
+              activeVersionLabel: registryId,
+              canaryVersionLabel: null,
+              canaryPercent: 0,
+              recentInferenceCount: 1,
+              latestDriftSeverity: null,
+            },
+          }),
+        ),
+      ),
+    });
+    render(<Dashboard client={client} />);
+    expect(await screen.findByText("v2.0.0")).toBeInTheDocument();
+    expect(screen.getByText("Build a1b2c3d4")).toHaveAttribute(
+      "title",
+      `Registry ID: ${registryId}`,
+    );
   });
 
   it("shows the dashboard skeleton while data is loading", () => {
@@ -144,7 +169,7 @@ describe("Dashboard", () => {
       ),
     });
     render(<Dashboard client={client} />);
-    expect(await screen.findByText(/Canary model-v2 @ 25%/)).toBeInTheDocument();
+    expect(await screen.findByText(/Canary v2.0.0 · 25% traffic/)).toBeInTheDocument();
   });
 
   it("degrades a missing active model to a dash", async () => {

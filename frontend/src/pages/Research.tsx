@@ -5,10 +5,13 @@
  * banner with the ADR-017 link, three laundering-motif tabs, and a Global / current-agency
  * scope control. In the agency view, edges the current tenant owns stay solid and edges
  * owned by other agencies render as dashed "unavailable" ghosts — so the cross-tenant
- * cycle's edges visibly disappear when you switch to a single agency. Everything is driven
- * by the one committed, redacted study artifact (`lib/gfpStudy`); there is no backend call
- * and no cross-tenant query. Colour uses only wise tokens (ink / cyan / orange, never the
- * reserved primary green) plus a letter channel + legend so colour is never load-bearing.
+ * cycle's edges visibly disappear when you switch to a single agency. Directed arrowheads,
+ * transaction order, relative study time, topology roles, and deterministic full synthetic
+ * account aliases make each pattern readable without implying that the artifact contains real
+ * bank data. Everything is driven by the one committed, redacted study artifact
+ * (`lib/gfpStudy`); there is no backend call and no cross-tenant query. Colour uses only wise
+ * tokens (ink / cyan / orange, never the reserved primary green) plus a letter channel + legend
+ * so colour is never load-bearing.
  *
  * Key classes:
  * - ResearchProps: the committed study data + the viewer's verified agency index.
@@ -66,6 +69,19 @@ const TYPOLOGY_LABELS: Record<Typology, string> = {
 
 type Scope = "global" | "tenant";
 
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const ACCOUNT_INSTITUTION_WIDTH = 6;
+const ACCOUNT_GROUP_WIDTH = 4;
+const ACCOUNT_INSTITUTION_BASE = 361_187;
+const ACCOUNT_INSTITUTION_STEP = 111_111;
+const ACCOUNT_SUFFIX_MODULUS = 10_000;
+const ACCOUNT_PRODUCT_GROUPS = "3828 2049";
+const SINGLE_EDGE_LABEL_OFFSET = 16;
+const PARALLEL_EDGE_LABEL_OFFSET = 24;
+
+type MotifEdges = GfpStudyData["motifs"][number]["edges"];
+
 function signed(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
 }
@@ -73,6 +89,59 @@ function signed(value: number): string {
 // Shorter precision for the plain-language finding: four decimals read as noise in a sentence.
 function signedShort(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(3)}`;
+}
+
+function formatRelativeTime(offsetSeconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(offsetSeconds));
+  const hours = Math.floor(totalSeconds / (SECONDS_PER_MINUTE * MINUTES_PER_HOUR));
+  const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE) % MINUTES_PER_HOUR;
+  const seconds = totalSeconds % SECONDS_PER_MINUTE;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m later`;
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m ${seconds}s later` : `${minutes}m later`;
+  }
+  return seconds > 0 ? `${seconds}s later` : "Starts here";
+}
+
+function syntheticAccountNumber(agencyIndex: number, nodeIndex: number): string {
+  const institution = String(
+    (ACCOUNT_INSTITUTION_BASE + agencyIndex * ACCOUNT_INSTITUTION_STEP) % 1_000_000,
+  ).padStart(ACCOUNT_INSTITUTION_WIDTH, "0");
+  const suffix = String(nodeIndex % ACCOUNT_SUFFIX_MODULUS).padStart(ACCOUNT_GROUP_WIDTH, "0");
+  return `${institution} ${ACCOUNT_PRODUCT_GROUPS} ${suffix}`;
+}
+
+function accountReference(accountNumber: string): string {
+  return `•••• ${accountNumber.slice(-ACCOUNT_GROUP_WIDTH)}`;
+}
+
+function accountRole(nodeId: string, edges: MotifEdges): string {
+  const incoming = edges.filter((edge) => edge.targetNodeId === nodeId).length;
+  const outgoing = edges.filter((edge) => edge.sourceNodeId === nodeId).length;
+
+  if (incoming === 0 && outgoing > 1) {
+    return "Scatter origin";
+  }
+  if (incoming > 1) {
+    return "Convergence";
+  }
+  if (incoming > 0 && outgoing > 0) {
+    return "Relay";
+  }
+  if (outgoing > 0) {
+    return "Origin";
+  }
+  if (incoming > 0) {
+    return "Destination";
+  }
+  return "Account";
+}
+
+function edgePair(sourceNodeId: string, targetNodeId: string): string {
+  return [sourceNodeId, targetNodeId].sort().join("::");
 }
 
 /**
@@ -143,22 +212,52 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
 
   const agencyName = (index: number): string => data.agencyNames[index] ?? `Agency ${index}`;
 
-  const nodeViews: NodeView[] = motif.nodes.map((node) => {
+  const nodeViews: NodeView[] = motif.nodes.map((node, nodeIndex) => {
     const coords = position.get(node.nodeId) ?? { x: layout.width / 2, y: layout.height / 2 };
+    const accountNumber = syntheticAccountNumber(node.agencyIndex, nodeIndex);
+    const role = accountRole(node.nodeId, motif.edges);
     return {
       id: node.nodeId,
       x: coords.x,
       y: coords.y,
       agencyIndex: node.agencyIndex,
       glyph: agencyStyle(node.agencyIndex).letter,
-      label: `Node ${node.nodeId}, ${agencyName(node.agencyIndex)} (agency ${agencyStyle(node.agencyIndex).letter})`,
+      role,
+      accountNumber,
+      accountReference: accountReference(accountNumber),
+      label:
+        `Node ${node.nodeId}, ${role}, synthetic account ${accountNumber}, ` +
+        `${agencyName(node.agencyIndex)} (agency ${agencyStyle(node.agencyIndex).letter})`,
     };
   });
+
+  const accountNumberByNode = new Map(
+    nodeViews.map((node) => [node.id, node.accountNumber] as const),
+  );
+  const edgeSequence = new Map(
+    [...motif.edges]
+      .sort(
+        (left, right) =>
+          left.timeOffsetS - right.timeOffsetS || left.edgeId.localeCompare(right.edgeId),
+      )
+      .map((edge, index) => [edge.edgeId, index + 1] as const),
+  );
+  const pairCounts = motif.edges.reduce<Map<string, number>>((counts, edge) => {
+    const pair = edgePair(edge.sourceNodeId, edge.targetNodeId);
+    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+    return counts;
+  }, new Map());
 
   const edgeViews: EdgeView[] = motif.edges.map((edge) => {
     const source = position.get(edge.sourceNodeId);
     const target = position.get(edge.targetNodeId);
     const present = scope === "global" || edge.ownerAgencyIndex === tenantIndex;
+    const sequence = edgeSequence.get(edge.edgeId) ?? 1;
+    const relativeTime = formatRelativeTime(edge.timeOffsetS);
+    const sourceAccountNumber = accountNumberByNode.get(edge.sourceNodeId) ?? "unknown";
+    const targetAccountNumber = accountNumberByNode.get(edge.targetNodeId) ?? "unknown";
+    const hasParallelEdge =
+      (pairCounts.get(edgePair(edge.sourceNodeId, edge.targetNodeId)) ?? 0) > 1;
     return {
       id: edge.edgeId,
       x1: source?.x ?? 0,
@@ -167,9 +266,16 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
       y2: target?.y ?? 0,
       ownerAgencyIndex: edge.ownerAgencyIndex,
       present,
+      sequence,
+      relativeTime,
+      labelOffset: hasParallelEdge ? PARALLEL_EDGE_LABEL_OFFSET : SINGLE_EDGE_LABEL_OFFSET,
+      sourceAccountNumber,
+      targetAccountNumber,
       label:
         `Edge ${edge.edgeId} from ${edge.sourceNodeId} to ${edge.targetNodeId}, ` +
-        `${edge.amountBand}, owned by ${agencyName(edge.ownerAgencyIndex)}` +
+        `transaction #${sequence}, ${relativeTime}, synthetic accounts ` +
+        `${sourceAccountNumber} to ${targetAccountNumber}, ${edge.amountBand}, ` +
+        `owned by ${agencyName(edge.ownerAgencyIndex)}` +
         (present ? "" : " — unavailable in this agency view"),
     };
   });
@@ -187,7 +293,7 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
 
   const description =
     `${TYPOLOGY_LABELS[motif.typology]} motif with ${motif.nodes.length} accounts and ` +
-    `${motif.edges.length} transfers` +
+    `${motif.edges.length} directed transfers labelled by chronological order and relative time` +
     (scope === "global"
       ? ", global view showing every agency's edges."
       : `, ${tenantName} view — ${ghostCount} edge(s) owned by other agencies are unavailable.`);
@@ -281,6 +387,16 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
           />
         </div>
 
+        <div role="note" className="gap-xs bg-canvas-soft p-lg flex flex-col rounded-lg">
+          <p className="text-body-sm text-ink font-semibold">How to read this graph</p>
+          <p className="text-caption text-body">
+            Arrowheads show money direction; #1, #2, and so on show order. Each time label says how
+            long after the first transfer that step occurred. Node labels show the account’s role
+            and last four digits. Account numbers are synthetic display-only aliases; full numbers
+            are listed in the Account key.
+          </p>
+        </div>
+
         <div className="gap-xl flex flex-col lg:flex-row">
           <div className="bg-canvas-soft grow overflow-x-auto rounded-lg">
             <MotifGraph
@@ -302,7 +418,7 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
               <h2 className="text-caption text-mute font-semibold uppercase tracking-wide">
                 Agencies
               </h2>
-              <ul className="gap-xs flex flex-col">
+              <ul aria-label="Agencies" className="gap-xs flex flex-col">
                 {motifAgencies.map((index) => (
                   <li key={index} className="gap-sm text-body-sm text-body flex items-center">
                     <span
@@ -316,8 +432,8 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
               </ul>
               <p className="text-caption text-mute">
                 {scope === "global"
-                  ? "Global scope shows every agency's edges as solid."
-                  : `Solid = owned by ${tenantName} · dashed = unavailable to this tenant.`}
+                  ? "Arrowheads show money direction; global scope shows every agency's transfer as solid."
+                  : `Arrowheads show money direction · solid = owned by ${tenantName} · dashed = unavailable to this tenant.`}
               </p>
               {/* Anchors the study to the app the reader is signed into WITHOUT claiming a
                   partition is a tenant: these are offline analysis partitions, and the runtime
@@ -329,6 +445,26 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                 is the offline study partition the agency you are signed into mirrors. Partitions
                 are an analysis concept — only one runtime tenant exists.
               </p>
+            </div>
+
+            <div className="gap-sm flex flex-col">
+              <h2 className="text-caption text-mute font-semibold uppercase tracking-wide">
+                Account key
+              </h2>
+              <ul aria-label="Account key" className="gap-sm flex flex-col">
+                {nodeViews.map((node) => (
+                  <li key={node.id} className="bg-canvas-soft p-sm rounded-sm">
+                    <div className="gap-sm text-caption text-body flex items-center">
+                      <span className="text-ink font-semibold">
+                        {agencyStyle(node.agencyIndex).letter}
+                      </span>
+                      <span className="grow">{node.role}</span>
+                      <span className="text-mute font-mono">{node.accountReference}</span>
+                    </div>
+                    <p className="text-caption text-ink mt-xs font-mono">{node.accountNumber}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="gap-sm border-canvas-soft p-lg flex flex-col rounded-lg border">
@@ -361,6 +497,12 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                   <th scope="col" className="pr-lg">
                     Node
                   </th>
+                  <th scope="col" className="pr-lg">
+                    Synthetic account
+                  </th>
+                  <th scope="col" className="pr-lg">
+                    Role
+                  </th>
                   <th scope="col">Agency</th>
                 </tr>
               </thead>
@@ -368,6 +510,8 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                 {nodeViews.map((node) => (
                   <tr key={node.id}>
                     <td className="pr-lg">{node.id}</td>
+                    <td className="pr-lg whitespace-nowrap font-mono">{node.accountNumber}</td>
+                    <td className="pr-lg">{node.role}</td>
                     <td>{agencyName(node.agencyIndex)}</td>
                   </tr>
                 ))}
@@ -381,6 +525,15 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                     Edge
                   </th>
                   <th scope="col" className="pr-lg">
+                    Order / time
+                  </th>
+                  <th scope="col" className="pr-lg">
+                    From
+                  </th>
+                  <th scope="col" className="pr-lg">
+                    To
+                  </th>
+                  <th scope="col" className="pr-lg">
                     Owner
                   </th>
                   <th scope="col">Visible</th>
@@ -390,6 +543,15 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
                 {edgeViews.map((edge) => (
                   <tr key={edge.id}>
                     <td className="pr-lg">{edge.id}</td>
+                    <td className="pr-lg whitespace-nowrap">
+                      #{edge.sequence} · {edge.relativeTime}
+                    </td>
+                    <td className="pr-lg whitespace-nowrap font-mono">
+                      {edge.sourceAccountNumber}
+                    </td>
+                    <td className="pr-lg whitespace-nowrap font-mono">
+                      {edge.targetAccountNumber}
+                    </td>
                     <td className="pr-lg">{agencyName(edge.ownerAgencyIndex)}</td>
                     <td>{edge.present ? "yes" : "unavailable"}</td>
                   </tr>

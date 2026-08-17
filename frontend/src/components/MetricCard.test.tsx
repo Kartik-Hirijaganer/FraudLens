@@ -28,4 +28,9 @@ describe("MetricCard", () => {
     expect(screen.getByText("v2.4")).toBeInTheDocument();
     expect(screen.queryByText(/drift/)).not.toBeInTheDocument();
   });
+
+  it("renders compact detail separately from the main value", () => {
+    render(<MetricCard label="Active model" value="v2.0.0" detail="Build 9d43c5f9" />);
+    expect(screen.getByText("Build 9d43c5f9")).toHaveClass("text-caption");
+  });
 });

@@ -32,7 +32,7 @@ import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { MetricCard } from "../components/MetricCard";
 import { RiskBandBar } from "../components/RiskBandBar";
 import { apiClient, type AlertView, type ApiClient, type DashboardMetrics } from "../lib/api";
-import { formatModelVersion, greeting } from "../lib/format";
+import { formatModelBuild, formatModelVersion, greeting } from "../lib/format";
 import { riskTone, severityCounts, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
 import { useSession } from "../lib/session";
@@ -65,7 +65,10 @@ function modelHint(metrics: DashboardMetrics): { text: string; tone: StatusTone 
     return { text: "No model promoted", tone: "neutral" };
   }
   if (canaryVersionLabel) {
-    return { text: `Canary ${canaryVersionLabel} @ ${canaryPercent}%`, tone: "warning" };
+    return {
+      text: `Canary ${formatModelVersion(canaryVersionLabel)} · ${canaryPercent}% traffic`,
+      tone: "warning",
+    };
   }
   const tone = latestDriftSeverity ? riskTone(latestDriftSeverity) : "positive";
   const drift = latestDriftSeverity ? `drift ${latestDriftSeverity}` : "no drift reported";
@@ -89,6 +92,8 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
         const counts = severityCounts(openAlerts.map((alert) => alert.severity));
         const open = metrics.alerts.open;
         const model = modelHint(metrics);
+        const activeModelLabel = metrics.modelHealth.activeVersionLabel;
+        const activeModelBuild = formatModelBuild(activeModelLabel);
         return (
           <section className="gap-2xl flex flex-col">
             <header className="gap-sm flex flex-col">
@@ -116,7 +121,12 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
               />
               <MetricCard
                 label="Active model"
-                value={formatModelVersion(metrics.modelHealth.activeVersionLabel)}
+                value={formatModelVersion(activeModelLabel)}
+                detail={
+                  activeModelBuild ? (
+                    <span title={`Registry ID: ${activeModelLabel}`}>{activeModelBuild}</span>
+                  ) : undefined
+                }
                 hint={model.text}
                 hintTone={model.tone}
               />

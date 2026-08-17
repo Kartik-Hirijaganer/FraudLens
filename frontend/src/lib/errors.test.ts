@@ -16,6 +16,15 @@ describe("describeError", () => {
     expect(described.critical).toBe(true);
   });
 
+  it("explains guided case-resolution conflicts", () => {
+    expect(
+      describeError(new ApiError(409, "sar_decision_required", "server copy")).description,
+    ).toMatch(/Approve or reject/);
+    expect(describeError(new ApiError(409, "resolution_label_mismatch", "server copy")).title).toBe(
+      "Outcome doesn't match",
+    );
+  });
+
   it("falls back to the envelope message for an unknown code", () => {
     const described = describeError(new ApiError(500, "weird_code", "boom"));
     expect(described.title).toBe("Request failed");
