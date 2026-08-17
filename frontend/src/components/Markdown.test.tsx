@@ -28,4 +28,24 @@ describe("Markdown", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("first")).toBeInTheDocument();
   });
+
+  it("presents technical SAR values as readable analyst copy", () => {
+    const { container } = render(
+      <Markdown
+        text={
+          "**Subject:** Suspected high-risk ach activity\n\n" +
+          "A ach transaction of 10400.00 USD triggered rapid_movement (rapid_movement). " +
+          "Drivers: amount_log, seconds_since_prev_txn_log."
+        }
+      />,
+    );
+    expect(screen.getByText(/Suspected high-risk ACH activity/)).toBeInTheDocument();
+    expect(screen.getByText(/An ACH transaction of 10,400.00 USD/)).toBeInTheDocument();
+    expect(screen.getByText(/Rapid movement/)).toBeInTheDocument();
+    expect(screen.getByText(/Transaction amount \(log scale\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Time since previous transaction \(log scale\)/)).toBeInTheDocument();
+    expect(container.textContent).not.toContain("rapid_movement");
+    expect(container.textContent).not.toContain("amount_log");
+    expect(container.textContent?.match(/Rapid movement/g)).toHaveLength(1);
+  });
 });
