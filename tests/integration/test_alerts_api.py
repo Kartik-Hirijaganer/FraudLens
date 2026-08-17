@@ -1,6 +1,7 @@
 """Alerts & review-workflow API tests (plan §5.4, §10.4, §16 Phase 9; endpoints 9-12). Covers the
 acceptance criteria: list/detail tenant scoping (cross-tenant → 404), legal/illegal status
-transitions (409), assign/comment/escalate/resolve/dismiss, cross-tenant assignee → 403, PHI-masked
+transitions (409), SAR-before-resolution compatibility, assign/comment/escalate/resolve/dismiss,
+cross-tenant assignee → 403, PHI-masked
 notes, resolve writing a training label, SAR approve/edit/reject (reason required) with a deferred
 mock PDF, fail-closed acting-user enforcement, and that the pipeline alert-raise persists computed
 review flags. The deferred-PDF test uses a file-backed SQLite engine so the background session
@@ -343,7 +344,7 @@ async def test_resolve_writes_training_label(
     db_engine: AsyncEngine,
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    ids = await _seed_alert(db_sessionmaker)
+    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.post(
@@ -365,6 +366,79 @@ async def test_resolve_writes_training_label(
         assert label.matured_at is not None  # a future maturity is stamped for the retrain job
 
 
+async def test_resolve_requires_an_existing_sar_decision(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.DRAFT)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "resolve", "label": "confirmed_fraud"},
+        )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "sar_decision_required"
+
+
+@pytest.mark.parametrize(
+    ("sar_status", "label"),
+    [
+        (SarStatus.APPROVED, "false_positive"),
+        (SarStatus.REJECTED, "confirmed_fraud"),
+    ],
+)
+async def test_resolve_rejects_an_outcome_that_conflicts_with_the_sar_decision(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    sar_status: SarStatus,
+    label: str,
+) -> None:
+    ids = await _seed_alert(db_sessionmaker, sar_status=sar_status)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "resolve", "label": label},
+        )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "resolution_label_mismatch"
+
+
+async def test_dismiss_rejects_an_approved_sar(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "dismiss"},
+        )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "resolution_label_mismatch"
+
+
+async def test_resolve_without_a_sar_allows_a_manual_outcome(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_alert(db_sessionmaker, with_sar=False)
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "resolve", "label": "confirmed_fraud"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "resolved"
+
+
 async def test_resolve_without_label_is_422(
     make_settings: Callable[..., AppSettings],
     db_engine: AsyncEngine,
@@ -380,8 +454,11 @@ async def test_resolve_without_label_is_422(
 
 
 @pytest.mark.parametrize(
-    ("action", "expected"),
-    [("escalate", "escalated"), ("dismiss", "dismissed")],
+    ("action", "expected", "sar_status"),
+    [
+        ("escalate", "escalated", SarStatus.DRAFT),
+        ("dismiss", "dismissed", SarStatus.REJECTED),
+    ],
 )
 async def test_escalate_and_dismiss_transitions(
     make_settings: Callable[..., AppSettings],
@@ -389,8 +466,9 @@ async def test_escalate_and_dismiss_transitions(
     db_sessionmaker: async_sessionmaker[AsyncSession],
     action: str,
     expected: str,
+    sar_status: SarStatus,
 ) -> None:
-    ids = await _seed_alert(db_sessionmaker)
+    ids = await _seed_alert(db_sessionmaker, sar_status=sar_status)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.post(
@@ -421,7 +499,7 @@ async def test_analyst_cannot_finalize_alert_or_review_sar(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     ids = await _seed_alert(db_sessionmaker)
-    dismiss_ids = await _seed_alert(db_sessionmaker)
+    dismiss_ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.REJECTED)
     app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="analyst")
     async with _client(app) as client:
         comment = await client.post(
