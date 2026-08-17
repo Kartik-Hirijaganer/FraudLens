@@ -33,6 +33,7 @@ function studyData(overrides: Partial<StudyHighlightMetrics> = {}): GfpStudyData
           { nodeId: "node-01", agencyIndex: 0 },
           { nodeId: "node-02", agencyIndex: 0 },
           { nodeId: "node-03", agencyIndex: 0 },
+          { nodeId: "node-04", agencyIndex: 0 },
         ],
         edges: [
           {
@@ -48,6 +49,22 @@ function studyData(overrides: Partial<StudyHighlightMetrics> = {}): GfpStudyData
             sourceNodeId: "node-01",
             targetNodeId: "node-03",
             timeOffsetS: 60,
+            amountBand: "1k-10k",
+            ownerAgencyIndex: 0,
+          },
+          {
+            edgeId: "edge-03",
+            sourceNodeId: "node-02",
+            targetNodeId: "node-04",
+            timeOffsetS: 120,
+            amountBand: "1k-10k",
+            ownerAgencyIndex: 0,
+          },
+          {
+            edgeId: "edge-04",
+            sourceNodeId: "node-03",
+            targetNodeId: "node-04",
+            timeOffsetS: 180,
             amountBand: "1k-10k",
             ownerAgencyIndex: 0,
           },
@@ -202,7 +219,7 @@ describe("Research", () => {
 
   it("shows the agency legend with letters and names (colour is not the only channel)", () => {
     render(<Research data={studyData()} viewerAgencyIndex={0} />);
-    const legend = screen.getByRole("list");
+    const legend = screen.getByRole("list", { name: "Agencies" });
     expect(within(legend).getByText("A")).toBeInTheDocument();
     expect(within(legend).getByText("Demo Financial Agency")).toBeInTheDocument();
   });
@@ -226,8 +243,65 @@ describe("Research", () => {
 
     expect(graph.style.getPropertyValue("--motif-width")).toBe("640px");
     expect(graph).toHaveClass("min-w-[var(--motif-width)]", "md:min-w-0");
-    expect(graph.querySelectorAll('[data-hit-target="node"]')).toHaveLength(3);
-    expect(graph.querySelectorAll('[data-hit-target="edge"]')).toHaveLength(2);
+    expect(graph.querySelectorAll('[data-hit-target="node"]')).toHaveLength(4);
+    expect(graph.querySelectorAll('[data-hit-target="edge"]')).toHaveLength(4);
+  });
+
+  it("shows money direction, relative transaction time, topology roles, and full dummy accounts", () => {
+    render(<Research data={studyData()} viewerAgencyIndex={0} />);
+    const graph = screen.getByRole("group", { name: /Scatter/ });
+
+    expect(graph.querySelectorAll('[data-direction="forward"]')).toHaveLength(4);
+    expect(within(graph).getByText("#1 · Starts here")).toBeInTheDocument();
+    expect(within(graph).getByText("#2 · 1m later")).toBeInTheDocument();
+    expect(within(graph).getByText("Scatter origin · •••• 0000")).toBeInTheDocument();
+    expect(within(graph).getByText("Convergence · •••• 0003")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Account numbers are synthetic display-only aliases/),
+    ).toBeInTheDocument();
+
+    const accountKey = screen.getByRole("heading", { name: "Account key" }).parentElement;
+    expect(accountKey).not.toBeNull();
+    expect(within(accountKey!).getByText("361187 3828 2049 0000")).toBeInTheDocument();
+
+    expect(
+      screen.getByRole("button", { name: /synthetic account 361187 3828 2049 0000/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /transaction #1, Starts here, synthetic accounts 361187 3828 2049 0000 to 361187 3828 2049 0001/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("labels origin, destination, and isolated accounts from their transfer topology", () => {
+    const data = studyData();
+    data.motifs[0] = {
+      motifId: "simple-transfer-1",
+      typology: "scatter_gather",
+      servable: true,
+      nodes: [
+        { nodeId: "origin", agencyIndex: 0 },
+        { nodeId: "destination", agencyIndex: 0 },
+        { nodeId: "isolated", agencyIndex: 0 },
+      ],
+      edges: [
+        {
+          edgeId: "simple-edge",
+          sourceNodeId: "origin",
+          targetNodeId: "destination",
+          timeOffsetS: 0,
+          amountBand: "100-1k",
+          ownerAgencyIndex: 0,
+        },
+      ],
+    };
+
+    render(<Research data={data} viewerAgencyIndex={0} />);
+    const graph = screen.getByRole("group", { name: /Scatter/ });
+    expect(within(graph).getByText("Origin · •••• 0000")).toBeInTheDocument();
+    expect(within(graph).getByText("Destination · •••• 0001")).toBeInTheDocument();
+    expect(within(graph).getByText("Account · •••• 0002")).toBeInTheDocument();
   });
 
   it("updates the non-hover detail panel when a node or edge is selected", async () => {
@@ -236,6 +310,7 @@ describe("Research", () => {
     await user.click(screen.getByRole("button", { name: /Node node-01/ }));
     const detail = screen.getByText(/Node node-01/, { selector: "p" });
     expect(detail).toBeInTheDocument();
+    expect(detail).toHaveTextContent("361187 3828 2049 0000");
 
     await user.click(screen.getByRole("button", { name: /Edge edge-01/ }));
     expect(
@@ -258,6 +333,9 @@ describe("Research", () => {
     // Focus alone (keyboard tabbing) selects — no hover needed.
     act(() => screen.getByRole("button", { name: /Edge edge-02/ }).focus());
     expect(screen.getByText(/Edge edge-02/, { selector: "p" })).toBeInTheDocument();
+    // Unrelated keys do not activate or clear the focused transfer.
+    await user.keyboard("{Escape}");
+    expect(screen.getByText(/Edge edge-02/, { selector: "p" })).toBeInTheDocument();
     // Space activates the focused element too.
     const node = screen.getByRole("button", { name: /Node node-03/ });
     act(() => node.focus());
@@ -269,8 +347,12 @@ describe("Research", () => {
     render(<Research data={studyData()} viewerAgencyIndex={0} />);
     const accounts = screen.getByRole("table", { name: /Accounts/ });
     expect(within(accounts).getByText("node-01")).toBeInTheDocument();
+    expect(within(accounts).getByText("361187 3828 2049 0000")).toBeInTheDocument();
+    expect(within(accounts).getByText("Convergence")).toBeInTheDocument();
     const transfers = screen.getByRole("table", { name: /Transfers/ });
     expect(within(transfers).getByText("edge-01")).toBeInTheDocument();
+    expect(within(transfers).getByText("#1 · Starts here")).toBeInTheDocument();
+    expect(within(transfers).getAllByText("361187 3828 2049 0000").length).toBeGreaterThan(0);
   });
 
   it("leads with the finding derived from the metrics, not typed prose", () => {

@@ -42,7 +42,13 @@ import {
   type ModelVersionListResponse,
   type TransactionResponse,
 } from "../lib/api";
-import { formatCurrency, formatDateTime } from "../lib/format";
+import {
+  formatCurrency,
+  formatDateTime,
+  formatMaskedAccount,
+  formatModelVersion,
+  formatTransactionRef,
+} from "../lib/format";
 import { RISK_BAND_OPTIONS } from "../lib/options";
 import { navigate, paths, useHashRoute } from "../lib/router";
 import { hasPermission, useSession } from "../lib/session";
@@ -114,6 +120,8 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     };
   }, [canChooseModel, client, riskBand, search, cursor]);
   const state = useAsync(load, [client, riskBand, search, cursor]);
+  const loadMetrics = useCallback(() => client.getDashboardMetrics(), [client]);
+  const metricsState = useAsync(loadMetrics, [client]);
 
   function changeRiskBand(next: string): void {
     setRiskBand(next);
@@ -162,18 +170,21 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     <section className="gap-xl flex flex-col">
       <PageHeader
         title="Transactions"
-        description="Imported transactions are ready for review. Open one to start scoring and investigation."
+        description="Backend-persisted transactions are ready for review. Open one to run or inspect scoring."
         actions={canIngestTransactions ? <ImportButton onFileChange={onFileChange} /> : undefined}
       />
       <Card className="gap-lg flex flex-col">
-        <div className="gap-md flex flex-col lg:flex-row lg:items-center lg:justify-between">
+        <div className="gap-md flex flex-col xl:flex-row xl:items-center xl:justify-between">
           <SearchInput value={searchInput} onChange={setSearchInput} />
-          <SegmentedControl
-            ariaLabel="Filter by risk band"
-            options={RISK_BAND_OPTIONS}
-            value={riskBand}
-            onChange={changeRiskBand}
-          />
+          <div className="shrink-0">
+            <SegmentedControl
+              ariaLabel="Filter by risk band"
+              options={RISK_BAND_OPTIONS}
+              value={riskBand}
+              onChange={changeRiskBand}
+              size="sm"
+            />
+          </div>
         </div>
         <AsyncBoundary state={state}>
           {(data) => {
@@ -184,6 +195,10 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
             const rangeEnd = pageIndex * PAGE_SIZE + data.transactions.length;
             return (
               <>
+                <ProvenanceStrip
+                  total={data.total}
+                  activeModelLabel={metricsState.data?.modelHealth.activeVersionLabel ?? null}
+                />
                 {data.models ? (
                   <div className="max-w-sm">
                     <ModelSelector
@@ -245,7 +260,7 @@ function ImportButton({
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
-    <label className="bg-canvas-soft text-ink px-xl py-md text-button-md gap-sm hover:bg-primary-neutral inline-flex cursor-pointer items-center rounded-xl font-semibold transition-colors">
+    <label className="bg-primary text-ink px-xl py-md text-button-md gap-sm hover:bg-primary-active inline-flex cursor-pointer items-center rounded-xl font-semibold transition-colors">
       Import CSV
       <input
         type="file"
@@ -260,7 +275,7 @@ function ImportButton({
 
 function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <div className="relative w-full lg:max-w-xl">
+    <div className="relative w-full xl:min-w-0 xl:flex-1">
       <label htmlFor="txn-search" className="sr-only">
         Search transactions
       </label>
@@ -275,10 +290,45 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search by ID, amount, or counterparty"
+        placeholder="Search source ID, amount, or account"
         className="rounded-pill border-ink bg-canvas text-body-md text-ink placeholder:text-mute py-md pl-3xl pr-lg w-full border"
       />
     </div>
+  );
+}
+
+function ProvenanceStrip({
+  total,
+  activeModelLabel,
+}: {
+  total: number;
+  activeModelLabel: string | null;
+}) {
+  const modelLabel = activeModelLabel
+    ? `${/ibm[-_]aml/i.test(activeModelLabel) ? "IBM AML-trained" : "Active"} model ${formatModelVersion(activeModelLabel)}`
+    : "Backend scoring pipeline";
+  return (
+    <aside
+      aria-label="Data provenance"
+      className="bg-canvas-soft px-lg py-md gap-sm text-body-sm text-body flex flex-wrap items-center rounded-lg"
+    >
+      <span className="text-ink font-semibold">Data provenance</span>
+      <span aria-hidden="true" className="text-mute">
+        ·
+      </span>
+      <span>
+        {total.toLocaleString()} backend-persisted synthetic{" "}
+        {total === 1 ? "scenario" : "scenarios"}
+      </span>
+      <span aria-hidden="true" className="text-mute">
+        ·
+      </span>
+      <span>{modelLabel}</span>
+      <span aria-hidden="true" className="text-mute">
+        ·
+      </span>
+      <span>Account identifiers masked</span>
+    </aside>
   );
 }
 
@@ -289,9 +339,16 @@ function transactionColumns(
   const columns: Column<TransactionResponse>[] = [
     {
       id: "externalId",
-      header: "TXN ID",
+      header: "Transaction",
       cell: (transaction) => (
-        <span className="text-ink font-semibold">{transaction.externalId}</span>
+        <div className="gap-xxs flex flex-col" title={`Source ID: ${transaction.externalId}`}>
+          <span className="text-ink font-semibold">
+            {formatTransactionRef(transaction.transactionId, transaction.occurredAt)}
+          </span>
+          <span className="text-caption text-mute">
+            {transaction.channel.toUpperCase()} · {transaction.country}
+          </span>
+        </div>
       ),
     },
     {
@@ -308,12 +365,18 @@ function transactionColumns(
     },
     {
       id: "counterparty",
-      header: "Counterparty",
+      header: "Account flow",
       cell: (transaction) => (
-        <div className="gap-xxs flex flex-col">
-          <span className="text-ink">{transaction.destAccount}</span>
-          <span className="text-caption text-mute">from {transaction.originAccount}</span>
-        </div>
+        <dl className="gap-x-sm gap-y-xxs grid grid-cols-[auto_1fr] items-center">
+          <dt className="text-caption text-mute">To</dt>
+          <dd className="text-body-sm text-ink font-semibold">
+            {formatMaskedAccount(transaction.destAccount)}
+          </dd>
+          <dt className="text-caption text-mute">From</dt>
+          <dd className="text-caption text-body">
+            {formatMaskedAccount(transaction.originAccount)}
+          </dd>
+        </dl>
       ),
     },
     {
@@ -340,12 +403,13 @@ function transactionColumns(
       align: "right",
       cell: (transaction) => {
         const busy = investigatingId === transaction.transactionId;
+        const displayRef = formatTransactionRef(transaction.transactionId, transaction.occurredAt);
         return (
           <button
             type="button"
             onClick={() => void investigate(transaction.transactionId)}
             disabled={investigatingId !== null}
-            aria-label={`Investigate transaction ${transaction.externalId}`}
+            aria-label={`Investigate transaction ${displayRef}`}
             className="text-mute hover:text-ink disabled:opacity-50"
           >
             {busy ? <span className="text-body-sm">Starting…</span> : <ChevronRight />}

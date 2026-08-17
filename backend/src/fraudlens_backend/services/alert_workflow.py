@@ -1,5 +1,6 @@
 """Summary: The alert & SAR review-workflow service (plan §5.4, §10.4) — the ONE implementation of
-the review transition sequence. Extracted from `api/v1/alerts.py` so the interactive routes and the
+the review transition sequence, including its SAR-before-case-outcome guard. Extracted from
+`api/v1/alerts.py` so the interactive routes and the
 portfolio-demo bootstrap drive identical domain behavior instead of the bootstrap re-implementing it
 (rule 5). One call performs the whole unit: tenant-scoped lookup, `next_alert_status` validation,
 `user_in_agency` assignee validation, the append-only `alert_actions` row + resulting status, the
@@ -32,9 +33,8 @@ Notes:
 - `SarReviewResult` carries the projected `SarDraftView` because `sar_draft_to_view` is already the
   services layer's single ORM→view mapping (rule 5); the alternative — re-reading the row in the
   route — would add a query and an unreachable not-found branch for no gain.
-- `AlertActionCommand` enforces only assign-needs-assignee, which replaces an unchecked `cast` at
-  the old call site. Every other conditional (a resolve label, a reject reason) is left exactly as
-  the routes treated it, so no request that succeeds today starts failing.
+- `AlertActionCommand` enforces assign-needs-assignee; the service additionally validates case
+  closure against the latest tenant-scoped SAR decision before it writes a label or action.
 """
 
 from __future__ import annotations
@@ -67,6 +67,16 @@ _ALERT_RESOURCE = "alert"
 _SAR_RESOURCE = "sar_draft"
 _ACTION_NOTE_SOURCE = "alert.action_note"
 _SAR_EDIT_SOURCE = "sar.review_edit"
+
+# Closing labels must agree with the already-recorded SAR decision. `false_negative` belongs on
+# the approved side because a deterministic rule may surface suspicious activity that the model
+# probability under-scored; the SAR still documents a reportable concern.
+_OUTCOME_LABELS_BY_SAR_STATUS: dict[SarStatus, frozenset[TrainingLabelType]] = {
+    SarStatus.APPROVED: frozenset(
+        {TrainingLabelType.CONFIRMED_FRAUD, TrainingLabelType.FALSE_NEGATIVE}
+    ),
+    SarStatus.REJECTED: frozenset({TrainingLabelType.FALSE_POSITIVE, TrainingLabelType.BENIGN}),
+}
 
 
 def sar_decision_allowed(status: SarStatus, decision: SarReviewDecision, *, has_edit: bool) -> bool:
@@ -177,6 +187,7 @@ class AlertWorkflowService:
         target = next_alert_status(alert.status, command.action)
         if target is None:
             raise AppError("invalid_alert_transition")
+        await self._validate_case_outcome(alert, command)
         from_status = alert.status
         assigned_to = await self._resolve_assignee(command)
         label_id = await self._write_training_label(alert, command)
@@ -271,6 +282,28 @@ class AlertWorkflowService:
             edited=has_edit,
             draft=sar_draft_to_view(target),
         )
+
+    async def _validate_case_outcome(self, alert: Alert, command: AlertActionCommand) -> None:
+        """Require a decided SAR before closure and keep its final label consistent.
+
+        Alerts without a SAR remain resolvable because degraded investigations may require a
+        fully manual decision. A domain caller may omit a resolve label (the synthetic portfolio
+        bootstrap does); HTTP reviewer requests already require one at the request boundary.
+        """
+        if command.action not in {AlertActionType.RESOLVE, AlertActionType.DISMISS}:
+            return
+        draft = await self._sar.get_for_run(alert.run_id)
+        if draft is None:
+            return
+        allowed = _OUTCOME_LABELS_BY_SAR_STATUS.get(draft.status)
+        if allowed is None:
+            raise AppError("sar_decision_required")
+        if command.action is AlertActionType.DISMISS:
+            if draft.status is not SarStatus.REJECTED:
+                raise AppError("resolution_label_mismatch")
+            return
+        if command.label is not None and command.label not in allowed:
+            raise AppError("resolution_label_mismatch")
 
     async def _resolve_assignee(self, command: AlertActionCommand) -> uuid.UUID | None:
         """Return the agency-validated assignee for an `assign`, else None (403 cross-tenant)."""

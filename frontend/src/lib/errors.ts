@@ -56,6 +56,14 @@ const CODE_UX: Record<string, CodeUx> = {
     title: "Action not allowed",
     description: "That action isn't valid from the alert's current status.",
   },
+  sar_decision_required: {
+    title: "Decide the SAR first",
+    description: "Approve or reject the SAR draft before closing this alert.",
+  },
+  resolution_label_mismatch: {
+    title: "Outcome doesn't match",
+    description: "Choose an outcome that agrees with the SAR review decision.",
+  },
   invalid_sar_transition: {
     title: "Review not allowed",
     description: "That decision isn't valid from the SAR draft's current status.",

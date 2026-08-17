@@ -1,7 +1,7 @@
 /**
  * Summary: The dashboard KPI card (redesign). A white `canvas` tile carrying an
- * uppercased mono-caps eyebrow label, an oversized display numeral, and an optional
- * hint line that may lead with a semantic status dot (e.g. model health). It gives the
+ * uppercased mono-caps eyebrow label, an oversized display numeral, optional compact
+ * detail, and a hint line that may lead with a semantic status dot (e.g. model health). It gives the
  * landing page's headline metrics a distinct, scannable voice separate from the compact
  * `StatTile` definition-list tile used inside dense admin panels.
  *
@@ -9,7 +9,7 @@
  * - (none)
  *
  * Key functions:
- * - MetricCard: render one headline metric (eyebrow + value + optional dotted hint).
+ * - MetricCard: render one headline metric (eyebrow + value + optional detail/dotted hint).
  *
  * Notes:
  * - `hintTone` reuses the shared `StatusTone` palette so the dot colour matches Badge /
@@ -23,15 +23,17 @@ import { toneDotClass, type StatusTone } from "../lib/risk";
 interface MetricCardProps {
   label: string;
   value: ReactNode;
+  detail?: ReactNode;
   hint?: ReactNode;
   hintTone?: StatusTone;
 }
 
-export function MetricCard({ label, value, hint, hintTone }: MetricCardProps) {
+export function MetricCard({ label, value, detail, hint, hintTone }: MetricCardProps) {
   return (
     <div className="gap-md bg-canvas p-xl flex flex-col rounded-xl">
       <p className="text-caption text-mute font-semibold uppercase tracking-wide">{label}</p>
       <p className="text-display-md text-ink">{value}</p>
+      {detail ? <p className="text-caption text-mute font-medium">{detail}</p> : null}
       {hint ? (
         <p className="gap-xs text-body-sm text-mute flex items-center">
           {hintTone ? (
