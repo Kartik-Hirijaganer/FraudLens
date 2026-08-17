@@ -120,6 +120,16 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="That action is not allowed from the alert's current status.",
         ),
         ErrorSpec(
+            code="sar_decision_required",
+            http_status=409,
+            message="Approve or reject the SAR draft before closing this alert.",
+        ),
+        ErrorSpec(
+            code="resolution_label_mismatch",
+            http_status=409,
+            message="The selected outcome does not match the SAR review decision.",
+        ),
+        ErrorSpec(
             code="sar_draft_not_found",
             http_status=404,
             message="No SAR draft exists for this alert's investigation.",
