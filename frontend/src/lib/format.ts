@@ -17,7 +17,11 @@
  * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
  * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4E18").
  * - formatInvestigationRef:
- * - formatModelVersion: render a model version label human-friendly (drops "-fixture").
+ * - formatTransactionRef: derive a stable production-style alias from a backend transaction id.
+ * - formatMaskedAccount: reduce a masked account identifier to a compact last-four display.
+ * - formatModelVersion: render registry labels as compact semantic-style versions.
+ * - formatModelBuild: extract a short, traceable build reference from a registry label.
+ * - formatMachineKey: turn rule/feature keys into analyst-friendly display labels.
  * - greeting: pick a time-of-day greeting ("Good morning/afternoon/evening").
  * - humanize: turn a snake_case / dotted code into Title Case words (e.g. "in_review").
  *
@@ -26,6 +30,28 @@
  * malformed field can't blank the whole page.
  */
 const PLACEHOLDER = "—";
+
+const MACHINE_KEY_LABELS: Record<string, string> = {
+  amount_log: "Transaction amount (log scale)",
+  hour_of_day: "Hour of day",
+  day_of_week: "Day of week",
+  is_round_amount: "Round-number amount",
+  country_risk: "Country risk",
+  channel_risk: "Payment-channel risk",
+  velocity_24h: "Transaction volume (24 hours)",
+  amount_24h_sum_log: "Total amount (24 hours, log scale)",
+  distinct_countries_24h: "Distinct countries (24 hours)",
+  is_outbound: "Outbound transaction",
+  inbound_velocity_24h: "Inbound transaction volume (24 hours)",
+  inbound_amount_24h_log: "Inbound amount (24 hours, log scale)",
+  seconds_since_prev_txn_log: "Time since previous transaction (log scale)",
+  distinct_channels_24h: "Distinct payment channels (24 hours)",
+  round_amount_share_24h: "Round-number transaction share (24 hours)",
+  dest_fan_in_24h: "Destination fan-in (24 hours)",
+  dest_inbound_amount_24h_log: "Destination inbound amount (24 hours, log scale)",
+  dest_outbound_velocity_24h: "Destination outbound transaction volume (24 hours)",
+  dest_outbound_amount_24h_log: "Destination outbound amount (24 hours, log scale)",
+};
 
 export function formatCurrency(amount: string | number, currency: string): string {
   const value = typeof amount === "string" ? Number(amount) : amount;
@@ -116,12 +142,68 @@ export function formatInvestigationRef(runId: string): string {
   return formatCompactRef(runId, "INV", /^(?:investigation|inv|run)[-_](.+)$/i);
 }
 
+export function formatTransactionRef(transactionId: string, occurredAt: string): string {
+  const compactId = transactionId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (!compactId) {
+    return PLACEHOLDER;
+  }
+  const date = new Date(occurredAt);
+  const suffix = compactId.slice(-6);
+  if (Number.isNaN(date.getTime())) {
+    return `TXN-${suffix}`;
+  }
+  const datePart = [
+    String(date.getUTCFullYear()).slice(-2),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("");
+  return `TXN-${datePart}-${suffix}`;
+}
+
+export function formatMaskedAccount(account: string): string {
+  const visibleTail = /([a-zA-Z0-9]{1,4})$/.exec(account.trim())?.[1];
+  return visibleTail ? `•••• ${visibleTail.toUpperCase()}` : PLACEHOLDER;
+}
+
 export function formatModelVersion(label: string | null | undefined): string {
   if (!label) {
     return PLACEHOLDER;
   }
-  // Drop the internal "-fixture" tag so seeded/demo models read as a clean version (e.g. "v0").
-  return label.replace(/-fixture$/i, "");
+  const cleanLabel = label.trim().replace(/-fixture$/i, "");
+  const explicitVersion = /(?:^|[-_])v(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:$|[-_])/i.exec(cleanLabel);
+  if (explicitVersion) {
+    return `v${explicitVersion[1]}.${explicitVersion[2] ?? "0"}.${explicitVersion[3] ?? "0"}`;
+  }
+
+  // Training bundles encode their feature-contract generation as "fsN". Use that stable
+  // generation for the compact dashboard label while the build hash remains available below it.
+  const featureSpecVersion = /(?:^|[-_])fs(\d+)(?:$|[-_])/i.exec(cleanLabel);
+  if (featureSpecVersion) {
+    return `v${featureSpecVersion[1]}.0.0`;
+  }
+
+  return cleanLabel || PLACEHOLDER;
+}
+
+export function formatModelBuild(label: string | null | undefined): string | null {
+  if (!label) {
+    return null;
+  }
+  const buildHash = /(?:^|[-_])([a-f\d]{7,})(?:$|[-_])/i.exec(label.trim());
+  return buildHash ? `Build ${buildHash[1].slice(0, 8)}` : null;
+}
+
+export function formatMachineKey(key: string): string {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return PLACEHOLDER;
+  }
+  const knownLabel = MACHINE_KEY_LABELS[trimmed.toLowerCase()];
+  if (knownLabel) {
+    return knownLabel;
+  }
+  const words = trimmed.replace(/[._]+/g, " ").replace(/\s+/g, " ").toLowerCase();
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
 export function greeting(now: Date = new Date()): string {
