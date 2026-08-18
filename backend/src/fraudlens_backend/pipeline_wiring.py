@@ -8,7 +8,9 @@ leaves the partial event log + deterministic-core result durable); `RunManager` 
 run registry that `POST /investigations` owns the run through — it dedupes by `Idempotency-Key`,
 launches the `Runner` as a background task on its OWN session (so the run completes regardless of
 any stream), and fans the Runner's live events out to SSE subscribers (the queue-ready seam to a
-future worker). The risk policy is resolved from `system_config` with the core `RiskPolicy()` as
+    future worker). Durable idempotency lives on `analysis_runs`; this manager retains only active
+    process-local execution and subscriber state. The risk policy is resolved from `system_config`
+    with the core `RiskPolicy()` as
 the safe cached default (plan §9.1), and the same-account history feeding rules + features is
 loaded windowed.
 
@@ -19,10 +21,11 @@ Key classes:
 - RetrieverAdapter: adapts the heavy `Retriever` (+ citation fencing) onto `RetrieverPort`.
 - PipelineRunStore: the async `RunStore` over the analysis/registry/SAR repositories (commits).
 - PipelineComponents: the process-wide heavy singletons (model cache, scorer, explainer, retriever).
-- RunManager: the in-process run registry — idempotency, background-task launch, and SSE pub/sub.
+- RunManager: the in-process active-run registry — background-task launch and SSE pub/sub.
 
 Key functions:
 - build_pipeline_components: construct the process-wide singletons from settings + the index dir.
+- resolve_workflow_mode: apply the settings-and-tenant feature gate, failing closed.
 - load_risk_policy: resolve the `RiskPolicy` from `system_config` (safe core defaults on any miss).
 - build_pipeline_input: assemble the PHI-free `PipelineInput` (context + same-account history).
 - resolve_scoring_pointer: route to an override, active/canary, or gated dev candidate fallback.
@@ -38,37 +41,45 @@ Notes:
   (`was_canary`) — that is the "canary logs both models" of plan §5.4 (Phase 10, §10.5).
 - Retrieval and ingestion use the same config-selected embedder factory. Hashing remains the
   deterministic default; live mode uses the backend's guardrailed OpenRouter adapter.
-- `RunManager` evicts a finished run's record once no subscriber remains, and LRU-bounds the
-  Idempotency-Key→runId map, so neither grows without limit; an SSE observer that connects after
-  eviction replays from the persisted `analysis_run_events` (DB).
+- `RunManager` evicts a finished run's record once no subscriber remains; an SSE observer that
+  connects after eviction replays from the persisted `analysis_run_events` (DB).
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from fraudlens_backend.agents.contracts import AgentExecutionRecord
+from fraudlens_backend.agents.resume import AgentExecutionReplay
 from fraudlens_backend.db.models import SystemConfig, Transaction
 from fraudlens_backend.db.models.enums import AnalysisRunEventType, Severity
 from fraudlens_backend.db.repositories import (
+    AgentExecutionRepository,
     AnalysisRunRepository,
+    DashboardRepository,
     ModelRegistryRepository,
     RuleRepository,
     SarDraftRepository,
     TransactionRepository,
+    load_feature_flags,
+    load_llm_daily_budget_usd,
 )
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
 from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
-from fraudlens_backend.settings import AppSettings
+from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
+from fraudlens_backend.sar.factory import AgentDrafterFactory, build_agent_drafter_factory
+from fraudlens_backend.settings import AppSettings, find_config_dir
 from fraudlens_backend.telemetry import log_llm_call
 from fraudlens_core import (
     RiskBand,
@@ -114,6 +125,18 @@ def _anchored(path_value: str) -> Path:
     """Resolve a config path; a relative value anchors at the process CWD (repo root / /app)."""
     path = Path(path_value)
     return path if path.is_absolute() else Path.cwd() / path
+
+
+def _config_anchored(path_value: str) -> Path:
+    """Resolve a relative path below config/, rejecting absolute paths and traversal."""
+    path = Path(path_value)
+    if path.is_absolute():
+        raise ValueError("Multi-agent configuration must be relative to the config directory")
+    base = find_config_dir().resolve()
+    resolved = (base / path).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError("Multi-agent configuration must remain below the config directory")
+    return resolved
 
 
 # --------------------------------------------------------------------------------------------------
@@ -294,9 +317,10 @@ class PipelineRunStore:
     async def save_sar(self, result: SarDraftResult) -> str:
         """Persist the SAR draft (draft or failed) for the run + commit; return its id.
 
-        Emits a PHI-free LLM-call cost/usage event after persisting (plan §7.4/§11.3, Phase 12):
-        model + prompt provenance + tokens + USD cost + fallback/cache — never prompt content. The
-        run is a background task (no request contextvars), so run_id/agency_id are passed in.
+        Single-writer drafts emit one PHI-free aggregate cost/usage event after persistence.
+        Multi-agent attempts emit their own latency-populated events before this aggregate step,
+        avoiding duplicate telemetry. No event contains prompt content, and background run/tenant
+        identifiers are passed explicitly because request contextvars are unavailable.
         """
         draft = await self._sar.create_from_result(run_id=self._run_id, result=result)
         analysis_result = await self._analysis.get_result(self._run_id)
@@ -312,19 +336,20 @@ class PipelineRunStore:
                 review_flags=review_flags,
             )
         await self._session.commit()
-        log_llm_call(
-            model=result.model_id,
-            prompt_version=result.prompt_version,
-            prompt_hash=result.prompt_hash,
-            input_tokens=result.token_usage.input_tokens,
-            output_tokens=result.token_usage.output_tokens,
-            total_tokens=result.token_usage.total_tokens,
-            cost_usd=result.cost_usd,
-            fallback_count=result.fallback_count,
-            cached=result.cached,
-            run_id=str(self._run_id),
-            agency_id=str(self._sar.agency_id),
-        )
+        if result.workflow != "multi_agent":
+            log_llm_call(
+                model=result.model_id,
+                prompt_version=result.prompt_version,
+                prompt_hash=result.prompt_hash,
+                input_tokens=result.token_usage.input_tokens,
+                output_tokens=result.token_usage.output_tokens,
+                total_tokens=result.token_usage.total_tokens,
+                cost_usd=result.cost_usd,
+                fallback_count=result.fallback_count,
+                cached=result.cached,
+                run_id=str(self._run_id),
+                agency_id=str(self._sar.agency_id),
+            )
         return str(draft.id)
 
     async def raise_alert(self, record: AlertRecord) -> None:
@@ -390,10 +415,22 @@ class PipelineComponents:
     explainer: Explainer
     retriever: Retriever
     drafter: SarDrafter
+    agent_drafter_factory: AgentDrafterFactory | None
+    agent_config: Any
+    agent_prompts: dict[Any, Any]
+    agent_max_cost_usd: Decimal
+    mock_revision_external_id_suffix: str | None
 
 
 def build_pipeline_components(settings: AppSettings) -> PipelineComponents:
     """Construct the process-wide pipeline singletons from settings (paths anchored at the CWD)."""
+    from fraudlens_backend.agents.config import AgentRole, load_agents_config  # noqa: PLC0415
+    from fraudlens_backend.agents.prompts import AgentPromptTemplate  # noqa: PLC0415
+    from fraudlens_backend.agents.runtime import estimate_workflow_max_cost_usd  # noqa: PLC0415
+    from fraudlens_backend.agents.tools import AGENT_TOOL_NAMES  # noqa: PLC0415
+    from fraudlens_backend.portfolio_demo import load_portfolio_demo_config  # noqa: PLC0415
+    from fraudlens_llm import get_llm_settings, load_catalog  # noqa: PLC0415
+
     cache = ModelCache(_anchored(settings.model_artifacts_dir))
     embedder = build_embedder(settings)
     retriever = Retriever(
@@ -403,13 +440,57 @@ def build_pipeline_components(settings: AppSettings) -> PipelineComponents:
         rag_version=embedder.provenance.rag_version,
         min_similarity=settings.investigation_rag_min_similarity,
     )
+    catalog = load_catalog(get_llm_settings().catalog_path)
+    agent_path = _config_anchored(settings.multi_agent_config_file)
+    agent_config = load_agents_config(
+        catalog=catalog,
+        available_tools=AGENT_TOOL_NAMES,
+        path=agent_path,
+    )
+    agent_prompts = {
+        role: AgentPromptTemplate.load(role, agent_config.agents.for_role(role).prompt_id)
+        for role in AgentRole
+    }
+    revision_suffix: str | None = None
+    if settings.llm_mode == "mock":
+        portfolio = load_portfolio_demo_config(settings=settings)
+        scenario = next(
+            item
+            for item in portfolio.scenarios
+            if item.scenario_id == portfolio.execution.mock_agent_revision_scenario
+        )
+        revision_suffix = scenario.external_id_suffix
     return PipelineComponents(
         cache=cache,
         scorer=Scorer(cache),
         explainer=Explainer(),
         retriever=retriever,
         drafter=build_sar_drafter(settings),
+        agent_drafter_factory=(
+            build_agent_drafter_factory(catalog=catalog, config=agent_config)
+            if settings.llm_mode == "live"
+            else None
+        ),
+        agent_config=agent_config,
+        agent_prompts=agent_prompts,
+        agent_max_cost_usd=estimate_workflow_max_cost_usd(agent_config, catalog),
+        mock_revision_external_id_suffix=revision_suffix,
     )
+
+
+async def resolve_workflow_mode(
+    session: AsyncSession,
+    *,
+    settings: AppSettings,
+    agency_id: uuid.UUID,
+    requested: str | None = None,
+) -> str:
+    """Resolve workflow selection through settings AND tenant flags, failing closed."""
+    flags = await load_feature_flags(session, agency_id=agency_id)
+    enabled = settings.multi_agent_sar_enabled and flags.multi_agent_sar
+    if requested == "single_writer":
+        return "single_writer"
+    return "multi_agent" if enabled else "single_writer"
 
 
 async def load_risk_policy(session: AsyncSession) -> RiskPolicy:
@@ -594,6 +675,8 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
     transaction_id: uuid.UUID,
     emit: EventEmitter,
     model_override: str | None = None,
+    sessionmaker: async_sessionmaker[AsyncSession] | None = None,
+    workflow_mode: str = "single_writer",
 ) -> PipelineDeps:
     """Resolve the routed pointer/rule-set/policy and assemble the per-run PipelineDeps."""
     registry = ModelRegistryRepository(session)
@@ -614,12 +697,98 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
         sar=SarDraftRepository(session, agency_id),
         review_low_confidence_margin=settings.review_low_confidence_margin,
     )
+    drafter = components.drafter
+    if workflow_mode == "multi_agent":
+        if sessionmaker is None:
+            raise RuntimeError("Multi-agent workflow requires a session factory")
+
+        from fraudlens_backend.agents.mock import MockAgentTeam  # noqa: PLC0415
+        from fraudlens_backend.agents.tools import EvidenceToolset  # noqa: PLC0415
+
+        toolset = EvidenceToolset(
+            sessionmaker,
+            agency_id,
+            run_id,
+            retriever=RetrieverAdapter(components.retriever),
+            history_window_hours=settings.investigation_history_window_hours,
+            history_limit=settings.investigation_history_max,
+        )
+
+        async def record_execution(record: AgentExecutionRecord) -> None:
+            """Persist and log one agent attempt before publishing its completed event."""
+            async with sessionmaker() as execution_session:
+                await AgentExecutionRepository(execution_session, agency_id).save_from_record(
+                    run_id=run_id,
+                    record=record,
+                )
+                await execution_session.commit()
+            requested_model = components.agent_config.agents.for_role(record.agent).model
+            log_llm_call(
+                model=record.model_id,
+                prompt_version=record.prompt_version,
+                prompt_hash=record.prompt_hash,
+                input_tokens=record.input_tokens,
+                output_tokens=record.output_tokens,
+                total_tokens=record.total_tokens,
+                cost_usd=record.cost_usd,
+                fallback_count=int(
+                    settings.llm_mode == "live" and record.model_id != requested_model
+                ),
+                latency_ms=record.latency_ms,
+                run_id=str(run_id),
+                agency_id=str(agency_id),
+                agent=record.agent.value,
+                attempt=record.attempt,
+            )
+
+        replay = AgentExecutionReplay(
+            sessionmaker,
+            agency_id=agency_id,
+            run_id=run_id,
+        )
+
+        if settings.llm_mode == "mock":
+            transaction = await TransactionRepository(session, agency_id).get(transaction_id)
+            request_revision = bool(
+                transaction is not None
+                and components.mock_revision_external_id_suffix
+                and transaction.external_id.endswith(components.mock_revision_external_id_suffix)
+            )
+            drafter = MockAgentTeam(
+                run_id=run_id,
+                config=components.agent_config,
+                prompts=components.agent_prompts,
+                single_writer=components.drafter,
+                record_execution=record_execution,
+                replay=replay,
+                request_revision=request_revision,
+            )
+        else:
+            if components.agent_drafter_factory is None:
+                raise RuntimeError("Live agent drafter factory is unavailable")
+            daily_limit = await load_llm_daily_budget_usd(session, agency_id=agency_id)
+            daily_spent = await DashboardRepository(session, agency_id).sar_cost_today(
+                as_of=datetime.now(UTC)
+            )
+            primary = components.agent_drafter_factory(
+                toolset,
+                run_id=run_id,
+                record_execution=record_execution,
+                replay=replay,
+                daily_limit_usd=daily_limit,
+                daily_spent_usd=daily_spent,
+            )
+            drafter = (
+                LiveAgentFallbackDrafter(primary=primary, fallback=components.drafter)
+                if components.agent_config.workflow.fallback_to_single_writer
+                else primary
+            )
     return PipelineDeps(
         rules=RulesAdapter(RuleRegistry(), definitions),
         scorer=ScorerAdapter(components.scorer, pointer, was_canary=was_canary),
         explainer=ExplainerAdapter(components.explainer, components.cache, pointer),
         retriever=RetrieverAdapter(components.retriever),
-        drafter=components.drafter,
+        drafter=drafter,
         store=store,
         emit=emit,
         risk_policy=risk_policy,
@@ -642,7 +811,7 @@ class _RunState:
 
 
 class RunManager:
-    """In-process run registry: idempotency dedupe, background-task launch, and SSE pub/sub."""
+    """In-process active-run registry for background launch and SSE pub/sub."""
 
     def __init__(
         self,
@@ -656,27 +825,31 @@ class RunManager:
         self._components = components
         self._settings = settings
         self._runs: dict[str, _RunState] = {}
-        # LRU-bounded so a long-lived single replica cannot grow the dedupe map without limit
-        # (the cross-replica/restart dedupe is the deferred queue-ready seam, ADR-016 / §21).
-        self._idempotency: OrderedDict[tuple[str, str], str] = OrderedDict()
-        self._idempotency_cap = settings.investigation_idempotency_cache_size
-        self.lock = asyncio.Lock()
 
-    def lookup_idempotent(self, agency_id: str, key: str) -> str | None:
-        """Return the run id a prior request with this agency + Idempotency-Key created, if any."""
-        run_id = self._idempotency.get((agency_id, key))
-        if run_id is not None:
-            self._idempotency.move_to_end((agency_id, key))  # mark recently used (LRU)
-        return run_id
+    @property
+    def agent_quotas(self) -> Any:
+        """Return the validated live multi-agent quota configuration."""
+        return self._components.agent_config.quotas
 
-    def remember_idempotent(self, agency_id: str, key: str, run_id: str) -> None:
-        """Record the run id for an agency + Idempotency-Key (double-click dedupe; LRU-bounded)."""
-        self._idempotency[(agency_id, key)] = run_id
-        self._idempotency.move_to_end((agency_id, key))
-        while len(self._idempotency) > self._idempotency_cap:
-            self._idempotency.popitem(last=False)  # evict the least-recently-used entry
+    @property
+    def agent_graph_version(self) -> str:
+        """Return the validated graph version persisted on multi-agent runs."""
+        return str(self._components.agent_config.graph_version)
 
-    def start(
+    async def ensure_agent_budget(self, session: AsyncSession, *, agency_id: uuid.UUID) -> None:
+        """Reject a live graph whose worst-case charge would cross the tenant daily budget."""
+        if self._settings.llm_mode != "live":
+            return
+        limit = await load_llm_daily_budget_usd(session, agency_id=agency_id)
+        spent = await DashboardRepository(session, agency_id).sar_cost_today(
+            as_of=datetime.now(UTC)
+        )
+        if spent + self._components.agent_max_cost_usd > limit:
+            from fraudlens_backend.models.errors import AppError  # noqa: PLC0415
+
+            raise AppError("llm_budget_exceeded")
+
+    def start(  # noqa: PLR0913 - explicit persisted run identity and selected workflow.
         self,
         *,
         agency_id: uuid.UUID,
@@ -684,6 +857,7 @@ class RunManager:
         transaction_id: uuid.UUID,
         pipeline_input: PipelineInput,
         model_override: str | None = None,
+        workflow_mode: str = "single_writer",
     ) -> None:
         """Launch the Runner as a background task that owns the run (independent of any stream)."""
         state = _RunState()
@@ -696,6 +870,7 @@ class RunManager:
                 pipeline_input=pipeline_input,
                 state=state,
                 model_override=model_override,
+                workflow_mode=workflow_mode,
             )
         )
 
@@ -708,6 +883,7 @@ class RunManager:
         pipeline_input: PipelineInput,
         state: _RunState,
         model_override: str | None = None,
+        workflow_mode: str = "single_writer",
     ) -> None:
         """Run the pipeline to completion on a fresh session, then signal + evict the run state."""
         try:
@@ -721,6 +897,8 @@ class RunManager:
                     transaction_id=transaction_id,
                     emit=self._emitter(state),
                     model_override=model_override,
+                    sessionmaker=self._sessionmaker,
+                    workflow_mode=workflow_mode,
                 )
                 await Runner(deps).run(pipeline_input)
         except (

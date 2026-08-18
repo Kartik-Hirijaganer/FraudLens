@@ -39,6 +39,7 @@ dev = [
     "interrogate>=1.7",
     "vulture>=2.13",
     "types-pyyaml>=6.0",
+    "types-jsonschema>=4.23",
     # aiosqlite backs the in-memory async DB used by the Phase 2 DB tests (migrations,
     # repositories, agency lookup, seed); production/local-demo run on Postgres (asyncpg).
     "aiosqlite>=0.20",

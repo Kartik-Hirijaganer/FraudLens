@@ -302,6 +302,20 @@ class AppSettings(BaseSettings):
         default="mock",
         description="SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider.",
     )
+    multi_agent_sar_enabled: bool = Field(
+        default=False,
+        description=(
+            "Process-level gate for bounded multi-agent SAR drafting; the feature is active only "
+            "when the tenant-scoped system_config flag is also enabled."
+        ),
+    )
+    multi_agent_config_file: str = Field(
+        default="llm/agents.yml",
+        description=(
+            "Multi-agent configuration filename resolved below the config directory; absolute "
+            "paths and upward traversal are rejected by the loader."
+        ),
+    )
     model_artifacts_dir: str = Field(
         default="data/models",
         description="Root dir (by version label) for model artifact bundles; the committed "
@@ -492,12 +506,6 @@ class AppSettings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Minimum cosine similarity required to surface a vector RAG citation.",
-    )
-    investigation_idempotency_cache_size: int = Field(
-        default=1024,
-        gt=0,
-        description="Max retained Idempotency-Key→runId entries in the in-process run manager "
-        "(LRU-bounded; the single-replica dedupe window, ADR-016).",
     )
     batch_score_limit: int = Field(
         default=2000,
