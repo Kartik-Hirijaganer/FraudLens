@@ -92,13 +92,15 @@ def log_llm_call(  # noqa: PLR0913 - the §11.3 LLM-call cost/usage field set (a
     model_version: str | None = None,
     run_id: str | None = None,
     agency_id: str | None = None,
+    agent: str | None = None,
+    attempt: int | None = None,
 ) -> None:
     """Emit a PHI-free LLM-call cost/usage event for cost dashboards (plan §7.4/§11.3).
 
     Records ONLY model + prompt provenance (version + hash, never the prompt text), token counts,
     estimated USD cost, fallback hops, and cache hits — never prompt/response content or any raw
     input (the full masked SAR lives in `sar_drafts` under tenant scope, not the app log). `run_id`
-    / `agency_id` correlate the event when emitted from a background run (outside request context).
+    / `agency_id` correlate background work; `agent` / `attempt` identify bounded graph calls.
     """
     fields: dict[str, Any] = {
         "model": model,
@@ -119,4 +121,8 @@ def log_llm_call(  # noqa: PLR0913 - the §11.3 LLM-call cost/usage field set (a
         fields["run_id"] = run_id
     if agency_id is not None:
         fields["agency_id"] = agency_id
+    if agent is not None:
+        fields["agent"] = agent
+    if attempt is not None:
+        fields["attempt"] = attempt
     get_logger(LLM_LOGGER_NAME).info("llm.call", **fields)
