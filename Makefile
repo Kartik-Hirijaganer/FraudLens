@@ -27,7 +27,7 @@ AML_SAMPLE_ROWS ?= 50000
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
-        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
         docker-build ci pre-pr upgrade dev
 
 help: ## Show this help.
@@ -304,6 +304,43 @@ gfp-container: ## Run CMD in a throwaway pinned Python-3.11 x86-64 container (ar
 		"$(GFP_CONTAINER_IMAGE)" \
 		bash -euo pipefail -c 'apt-get update -qq >/dev/null && apt-get install -qq -y --no-install-recommends libgomp1 make >/dev/null && python -m pip install --quiet "$(GFP_CONTAINER_UV)" && eval "$$GFP_CMD"'
 
+# ---------------------------------------------------------------------------
+# Paired multi-agent SAR evaluation (ADR-019). Scenario generation, tests, and
+# publication are local-only. `run` and `judge` are the only provider-capable
+# stages, require explicit hard USD caps, and receive secrets from Infisical prod.
+# ---------------------------------------------------------------------------
+SAR_EVAL := $(UV) run python scripts/benchmark_sar_agents.py
+SAR_EVAL_RETRY_ARG := $(if $(filter 1 true yes,$(SAR_EVAL_RETRY_FAILED)),--retry-failed,)
+SAR_EVAL_TESTS := tests/unit/test_sar_eval_cli.py \
+	tests/unit/test_sar_eval_scenarios_metrics.py \
+	tests/unit/test_sar_eval_runner_judge.py \
+	tests/unit/test_sar_eval_report_publish.py
+
+sar-eval-scenarios: ## Generate the deterministic, synthetic 8x4 evaluation matrix (free).
+	$(SAR_EVAL) scenarios
+sar-eval-run: ## Run API arms (required: SAR_EVAL_RUN + cap; optional retry: SAR_EVAL_RETRY_FAILED=1; spends).
+	@test -n "$(SAR_EVAL_RUN)" || { echo "SAR_EVAL_RUN=<run-id> is required"; exit 2; }
+	@test -n "$(SAR_EVAL_RUN_MAX_USD)" || { echo "SAR_EVAL_RUN_MAX_USD=<hard-cap> is required"; exit 2; }
+	infisical run --env=prod --path=/backend -- env \
+		SAR_EVAL_RUN_MAX_USD="$(SAR_EVAL_RUN_MAX_USD)" \
+		$(SAR_EVAL) run --run "$(SAR_EVAL_RUN)" $(SAR_EVAL_RETRY_ARG)
+sar-eval-judge: ## Run the blind cross-family judge (SAR_EVAL_RUN + SAR_EVAL_JUDGE_MAX_USD required; spends).
+	@test -n "$(SAR_EVAL_RUN)" || { echo "SAR_EVAL_RUN=<run-id> is required"; exit 2; }
+	@test -n "$(SAR_EVAL_JUDGE_MAX_USD)" || { echo "SAR_EVAL_JUDGE_MAX_USD=<hard-cap> is required"; exit 2; }
+	infisical run --env=prod --path=/llm -- env \
+		SAR_EVAL_JUDGE_MAX_USD="$(SAR_EVAL_JUDGE_MAX_USD)" \
+		$(SAR_EVAL) judge --run "$(SAR_EVAL_RUN)"
+sar-eval-publish: ## Validate and atomically publish one completed local run (SAR_EVAL_RUN required).
+	@test -n "$(SAR_EVAL_RUN)" || { echo "SAR_EVAL_RUN=<run-id> is required"; exit 2; }
+	$(SAR_EVAL) publish --run "$(SAR_EVAL_RUN)"
+sar-eval-validate: ## Revalidate the committed docs/frontend report binding (free, providerless).
+	$(SAR_EVAL) validate
+sar-eval-test: ## Portable SAR evaluation suite with >=90% harness coverage; never calls providers.
+	$(UV) run pytest $(SAR_EVAL_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/sar_eval --cov=benchmark_sar_agents \
+		--cov-report=term-missing --cov-fail-under=90
+	$(MAKE) sar-eval-validate
+
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform
 	@for env in dev prod; do \
@@ -315,7 +352,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).
