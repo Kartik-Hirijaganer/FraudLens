@@ -84,6 +84,7 @@ def _to_response(data: DashboardData) -> DashboardMetricsResponse:
             today_usd=str(data.sar_cost_today),
             total_usd=str(data.sar_cost_total),
             draft_count=data.sar_draft_count,
+            agent_cost_usd={role: str(cost) for role, cost in data.agent_cost_usd.items()},
         ),
         model_health=ModelHealthMetrics(
             active_version_label=data.active_version_label,

@@ -31,6 +31,7 @@ Key functions:
 - optional_actor: return the acting user id when present, else None (audited non-gated mutations).
 - audit_writer: build the request-correlated, tenant-scoped audit-log writer (shared by routers).
 - rate_limit: build a per-route rate-limit dependency (slowapi-style) — 429 past the budget.
+- enforce_rate_limit: apply a dynamic limit through the same process-local limiter registry.
 
 Notes:
 - rate_limit (plan §16 Phase 13) is a stricter per-route limiter layered on top of the global
@@ -103,6 +104,7 @@ class Permission(StrEnum):
     FINALIZE_ALERT = "finalize_alert"
     REVIEW_SAR = "review_sar"
     MANAGE_RULES = "manage_rules"
+    RUN_EVALUATION = "run_evaluation"
 
 
 _ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -447,13 +449,31 @@ def rate_limit(
 
     async def _dependency(request: Request, settings: SettingsDep) -> None:
         """Throttle the calling client for `scope`; raise rate_limited past the budget."""
-        limiters: dict[str, _SlidingWindowLimiter] = request.app.state.route_rate_limiters
-        limiter = limiters.get(scope)
-        if limiter is None:
-            limiter = _SlidingWindowLimiter(limit(settings), window(settings))
-            limiters[scope] = limiter
         client_host = request.client.host if request.client else "unknown"
-        if limiter.over_limit(client_host, time.monotonic()):
-            raise AppError("rate_limited")
+        enforce_rate_limit(
+            request,
+            scope=scope,
+            limit=limit(settings),
+            window_seconds=window(settings),
+            key=client_host,
+        )
 
     return _dependency
+
+
+def enforce_rate_limit(
+    request: Request,
+    *,
+    scope: str,
+    limit: int,
+    window_seconds: float,
+    key: str,
+) -> None:
+    """Apply a dynamic keyed limit through the existing process-local limiter registry."""
+    limiters: dict[str, _SlidingWindowLimiter] = request.app.state.route_rate_limiters
+    limiter = limiters.get(scope)
+    if limiter is None:
+        limiter = _SlidingWindowLimiter(limit, window_seconds)
+        limiters[scope] = limiter
+    if limiter.over_limit(key, time.monotonic()):
+        raise AppError("rate_limited")

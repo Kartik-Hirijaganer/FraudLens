@@ -6,6 +6,7 @@ Re-exports are intentional (the model classes, the shared ``Base``, and the colu
 from __future__ import annotations
 
 from fraudlens_backend.db.base import Base
+from fraudlens_backend.db.models.agents import AgentExecution
 from fraudlens_backend.db.models.alerts import Alert, AlertAction, SarDraft
 from fraudlens_backend.db.models.analysis import (
     AnalysisResult,
@@ -15,6 +16,8 @@ from fraudlens_backend.db.models.analysis import (
 )
 from fraudlens_backend.db.models.core import Agency, AmlRule, Transaction, User
 from fraudlens_backend.db.models.enums import (
+    AgentExecutionStatus,
+    AgentRole,
     AlertActionType,
     AlertOrigin,
     AlertStatus,
@@ -59,6 +62,9 @@ PLATFORM_TABLES: frozenset[str] = frozenset(
 __all__ = [
     "PLATFORM_TABLES",
     "Agency",
+    "AgentExecution",
+    "AgentExecutionStatus",
+    "AgentRole",
     "Alert",
     "AlertAction",
     "AlertActionType",
