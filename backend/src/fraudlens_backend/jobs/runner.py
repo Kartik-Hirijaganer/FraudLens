@@ -41,7 +41,7 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
 from fraudlens_backend.db.repositories import AnalysisRunRepository, TransactionRepository
@@ -51,6 +51,7 @@ from fraudlens_backend.pipeline_wiring import (
     build_pipeline_components,
     build_pipeline_deps,
     build_pipeline_input,
+    resolve_workflow_mode,
 )
 from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings, get_settings
@@ -100,12 +101,24 @@ async def run_batch_score(
     txn_repo = TransactionRepository(session, agency_id)
     analysis_repo = AnalysisRunRepository(session, agency_id)
     completed = failed = skipped = 0
+    run_sessionmaker = async_sessionmaker(session.bind, expire_on_commit=False)
     for transaction_id in transaction_ids:
         transaction = await txn_repo.get(transaction_id)
         if transaction is None:
             skipped += 1
             continue
-        run = await analysis_repo.create_running(transaction_id=transaction.id)
+        workflow_mode = await resolve_workflow_mode(
+            session,
+            settings=settings,
+            agency_id=agency_id,
+        )
+        run = await analysis_repo.create_running(
+            transaction_id=transaction.id,
+            workflow_mode=workflow_mode,
+            graph_version=(
+                components.agent_config.graph_version if workflow_mode == "multi_agent" else None
+            ),
+        )
         await session.commit()
         run_id, current_id = run.id, transaction.id  # plain values survive a rollback expiry
         try:
@@ -124,6 +137,8 @@ async def run_batch_score(
                 run_id=run_id,
                 transaction_id=current_id,
                 emit=_noop_emit,
+                sessionmaker=run_sessionmaker,
+                workflow_mode=workflow_mode,
             )
             report = await Runner(deps).run(pipeline_input)
         except Exception:  # one poisoned transaction must never abort the whole sweep

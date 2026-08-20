@@ -1,8 +1,9 @@
 """Summary: The investigation API (plan §5.4, §10.2, §16 Phase 8; endpoints 6-8). `POST
 /investigations` STARTS and OWNS the run (ADR-016): it validates the transaction is the agency's,
 creates the `analysis_runs(running)` row, launches the `Runner` as an in-process background task
-via the `RunManager`, and returns **202 `{runId}`** — an optional `Idempotency-Key` dedupes
-double-clicks to the existing run. `GET /investigations/{runId}` is the authoritative snapshot the
+    via the `RunManager`, and returns **202 `{runId}`** — an optional `Idempotency-Key` is hashed
+    into the tenant-scoped run row and dedupes across restarts/replicas. `GET
+    /investigations/{runId}` is the authoritative snapshot the
 SSE observer reconciles against. `GET /investigations/{runId}/stream` is a PURE OBSERVER: it
 replays the persisted `analysis_run_events` from `Last-Event-ID`, then tails the live broadcast
 (the ephemeral `sar.token`s) until `run.completed`/`run.failed` — it never starts the run, so a
@@ -41,6 +42,7 @@ from typing import Annotated, Any, cast
 from anyio import CancelScope
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fraudlens_backend.api.deps import (
@@ -48,27 +50,36 @@ from fraudlens_backend.api.deps import (
     Permission,
     SettingsDep,
     audit_writer,
+    enforce_permission,
+    enforce_rate_limit,
     get_tenant,
     optional_actor,
     require_permission,
 )
-from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, SarDraft
+from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, RagRetrieval, SarDraft
 from fraudlens_backend.db.repositories import (
+    AgentExecutionRepository,
     AlertRepository,
     AnalysisRunRepository,
     ModelRegistryRepository,
     SarDraftRepository,
     TransactionRepository,
 )
+from fraudlens_backend.models.agent_executions import agent_execution_to_view
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.investigations import (
     InvestigationSnapshotResponse,
     InvestigationStartRequest,
     InvestigationStartResponse,
+    RetrievedRegulationView,
 )
 from fraudlens_backend.models.sar import SarDraftView
-from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_input
+from fraudlens_backend.pipeline_wiring import (
+    RunManager,
+    build_pipeline_input,
+    resolve_workflow_mode,
+)
 from fraudlens_backend.services.sar_regeneration import regenerate_sar_for_run, sar_draft_to_view
 from fraudlens_backend.settings import AppSettings
 
@@ -83,6 +94,7 @@ _IDEMPOTENCY_HEADER = "Idempotency-Key"
 _LAST_EVENT_ID_HEADER = "Last-Event-ID"
 _TERMINAL_EVENTS = frozenset({"run.completed", "run.failed"})
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+_SECONDS_PER_DAY = 86_400
 
 
 def _manager(request: Request) -> RunManager:
@@ -102,9 +114,16 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
     request: Request,
     transaction_id: uuid.UUID,
     model_override: str | None = None,
+    idempotency_key: str | None = None,
+    workflow_mode: str | None = None,
 ) -> str:
     """Create the running run, build its input, launch the background Runner; return the runId."""
     agency_id = uuid.UUID(tenant.agency_id)
+    run_repo = AnalysisRunRepository(session, agency_id)
+    if idempotency_key is not None:
+        existing = await run_repo.get_by_idempotency_key(idempotency_key)
+        if existing is not None:
+            return str(existing.id)
     repo = TransactionRepository(session, agency_id)
     transaction = await repo.get(transaction_id)
     if transaction is None:
@@ -114,15 +133,66 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
     ):
         # Reject an unregistered override BEFORE starting the run (never a silent no-op, §5.4).
         raise AppError("model_version_not_found")
-    run = await AnalysisRunRepository(session, agency_id).create_running(
-        transaction_id=transaction.id
+    resolved_workflow = await resolve_workflow_mode(
+        session,
+        settings=settings,
+        agency_id=agency_id,
+        requested=workflow_mode,
     )
+    evaluation_mode = workflow_mode is not None
+    if resolved_workflow == "multi_agent" and settings.llm_mode == "live":
+        if not evaluation_mode:
+            client_host = request.client.host if request.client else "unknown"
+            quotas = manager.agent_quotas
+            enforce_rate_limit(
+                request,
+                scope="live_multi_agent_per_ip_daily",
+                limit=quotas.live_runs_per_ip_per_day,
+                window_seconds=_SECONDS_PER_DAY,
+                key=client_host,
+            )
+            enforce_rate_limit(
+                request,
+                scope="live_multi_agent_total_daily",
+                limit=quotas.live_runs_total_per_day,
+                window_seconds=_SECONDS_PER_DAY,
+                key="all",
+            )
+        await manager.ensure_agent_budget(session, agency_id=agency_id)
+    try:
+        run = await run_repo.create_running(
+            transaction_id=transaction.id,
+            idempotency_key=idempotency_key,
+            workflow_mode=resolved_workflow,
+            graph_version=(
+                getattr(manager, "agent_graph_version", None)
+                if resolved_workflow == "multi_agent"
+                else None
+            ),
+        )
+    except IntegrityError:
+        # A second replica may win the tenant/key UNIQUE race after our initial lookup.
+        await session.rollback()
+        if idempotency_key is not None:
+            existing = await run_repo.get_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                return str(existing.id)
+        raise
     await audit_writer(tenant, session, request).record(
         actor_id=optional_actor(tenant),
         action="investigation.start",
         resource_type="analysis_run",
         resource_id=str(run.id),
-        metadata={"transactionId": str(transaction.id)},
+        metadata={
+            "transactionId": str(transaction.id),
+            "workflowMode": resolved_workflow,
+            "evaluationMode": str(evaluation_mode).lower(),
+            "evaluationQuotaBypass": str(
+                evaluation_mode
+                and resolved_workflow == "multi_agent"
+                and settings.llm_mode == "live"
+            ).lower(),
+        },
     )
     await session.commit()
     pipeline_input = await build_pipeline_input(
@@ -138,6 +208,7 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
         transaction_id=transaction.id,
         pipeline_input=pipeline_input,
         model_override=model_override,
+        workflow_mode=resolved_workflow,
     )
     return str(run.id)
 
@@ -151,24 +222,10 @@ async def start_investigation(
     settings: SettingsDep,
 ) -> InvestigationStartResponse:
     """Start + own an investigation run (202 {runId}); an Idempotency-Key dedupes double-clicks."""
+    if payload.workflow_mode is not None:
+        enforce_permission(tenant, Permission.RUN_EVALUATION)
     manager = _manager(request)
     idempotency_key = request.headers.get(_IDEMPOTENCY_HEADER)
-    if idempotency_key:
-        async with manager.lock:
-            existing = manager.lookup_idempotent(tenant.agency_id, idempotency_key)
-            if existing is not None:
-                return InvestigationStartResponse(run_id=existing)
-            run_id = await _create_and_start(
-                manager=manager,
-                session=session,
-                settings=settings,
-                tenant=tenant,
-                request=request,
-                transaction_id=payload.transaction_id,
-                model_override=payload.model_override,
-            )
-            manager.remember_idempotent(tenant.agency_id, idempotency_key, run_id)
-            return InvestigationStartResponse(run_id=run_id)
     run_id = await _create_and_start(
         manager=manager,
         session=session,
@@ -177,15 +234,19 @@ async def start_investigation(
         request=request,
         transaction_id=payload.transaction_id,
         model_override=payload.model_override,
+        idempotency_key=idempotency_key or None,
+        workflow_mode=payload.workflow_mode,
     )
     return InvestigationStartResponse(run_id=run_id)
 
 
-def _snapshot(
+def _snapshot(  # noqa: PLR0913 -- projection joins the run's tenant-scoped durable records.
     run: AnalysisRun,
     result: AnalysisResult | None,
+    retrieval: RagRetrieval | None,
     sar: SarDraft | None,
     alert_id: uuid.UUID | None,
+    agent_executions: list[Any] | None = None,
 ) -> InvestigationSnapshotResponse:
     """Project the run + (optional) result + (optional) SAR draft onto the snapshot response."""
     return InvestigationSnapshotResponse(
@@ -199,12 +260,22 @@ def _snapshot(
         rules_version=run.rules_version,
         rag_version=run.rag_version,
         prompt_version=run.prompt_version,
+        workflow_mode=run.workflow_mode,
+        graph_version=run.graph_version,
         error_code=run.error_code,
         top_features=list(result.top_features) if result is not None else [],
         rule_hits=list(result.rule_hits) if result is not None else [],
         citations=list(sar.citations) if sar is not None else [],
+        retrieved_regulations=(
+            [RetrievedRegulationView.model_validate(item) for item in retrieval.chunks]
+            if retrieval is not None
+            else []
+        ),
         sar_status=sar.status.value if sar is not None else None,
         sar_draft_id=str(sar.id) if sar is not None else None,
+        sar_content=sar.content if sar is not None else None,
+        revision_count=sar.revision_count if sar is not None else 0,
+        agent_executions=[agent_execution_to_view(item) for item in (agent_executions or [])],
         alert_id=str(alert_id) if alert_id is not None else None,
         created_at=run.created_at,
         updated_at=run.updated_at,
@@ -224,9 +295,18 @@ async def get_investigation(
     if run is None:
         raise AppError("investigation_not_found")
     result = await repo.get_result(run_id)
+    retrieval = await repo.get_retrieval(run_id)
     sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
     alert = await AlertRepository(session, agency_id).get_for_run(run_id)
-    return _snapshot(run, result, sar, alert.id if alert is not None else None)
+    executions = await AgentExecutionRepository(session, agency_id).list_for_run(run_id)
+    return _snapshot(
+        run,
+        result,
+        retrieval,
+        sar,
+        alert.id if alert is not None else None,
+        list(executions),
+    )
 
 
 @router.post("/investigations/{runId}/sar/regenerate", response_model=SarDraftView)

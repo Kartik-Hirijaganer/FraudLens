@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from collections.abc import Awaitable, Callable
 from typing import Annotated, cast
 from urllib import request as url_request
@@ -43,9 +44,13 @@ from starlette.responses import Response
 from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
 from fraudlens_backend.settings import AppSettings
+from fraudlens_llm import get_llm_settings, load_providers
 
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
+_LIVE_REQUIRED_CHECKS = frozenset(
+    {"database", "chromadb", "supabaseAuth", "infisical", "openrouter"}
+)
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
 
@@ -109,26 +114,60 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="chromadb", status="down", detail=f"index {status}")
         return DependencyCheck(name="chromadb", status="skipped", detail=f"index {status}")
 
-    async def _jwks() -> DependencyCheck:
+    async def _supabase_auth() -> DependencyCheck:
         """Probe Supabase JWKS reachability when real JWT verification is configured."""
         if settings.auth_jwks_url is None:
-            return _skipped("jwks")
+            return _skipped("supabaseAuth")
         try:
             status = await _fetch_status(settings.auth_jwks_url, timeout)
         except OSError:
-            return DependencyCheck(name="jwks", status="down", detail="unreachable")
+            return DependencyCheck(name="supabaseAuth", status="down", detail="unreachable")
         if status != _HTTP_OK:
-            return DependencyCheck(name="jwks", status="down", detail="unexpected status")
-        return DependencyCheck(name="jwks", status="ok")
+            return DependencyCheck(name="supabaseAuth", status="down", detail="unexpected status")
+        return DependencyCheck(name="supabaseAuth", status="ok")
 
-    return [_database, _chromadb, _jwks, lambda: _skipped("infisical")]
+    async def _openrouter() -> DependencyCheck:
+        """Probe the configured OpenRouter models endpoint in live LLM mode."""
+        if settings.llm_mode != "live":
+            return _skipped("openrouter")
+        try:
+            llm_settings = get_llm_settings()
+            provider = load_providers(llm_settings.providers_path).get("openrouter")
+            api_key = os.environ.get(provider.api_key_env)
+            if provider.base_url is None or not api_key:
+                return _skipped("openrouter")
+            status = await _fetch_status(
+                f"{provider.base_url.rstrip('/')}/models",
+                min(timeout, provider.timeout_s),
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        except Exception:  # provider/config/reachability failures all fail closed
+            return DependencyCheck(name="openrouter", status="down", detail="unreachable")
+        if status != _HTTP_OK:
+            return DependencyCheck(name="openrouter", status="down", detail="unexpected status")
+        return DependencyCheck(name="openrouter", status="ok")
+
+    infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
+    return [
+        _database,
+        _chromadb,
+        _supabase_auth,
+        infisical_probe or (lambda: _skipped("infisical")),
+        _openrouter,
+    ]
 
 
-async def _fetch_status(url: str, timeout_seconds: float) -> int:
+async def _fetch_status(
+    url: str,
+    timeout_seconds: float,
+    *,
+    headers: dict[str, str] | None = None,
+) -> int:
     """Fetch a URL in a worker thread and return the HTTP status code."""
 
     def _open() -> int:
-        with url_request.urlopen(url, timeout=timeout_seconds) as response:
+        request = url_request.Request(url, headers=headers or {})
+        with url_request.urlopen(request, timeout=timeout_seconds) as response:
             return int(response.status)
 
     return await asyncio.to_thread(_open)
@@ -144,12 +183,18 @@ async def healthz() -> LivenessResponse:
 
 
 @router.get("/readyz", response_model=ReadinessResponse)
-async def readyz(response: Response, probes: ProbesDep) -> ReadinessResponse:
-    """Readiness probe — 200 when every dependency check is non-'down', else 503."""
+async def readyz(request: Request, response: Response, probes: ProbesDep) -> ReadinessResponse:
+    """Readiness probe; live LLM profiles require every dependency to report `ok`."""
     checks: list[DependencyCheck] = []
     for probe in probes:
         result = probe()
         checks.append(await result if inspect.isawaitable(result) else result)
-    ready = all(check.status != "down" for check in checks)
+    settings = cast(AppSettings, request.app.state.settings)
+    ready = (
+        {check.name for check in checks} == _LIVE_REQUIRED_CHECKS
+        and all(check.status == "ok" for check in checks)
+        if settings.llm_mode == "live"
+        else all(check.status != "down" for check in checks)
+    )
     response.status_code = 200 if ready else 503
     return ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
