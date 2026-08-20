@@ -17,7 +17,8 @@ Notes:
 - `alert_actions` is append-only (CreatedAtMixin, no `updated_at`); status transitions are
   recorded as `from_status` → `to_status` rather than mutating prior rows.
 - `sar_drafts.citations` are grounded regulatory references; `structured` holds the typed
-  SAR body. `cost_usd` / `token_usage` capture LLM spend for the audit trail (plan §7.4).
+  SAR body. `workflow` / `revision_count` identify how that artifact was produced, while
+  `cost_usd` / `token_usage` capture LLM spend for the audit trail (plan §7.4).
 """
 
 from __future__ import annotations
@@ -109,6 +110,12 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    workflow: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="single_writer", server_default="single_writer"
+    )
+    revision_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     structured: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     citations: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
