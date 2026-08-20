@@ -15,6 +15,7 @@ intentional (see members)."""
 from __future__ import annotations
 
 from fraudlens_backend.db.repositories.agencies import AgencyRepository
+from fraudlens_backend.db.repositories.agents import AgentExecutionRepository
 from fraudlens_backend.db.repositories.alerts import AlertRepository
 from fraudlens_backend.db.repositories.analysis import AnalysisRunRepository
 from fraudlens_backend.db.repositories.audit import AuditLogRepository
@@ -23,6 +24,11 @@ from fraudlens_backend.db.repositories.dashboard import DashboardData, Dashboard
 from fraudlens_backend.db.repositories.model_lifecycle import ModelLifecycleRepository
 from fraudlens_backend.db.repositories.model_registry import ModelRegistryRepository
 from fraudlens_backend.db.repositories.rules import RuleRepository
+from fraudlens_backend.db.repositories.runtime_config import (
+    RuntimeFeatureFlags,
+    load_feature_flags,
+    load_llm_daily_budget_usd,
+)
 from fraudlens_backend.db.repositories.sar import SarDraftRepository
 from fraudlens_backend.db.repositories.transactions import (
     IngestOutcome,
@@ -32,6 +38,7 @@ from fraudlens_backend.db.repositories.users import UserRepository
 
 __all__ = [
     "AgencyRepository",
+    "AgentExecutionRepository",
     "AlertRepository",
     "AnalysisRunRepository",
     "AuditLogRepository",
@@ -41,8 +48,11 @@ __all__ = [
     "ModelLifecycleRepository",
     "ModelRegistryRepository",
     "RuleRepository",
+    "RuntimeFeatureFlags",
     "SarDraftRepository",
     "TenantScopedRepository",
     "TransactionRepository",
     "UserRepository",
+    "load_feature_flags",
+    "load_llm_daily_budget_usd",
 ]

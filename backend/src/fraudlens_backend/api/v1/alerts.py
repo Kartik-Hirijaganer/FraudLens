@@ -50,8 +50,14 @@ from fraudlens_backend.api.deps import (
 )
 from fraudlens_backend.backends.storage import get_storage_backend
 from fraudlens_backend.db.models import AlertAction, AlertActionType, AlertStatus
-from fraudlens_backend.db.repositories import AlertRepository, SarDraftRepository
+from fraudlens_backend.db.repositories import (
+    AgentExecutionRepository,
+    AlertRepository,
+    AnalysisRunRepository,
+    SarDraftRepository,
+)
 from fraudlens_backend.db.repositories.alerts import AlertSummaryRow
+from fraudlens_backend.models.agent_executions import agent_execution_to_view
 from fraudlens_backend.models.alerts import (
     AlertActionRequest,
     AlertActionView,
@@ -173,10 +179,20 @@ async def get_alert(
         raise AppError("alert_not_found")
     draft = await _sar_repo(tenant, session).get_for_run(row.alert.run_id)
     actions = await repo.list_actions(alert_id)
+    agency_id = uuid.UUID(tenant.agency_id)
+    run = await AnalysisRunRepository(session, agency_id).get(row.alert.run_id)
+    if run is None:  # defensive: the alert FK should make this impossible
+        raise AppError("investigation_not_found")
+    executions = await AgentExecutionRepository(session, agency_id).list_for_run(row.alert.run_id)
     return AlertDetailResponse(
         alert=_to_alert_view(row),
         sar_draft=_to_sar_view(draft) if draft is not None else None,
         actions=[_to_action_view(action) for action in actions],
+        agent_executions=[agent_execution_to_view(item) for item in executions],
+        workflow_mode=run.workflow_mode,
+        graph_version=run.graph_version,
+        revision_count=draft.revision_count if draft is not None else 0,
+        sar_content=draft.content if draft is not None else None,
     )
 
 

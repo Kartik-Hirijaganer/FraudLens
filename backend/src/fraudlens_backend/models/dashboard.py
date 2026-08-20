@@ -85,6 +85,10 @@ class LlmCostMetrics(CamelModel):
     draft_count: int = Field(
         ..., ge=0, description="SAR drafts that incurred (or attempted) spend."
     )
+    agent_cost_usd: dict[str, str] = Field(
+        default_factory=dict,
+        description="All-time USD spend split by stable agent role (string NUMERIC values).",
+    )
 
 
 class ModelHealthMetrics(CamelModel):

@@ -9,10 +9,12 @@ client, pricing catalog, prompt template, budget guard, replay cache) is overrid
 
 Key classes:
 - SarLlmConfig: the non-secret SAR model selection and generation limits.
+- AgentDrafterFactory: protocol for constructing one verified run-scoped live agent drafter.
 
 Key functions:
 - load_sar_llm_config: load + validate config/llm/sar.yml.
 - build_sar_drafter: build the mock or live SarDrafter from settings (mock|live by LLM mode).
+- build_agent_drafter_factory: bind shared collaborators and create one run-scoped agent drafter.
 
 Notes:
 - The live branch defaults limits to an uncapped `BudgetGuard` and an in-process cache; later
@@ -23,7 +25,11 @@ Notes:
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +42,29 @@ from fraudlens_backend.sar.prompt import SarPromptTemplate
 from fraudlens_backend.settings import AppSettings, find_config_dir
 from fraudlens_llm import Catalog, LlmClient, TaskType, get_llm_settings, load_catalog
 from fraudlens_ml.sar import SarDrafter
+
+if TYPE_CHECKING:
+    from fraudlens_backend.agents.config import AgentsConfig
+    from fraudlens_backend.agents.contracts import AgentExecutionRecord
+    from fraudlens_backend.agents.resume import AgentExecutionReplayPort
+    from fraudlens_backend.agents.tools import EvidenceToolset
+
+
+class AgentDrafterFactory(Protocol):
+    """Construct one live graph drafter from verified run context and evidence tools."""
+
+    def __call__(  # noqa: PLR0913 - explicit run-scoped collaborators.
+        self,
+        toolset: EvidenceToolset,
+        *,
+        run_id: uuid.UUID | None = None,
+        record_execution: Callable[[AgentExecutionRecord], Awaitable[None]] | None = None,
+        replay: AgentExecutionReplayPort | None = None,
+        daily_limit_usd: Decimal | None = None,
+        daily_spent_usd: Decimal | None = None,
+    ) -> SarDrafter:
+        """Build one run-scoped drafter; optional arguments preserve direct-test ergonomics."""
+        ...
 
 
 class SarLlmConfig(BaseModel):
@@ -90,3 +119,105 @@ def build_sar_drafter(  # noqa: PLR0913 - explicit overridable collaborators (DI
         fallbacks=sar_config.fallbacks,
         task_type=TaskType.ANALYSIS,
     )
+
+
+def build_agent_drafter_factory(
+    *,
+    client: LlmClient | None = None,
+    catalog: Catalog | None = None,
+    config: AgentsConfig | None = None,
+    daily_limit_usd: Decimal | None = None,
+    daily_spent_provider: Callable[[], Decimal] | None = None,
+) -> AgentDrafterFactory:
+    """Create run-scoped graph drafters with independent budgets and tenant-bound tools."""
+    from fraudlens_backend.agents.config import (  # noqa: PLC0415 - breaks package cycle.
+        AgentRole,
+        load_agents_config,
+    )
+    from fraudlens_backend.agents.graph import (  # noqa: PLC0415 - breaks package cycle.
+        build_agent_graph,
+    )
+    from fraudlens_backend.agents.prompts import (  # noqa: PLC0415 - breaks package cycle.
+        AgentPromptTemplate,
+    )
+    from fraudlens_backend.agents.runtime import (  # noqa: PLC0415 - breaks package cycle.
+        AgentBudgetExceededError,
+        AgentRuntime,
+        estimate_workflow_max_cost_usd,
+    )
+    from fraudlens_backend.sar.drafter_multi_agent import (  # noqa: PLC0415 - breaks package cycle.
+        MultiAgentSarDrafter,
+    )
+
+    resolved_catalog = catalog or load_catalog(get_llm_settings().catalog_path)
+    resolved_client = client or LlmClient.from_settings()
+
+    def build(  # noqa: PLR0913 - explicit run-scoped collaborators.
+        toolset: EvidenceToolset,
+        *,
+        run_id: uuid.UUID | None = None,
+        record_execution: Callable[[AgentExecutionRecord], Awaitable[None]] | None = None,
+        replay: AgentExecutionReplayPort | None = None,
+        daily_limit_usd: Decimal | None = daily_limit_usd,
+        daily_spent_usd: Decimal | None = None,
+    ) -> SarDrafter:
+        """Bind one verified run toolset and reject an over-budget graph before provider access."""
+        resolved_config = config or load_agents_config(
+            catalog=resolved_catalog,
+            available_tools=toolset.registry,
+        )
+        estimate = estimate_workflow_max_cost_usd(resolved_config, resolved_catalog)
+        if estimate > resolved_config.workflow.max_cost_usd_per_investigation:
+            raise AgentBudgetExceededError(
+                "Agent workflow worst-case cost exceeds its configured cap"
+            )
+        resolved_daily_spend = (
+            daily_spent_usd
+            if daily_spent_usd is not None
+            else daily_spent_provider()
+            if daily_spent_provider is not None
+            else None
+        )
+        if (
+            daily_limit_usd is not None
+            and (resolved_daily_spend or Decimal("0")) + estimate > daily_limit_usd
+        ):
+            raise AgentBudgetExceededError("Agent workflow exceeds the tenant daily budget")
+        prompts = {
+            role: AgentPromptTemplate.load(
+                role,
+                resolved_config.agents.for_role(role).prompt_id,
+            )
+            for role in AgentRole
+        }
+        runtime = AgentRuntime(
+            client=resolved_client,
+            catalog=resolved_catalog,
+            config=resolved_config,
+            tool_definitions=toolset.definitions,
+            tool_executor=toolset.execute,
+        )
+        graph = build_agent_graph(
+            runtime=runtime,
+            config=resolved_config,
+            prompts=prompts,
+            run_id=run_id,
+            record_execution=record_execution,
+            replay=replay,
+        )
+        return MultiAgentSarDrafter(
+            graph=graph,
+            config=resolved_config,
+            prompts=prompts,
+            budget=BudgetGuard(
+                session_limit_usd=resolved_config.workflow.max_cost_usd_per_investigation,
+                daily_limit_usd=daily_limit_usd,
+                daily_spent_provider=(
+                    (lambda: resolved_daily_spend or Decimal("0"))
+                    if daily_limit_usd is not None
+                    else None
+                ),
+            ),
+        )
+
+    return build
