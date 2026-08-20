@@ -27,6 +27,7 @@ Notes:
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -60,18 +61,35 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         super().__init__(session, AnalysisRun, agency_id)
 
     async def create_running(
-        self, *, transaction_id: uuid.UUID, triggered_by: uuid.UUID | None = None
+        self,
+        *,
+        transaction_id: uuid.UUID,
+        triggered_by: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        workflow_mode: str = "single_writer",
+        graph_version: str | None = None,
     ) -> AnalysisRun:
-        """Insert a new run in `running` status owned by `POST` and return it (flushed)."""
+        """Insert a running run with resolved workflow provenance and a hashed idempotency key."""
         run = AnalysisRun(
             agency_id=self._agency_id,
             transaction_id=transaction_id,
             status=RunStatus.RUNNING,
             triggered_by=triggered_by,
+            idempotency_key=_idempotency_digest(idempotency_key),
+            workflow_mode=workflow_mode,
+            graph_version=graph_version,
         )
         self._session.add(run)
         await self._session.flush()
         return run
+
+    async def get_by_idempotency_key(self, idempotency_key: str) -> AnalysisRun | None:
+        """Return this agency's run for a raw Idempotency-Key, without storing the raw value."""
+        stmt = select(AnalysisRun).where(
+            AnalysisRun.agency_id == self._agency_id,
+            AnalysisRun.idempotency_key == _idempotency_digest(idempotency_key),
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
 
     async def append_event(
         self, *, run_id: uuid.UUID, event_type: AnalysisRunEventType, payload: dict[str, Any]
@@ -287,3 +305,10 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         )
         current = (await self._session.execute(stmt)).scalar_one_or_none()
         return (current or 0) + 1
+
+
+def _idempotency_digest(idempotency_key: str | None) -> str | None:
+    """Return the SHA-256 digest persisted for a client key, or None when absent."""
+    if idempotency_key is None:
+        return None
+    return hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()

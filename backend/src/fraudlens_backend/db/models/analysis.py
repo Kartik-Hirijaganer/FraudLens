@@ -19,6 +19,8 @@ Key functions:
 Notes:
 - `model_version` / `rules_version` / `rag_version` / `prompt_version` are nullable on a
   run because they are filled in as each pipeline step completes.
+- `idempotency_key` stores only a SHA-256 digest and is unique within an agency, so
+  duplicate submissions survive process restarts without retaining a client-supplied key.
 - `analysis_run_events` has UNIQUE `(run_id, seq)` for gap-free ordering and indexes
   `(agency_id, run_id, seq)` so replay reads stay tenant-scoped (plan §9.1).
 """
@@ -59,6 +61,11 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_analysis_runs_agency_id_status", "agency_id", "status"),
         Index("ix_analysis_runs_agency_id_created_at", "agency_id", "created_at"),
+        UniqueConstraint(
+            "agency_id",
+            "idempotency_key",
+            name="uq_analysis_runs_agency_id_idempotency_key",
+        ),
     )
 
     transaction_id: Mapped[uuid.UUID] = mapped_column(
@@ -73,6 +80,11 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
     rules_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     rag_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     prompt_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    workflow_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="single_writer", server_default="single_writer"
+    )
+    graph_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
