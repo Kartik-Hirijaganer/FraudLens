@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from fraudlens_backend.db.models import (
+    AgentExecution,
     Alert,
     AnalysisRun,
     ModelInferenceLog,
@@ -68,6 +69,7 @@ class DashboardData:
     sar_cost_today: Decimal
     sar_cost_total: Decimal
     sar_draft_count: int
+    agent_cost_usd: dict[str, Decimal]
     recent_inference_count: int
     active_version_label: str | None
     canary_version_label: str | None
@@ -97,6 +99,7 @@ class DashboardRepository:
             sar_cost_today=cost_today,
             sar_cost_total=cost_total,
             sar_draft_count=draft_count,
+            agent_cost_usd=await self._agent_cost(),
             recent_inference_count=await self._inference_count(),
             active_version_label=active_label,
             canary_version_label=canary_label,
@@ -154,6 +157,20 @@ class DashboardRepository:
             ).scalar_one()
         )
         return today, total, count
+
+    async def sar_cost_today(self, *, as_of: datetime) -> Decimal:
+        """Return tenant SAR spend since UTC midnight for the runtime daily-budget preflight."""
+        today, _total, _count = await self._sar_cost(as_of=as_of)
+        return today
+
+    async def _agent_cost(self) -> dict[str, Decimal]:
+        """Return all-time agent execution spend grouped by stable role."""
+        stmt = (
+            select(AgentExecution.agent, func.sum(AgentExecution.cost_usd))
+            .where(AgentExecution.agency_id == self._agency_id)
+            .group_by(AgentExecution.agent)
+        )
+        return {role.value: _to_decimal(cost) for role, cost in await self._session.execute(stmt)}
 
     async def _inference_count(self) -> int:
         """Return the tenant's hash-only inference-log count (model-activity proxy, plan §9.2)."""
