@@ -9,6 +9,8 @@ engine taxonomy) and are reused directly, since the pure rules engine dispatches
 
 Key classes:
 - UserRole: a user's RBAC role within an agency.
+- AgentRole: stable role identifier for the bounded SAR-agent workflow.
+- AgentExecutionStatus: completed, degraded, or failed agent-attempt outcome.
 - Severity: ordinal severity shared by rules, alerts, and drift reports.
 - RunStatus: lifecycle status of an analysis run.
 - AlertOrigin: provenance of an alert (pipeline-generated or seeded sample data).
@@ -45,6 +47,23 @@ class UserRole(StrEnum):
     ANALYST = "analyst"
     REVIEWER = "reviewer"
     ADMIN = "admin"
+
+
+class AgentRole(StrEnum):
+    """Stable role identifiers for the bounded four-agent SAR workflow."""
+
+    EVIDENCE_INVESTIGATOR = "evidence_investigator"
+    REGULATORY_ANALYST = "regulatory_analyst"
+    SAR_WRITER = "sar_writer"
+    COMPLIANCE_REVIEWER = "compliance_reviewer"
+
+
+class AgentExecutionStatus(StrEnum):
+    """Normalized lifecycle result for one agent attempt."""
+
+    COMPLETED = "completed"
+    DEGRADED = "degraded"
+    FAILED = "failed"
 
 
 class Severity(StrEnum):
@@ -112,6 +131,9 @@ class AnalysisRunEventType(StrEnum):
     STEP_SHAP_COMPLETED = "step.shap.completed"
     STEP_RAG_COMPLETED = "step.rag.completed"
     SAR_STARTED = "sar.started"
+    AGENT_STARTED = "agent.started"
+    AGENT_COMPLETED = "agent.completed"
+    AGENT_REVISION_REQUESTED = "agent.revision.requested"
     RUN_COMPLETED = "run.completed"
     RUN_FAILED = "run.failed"
 
