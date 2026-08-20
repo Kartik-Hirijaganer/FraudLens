@@ -312,6 +312,14 @@ class PortfolioDemoExecution(BaseModel):
     rag_embedding_mode: RagEmbeddingMode = Field(
         ..., description="RAG embedder mode the story is calibrated for."
     )
+    multi_agent_sar_enabled: bool = Field(
+        ..., description="Tenant runtime feature flag seeded for the demo agency."
+    )
+    mock_agent_revision_scenario: str = Field(
+        ...,
+        min_length=1,
+        description="Scenario id whose keyless mock agent team performs exactly one revision.",
+    )
 
 
 class PortfolioDemoConfig(BaseModel):
@@ -445,6 +453,15 @@ class PortfolioDemoConfig(BaseModel):
         for label, values in groups:
             if len(set(values)) != len(values):
                 raise ValueError(f"{label} must be unique")
+        return self
+
+    @model_validator(mode="after")
+    def _mock_revision_scenario_exists(self) -> PortfolioDemoConfig:
+        """Require the designated mock revision scenario to resolve to one authored case."""
+        if self.execution.mock_agent_revision_scenario not in {
+            scenario.scenario_id for scenario in self.scenarios
+        }:
+            raise ValueError("execution.mock_agent_revision_scenario must name a scenario")
         return self
 
     @model_validator(mode="after")
