@@ -67,6 +67,8 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             model_id=result.model_id,
             prompt_version=result.prompt_version,
             prompt_hash=result.prompt_hash,
+            workflow=result.workflow,
+            revision_count=result.revision_count,
             content=result.content,
             structured=structured,
             citations=[
@@ -103,6 +105,8 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             model_id=base.model_id,
             prompt_version=base.prompt_version,
             prompt_hash=base.prompt_hash,
+            workflow=base.workflow,
+            revision_count=base.revision_count,
             content=content,
             structured=base.structured,
             citations=base.citations,
