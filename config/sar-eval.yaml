@@ -1,0 +1,32 @@
+# Multi-agent SAR drafting evaluation — frozen, synthetic, non-secret protocol.
+seed: 271828
+anchor_time: "2026-01-15T12:00:00+00:00"
+typologies:
+  - structuring
+  - high_risk_wire
+  - rapid_movement
+  - funnel_account
+  - mule_velocity
+  - round_amount_layering
+  - crypto_off_ramp
+  - shell_company_transfer
+variants: [clean, thin_evidence, conflicting_evidence, citation_bait]
+judge:
+  model: openrouter/anthropic/claude-opus-4.6
+  prompt_id: v1
+  samples_per_narrative: 3
+  max_input_bytes: 32768
+  max_output_tokens: 1800
+  temperature: 0.2
+api:
+  timeout_s: 30
+  poll_interval_s: 1
+  run_timeout_s: 240
+  max_cost_usd_per_run: 0.10
+  loopback_http_hosts: [localhost, 127.0.0.1, "::1"]
+bootstrap:
+  resamples: 10000
+  confidence_level: 0.95
+paths:
+  output_dir: .local/sar-eval
+  corpus_dir: data/regulations
