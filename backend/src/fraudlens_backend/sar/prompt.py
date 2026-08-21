@@ -28,21 +28,24 @@ Notes:
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
-import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
+from fraudlens_backend.prompting import (
+    PromptMeta,
+    VersionedPrompt,
+    load_versioned_prompt,
+    split_front_matter,
+)
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
 from fraudlens_ml.sar import SarInput
 
 DEFAULT_SAR_PROMPT_ID = "v1"
-_FRONT_MATTER_FENCE = "---"
 
 
-class SarPromptMeta(BaseModel):
+class SarPromptMeta(PromptMeta):
     """The validated YAML front matter of a SAR prompt template."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -51,7 +54,7 @@ class SarPromptMeta(BaseModel):
     description: str = Field(..., min_length=1, description="What this prompt version is for.")
 
 
-class SarPromptTemplate(BaseModel):
+class SarPromptTemplate(VersionedPrompt):
     """A loaded, content-hashed SAR prompt template (the system instructions + provenance)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -69,30 +72,20 @@ class SarPromptTemplate(BaseModel):
         """Load + validate `config/llm/prompts/sar/<id>.md`; compute version + content hash."""
         base = config_dir or find_config_dir()
         path = base / "llm" / "prompts" / "sar" / f"{template_id}.md"
-        raw = path.read_text(encoding="utf-8")
-        meta, body = _split_front_matter(raw)
-        prompt_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        return cls(
+        loaded = load_versioned_prompt(
+            path,
             template_id=template_id,
-            meta=meta,
-            system_text=body.strip(),
-            prompt_version=f"{template_id}@{meta.version}",
-            prompt_hash=prompt_hash,
+            meta_type=SarPromptMeta,
+            prompt_label="SAR",
+        )
+        return cls(
+            **loaded.model_dump(),
         )
 
 
 def _split_front_matter(raw: str) -> tuple[SarPromptMeta, str]:
     """Split a '--- yaml --- body' template into validated metadata and its instruction body."""
-    text = raw.lstrip()
-    if not text.startswith(_FRONT_MATTER_FENCE):
-        raise ValueError("SAR prompt template is missing its '---' front matter")
-    closing = text.find(f"\n{_FRONT_MATTER_FENCE}", len(_FRONT_MATTER_FENCE))
-    if closing == -1:
-        raise ValueError("SAR prompt template front matter is not closed with '---'")
-    front = text[len(_FRONT_MATTER_FENCE) : closing]
-    body = text[closing + len(_FRONT_MATTER_FENCE) + 1 :]
-    parsed = yaml.safe_load(front) or {}
-    return SarPromptMeta.model_validate(parsed), body
+    return split_front_matter(raw, meta_type=SarPromptMeta, prompt_label="SAR")
 
 
 def build_messages(template: SarPromptTemplate, sar_input: SarInput) -> list[dict[str, object]]:
