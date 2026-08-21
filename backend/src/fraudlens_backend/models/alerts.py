@@ -43,6 +43,7 @@ from fraudlens_backend.db.models.enums import (
     Severity,
     TrainingLabelType,
 )
+from fraudlens_backend.models.agent_executions import AgentExecutionView
 from fraudlens_backend.models.common import CamelModel
 from fraudlens_backend.models.sar import SarDraftView
 
@@ -107,7 +108,7 @@ class AlertActionView(CamelModel):
 
 
 class AlertDetailResponse(CamelModel):
-    """An alert with its latest SAR draft and full append-only action history."""
+    """An alert with its SAR, run workflow trace, and append-only action history."""
 
     alert: AlertView = Field(..., description="The alert summary.")
     sar_draft: SarDraftView | None = Field(
@@ -115,6 +116,20 @@ class AlertDetailResponse(CamelModel):
     )
     actions: list[AlertActionView] = Field(
         default_factory=list, description="The alert's triage actions, newest first."
+    )
+    agent_executions: list[AgentExecutionView] = Field(
+        default_factory=list,
+        description="Agent execution trace, present even when multi-agent drafting failed.",
+    )
+    workflow_mode: str = Field(..., description="Resolved drafting workflow persisted on the run.")
+    graph_version: str | None = Field(
+        default=None, description="Agent graph version, or null for single-writer runs."
+    )
+    revision_count: int = Field(
+        default=0, ge=0, description="Number of revisions in the latest SAR draft."
+    )
+    sar_content: str | None = Field(
+        default=None, description="Latest persisted SAR content, if one exists."
     )
 
 

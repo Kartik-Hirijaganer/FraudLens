@@ -52,5 +52,7 @@ client_error_rate_limit_requests: 60
 storage_backend: local
 queue_backend: local
 llm_mode: mock
+multi_agent_sar_enabled: false
+multi_agent_config_file: llm/agents.yml
 rag_embedding_mode: offline
 investigation_rag_min_similarity: 0.2

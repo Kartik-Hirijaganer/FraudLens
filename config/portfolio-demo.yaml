@@ -97,6 +97,8 @@ model:
 execution:
   llm_mode: mock
   rag_embedding_mode: offline
+  multi_agent_sar_enabled: true
+  mock_agent_revision_scenario: ring-payout-hop-3
 
 # --- Case-pack partitioning -------------------------------------------------------------
 # The demo ingests into ONE tenant, so the anchor-selection cycle is a single partition. The
