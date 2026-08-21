@@ -2,8 +2,9 @@
 is the camelCase `CamelModel` projection of a persisted `sar_drafts` row, surfaced to the analyst
 UI through the alert-detail endpoint (built in Phase 9 — Phase 7 ships no standalone SAR route).
 It carries the masked narrative, the structured body + grounded citations, the model/prompt
-provenance (`modelId`, `promptVersion`, `promptHash`), and the cost/token audit fields (plan §7.4),
-plus the human-review `status`. It reuses the canonical `SarStatus` enum (no duplicated vocabulary,
+    provenance (`modelId`, `promptVersion`, `promptHash`, `workflow`, `revisionCount`), and the
+    cost/token audit fields (plan §7.4), plus the human-review `status`. It reuses the canonical
+    `SarStatus` enum (no duplicated vocabulary,
 rule 5) and is PHI-free: `content` is the masked narrative and the structured/citation blobs carry
 only PHI-free fields.
 
@@ -57,6 +58,10 @@ class SarDraftView(CamelModel):
     model_id: str = Field(..., description="Model reference that produced the draft (or 'mock').")
     prompt_version: str = Field(..., description="SAR prompt template version id used.")
     prompt_hash: str = Field(..., description="Hash of the exact prompt template used.")
+    workflow: str = Field(..., description="Drafting workflow that produced this artifact.")
+    revision_count: int = Field(
+        ..., ge=0, description="Number of agent-writer revisions completed for this artifact."
+    )
     token_usage: dict[str, Any] = Field(
         default_factory=dict, description="Token usage recorded for the call (cost/audit trail)."
     )
