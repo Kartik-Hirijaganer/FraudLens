@@ -14,6 +14,7 @@ cors_allow_credentials: true
 storage_backend: azure_blob
 queue_backend: container_apps_jobs
 llm_mode: live
+multi_agent_sar_enabled: false
 
 # Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,
 # job names, storage account, managed-identity client id) are injected by Terraform as env vars.
