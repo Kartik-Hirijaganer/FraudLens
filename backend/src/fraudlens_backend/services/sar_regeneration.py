@@ -74,6 +74,8 @@ def sar_draft_to_view(draft: SarDraft) -> SarDraftView:
         model_id=draft.model_id,
         prompt_version=draft.prompt_version,
         prompt_hash=draft.prompt_hash,
+        workflow=draft.workflow,
+        revision_count=draft.revision_count,
         token_usage=dict(draft.token_usage or {}),
         cost_usd=draft.cost_usd,
         created_at=draft.created_at,
