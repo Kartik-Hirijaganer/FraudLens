@@ -213,6 +213,11 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             http_status=429,
             message="Too many requests; slow down and retry shortly.",
         ),
+        ErrorSpec(
+            code="llm_budget_exceeded",
+            http_status=429,
+            message="The tenant LLM budget cannot accommodate this investigation.",
+        ),
         # --- Admin runtime/dev utilities. Dev routes are production-disabled by design. ---
         ErrorSpec(
             code="dev_utility_disabled",
