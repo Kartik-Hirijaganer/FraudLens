@@ -14,7 +14,8 @@ Key classes:
 
 Key functions:
 - ground_citations: keep only the claimed citation ids that were actually provided (drop the rest).
-- parse_and_ground: parse + validate model JSON into a grounded SarDraftContent + its citations.
+- parse_content: parse + validate model JSON into an ungrounded SarDraftContent.
+- parse_and_ground: compose parsing and grounding into a SarDraftContent + its citations.
 - render_markdown: render a validated SAR body into PHI-masked, human-readable markdown.
 
 Notes:
@@ -58,15 +59,20 @@ def ground_citations(
     return tuple(grounded_ids), tuple(grounded)
 
 
+def parse_content(raw_text: str) -> SarDraftContent:
+    """Parse + validate model JSON into an ungrounded SarDraftContent."""
+    payload = _strip_code_fence(raw_text)
+    try:
+        return SarDraftContent.model_validate_json(payload)
+    except ValidationError as exc:
+        raise SarSchemaError("model output is not a valid SAR draft") from exc
+
+
 def parse_and_ground(
     raw_text: str, available: Sequence[SarCitation]
 ) -> tuple[SarDraftContent, tuple[SarCitation, ...]]:
     """Parse + validate model JSON into a SarDraftContent grounded against the citations."""
-    payload = _strip_code_fence(raw_text)
-    try:
-        content = SarDraftContent.model_validate_json(payload)
-    except ValidationError as exc:
-        raise SarSchemaError("model output is not a valid SAR draft") from exc
+    content = parse_content(raw_text)
     grounded_ids, grounded = ground_citations(content.cited_regulations, available)
     return content.model_copy(update={"cited_regulations": grounded_ids}), grounded
 
