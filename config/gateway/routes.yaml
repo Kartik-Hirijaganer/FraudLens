@@ -12,6 +12,8 @@ routes:
     service: investigation
     required_role: analyst
     rate_limit_per_minute: 60
+    # POST workflowMode is a body-level evaluation override. The API additionally requires the
+    # admin-only run_evaluation permission; keeping one path row avoids a prefix-policy bypass.
   - path_prefix: /api/v1/alerts
     service: alerts
     required_role: analyst
