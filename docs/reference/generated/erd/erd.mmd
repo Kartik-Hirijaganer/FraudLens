@@ -6,6 +6,28 @@ erDiagram
         string name
         string slug
     }
+    agent_executions {
+        uuid id PK
+        uuid agency_id FK
+        enum agent
+        integer attempt
+        numeric cost_usd
+        string error_code
+        string input_hash
+        integer input_tokens
+        integer latency_ms
+        integer model_call_count
+        string model_id
+        integer output_tokens
+        string prompt_hash
+        string prompt_version
+        json result
+        string result_hash
+        uuid run_id FK
+        enum status
+        json tool_calls
+        integer total_tokens
+    }
     alert_actions {
         uuid id PK
         enum action
@@ -72,6 +94,8 @@ erDiagram
         uuid agency_id FK
         datetime created_at
         string error_code
+        string graph_version
+        string idempotency_key
         string model_version
         string prompt_version
         string rag_version
@@ -82,6 +106,7 @@ erDiagram
         uuid transaction_id FK
         uuid triggered_by FK
         datetime updated_at
+        string workflow_mode
     }
     audit_logs {
         uuid id PK
@@ -191,12 +216,14 @@ erDiagram
         string prompt_hash
         string prompt_version
         uuid reviewed_by FK
+        integer revision_count
         uuid run_id FK
         enum status
         json structured
         json token_usage
         datetime updated_at
         integer version
+        string workflow
     }
     system_config {
         uuid id PK
@@ -253,6 +280,7 @@ erDiagram
         enum role
         datetime updated_at
     }
+    agencies ||--o{ agent_executions : "agency_id"
     agencies ||--o{ alert_actions : "agency_id"
     agencies ||--o{ alerts : "agency_id"
     agencies ||--o{ aml_rules : "agency_id"
@@ -270,6 +298,7 @@ erDiagram
     agencies ||--o{ users : "agency_id"
     alerts ||--o{ alert_actions : "alert_id"
     alerts ||--o{ sar_drafts : "alert_id"
+    analysis_runs ||--o{ agent_executions : "run_id"
     analysis_runs ||--o{ alerts : "run_id"
     analysis_runs ||--o{ analysis_results : "run_id"
     analysis_runs ||--o{ analysis_run_events : "run_id"

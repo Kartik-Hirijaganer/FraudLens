@@ -29,6 +29,152 @@
         "title": "AgencyResponse",
         "type": "object"
       },
+      "AgentExecutionView": {
+        "additionalProperties": false,
+        "description": "One normalized, PHI-masked agent execution attempt.",
+        "properties": {
+          "agent": {
+            "description": "Configured agent role.",
+            "title": "Agent",
+            "type": "string"
+          },
+          "agentRunId": {
+            "description": "Stable identity for this role attempt.",
+            "title": "Agentrunid",
+            "type": "string"
+          },
+          "attempt": {
+            "description": "One-based role attempt.",
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "costUsd": {
+            "description": "Exact USD cost as a NUMERIC string.",
+            "title": "Costusd",
+            "type": "string"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable failure/degradation code.",
+            "title": "Errorcode"
+          },
+          "inputHash": {
+            "description": "Hash of the canonical agent input.",
+            "title": "Inputhash",
+            "type": "string"
+          },
+          "inputTokens": {
+            "description": "Provider input tokens.",
+            "minimum": 0.0,
+            "title": "Inputtokens",
+            "type": "integer"
+          },
+          "latencyMs": {
+            "description": "Wall-clock execution duration.",
+            "minimum": 0.0,
+            "title": "Latencyms",
+            "type": "integer"
+          },
+          "modelCallCount": {
+            "description": "Successful provider generations completed in this attempt.",
+            "minimum": 0.0,
+            "title": "Modelcallcount",
+            "type": "integer"
+          },
+          "modelId": {
+            "description": "Catalog model reference that served this attempt.",
+            "title": "Modelid",
+            "type": "string"
+          },
+          "outputTokens": {
+            "description": "Provider output tokens.",
+            "minimum": 0.0,
+            "title": "Outputtokens",
+            "type": "integer"
+          },
+          "promptHash": {
+            "description": "Hash of the exact prompt template.",
+            "title": "Prompthash",
+            "type": "string"
+          },
+          "promptVersion": {
+            "description": "Versioned prompt identifier.",
+            "title": "Promptversion",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Validated, PHI-masked structured result.",
+            "title": "Result"
+          },
+          "resultHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hash of the structured result.",
+            "title": "Resulthash"
+          },
+          "status": {
+            "description": "Completed, degraded, or failed outcome.",
+            "title": "Status",
+            "type": "string"
+          },
+          "toolCalls": {
+            "description": "Ordered, PHI-masked tool invocation records.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Toolcalls",
+            "type": "array"
+          },
+          "totalTokens": {
+            "description": "Provider total tokens.",
+            "minimum": 0.0,
+            "title": "Totaltokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agentRunId",
+          "agent",
+          "attempt",
+          "status",
+          "modelId",
+          "promptVersion",
+          "promptHash",
+          "inputHash",
+          "latencyMs",
+          "modelCallCount",
+          "inputTokens",
+          "outputTokens",
+          "totalTokens",
+          "costUsd"
+        ],
+        "title": "AgentExecutionView",
+        "type": "object"
+      },
       "AlertActionRequest": {
         "additionalProperties": false,
         "description": "The POST /alerts/{id}/actions body; conditional fields validated up front (plan \u00a75.4).",
@@ -165,7 +311,7 @@
       },
       "AlertDetailResponse": {
         "additionalProperties": false,
-        "description": "An alert with its latest SAR draft and full append-only action history.",
+        "description": "An alert with its SAR, run workflow trace, and append-only action history.",
         "properties": {
           "actions": {
             "description": "The alert's triage actions, newest first.",
@@ -175,9 +321,48 @@
             "title": "Actions",
             "type": "array"
           },
+          "agentExecutions": {
+            "description": "Agent execution trace, present even when multi-agent drafting failed.",
+            "items": {
+              "$ref": "#/components/schemas/AgentExecutionView"
+            },
+            "title": "Agentexecutions",
+            "type": "array"
+          },
           "alert": {
             "$ref": "#/components/schemas/AlertView",
             "description": "The alert summary."
+          },
+          "graphVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Agent graph version, or null for single-writer runs.",
+            "title": "Graphversion"
+          },
+          "revisionCount": {
+            "default": 0,
+            "description": "Number of revisions in the latest SAR draft.",
+            "minimum": 0.0,
+            "title": "Revisioncount",
+            "type": "integer"
+          },
+          "sarContent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest persisted SAR content, if one exists.",
+            "title": "Sarcontent"
           },
           "sarDraft": {
             "anyOf": [
@@ -189,10 +374,16 @@
               }
             ],
             "description": "The latest SAR draft for the alert's run, if one exists."
+          },
+          "workflowMode": {
+            "description": "Resolved drafting workflow persisted on the run.",
+            "title": "Workflowmode",
+            "type": "string"
           }
         },
         "required": [
-          "alert"
+          "alert",
+          "workflowMode"
         ],
         "title": "AlertDetailResponse",
         "type": "object"
@@ -1107,6 +1298,14 @@
         "additionalProperties": false,
         "description": "The authoritative investigation snapshot the SSE observer reconciles against.",
         "properties": {
+          "agentExecutions": {
+            "description": "Persisted agent execution trace in workflow order.",
+            "items": {
+              "$ref": "#/components/schemas/AgentExecutionView"
+            },
+            "title": "Agentexecutions",
+            "type": "array"
+          },
           "alertId": {
             "anyOf": [
               {
@@ -1158,6 +1357,18 @@
             "description": "Calibrated model probability (from the result snapshot).",
             "title": "Fraudprobability"
           },
+          "graphVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Agent graph version, or null for single-writer runs.",
+            "title": "Graphversion"
+          },
           "modelVersion": {
             "anyOf": [
               {
@@ -1193,6 +1404,21 @@
             ],
             "description": "Version of the regulatory corpus this run cited.",
             "title": "Ragversion"
+          },
+          "retrievedRegulations": {
+            "description": "Exact PHI-free persisted RAG chunks supplied to the drafting workflow.",
+            "items": {
+              "$ref": "#/components/schemas/RetrievedRegulationView"
+            },
+            "title": "Retrievedregulations",
+            "type": "array"
+          },
+          "revisionCount": {
+            "default": 0,
+            "description": "Number of agent writer revisions in the latest draft.",
+            "minimum": 0.0,
+            "title": "Revisioncount",
+            "type": "integer"
           },
           "riskBand": {
             "anyOf": [
@@ -1244,6 +1470,18 @@
             "title": "Runid",
             "type": "string"
           },
+          "sarContent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Persisted SAR narrative used to restore completed investigations.",
+            "title": "Sarcontent"
+          },
           "sarDraftId": {
             "anyOf": [
               {
@@ -1292,12 +1530,18 @@
             "format": "date-time",
             "title": "Updatedat",
             "type": "string"
+          },
+          "workflowMode": {
+            "description": "Resolved drafting workflow persisted on the run.",
+            "title": "Workflowmode",
+            "type": "string"
           }
         },
         "required": [
           "runId",
           "transactionId",
           "status",
+          "workflowMode",
           "createdAt",
           "updatedAt"
         ],
@@ -1325,6 +1569,22 @@
             "format": "uuid",
             "title": "Transactionid",
             "type": "string"
+          },
+          "workflowMode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "single_writer",
+                  "multi_agent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Admin/evaluation-only explicit workflow selection; absent uses feature flags.",
+            "title": "Workflowmode"
           }
         },
         "required": [
@@ -1367,6 +1627,14 @@
         "additionalProperties": false,
         "description": "Tenant SAR LLM spend for the cost dashboard (plan \u00a77.6, \u00a711.5).",
         "properties": {
+          "agentCostUsd": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "All-time USD spend split by stable agent role (string NUMERIC values).",
+            "title": "Agentcostusd",
+            "type": "object"
+          },
           "draftCount": {
             "description": "SAR drafts that incurred (or attempted) spend.",
             "minimum": 0.0,
@@ -1710,6 +1978,64 @@
           "checks"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RetrievedRegulationView": {
+        "additionalProperties": false,
+        "description": "One exact PHI-free regulatory chunk persisted as drafting input for the run.",
+        "properties": {
+          "chunkId": {
+            "description": "Stable corpus chunk identifier.",
+            "minLength": 1,
+            "title": "Chunkid",
+            "type": "string"
+          },
+          "citation": {
+            "description": "Exact regulatory citation.",
+            "minLength": 1,
+            "title": "Citation",
+            "type": "string"
+          },
+          "docId": {
+            "description": "Stable source document identifier.",
+            "minLength": 1,
+            "title": "Docid",
+            "type": "string"
+          },
+          "score": {
+            "description": "Persisted finite retrieval relevance score.",
+            "title": "Score",
+            "type": "number"
+          },
+          "source": {
+            "description": "Publisher of the provision.",
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "description": "Exact retrieved regulatory reference text.",
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the source provision.",
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunkId",
+          "docId",
+          "citation",
+          "title",
+          "source",
+          "text",
+          "score"
+        ],
+        "title": "RetrievedRegulationView",
         "type": "object"
       },
       "RiskBand": {
@@ -2108,6 +2434,12 @@
             "title": "Promptversion",
             "type": "string"
           },
+          "revisionCount": {
+            "description": "Number of agent-writer revisions completed for this artifact.",
+            "minimum": 0.0,
+            "title": "Revisioncount",
+            "type": "integer"
+          },
           "runId": {
             "description": "The analysis run that produced the draft.",
             "title": "Runid",
@@ -2139,6 +2471,11 @@
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "workflow": {
+            "description": "Drafting workflow that produced this artifact.",
+            "title": "Workflow",
+            "type": "string"
           }
         },
         "required": [
@@ -2150,6 +2487,8 @@
           "modelId",
           "promptVersion",
           "promptHash",
+          "workflow",
+          "revisionCount",
           "costUsd",
           "createdAt"
         ],
@@ -4623,7 +4962,7 @@
     },
     "/readyz": {
       "get": {
-        "description": "Readiness probe \u2014 200 when every dependency check is non-'down', else 503.",
+        "description": "Readiness probe; live LLM profiles require every dependency to report `ok`.",
         "operationId": "readyz_readyz_get",
         "responses": {
           "200": {
