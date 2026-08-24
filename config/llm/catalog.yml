@@ -297,7 +297,7 @@ openrouter:
     reasoning_capable: false
     intelligence: low
     source_url: https://openrouter.ai/openai/text-embedding-3-small
-    verified_at: 2026-07-12
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -312,9 +312,30 @@ openrouter:
     output_price_per_million: 0.40
     speed: fast
     reasoning_capable: false
+    tool_calling: true
+    structured_output: true
     intelligence: medium
     source_url: https://openrouter.ai/google/gemini-2.0-flash-001/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
+    lifecycle: retired
+    callable: false
+    pricing_basis: per_million_tokens
+
+  google/gemini-2.5-flash:
+    kind: chat
+    context_window: 1048576
+    max_token_output: 65535
+    modality: [text, vision]
+    default_params: { temperature: 0.05, max_tokens: 4096 }
+    input_price_per_million: 0.30
+    output_price_per_million: 2.50
+    speed: fast
+    reasoning_capable: true
+    tool_calling: true
+    structured_output: true
+    intelligence: medium
+    source_url: https://openrouter.ai/google/gemini-2.5-flash/api
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -330,9 +351,11 @@ openrouter:
     output_price_per_million: 2.00
     speed: fast
     reasoning_capable: true
+    tool_calling: true
+    structured_output: true
     intelligence: medium
     source_url: https://openrouter.ai/openai/gpt-5-mini/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -348,9 +371,10 @@ openrouter:
     output_price_per_million: 25.00
     speed: medium
     reasoning_capable: true
+    structured_output: true
     intelligence: high
     source_url: https://openrouter.ai/anthropic/claude-opus-4.6/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -366,9 +390,11 @@ openrouter:
     output_price_per_million: 15.00
     speed: medium
     reasoning_capable: true
+    tool_calling: true
+    structured_output: true
     intelligence: high
     source_url: https://openrouter.ai/anthropic/claude-sonnet-4.6/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -384,9 +410,29 @@ openrouter:
     output_price_per_million: 0.50
     speed: very_fast
     reasoning_capable: true
+    tool_calling: true
+    structured_output: true
     intelligence: medium
     source_url: https://openrouter.ai/x-ai/grok-4.1-fast/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
+    lifecycle: retired
+    callable: false
+    pricing_basis: per_million_tokens
+
+  x-ai/grok-4.3:
+    kind: chat
+    context_window: 1000000
+    modality: [text, vision]
+    default_params: { temperature: 0.05, max_tokens: 2048 }
+    input_price_per_million: 1.25
+    output_price_per_million: 2.50
+    speed: medium
+    reasoning_capable: true
+    tool_calling: true
+    structured_output: true
+    intelligence: medium
+    source_url: https://openrouter.ai/x-ai/grok-4.3/api
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -402,7 +448,7 @@ openrouter:
     reasoning_capable: true
     intelligence: medium
     source_url: https://openrouter.ai/deepseek/deepseek-v3.2/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
@@ -420,7 +466,7 @@ openrouter:
     reasoning_capable: true
     intelligence: high
     source_url: https://openrouter.ai/qwen/qwen3.5-plus-02-15/api
-    verified_at: 2026-06-10
+    verified_at: 2026-08-17
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
