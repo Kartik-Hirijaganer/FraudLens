@@ -16,3 +16,4 @@ cors_allow_credentials: true
 storage_backend: local
 queue_backend: local
 llm_mode: mock
+multi_agent_sar_enabled: true
