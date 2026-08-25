@@ -64,14 +64,17 @@ describe("App gate", () => {
     expect(workspace).not.toBeInTheDocument();
   });
 
-  it("keeps the research route behind the session gate", () => {
-    goTo("#/research/graph-typologies");
-    render(<App />);
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
-  });
+  it.each(["#/research/graph-typologies", "#/research/multi-agent-sar"])(
+    "keeps the research route %s behind the session gate",
+    (route) => {
+      goTo(route);
+      render(<App />);
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Sign in to your account" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
+    },
+  );
 });
 
 describe("App shell", () => {
@@ -148,6 +151,9 @@ describe("App shell", () => {
     render(<App />);
     const workspace = screen.getByRole("navigation", { name: "Workspace" });
     expect(within(workspace).getByRole("link", { name: "Graph typologies" })).toBeInTheDocument();
+    expect(
+      within(workspace).getByRole("link", { name: "Multi-agent SAR study" }),
+    ).toBeInTheDocument();
   });
 
   it("lazy-loads the research page from the committed study data", async () => {
@@ -159,5 +165,18 @@ describe("App shell", () => {
         name: "Graph typologies & tenant isolation",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("lazy-loads the multi-agent SAR study from its committed artifact", async () => {
+    render(<App />);
+    goTo("#/research/multi-agent-sar");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Multi-agent SAR drafting study" }),
+    ).toBeInTheDocument();
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(workspace).getByRole("link", { name: "Multi-agent SAR study" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 });

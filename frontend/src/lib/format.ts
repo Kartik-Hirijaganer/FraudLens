@@ -13,6 +13,7 @@
  * - formatCurrency: render an amount + ISO-4217 currency as a localized money string.
  * - formatPercent: render a 0..1 fraction as a percentage (e.g. 0.873 -> "87.3%").
  * - formatDateTime: render an ISO timestamp as a short localized date-time.
+ * - formatDurationMs: render milliseconds as a compact human duration.
  * - formatAge: render an ISO timestamp as a compact relative age.
  * - formatAgo: render an ISO timestamp as a consistent "N{m,h,d} ago" phrase.
  * - formatAlertRef: render an alert id as a short human reference (e.g. "AL-4E18").
@@ -85,6 +86,22 @@ export function formatDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+export function formatDurationMs(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return PLACEHOLDER;
+  }
+  if (milliseconds < 1_000) {
+    return `${Math.round(milliseconds)} ms`;
+  }
+  const seconds = milliseconds / 1_000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  }
+  const wholeMinutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${wholeMinutes}m ${remainingSeconds}s`;
 }
 
 export function formatAge(iso: string, now: Date = new Date()): string {

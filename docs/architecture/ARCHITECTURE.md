@@ -17,7 +17,7 @@ generated regions below stay synchronized with the codebase.
 |---|---|---|
 | Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
 | Regulatory RAG | FinCEN/BSA chunks are stored in ChromaDB. The deterministic 256-dimensional `HashingEmbedder` remains the keyless default; `make ingest-rag-live` and `make run-live` opt into 1536-dimensional OpenRouter `text-embedding-3-small`. | Expand the curated regulatory corpus and authoritative source metadata without changing the embedding/index contract. |
-| SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode can call the guarded provider adapter, but waits for the complete response and then re-chunks validated text for SSE. | Phase 8 proves the live OpenRouter path and consumes native provider token streams while preserving grounding and output-guardrail gates. |
+| SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode retains the single writer and adds a bounded four-agent implementation behind process and tenant flags; production defaults to the single writer. Both use the injected `SarDrafter` seam and the existing human review gate. | Publication requires a committed synthetic evaluation that compares both live arms through the real API; enable the agent path by default only when its measured quality benefit justifies the additional cost and latency ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)). |
 
 The diagrams below show the full system shape. Where a diagram names an LLM provider or semantic
 RAG flow, treat it as the opt-in/target path described above, not the keyless local default.
@@ -181,27 +181,33 @@ override is set.
 ### SAR drafting & prompt versioning
 
 SAR drafting reaches `fraudlens-ml` only through the injected `SarDrafter` protocol
-(`fraudlens_ml.sar`), so ml never imports `fraudlens-llm`. The backend supplies the concrete
-drafter, selected by `FRAUDLENS_LLM_MODE`: a deterministic, keyless **mock** (the `make
-local-demo` default — no provider, no cost) or a **live** drafter over `LlmClient`. Both consume
-a PHI-free `SarInput` (risk band, model probability, the rule hits that fired, the top SHAP
-drivers, and the grounded regulatory citations) and emit token events followed by one terminal
-result. In the current live path the provider response is received and validated in full before
-the narrative is re-chunked into SSE deltas; native provider streaming is a Phase 8 target.
+(`fraudlens_ml.sar`), so ml never imports `fraudlens-llm`. The backend supplies three concrete
+implementations: a deterministic, keyless **mock** (the `make local-demo` default — no provider,
+no cost), the guarded **live single writer**, and a **bounded live four-agent** drafter selected only
+when both the process setting and tenant-scoped runtime flag permit it. All consume a PHI-free
+`SarInput` and return the same terminal contract, so draft persistence, SSE, review, approval, and
+PDF generation do not fork into parallel workflows.
+
+The agent graph is deterministic: Evidence Investigator and Regulatory Analyst run in parallel,
+SAR Writer synthesizes their typed outputs, and Compliance Reviewer may request at most one
+revision. Only the evidence and regulatory roles receive named, read-only, tenant-scoped tools;
+Writer and Reviewer receive none. Code owns topology, tool capability, timeouts, output/tool-call
+limits, and the preflight cost cap. Tenant-scoped execution attempts persist for audit and
+restart-safe replay. The graph stops at `draft`; only the existing authenticated human endpoint can
+approve a SAR or transition its alert. [ADR-019](adr/ADR-019-multi-agent-sar-drafting.md) records
+these non-negotiable bounds and the synthetic-only evaluation protocol.
 
 Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML front-matter
 semantic version + a static instruction body). Every draft records the template's
 `prompt_version` (`<id>@<semver>`) and a `prompt_hash` (SHA-256 of the exact template bytes) on
 `sar_drafts`, so which prompt produced which SAR is auditable and any template edit is detectable.
-The model output is parsed into a strict structured schema and **grounded** — only regulation ids
-present in the supplied citations survive, so a fabricated id can never reach the persisted SAR.
-The masked narrative, structured body, grounded citations, token usage, and estimated USD cost are
-persisted for the audit trail. A per-session/per-day USD **budget guard** caps spend (429 on
-exceed), a replay **cache** returns an identical prior draft with no new spend, and SAR model/
-fallback selection is config-driven (`config/llm/sar.yml`, no hardcoded model ids). PHI is masked
-before the prompt is assembled; any provider/guardrail/schema failure on an alerted run degrades to
-`sarStatus=failed` so the run still completes with score + SHAP + RAG. Below-threshold runs never
-invoke RAG or SAR drafting.
+The model output is parsed into a strict structured schema. On the agent path, deterministic claim
+and citation-set checks run before the reviewer, then citation grounding drops any id absent from the
+supplied corpus only after review. The masked narrative, structured body, grounded citations, token
+usage, estimated USD cost, served model, workflow mode, and agent attempt provenance persist for the
+audit trail. Provider, guardrail, or agent-path failures either use the configured **live**
+single-writer fallback or record a failed SAR while preserving score + SHAP + RAG; live mode never
+silently substitutes the mock. Below-threshold runs never invoke RAG or SAR drafting.
 
 ## FraudLens governance mapping
 
@@ -214,10 +220,11 @@ invoke RAG or SAR drafting.
 | Secrets via Infisical, never repo | `config/*.yaml` (non-secret only); `gitleaks` + `scripts/check_no_secrets.py` |
 | Generated docs stay in sync | `make docs` / `make docs-check` (this file's AUTOGEN regions, OpenAPI, ERD) |
 | Graph-feature serving boundary: no cross-tenant graph topology in live scoring ([ADR-017](adr/ADR-017-graph-feature-serving-boundary.md)) | Offline-only `scripts/lib/gfp/` (never a runtime package); `snapml` confined to the benchmark-only `gfp` dependency group; served vector stays the 19 `FEATURE_NAMES`; identifier-free `RuleContext` |
+| Bounded multi-agent SAR drafting preserves human authority ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)) | Fixed four-role graph; read-only tenant-scoped tools with context-supplied `agency_id`; deterministic support checks; one revision maximum; preflight cost cap; human-only approval and alert transitions |
 
-Decision records: ADR-001…016 live in
-[master plan §22](../../plans/2026-06-12-aml-fraud-detection-system.md#22-decision-records-adrs);
-newer standalone ADRs are indexed in [`adr/README.md`](adr/README.md).
+Decision records are indexed in [`adr/README.md`](adr/README.md). That index retains the historical
+summaries for ADR-001…016 after their retired source plan was removed; ADR-017 and later have
+standalone canonical records.
 
 ## Module map
 
@@ -341,6 +348,8 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `local_job_execute_on_submit` | `bool` | `False` | When true, the local job backend executes known job commands synchronously after submission. Enabled by local-demo for browser UAT; off in hermetic tests. |
 | `local_retrain_command` | `list` | `['uv', 'run', 'python', 'scripts/retrain.py']` | Command the local job backend runs for a retrain submission. |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
+| `multi_agent_sar_enabled` | `bool` | `False` | Process-level gate for bounded multi-agent SAR drafting; the feature is active only when the tenant-scoped system_config flag is also enabled. |
+| `multi_agent_config_file` | `str` | `'llm/agents.yml'` | Multi-agent configuration filename resolved below the config directory; absolute paths and upward traversal are rejected by the loader. |
 | `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
 | `allow_candidate_scoring_in_dev` | `bool` | `False` | Allow scoring with the newest candidate when no deployment exists; honored only outside production for explicit live-local model evaluation. |
 | `aml_data_dir` | `str` | `'.local/aml_data'` | Root dir for downloaded real AML training datasets (e.g. IBM AML-Data); relative paths anchor to the repo root like model_artifacts_dir. Gitignored and training-time only — raw data is never committed or served (real-AML plan Phase 1). |
@@ -380,7 +389,6 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
 | `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
 | `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
-| `investigation_idempotency_cache_size` | `int` | `1024` | Max retained Idempotency-Key→runId entries in the in-process run manager (LRU-bounded; the single-replica dedupe window, ADR-016). |
 | `batch_score_limit` | `int` | `2000` | Max un-investigated transactions one batch-score sweep investigates (covers the whole demo case pack; a cloud Job can raise it per run). |
 | `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
 | `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
@@ -401,6 +409,28 @@ erDiagram
         datetime created_at
         string name
         string slug
+    }
+    agent_executions {
+        uuid id PK
+        uuid agency_id FK
+        enum agent
+        integer attempt
+        numeric cost_usd
+        string error_code
+        string input_hash
+        integer input_tokens
+        integer latency_ms
+        integer model_call_count
+        string model_id
+        integer output_tokens
+        string prompt_hash
+        string prompt_version
+        json result
+        string result_hash
+        uuid run_id FK
+        enum status
+        json tool_calls
+        integer total_tokens
     }
     alert_actions {
         uuid id PK
@@ -468,6 +498,8 @@ erDiagram
         uuid agency_id FK
         datetime created_at
         string error_code
+        string graph_version
+        string idempotency_key
         string model_version
         string prompt_version
         string rag_version
@@ -478,6 +510,7 @@ erDiagram
         uuid transaction_id FK
         uuid triggered_by FK
         datetime updated_at
+        string workflow_mode
     }
     audit_logs {
         uuid id PK
@@ -587,12 +620,14 @@ erDiagram
         string prompt_hash
         string prompt_version
         uuid reviewed_by FK
+        integer revision_count
         uuid run_id FK
         enum status
         json structured
         json token_usage
         datetime updated_at
         integer version
+        string workflow
     }
     system_config {
         uuid id PK
@@ -649,6 +684,7 @@ erDiagram
         enum role
         datetime updated_at
     }
+    agencies ||--o{ agent_executions : "agency_id"
     agencies ||--o{ alert_actions : "agency_id"
     agencies ||--o{ alerts : "agency_id"
     agencies ||--o{ aml_rules : "agency_id"
@@ -666,6 +702,7 @@ erDiagram
     agencies ||--o{ users : "agency_id"
     alerts ||--o{ alert_actions : "alert_id"
     alerts ||--o{ sar_drafts : "alert_id"
+    analysis_runs ||--o{ agent_executions : "run_id"
     analysis_runs ||--o{ alerts : "run_id"
     analysis_runs ||--o{ analysis_results : "run_id"
     analysis_runs ||--o{ analysis_run_events : "run_id"
