@@ -11,6 +11,8 @@
  *
  * Key functions:
  * - riskTone: map a band/severity string onto a semantic StatusTone.
+ * - agentTone: map an agent lifecycle status onto a semantic StatusTone.
+ * - agentGlyph: provide a non-colour status mark for an agent lifecycle status.
  * - severityRank: return a sortable severity rank for risk-first ordering.
  * - severityCounts: tally a list of severities into high/medium/low buckets.
  * - toneDotClass: map a StatusTone onto its indicator-dot background class.
@@ -24,6 +26,8 @@
  * - `severityCounts` folds `critical` into the `high` bucket (dashboard triage groups the
  *   two most-urgent bands together) and ignores anything else.
  */
+import type { AgentTimelineStatus } from "./investigation";
+
 export type StatusTone = "positive" | "warning" | "negative" | "neutral";
 
 interface SeverityCounts {
@@ -48,6 +52,40 @@ const SEVERITY_RANKS: Record<string, number> = {
 
 export function riskTone(value: string): StatusTone {
   return BAND_TONES[value.toLowerCase()] ?? "neutral";
+}
+
+export function agentTone(status: AgentTimelineStatus): StatusTone {
+  switch (status) {
+    case "completed":
+      return "positive";
+    case "degraded":
+      return "warning";
+    case "failed":
+      return "negative";
+    default:
+      return "neutral";
+  }
+}
+
+export function agentGlyph(status: AgentTimelineStatus): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "degraded":
+      return "!";
+    case "failed":
+      return "×";
+    case "revision_requested":
+      return "↻";
+    case "running":
+      return "…";
+    case "skipped":
+      return "–";
+    case "awaiting":
+      return "○";
+    default:
+      return "·";
+  }
 }
 
 export function severityRank(value: string | null | undefined): number {
