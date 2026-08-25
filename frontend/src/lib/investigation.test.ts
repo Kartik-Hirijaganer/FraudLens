@@ -6,10 +6,13 @@ import {
   NO_ALERT_CASE_STEPS,
   caseStepReady,
   initialInvestigationState,
+  investigationStateFromSnapshot,
+  investigationTimeline,
   reduceInvestigation,
   type InvestigationState,
 } from "./investigation";
 import type { SseMessage } from "./sse";
+import { agentRun, snapshot } from "../test/factories";
 
 function msg(type: string, data: unknown, lastEventId = ""): SseMessage {
   return { type, data, lastEventId };
@@ -20,9 +23,17 @@ function fold(messages: SseMessage[]): InvestigationState {
 }
 
 describe("investigation constants", () => {
-  it("subscribes to all nine stream events and five wizard steps", () => {
+  it("subscribes to all pipeline and agent stream events and five wizard steps", () => {
     expect(INVESTIGATION_EVENTS).toContain("sar.token");
-    expect(INVESTIGATION_EVENTS).toHaveLength(9);
+    expect(INVESTIGATION_EVENTS).toEqual(
+      expect.arrayContaining([
+        "agent.started",
+        "agent.tool.completed",
+        "agent.completed",
+        "agent.revision.requested",
+      ]),
+    );
+    expect(INVESTIGATION_EVENTS).toHaveLength(13);
     expect(CASE_STEPS.map((step) => step.key)).toEqual([
       "risk",
       "drivers",
@@ -185,5 +196,129 @@ describe("reduceInvestigation", () => {
     expect(state.completedSteps).toEqual(["rules", "scoring"]);
     expect(state.fraudProbability).toBeUndefined();
     expect(state.modelVersion).toBeUndefined();
+  });
+
+  it("handles every agent event and keys revision attempts by agentRunId", () => {
+    const state = fold([
+      msg("agent.started", {
+        agentRunId: "writer-1",
+        agent: "sar_writer",
+        attempt: 1,
+        status: "started",
+      }),
+      msg("agent.tool.completed", {
+        agentRunId: "writer-1",
+        agent: "sar_writer",
+        attempt: 1,
+        status: "completed",
+        toolName: "rule_hits",
+      }),
+      msg("agent.completed", {
+        agentRunId: "writer-1",
+        agent: "sar_writer",
+        attempt: 1,
+        status: "degraded",
+        errorCode: "provider_timeout",
+      }),
+      msg("agent.revision.requested", {
+        agentRunId: "writer-2",
+        agent: "sar_writer",
+        attempt: 2,
+        status: "revision_requested",
+      }),
+      msg("agent.started", {
+        agentRunId: "writer-2",
+        agent: "sar_writer",
+        attempt: 2,
+        status: "started",
+      }),
+      msg("agent.completed", {
+        agentRunId: "writer-2",
+        agent: "sar_writer",
+        attempt: 2,
+        status: "completed",
+      }),
+    ]);
+
+    expect(state.workflowMode).toBe("multi_agent");
+    expect(state.revisionCount).toBe(1);
+    expect(state.agentRuns).toHaveLength(2);
+    expect(state.agentRuns[0]).toMatchObject({
+      agentRunId: "writer-1",
+      status: "degraded",
+      toolCalls: [{ name: "rule_hits", status: "completed" }],
+    });
+    expect(state.agentRuns[1]).toMatchObject({
+      agentRunId: "writer-2",
+      attempt: 2,
+      status: "completed",
+      revisionRequested: true,
+    });
+  });
+
+  it("builds the same timeline from live delivery and a fresh persisted replay", () => {
+    const sequence = [
+      msg("run.started", { transactionId: "tx-1" }, "1"),
+      msg("step.rules.completed", { ruleHits: [] }, "2"),
+      msg("step.scoring.completed", { fraudProbability: 0.9 }, "3"),
+      msg(
+        "agent.started",
+        {
+          agentRunId: "evidence-1",
+          agent: "evidence_investigator",
+          attempt: 1,
+          status: "started",
+        },
+        "4",
+      ),
+      msg(
+        "agent.completed",
+        {
+          agentRunId: "evidence-1",
+          agent: "evidence_investigator",
+          attempt: 1,
+          status: "completed",
+        },
+        "5",
+      ),
+    ];
+    const live = sequence.reduce(reduceInvestigation, initialInvestigationState());
+    const replay = fold(sequence);
+
+    expect(investigationTimeline(live)).toEqual(investigationTimeline(replay));
+  });
+
+  it("restores persisted SAR content and agent provenance through the snapshot path", () => {
+    const state = investigationStateFromSnapshot(
+      snapshot({
+        workflowMode: "multi_agent",
+        graphVersion: "agents-v1",
+        revisionCount: 1,
+        sarContent: "Persisted narrative.",
+        agentExecutions: [agentRun()],
+      }),
+    );
+
+    expect(state.sarText).toBe("Persisted narrative.");
+    expect(state.recorded).toBe(true);
+    expect(investigationTimeline(state)[2]).toMatchObject({
+      label: "Parallel investigation",
+      children: [expect.objectContaining({ label: "Evidence investigator" }), expect.any(Object)],
+    });
+  });
+
+  it("marks an unexecuted reviewer skipped after a writer failure", () => {
+    const failedWriter = agentRun({
+      agent: "sar_writer",
+      status: "failed",
+      errorCode: "writer_schema_invalid",
+    });
+    const timeline = investigationTimeline({
+      ...initialInvestigationState(),
+      workflowMode: "multi_agent",
+      agentRuns: [failedWriter],
+    });
+
+    expect(timeline.find((row) => row.label === "Compliance reviewer")?.status).toBe("skipped");
   });
 });

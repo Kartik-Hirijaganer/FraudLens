@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { riskTone, severityCounts, severityRank, toneDotClass } from "./risk";
+import {
+  agentGlyph,
+  agentTone,
+  riskTone,
+  severityCounts,
+  severityRank,
+  toneDotClass,
+} from "./risk";
 
 describe("riskTone", () => {
   it("maps each band/severity onto the semantic palette", () => {
@@ -16,6 +23,19 @@ describe("riskTone", () => {
 
   it("falls back to neutral for an unknown value", () => {
     expect(riskTone("mystery")).toBe("neutral");
+  });
+});
+
+describe("agent presentation", () => {
+  it("uses semantic tones and non-colour glyphs for lifecycle states", () => {
+    expect(agentTone("completed")).toBe("positive");
+    expect(agentTone("degraded")).toBe("warning");
+    expect(agentTone("failed")).toBe("negative");
+    expect(agentTone("running")).toBe("neutral");
+    expect(agentGlyph("completed")).toBe("✓");
+    expect(agentGlyph("degraded")).toBe("!");
+    expect(agentGlyph("failed")).toBe("×");
+    expect(agentGlyph("skipped")).toBe("–");
   });
 });
 
