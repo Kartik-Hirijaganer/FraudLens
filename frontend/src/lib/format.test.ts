@@ -6,6 +6,7 @@ import {
   formatAlertRef,
   formatCurrency,
   formatDateTime,
+  formatDurationMs,
   formatInvestigationRef,
   formatMachineKey,
   formatMaskedAccount,
@@ -53,6 +54,19 @@ describe("formatDateTime", () => {
 
   it("returns a dash for an unparseable date", () => {
     expect(formatDateTime("nope")).toBe("—");
+  });
+});
+
+describe("formatDurationMs", () => {
+  it("formats milliseconds, seconds, and minutes compactly", () => {
+    expect(formatDurationMs(25)).toBe("25 ms");
+    expect(formatDurationMs(1_500)).toBe("1.5 s");
+    expect(formatDurationMs(65_000)).toBe("1m 5s");
+  });
+
+  it("returns a dash for negative or non-finite durations", () => {
+    expect(formatDurationMs(-1)).toBe("—");
+    expect(formatDurationMs(Number.NaN)).toBe("—");
   });
 });
 
