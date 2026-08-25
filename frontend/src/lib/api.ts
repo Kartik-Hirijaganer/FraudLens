@@ -76,7 +76,12 @@ import {
   type UserRole,
 } from "./session";
 import { refreshAccessToken } from "./supabase";
-import type { InvestigationRuleHit, RegulationCitation, ShapFeature } from "./investigation";
+import type {
+  AgentRun,
+  InvestigationSnapshotData,
+  RegulationCitation,
+  WorkflowMode,
+} from "./investigation";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type AlertOrigin = "pipeline" | "seed";
@@ -240,24 +245,9 @@ export interface InvestigationStartResponse {
   runId: string;
 }
 
-export interface InvestigationSnapshot {
+export interface InvestigationSnapshot extends InvestigationSnapshotData {
   runId: string;
-  transactionId: string;
-  status: string;
-  riskScore: number | null;
-  riskBand: string | null;
-  fraudProbability: number | null;
-  modelVersion: string | null;
-  rulesVersion: string | null;
-  ragVersion: string | null;
   promptVersion: string | null;
-  errorCode: string | null;
-  topFeatures: ShapFeature[];
-  ruleHits: InvestigationRuleHit[];
-  citations: RegulationCitation[];
-  sarStatus: string | null;
-  sarDraftId: string | null;
-  alertId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -310,6 +300,8 @@ export interface SarDraftView {
   modelId: string;
   promptVersion: string;
   promptHash: string;
+  workflow: WorkflowMode;
+  revisionCount: number;
   tokenUsage: Record<string, unknown>;
   costUsd: string;
   createdAt: string;
@@ -319,6 +311,11 @@ export interface AlertDetailResponse {
   alert: AlertView;
   sarDraft: SarDraftView | null;
   actions: AlertActionView[];
+  agentExecutions: AgentRun[];
+  workflowMode: WorkflowMode;
+  graphVersion: string | null;
+  revisionCount: number;
+  sarContent: string | null;
 }
 
 export interface AlertActionRequest {
