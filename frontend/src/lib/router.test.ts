@@ -16,11 +16,16 @@ describe("parseHash", () => {
     expect(parseHash("#/alerts/a1")).toEqual({ name: "alertDetail", alertId: "a1" });
     expect(parseHash("#/investigations/r1")).toEqual({ name: "investigation", runId: "r1" });
     expect(parseHash("#/model-admin")).toEqual({ name: "modelAdmin" });
+    expect(parseHash("#/research/graph-typologies")).toEqual({
+      name: "researchGraphTypologies",
+    });
+    expect(parseHash("#/research/multi-agent-sar")).toEqual({ name: "researchMultiAgentSar" });
   });
 
   it("routes anything unrecognized to notFound", () => {
     expect(parseHash("#/bogus")).toEqual({ name: "notFound" });
     expect(parseHash("#/alerts/a/b")).toEqual({ name: "notFound" });
+    expect(parseHash("#/research/multi-agent-sar/extra")).toEqual({ name: "notFound" });
   });
 });
 
@@ -29,6 +34,7 @@ describe("paths", () => {
     expect(paths.dashboard).toBe("#/");
     expect(paths.alertDetail("a1")).toBe("#/alerts/a1");
     expect(paths.investigation("r1")).toBe("#/investigations/r1");
+    expect(paths.researchMultiAgentSar).toBe("#/research/multi-agent-sar");
   });
 });
 
