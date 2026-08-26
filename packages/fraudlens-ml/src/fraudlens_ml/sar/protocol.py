@@ -14,14 +14,16 @@ regulatory citations), which is what makes "PHI masked before the prompt" hold b
 
 Key classes:
 - SarDraftStatus: the lifecycle state a freshly produced draft can be in (draft | failed).
-- SarEventType: the kind of streamed drafting event (token, completed, failed).
+- SarEventType: the kind of streamed drafting or agent-lifecycle event.
 - SarFeature: one SHAP driver (feature name + value + signed contribution); PHI-free.
 - SarCitation: one grounded regulatory citation (id + title + source + escaped snippet).
 - SarSection: one titled section of the structured SAR body.
+- SarClaim: one narrative claim linked to evidence and regulatory citation ids.
 - SarDraftContent: the structured SAR body the drafter produces (validated, grounded).
 - SarTokenUsage: normalized token usage recorded for the audit/cost trail.
 - SarInput: the PHI-free assembled input a drafter turns into a SAR.
 - SarDraftResult: the terminal result of a draft (content + provenance + cost + status).
+- SarAgentEvent: stable identity and lifecycle metadata for one agent execution event.
 - SarStreamEvent: one streamed event — a token, or the terminal completed/failed result.
 - SarDrafter: the protocol the pipeline depends on; mock/live impls live in the backend.
 
@@ -66,6 +68,10 @@ class SarEventType(StrEnum):
     TOKEN = "sar.token"
     COMPLETED = "sar.completed"
     FAILED = "sar.failed"
+    AGENT_STARTED = "agent.started"
+    AGENT_COMPLETED = "agent.completed"
+    AGENT_REVISION_REQUESTED = "agent.revision.requested"
+    AGENT_TOOL_COMPLETED = "agent.tool.completed"
 
 
 class SarFeature(BaseModel):
@@ -102,6 +108,22 @@ class SarSection(BaseModel):
     body: str = Field(..., description="Section body text (PHI-masked).")
 
 
+class SarClaim(BaseModel):
+    """One SAR narrative claim linked to its supporting evidence and regulatory citations."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
+    )
+
+    statement: str = Field(..., min_length=1, description="PHI-masked factual claim text.")
+    evidence_refs: tuple[str, ...] = Field(
+        default=(), description="Persisted evidence identifiers supporting the claim."
+    )
+    citation_ids: tuple[str, ...] = Field(
+        default=(), description="Regulatory citation identifiers supporting the claim."
+    )
+
+
 class SarDraftContent(BaseModel):
     """The structured SAR body the drafter produces — validated and citation-grounded."""
 
@@ -113,6 +135,9 @@ class SarDraftContent(BaseModel):
         ..., min_length=1, description="One-line subject of the suspicious activity."
     )
     narrative: str = Field(..., min_length=1, description="The SAR narrative (PHI-masked).")
+    claims: tuple[SarClaim, ...] = Field(
+        default=(), description="Narrative claims with evidence and citation traceability."
+    )
     sections: tuple[SarSection, ...] = Field(
         default=(),
         description="Structured supporting sections (rationale, indicators, regulation).",
@@ -225,10 +250,39 @@ class SarDraftResult(BaseModel):
     error_code: str | None = Field(
         default=None, description="Stable failure code when status == failed."
     )
+    workflow: str = Field(
+        default="single_writer",
+        min_length=1,
+        description="Drafting workflow that produced this artifact.",
+    )
+    revision_count: int = Field(
+        default=0, ge=0, description="Number of writer revisions completed for this artifact."
+    )
+
+
+class SarAgentEvent(BaseModel):
+    """Stable identity and lifecycle metadata for one streamed agent execution event."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
+    )
+
+    agent_run_id: str = Field(..., min_length=1, description="Unique id for this agent attempt.")
+    agent: str = Field(..., min_length=1, description="Configured agent role name.")
+    attempt: int = Field(..., ge=1, description="One-based attempt number for this agent role.")
+    status: str | None = Field(
+        default=None, description="Stable lifecycle status when the event carries one."
+    )
+    tool_name: str | None = Field(
+        default=None, description="Configured tool name for an ephemeral tool-completed event."
+    )
+    error_code: str | None = Field(
+        default=None, description="Stable failure or degradation code when present."
+    )
 
 
 class SarStreamEvent(BaseModel):
-    """One streamed drafting event: a token, or the terminal completed/failed result."""
+    """One streamed drafting event: a token, agent lifecycle update, or terminal result."""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
@@ -238,6 +292,9 @@ class SarStreamEvent(BaseModel):
     token: str | None = Field(default=None, description="Token delta for TOKEN events, else None.")
     result: SarDraftResult | None = Field(
         default=None, description="Terminal result for COMPLETED/FAILED events, else None."
+    )
+    agent: SarAgentEvent | None = Field(
+        default=None, description="Agent lifecycle payload for AGENT_* events, else None."
     )
 
 
