@@ -3,7 +3,7 @@
  * (`useSession`): with no session it renders the <Login/> screen — handing it the login personas
  * fetched from the backend's public portfolio-demo projection — otherwise it frames the app as
  * a white app-window card over the sage canvas — a branded header (wordmark + analyst avatar +
- * sign-out), a grouped Workspace/Admin sidebar (the sole primary nav), and a sage content panel
+ * sign-out), a grouped Workspace/Research/Admin sidebar (the sole primary nav), and a sage panel
  * that switches on the hash route (`useHashRoute`). Each page owns its own data + states; the
  * shell only routes and frames them. The Sonner `<Toaster/>` mounts once (across both the login
  * and signed-in states) so any screen can raise a toast.
@@ -37,9 +37,10 @@ import { Transactions } from "./pages/Transactions";
 import { cx } from "./lib/cx";
 import { usePortfolioDemoPersonas } from "./lib/portfolioDemo";
 
-// Lazily loaded so the committed study artifact (and d3-force) load only when the research
-// view is opened — the rest of the app never pulls that build-time data import.
+// Lazily loaded so each committed study artifact (and GFP's d3-force dependency) loads only when
+// its research view is opened — the rest of the app never pulls either build-time data import.
 const ResearchRoute = lazy(() => import("./pages/ResearchRoute"));
+const SarEvalStudyRoute = lazy(() => import("./pages/SarEvalStudyRoute"));
 import { paths, useHashRoute, type Route } from "./lib/router";
 import {
   hasPermission,
@@ -87,6 +88,12 @@ const SIDEBAR: NavGroup[] = [
         permission: "view",
         isActive: (r) => r.name === "researchGraphTypologies",
       },
+      {
+        label: "Multi-agent SAR study",
+        href: paths.researchMultiAgentSar,
+        permission: "view",
+        isActive: (r) => r.name === "researchMultiAgentSar",
+      },
     ],
   },
   {
@@ -132,6 +139,12 @@ function renderRoute(route: Route, session: Session) {
       return (
         <Suspense fallback={<Spinner label="Loading research…" />}>
           <ResearchRoute />
+        </Suspense>
+      );
+    case "researchMultiAgentSar":
+      return (
+        <Suspense fallback={<Spinner label="Loading research…" />}>
+          <SarEvalStudyRoute />
         </Suspense>
       );
     default:
