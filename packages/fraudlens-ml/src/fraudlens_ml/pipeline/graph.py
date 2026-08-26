@@ -38,6 +38,7 @@ from langgraph.graph import END, START, StateGraph
 
 from fraudlens_core import RiskAssessment, RuleEvaluation
 from fraudlens_ml.pipeline.events import (
+    AGENT_TOOL_EVENT,
     SAR_TOKEN_EVENT,
     AlertRecord,
     InferenceRecord,
@@ -102,7 +103,7 @@ def _failed_sar_result() -> SarDraftResult:
 
 
 async def _drive_drafter(deps: PipelineDeps, sar_input: SarInput) -> SarDraftResult:
-    """Stream the drafter's tokens live and return its terminal result (sentinel failed if none)."""
+    """Route token/agent events and return the terminal result (sentinel failed if absent)."""
     terminal: SarDraftResult | None = None
     try:
         async for event in deps.drafter.draft(sar_input):
@@ -110,10 +111,17 @@ async def _drive_drafter(deps: PipelineDeps, sar_input: SarInput) -> SarDraftRes
                 await deps.emit(
                     StreamMessage(event_type=SAR_TOKEN_EVENT, data={"token": event.token})
                 )
+            elif event.agent is not None:
+                payload = event.agent.model_dump(mode="json", by_alias=True)
+                if event.type is SarEventType.AGENT_TOOL_COMPLETED:
+                    await deps.emit(StreamMessage(event_type=AGENT_TOOL_EVENT, data=payload))
+                else:
+                    await persist_and_emit(deps, PipelineEventType(event.type.value), payload)
             elif event.result is not None:
                 terminal = event.result
     except Exception:
-        terminal = None
+        # Preserve a terminal result yielded before a faulty generator teardown.
+        pass
     return terminal if terminal is not None else _failed_sar_result()
 
 
