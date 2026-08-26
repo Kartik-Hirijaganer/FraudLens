@@ -123,6 +123,9 @@ describe("Investigation", () => {
       />,
     );
     expect(screen.getByText("Build the case")).toBeInTheDocument();
+    expect(screen.getByText("Machine progress")).toBeInTheDocument();
+    expect(screen.getByText("Single-writer")).toBeInTheDocument();
+    expect(document.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
     expect(screen.getByText(/Waking the service/)).toBeInTheDocument();
 
     harness.emit("run.started", { transactionId: "tx-1" }, "1");
@@ -397,6 +400,69 @@ describe("Investigation", () => {
     harness.emit("run.failed", { code: "scoring_unavailable" }, "9");
     expect(screen.getByText("Investigation failed")).toBeInTheDocument();
     expect(screen.getByText("Auto-run failed")).toBeInTheDocument();
+  });
+
+  it("keeps an agent failure in the timeline without promoting it to a run error", () => {
+    const harness = streamHarness();
+    render(<Investigation runId="run-1" client={makeClient()} createStream={harness.factory} />);
+    harness.emit("run.started", { transactionId: "tx-1" }, "1");
+    harness.emit("agent.started", {
+      agentRunId: "writer-1",
+      agent: "sar_writer",
+      attempt: 1,
+      status: "started",
+    });
+    harness.emit("agent.completed", {
+      agentRunId: "writer-1",
+      agent: "sar_writer",
+      attempt: 1,
+      status: "failed",
+      errorCode: "writer_schema_invalid",
+    });
+
+    expect(screen.getByText("4-agent review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /SAR writer/ })).toHaveTextContent("Failed");
+    expect(screen.queryByText("Investigation failed")).not.toBeInTheDocument();
+  });
+
+  it("hydrates persisted SAR content after a completed replay with no token events", async () => {
+    const harness = streamHarness();
+    const getInvestigation = vi.fn(() =>
+      Promise.resolve(snapshot({ sarContent: "Persisted narrative restored after replay." })),
+    );
+    render(
+      <Investigation
+        runId="run-1"
+        client={makeClient({ getInvestigation })}
+        createStream={harness.factory}
+      />,
+    );
+    runToCompletion(harness);
+    harness.emit("step.shap.completed", {
+      topFeatures: [{ feature: "amount", value: 1, shapValue: 0.5 }],
+    });
+    harness.emit("step.rag.completed", {
+      mode: "vector",
+      citations: [{ citation: "c", title: "t", source: "FinCEN", snippet: "s" }],
+    });
+    harness.emit("sar.started", {}, "6");
+    harness.emit(
+      "run.completed",
+      {
+        riskScore: 0.87,
+        riskBand: "high",
+        sarDraftId: "s1",
+        sarStatus: "draft",
+        alertId: "alert-1",
+      },
+      "7",
+    );
+
+    await waitFor(() => expect(getInvestigation).toHaveBeenCalledWith("run-1"));
+    await userEvent.click(screen.getByRole("button", { name: /continue to drivers/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to citations/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to sar draft/i }));
+    expect(screen.getByText(/Persisted narrative restored after replay/)).toBeInTheDocument();
   });
 
   it("labels signed SHAP drivers and shows the pre-completion risk chip", () => {
