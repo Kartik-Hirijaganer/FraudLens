@@ -132,6 +132,14 @@ class ModelCard(BaseModel):
     )
     speed: Speed | None = Field(default=None, description="Relative speed bucket.")
     reasoning_capable: bool = Field(default=False, description="Whether reasoning is supported.")
+    tool_calling: bool = Field(
+        default=False,
+        description="Whether native function tool calling is supported.",
+    )
+    structured_output: bool = Field(
+        default=False,
+        description="Whether strict JSON-Schema output is supported.",
+    )
     intelligence: Intelligence | None = Field(default=None, description="Intelligence bucket.")
     max_audio_duration: int | None = Field(
         default=None, ge=0, description="Maximum audio duration in seconds."
