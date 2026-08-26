@@ -17,6 +17,8 @@ import type {
   TransactionResponse,
   TrainingRunView,
 } from "../lib/api";
+import type { AgentRun } from "../lib/investigation";
+import { SAR_EVAL_TYPOLOGIES, SAR_EVAL_VARIANTS, type SarEvalStudyData } from "../lib/sarEvalStudy";
 
 export function transaction(overrides: Partial<TransactionResponse> = {}): TransactionResponse {
   return {
@@ -71,6 +73,8 @@ export function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
     modelId: "mock",
     promptVersion: "sar-v1",
     promptHash: "abc123",
+    workflow: "single_writer",
+    revisionCount: 0,
     tokenUsage: {},
     costUsd: "0",
     createdAt: "2026-06-11T10:05:00Z",
@@ -83,6 +87,35 @@ export function alertDetail(overrides: Partial<AlertDetailResponse> = {}): Alert
     alert: alertView(),
     sarDraft: sarDraft(),
     actions: [],
+    agentExecutions: [],
+    workflowMode: "single_writer",
+    graphVersion: null,
+    revisionCount: 0,
+    sarContent: "Suspicious structuring activity observed.",
+    ...overrides,
+  };
+}
+
+export function agentRun(overrides: Partial<AgentRun> = {}): AgentRun {
+  return {
+    agentRunId: "agent-run-1",
+    agent: "evidence_investigator",
+    attempt: 1,
+    status: "completed",
+    errorCode: null,
+    modelId: "mock",
+    promptVersion: "v1",
+    promptHash: "prompt-hash",
+    inputHash: "input-hash",
+    resultHash: "result-hash",
+    latencyMs: 25,
+    modelCallCount: 1,
+    inputTokens: 10,
+    outputTokens: 20,
+    totalTokens: 30,
+    costUsd: "0",
+    result: { summary: "Synthetic evidence reviewed." },
+    toolCalls: [{ callId: "call-1", name: "rule_hits", status: "completed" }],
     ...overrides,
   };
 }
@@ -109,6 +142,11 @@ export function snapshot(overrides: Partial<InvestigationSnapshot> = {}): Invest
     ],
     sarStatus: "draft",
     sarDraftId: "sar-1",
+    sarContent: "Suspicious structuring activity observed.",
+    workflowMode: "single_writer",
+    graphVersion: null,
+    revisionCount: 0,
+    agentExecutions: [],
     alertId: "alert-1",
     createdAt: "2026-06-11T10:00:00Z",
     updatedAt: "2026-06-11T10:05:00Z",
@@ -326,4 +364,177 @@ export function demoPersona(role: UserRole, overrides: Partial<DemoRole> = {}): 
 
 export function demoPersonas(): readonly DemoRole[] {
   return (["analyst", "reviewer", "admin", "auditor"] as const).map((role) => demoPersona(role));
+}
+
+export function sarEvalStudy(): SarEvalStudyData {
+  const scenarioArm = {
+    completenessPassed: 4,
+    unsupportedClaimCount: 1,
+    citationPrecision: 0.9,
+    citationRecall: 0.8,
+    fabricatedCitationCount: 0,
+    costUsd: 0.02,
+    latencyMs: 2_000,
+    modelCalls: 1,
+    elementAgreement: 0.8,
+    unsupportedClaimCountAgreement: 0.8,
+    unsupportedClaimSpanAgreement: 0.8,
+    agreement: 0.8,
+  };
+  const scenarios = SAR_EVAL_TYPOLOGIES.map((typology) =>
+    SAR_EVAL_VARIANTS.map((variant) => ({
+      scenarioId: `${typology}-${variant}`,
+      typology,
+      variant,
+      singleWriter: { ...scenarioArm },
+      multiAgent: {
+        ...scenarioArm,
+        completenessPassed: 5,
+        unsupportedClaimCount: 0,
+        costUsd: 0.05,
+        latencyMs: 3_200,
+        modelCalls: 4,
+        elementAgreement: 0.9,
+        unsupportedClaimCountAgreement: 0.9,
+        unsupportedClaimSpanAgreement: 0.9,
+        agreement: 0.9,
+      },
+    })),
+  ).flat();
+
+  return {
+    reportSha256: "a".repeat(64),
+    runId: "sar-eval-test-run",
+    seed: 17,
+    syntheticData: true,
+    scenarioCount: 32,
+    bootstrapResamples: 10_000,
+    judge: {
+      modelId: "openrouter/anthropic/claude-opus-4.6",
+      modelFamily: "anthropic",
+      promptVersion: "v1",
+      promptHash: "b".repeat(64),
+      samplesPerNarrative: 3,
+      blind: true,
+      orderRandomized: true,
+    },
+    armProvenance: [
+      {
+        arm: "single_writer",
+        writerModelId: "openrouter/openai/gpt-5-mini",
+        writerModelFamily: "openai",
+        modelIds: ["openrouter/openai/gpt-5-mini"],
+        promptVersions: ["v1"],
+        promptHashes: ["c".repeat(64)],
+        graphVersion: null,
+      },
+      {
+        arm: "multi_agent",
+        writerModelId: "openrouter/openai/gpt-5-mini",
+        writerModelFamily: "openai",
+        modelIds: [
+          "openrouter/x-ai/grok-4.3",
+          "openrouter/google/gemini-2.5-flash",
+          "openrouter/openai/gpt-5-mini",
+          "openrouter/anthropic/claude-sonnet-4.6",
+        ],
+        promptVersions: ["evidence-v1", "regulatory-v1", "writer-v1", "reviewer-v1"],
+        promptHashes: ["d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64)],
+        graphVersion: "agents-v1",
+      },
+    ],
+    summary: {
+      arms: [
+        {
+          arm: "single_writer",
+          completenessRate: 0.7,
+          unsupportedClaims: 0.5,
+          citationPrecision: 0.88,
+          citationRecall: 0.82,
+          fabricatedCitationCount: 0.1,
+          costUsd: 0.02,
+          latencyMs: 2_000,
+          modelCalls: 1,
+          elementAgreement: 0.8,
+          unsupportedClaimCountAgreement: 0.8,
+          unsupportedClaimSpanAgreement: 0.8,
+          agreement: 0.8,
+        },
+        {
+          arm: "multi_agent",
+          completenessRate: 0.8,
+          unsupportedClaims: 0.25,
+          citationPrecision: 0.9,
+          citationRecall: 0.85,
+          fabricatedCitationCount: 0,
+          costUsd: 0.05,
+          latencyMs: 3_200,
+          modelCalls: 4,
+          elementAgreement: 0.9,
+          unsupportedClaimCountAgreement: 0.9,
+          unsupportedClaimSpanAgreement: 0.9,
+          agreement: 0.9,
+        },
+      ],
+      deltas: [
+        {
+          metric: "completenessRate",
+          pointEstimate: 0.1,
+          ciLower: 0.04,
+          ciUpper: 0.16,
+          significant: true,
+        },
+        {
+          metric: "unsupportedClaims",
+          pointEstimate: -0.25,
+          ciLower: -0.4,
+          ciUpper: -0.1,
+          significant: true,
+        },
+        {
+          metric: "citationPrecision",
+          pointEstimate: 0.02,
+          ciLower: -0.01,
+          ciUpper: 0.05,
+          significant: false,
+        },
+        {
+          metric: "citationRecall",
+          pointEstimate: 0.03,
+          ciLower: 0.01,
+          ciUpper: 0.05,
+          significant: true,
+        },
+        {
+          metric: "fabricatedCitationCount",
+          pointEstimate: -0.1,
+          ciLower: -0.2,
+          ciUpper: 0,
+          significant: false,
+        },
+        {
+          metric: "costUsd",
+          pointEstimate: 0.03,
+          ciLower: 0.02,
+          ciUpper: 0.04,
+          significant: true,
+        },
+        {
+          metric: "latencyMs",
+          pointEstimate: 1_200,
+          ciLower: 800,
+          ciUpper: 1_600,
+          significant: true,
+        },
+        {
+          metric: "modelCalls",
+          pointEstimate: 3,
+          ciLower: 3,
+          ciUpper: 3,
+          significant: true,
+        },
+      ],
+    },
+    scenarios,
+  };
 }
