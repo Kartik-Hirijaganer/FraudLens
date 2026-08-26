@@ -3,7 +3,8 @@
  * alert summary + force-review flags, the SAR draft (narrative + grounded citations +
  * status) with the human review actions (approve / reject-with-reason / edit), the triage
  * actions as a guided SAR-decision → case-outcome sequence, and the append-only activity
- * history. Every action routes through one helper
+ * history. The shared machine timeline explains how the SAR was produced and links back to the
+ * originating investigation run. Every action routes through one helper
  * that toggles a busy guard, toasts the outcome, and reloads the authoritative detail.
  *
  * Key classes:
@@ -18,6 +19,7 @@
  */
 import { useCallback, useState } from "react";
 
+import { AgentTimeline } from "../components/AgentTimeline";
 import { DecisionRail } from "../components/DecisionRail";
 import { Markdown } from "../components/Markdown";
 import { RagPanel } from "../components/RagPanel";
@@ -41,6 +43,8 @@ import {
 import { formatDateTime, humanize } from "../lib/format";
 import { TRAINING_LABEL_OPTIONS } from "../lib/options";
 import { riskTone, type StatusTone } from "../lib/risk";
+import { initialInvestigationState, type InvestigationState } from "../lib/investigation";
+import { navigate, paths } from "../lib/router";
 import { hasPermission, useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
 import { useAsyncAction } from "../lib/useAsyncAction";
@@ -114,6 +118,23 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
           const selectedOutcome = availableOutcomes.some((option) => option.value === label)
             ? label
             : availableOutcomes[0]?.value;
+          const timelineState: InvestigationState = {
+            ...initialInvestigationState(),
+            status: "completed",
+            completedSteps: ["rules", "scoring", ...(detail.sarDraft ? ["sar"] : [])],
+            sarStarted: detail.sarDraft !== null,
+            sarText: detail.sarContent ?? detail.sarDraft?.content ?? "",
+            sarDraftId: detail.sarDraft?.sarDraftId,
+            sarStatus: detail.sarDraft?.status,
+            alertId: detail.alert.alertId,
+            workflowMode: detail.workflowMode,
+            graphVersion: detail.graphVersion ?? undefined,
+            revisionCount: detail.revisionCount,
+            agentRuns: detail.agentExecutions,
+            recorded:
+              detail.sarDraft?.modelId === "mock" ||
+              detail.agentExecutions.some((run) => run.modelId === "mock"),
+          };
           return (
             <div className="gap-xl grid grid-cols-1 lg:grid-cols-[1fr_320px]">
               <div className="gap-xl flex flex-col">
@@ -136,6 +157,16 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                       {flag.reason}
                     </Badge>
                   ))}
+                </Card>
+
+                <Card className="gap-lg flex flex-col">
+                  <AgentTimeline state={timelineState} title="How this SAR was produced" />
+                  <Button
+                    variant="tertiary"
+                    onClick={() => navigate(paths.investigation(detail.alert.runId))}
+                  >
+                    Open the investigation run
+                  </Button>
                 </Card>
 
                 <Card className="gap-md flex flex-col">

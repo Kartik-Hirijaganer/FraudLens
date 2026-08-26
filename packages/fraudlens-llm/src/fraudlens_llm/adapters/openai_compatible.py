@@ -15,6 +15,7 @@ Notes:
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, cast
@@ -45,7 +46,7 @@ from fraudlens_llm.exceptions import (
     ProviderError,
     UnsupportedParameterError,
 )
-from fraudlens_llm.models import LlmMessage, LlmUsage
+from fraudlens_llm.models import LlmMessage, LlmUsage, ToolCall, ToolDefinition
 from fraudlens_llm.providers import ProviderConfig
 
 _CHAT_PARAMS = {
@@ -72,13 +73,16 @@ class OpenAiCompatibleAdapter:
         self._config = config
         self._client: AsyncOpenAI | None = None
 
-    async def generate(
+    async def generate(  # noqa: PLR0913 - explicit provider capability arguments.
         self,
         *,
         model_id: str,
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> AdapterGenerateResult:
         """Generate chat text through an OpenAI-compatible SDK."""
         if card.kind != Kind.CHAT:
@@ -86,13 +90,16 @@ class OpenAiCompatibleAdapter:
         provider_params = _validated_params(params, _CHAT_PARAMS)
         if "response_format" in provider_params:
             provider_params["response_format"] = {"type": provider_params["response_format"]}
+        if response_schema is not None:
+            provider_params["response_format"] = _structured_response_format(response_schema)
+        if tools:
+            provider_params["tools"] = [_openai_tool_definition(tool) for tool in tools]
+        if tool_choice is not None:
+            provider_params["tool_choice"] = _openai_tool_choice(tool_choice)
         try:
             response = await self._client_instance().chat.completions.create(
                 model=model_id,
-                messages=cast(
-                    Any,
-                    [message.model_dump(mode="json") for message in messages],
-                ),
+                messages=cast(Any, [_openai_message(message) for message in messages]),
                 **provider_params,
             )
         except OpenAIError as exc:
@@ -105,6 +112,7 @@ class OpenAiCompatibleAdapter:
             served_model=getattr(response, "model", None),
             finish_reason=getattr(choice, "finish_reason", None),
             usage=_usage_from_openai(response),
+            tool_calls=_tool_calls_from_openai(getattr(message, "tool_calls", None)),
         )
 
     async def embed(
@@ -151,10 +159,7 @@ class OpenAiCompatibleAdapter:
                 Any,
                 await self._client_instance().chat.completions.create(
                     model=model_id,
-                    messages=cast(
-                        Any,
-                        [message.model_dump(mode="json") for message in messages],
-                    ),
+                    messages=cast(Any, [_openai_message(message) for message in messages]),
                     stream=True,
                     stream_options={"include_usage": True},
                     **provider_params,
@@ -211,6 +216,101 @@ def _validated_params(params: GenerationParams, supported: set[str]) -> dict[str
     if unsupported:
         raise UnsupportedParameterError(f"Unsupported OpenAI-compatible params: {unsupported}")
     return provider_params
+
+
+def _openai_message(message: LlmMessage) -> dict[str, Any]:
+    """Map one neutral message without changing ordinary text-only payloads."""
+    payload: dict[str, Any] = {"role": message.role.value}
+    if message.content is not None:
+        payload["content"] = message.content
+    if message.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": tool_call.id,
+                "type": "function",
+                "function": {
+                    "name": tool_call.name,
+                    "arguments": json.dumps(
+                        tool_call.arguments,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                },
+            }
+            for tool_call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        payload["tool_call_id"] = message.tool_call_id
+    return payload
+
+
+def _openai_tool_definition(tool: ToolDefinition) -> dict[str, Any]:
+    """Map a provider-neutral tool definition to the OpenAI function shape."""
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        },
+    }
+
+
+def _openai_tool_choice(tool_choice: str) -> str | dict[str, object]:
+    """Map a built-in policy or declared tool name to OpenAI tool_choice."""
+    if tool_choice in {"auto", "none", "required"}:
+        return tool_choice
+    return {"type": "function", "function": {"name": tool_choice}}
+
+
+def _structured_response_format(response_schema: dict[str, Any]) -> dict[str, object]:
+    """Build the OpenAI strict JSON-Schema response-format object."""
+    title = response_schema.get("title")
+    name = title if isinstance(title, str) and title else "structured_response"
+    normalized_name = "".join(character if character.isalnum() else "_" for character in name)
+    if not normalized_name.strip("_"):
+        normalized_name = "structured_response"
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": normalized_name[:64],
+            "strict": True,
+            "schema": response_schema,
+        },
+    }
+
+
+def _tool_calls_from_openai(raw_tool_calls: Any) -> tuple[ToolCall, ...]:
+    """Parse OpenAI function tool calls into provider-neutral models."""
+    if not raw_tool_calls:
+        return ()
+    parsed: list[ToolCall] = []
+    for raw_tool_call in raw_tool_calls:
+        function = _item_value(raw_tool_call, "function")
+        raw_arguments = _item_value(function, "arguments")
+        try:
+            arguments = (
+                json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
+            )
+        except json.JSONDecodeError as exc:
+            raise ProviderError(
+                "OpenAI-compatible provider returned malformed tool arguments"
+            ) from exc
+        if not isinstance(arguments, dict):
+            raise ProviderError("OpenAI-compatible provider returned non-object tool arguments")
+        tool_call_id = _item_value(raw_tool_call, "id")
+        name = _item_value(function, "name")
+        if not isinstance(tool_call_id, str) or not isinstance(name, str):
+            raise ProviderError("OpenAI-compatible provider returned an invalid tool call")
+        parsed.append(ToolCall(id=tool_call_id, name=name, arguments=arguments))
+    return tuple(parsed)
+
+
+def _item_value(item: Any, key: str) -> Any:
+    """Read one field from an SDK model or a test dictionary."""
+    if isinstance(item, dict):
+        return item.get(key)
+    return getattr(item, key, None)
 
 
 def _content_to_text(content: Any) -> str:
