@@ -31,7 +31,9 @@
  */
 import { useEffect, useState } from "react";
 
+import { AgentTimeline } from "../components/AgentTimeline";
 import { CaseStepper } from "../components/CaseStepper";
+import { DecisionRail } from "../components/DecisionRail";
 import { FraudGauge } from "../components/FraudGauge";
 import { RagPanel } from "../components/RagPanel";
 import { SarStream } from "../components/SarStream";
@@ -43,7 +45,7 @@ import { Spinner } from "../components/feedback/Spinner";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { apiClient, type ApiClient, type InvestigationSnapshot } from "../lib/api";
+import { apiClient, type ApiClient } from "../lib/api";
 import { formatInvestigationRef, humanize } from "../lib/format";
 import {
   CASE_STEPS,
@@ -51,6 +53,7 @@ import {
   NO_ALERT_CASE_STEPS,
   caseStepReady,
   initialInvestigationState,
+  investigationStateFromSnapshot,
   reduceInvestigation,
   type InvestigationState,
   type ShapFeature,
@@ -63,48 +66,6 @@ import { notify, notifyError } from "../lib/toast";
 
 const TERMINAL_EVENTS = new Set(["run.completed", "run.failed"]);
 const APPROVABLE_SAR_STATUSES = new Set(["draft", "reviewed"]);
-
-function snapshotToState(snapshot: InvestigationSnapshot): InvestigationState {
-  const completedSteps: string[] = [];
-  if (snapshot.ruleHits.length > 0) {
-    completedSteps.push("rules");
-  }
-  if (snapshot.fraudProbability !== null) {
-    completedSteps.push("scoring");
-  }
-  if (snapshot.topFeatures.length > 0) {
-    completedSteps.push("shap");
-  }
-  if (snapshot.citations.length > 0) {
-    completedSteps.push("rag");
-  }
-  if (snapshot.sarDraftId !== null) {
-    completedSteps.push("sar");
-  }
-  const status: InvestigationState["status"] =
-    snapshot.status === "completed"
-      ? "completed"
-      : snapshot.status === "failed"
-        ? "failed"
-        : "running";
-  return {
-    ...initialInvestigationState(),
-    status,
-    completedSteps,
-    transactionId: snapshot.transactionId,
-    ruleHits: snapshot.ruleHits,
-    fraudProbability: snapshot.fraudProbability ?? undefined,
-    modelVersion: snapshot.modelVersion ?? undefined,
-    topFeatures: snapshot.topFeatures,
-    citations: snapshot.citations,
-    riskScore: snapshot.riskScore ?? undefined,
-    riskBand: snapshot.riskBand ?? undefined,
-    sarDraftId: snapshot.sarDraftId ?? undefined,
-    sarStatus: snapshot.sarStatus ?? undefined,
-    alertId: snapshot.alertId ?? undefined,
-    errorCode: snapshot.errorCode ?? undefined,
-  };
-}
 
 interface StatusPill {
   tone: StatusTone;
@@ -230,6 +191,14 @@ export function Investigation({
         if (TERMINAL_EVENTS.has(message.type)) {
           terminalReached = true;
           handle?.close();
+          void client.getInvestigation(runId).then(
+            (snapshot) => {
+              if (!closed) {
+                setState((current) => investigationStateFromSnapshot(snapshot, current));
+              }
+            },
+            () => undefined,
+          );
         }
       },
       onError: () => {
@@ -240,7 +209,7 @@ export function Investigation({
         void client.getInvestigation(runId).then(
           (snapshot) => {
             if (!closed) {
-              setState(snapshotToState(snapshot));
+              setState((current) => investigationStateFromSnapshot(snapshot, current));
             }
           },
           () => undefined,
@@ -464,86 +433,91 @@ export function Investigation({
         />
       ) : null}
 
-      <Card className="gap-xl flex flex-col">
-        <CaseStepper steps={caseSteps} currentStep={activeStep} />
+      <div className="gap-xl grid grid-cols-1 lg:grid-cols-3">
+        <Card className="gap-xl flex flex-col lg:col-span-2">
+          <CaseStepper steps={caseSteps} currentStep={activeStep} />
 
-        {chips.length > 0 ? (
-          <div className="gap-sm flex flex-wrap">
-            {chips.map((chip) => (
-              <Badge key={chip.label} tone={chip.tone}>
-                {chip.label}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
+          {chips.length > 0 ? (
+            <div className="gap-sm flex flex-wrap">
+              {chips.map((chip) => (
+                <Badge key={chip.label} tone={chip.tone}>
+                  {chip.label}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
 
-        <div className="border-canvas-soft border-t" />
+          <div className="border-canvas-soft border-t" />
 
-        <div className="gap-lg flex flex-col">
-          <div className="gap-xs flex flex-col">
-            <h2 className="text-display-xs text-ink">
-              Step {activeStep + 1} · {copy.heading}
-            </h2>
-            <p className="text-body-md text-mute">{copy.subtitle}</p>
-          </div>
+          <div className="gap-lg flex flex-col">
+            <div className="gap-xs flex flex-col">
+              <h2 className="text-display-xs text-ink">
+                Step {activeStep + 1} · {copy.heading}
+              </h2>
+              <p className="text-body-md text-mute">{copy.subtitle}</p>
+            </div>
 
-          {renderStepBody()}
+            {renderStepBody()}
 
-          <div className="gap-md flex flex-col">
-            <div className="gap-md flex flex-col sm:flex-row">
-              {stepKey === "sar" && canStartInvestigation ? (
+            <div className="gap-md flex flex-col">
+              <div className="gap-md flex flex-col sm:flex-row">
+                {stepKey === "sar" && canStartInvestigation ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleRegenerate()}
+                    disabled={regenerating}
+                  >
+                    {regenerating ? (
+                      <span className="gap-sm inline-flex items-center">
+                        <Spinner label="Regenerating the SAR draft" />
+                        Regenerating…
+                      </span>
+                    ) : (
+                      "Regenerate"
+                    )}
+                  </Button>
+                ) : null}
                 <Button
-                  variant="secondary"
-                  onClick={() => void handleRegenerate()}
-                  disabled={regenerating}
+                  variant="primary"
+                  className="grow"
+                  disabled={!canRunPrimary || regenerating}
+                  onClick={() => void handlePrimary()}
                 >
-                  {regenerating ? (
+                  {submitting ? (
                     <span className="gap-sm inline-flex items-center">
-                      <Spinner label="Regenerating the SAR draft" />
-                      Regenerating…
+                      <Spinner label="Approving the SAR" />
+                      Approving…
                     </span>
                   ) : (
-                    "Regenerate"
+                    primaryLabel
                   )}
                 </Button>
+              </div>
+              {!canAdvance ? (
+                <p className="text-body-sm text-mute">The auto-run hasn't reached this step yet.</p>
               ) : null}
-              <Button
-                variant="primary"
-                className="grow"
-                disabled={!canRunPrimary || regenerating}
-                onClick={() => void handlePrimary()}
-              >
-                {submitting ? (
-                  <span className="gap-sm inline-flex items-center">
-                    <Spinner label="Approving the SAR" />
-                    Approving…
-                  </span>
-                ) : (
-                  primaryLabel
-                )}
-              </Button>
             </div>
-            {!canAdvance ? (
-              <p className="text-body-sm text-mute">The auto-run hasn't reached this step yet.</p>
-            ) : null}
           </div>
-        </div>
 
-        <div className="border-canvas-soft border-t" />
+          <div className="border-canvas-soft border-t" />
 
-        <div className="gap-md text-body-sm flex items-center justify-between">
-          {activeStep > 0 ? (
-            <button type="button" onClick={handleBack} className="text-ink font-semibold">
-              ← Back to {caseSteps[activeStep - 1].label.toLowerCase()}
-            </button>
-          ) : (
-            <span />
-          )}
-          <span className="text-mute">
-            Step {activeStep + 1} of {caseSteps.length}
-          </span>
-        </div>
-      </Card>
+          <div className="gap-md text-body-sm flex items-center justify-between">
+            {activeStep > 0 ? (
+              <button type="button" onClick={handleBack} className="text-ink font-semibold">
+                ← Back to {caseSteps[activeStep - 1].label.toLowerCase()}
+              </button>
+            ) : (
+              <span />
+            )}
+            <span className="text-mute">
+              Step {activeStep + 1} of {caseSteps.length}
+            </span>
+          </div>
+        </Card>
+        <DecisionRail title="">
+          <AgentTimeline state={state} title="Machine progress" />
+        </DecisionRail>
+      </div>
     </section>
   );
 }

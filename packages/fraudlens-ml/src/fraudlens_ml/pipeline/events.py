@@ -58,8 +58,9 @@ from fraudlens_ml.sar import SarCitation, SarDrafter, SarDraftResult, SarFeature
 
 _DEFAULT_RAG_TOP_K = 4
 
-# The live-only token event name (not a persisted step type; mirrors fraudlens_ml.sar.SarEventType).
+# Live-only event names (not persisted step types; mirror fraudlens_ml.sar.SarEventType).
 SAR_TOKEN_EVENT = "sar.token"
+AGENT_TOOL_EVENT = "agent.tool.completed"
 
 
 class PipelineEventType(StrEnum):
@@ -71,6 +72,9 @@ class PipelineEventType(StrEnum):
     STEP_SHAP_COMPLETED = "step.shap.completed"
     STEP_RAG_COMPLETED = "step.rag.completed"
     SAR_STARTED = "sar.started"
+    AGENT_STARTED = "agent.started"
+    AGENT_COMPLETED = "agent.completed"
+    AGENT_REVISION_REQUESTED = "agent.revision.requested"
     RUN_COMPLETED = "run.completed"
     RUN_FAILED = "run.failed"
 

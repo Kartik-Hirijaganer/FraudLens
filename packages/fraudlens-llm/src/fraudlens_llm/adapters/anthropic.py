@@ -36,9 +36,10 @@ from fraudlens_llm.exceptions import (
     CapabilityMismatchError,
     LlmError,
     MissingApiKeyError,
+    ProviderError,
     UnsupportedParameterError,
 )
-from fraudlens_llm.models import LlmMessage, LlmUsage, Role
+from fraudlens_llm.models import LlmMessage, LlmUsage, Role, ToolCall, ToolDefinition
 from fraudlens_llm.providers import ProviderConfig
 
 _CHAT_PARAMS = {"temperature", "max_tokens", "top_p", "stop"}
@@ -54,13 +55,16 @@ class AnthropicAdapter:
         self._config = config
         self._client: AsyncAnthropic | None = None
 
-    async def generate(
+    async def generate(  # noqa: PLR0913 - explicit provider capability arguments.
         self,
         *,
         model_id: str,
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> adapter_base.AdapterGenerateResult:
         """Generate chat text through the Anthropic SDK."""
         if card.kind != Kind.CHAT:
@@ -76,6 +80,14 @@ class AnthropicAdapter:
         }
         if system_text:
             request_kwargs["system"] = system_text
+        if tools:
+            request_kwargs["tools"] = [_anthropic_tool_definition(tool) for tool in tools]
+        if tool_choice is not None:
+            request_kwargs["tool_choice"] = _anthropic_tool_choice(tool_choice)
+        if response_schema is not None:
+            request_kwargs["output_config"] = {
+                "format": {"type": "json_schema", "schema": response_schema}
+            }
         try:
             response = await self._client_instance().messages.create(**request_kwargs)
         except AnthropicError as exc:
@@ -85,6 +97,7 @@ class AnthropicAdapter:
             served_model=getattr(response, "model", None),
             finish_reason=getattr(response, "stop_reason", None),
             usage=_usage_from_anthropic(response),
+            tool_calls=_tool_calls_from_anthropic(response.content),
         )
 
     async def embed(
@@ -133,16 +146,90 @@ def _validated_params(params: GenerationParams, supported: set[str]) -> dict[str
     return provider_params
 
 
-def _anthropic_messages(messages: Sequence[LlmMessage]) -> tuple[str, list[dict[str, str]]]:
+def _anthropic_messages(messages: Sequence[LlmMessage]) -> tuple[str, list[dict[str, Any]]]:
     """Split system messages from Anthropic user/assistant messages."""
     system_parts: list[str] = []
-    anthropic_messages: list[dict[str, str]] = []
+    anthropic_messages: list[dict[str, Any]] = []
     for message in messages:
         if message.role == Role.SYSTEM:
-            system_parts.append(message.content)
+            if message.content is not None:
+                system_parts.append(message.content)
+        elif message.role == Role.TOOL:
+            anthropic_messages.append(
+                {
+                    "role": Role.USER.value,
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": message.tool_call_id,
+                            "content": message.content,
+                        }
+                    ],
+                }
+            )
+        elif message.tool_calls:
+            content: list[dict[str, Any]] = []
+            if message.content is not None:
+                content.append({"type": "text", "text": message.content})
+            content.extend(
+                {
+                    "type": "tool_use",
+                    "id": tool_call.id,
+                    "name": tool_call.name,
+                    "input": tool_call.arguments,
+                }
+                for tool_call in message.tool_calls
+            )
+            anthropic_messages.append({"role": Role.ASSISTANT.value, "content": content})
         else:
             anthropic_messages.append({"role": message.role.value, "content": message.content})
     return "\n\n".join(system_parts), anthropic_messages
+
+
+def _anthropic_tool_definition(tool: ToolDefinition) -> dict[str, Any]:
+    """Map a provider-neutral tool definition to the Anthropic shape."""
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "input_schema": tool.parameters,
+    }
+
+
+def _anthropic_tool_choice(tool_choice: str) -> dict[str, str]:
+    """Map a built-in policy or declared tool name to Anthropic tool_choice."""
+    if tool_choice == "required":
+        return {"type": "any"}
+    if tool_choice in {"auto", "none"}:
+        return {"type": tool_choice}
+    return {"type": "tool", "name": tool_choice}
+
+
+def _tool_calls_from_anthropic(content: Any) -> tuple[ToolCall, ...]:
+    """Parse Anthropic tool_use blocks into provider-neutral models."""
+    if not isinstance(content, list):
+        return ()
+    parsed: list[ToolCall] = []
+    for item in content:
+        if _item_value(item, "type") != "tool_use":
+            continue
+        tool_call_id = _item_value(item, "id")
+        name = _item_value(item, "name")
+        arguments = _item_value(item, "input")
+        if (
+            not isinstance(tool_call_id, str)
+            or not isinstance(name, str)
+            or not isinstance(arguments, dict)
+        ):
+            raise ProviderError("Anthropic provider returned an invalid tool call")
+        parsed.append(ToolCall(id=tool_call_id, name=name, arguments=arguments))
+    return tuple(parsed)
+
+
+def _item_value(item: Any, key: str) -> Any:
+    """Read one field from an SDK content model or a test dictionary."""
+    if isinstance(item, dict):
+        return item.get(key)
+    return getattr(item, key, None)
 
 
 def _content_to_text(content: Any) -> str:

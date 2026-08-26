@@ -42,6 +42,8 @@ from fraudlens_llm.models import (
     ScanOutcome,
     Strictness,
     TaskType,
+    ToolCall,
+    ToolDefinition,
 )
 from fraudlens_llm.providers import Protocol, ProviderConfig, Providers, load_providers
 from fraudlens_llm.settings import LlmSettings, get_llm_settings
@@ -91,6 +93,8 @@ __all__ = [
     "StreamGenerationRequest",
     "Strictness",
     "TaskType",
+    "ToolCall",
+    "ToolDefinition",
     "UnsupportedParameterError",
     "get_llm_settings",
     "load_catalog",

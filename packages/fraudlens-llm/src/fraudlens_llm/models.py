@@ -9,6 +9,8 @@ Key classes:
 - GuardrailDecision: Normalized guardrail decisions.
 - TaskType: Call intent used to tune deterministic guardrail handling.
 - Role: Chat message role values.
+- ToolDefinition: Provider-neutral function tool definition.
+- ToolCall: Provider-neutral function tool invocation.
 - LlmMessage: Typed chat message boundary.
 - Finding: Guardrail finding with category, severity, and location.
 - ScanOutcome: Guardrail scan decision plus findings.
@@ -28,9 +30,11 @@ Notes:
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+
+_TOOL_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 
 class DataClass(StrEnum):
@@ -80,6 +84,45 @@ class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class ToolDefinition(BaseModel):
+    """Provider-neutral JSON-Schema function tool definition."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(
+        ...,
+        pattern=_TOOL_NAME_PATTERN,
+        description="Stable tool name exposed to the model.",
+    )
+    description: str = Field(
+        ...,
+        min_length=1,
+        description="Plain-language description of the read-only capability.",
+    )
+    parameters: dict[str, JsonValue] = Field(
+        ...,
+        description="JSON Schema describing the accepted tool arguments.",
+    )
+
+
+class ToolCall(BaseModel):
+    """Provider-neutral function tool invocation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(..., min_length=1, description="Provider-issued tool invocation id.")
+    name: str = Field(
+        ...,
+        pattern=_TOOL_NAME_PATTERN,
+        description="Declared tool name requested by the model.",
+    )
+    arguments: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Parsed JSON arguments supplied to the tool.",
+    )
 
 
 class LlmMessage(BaseModel):
@@ -88,7 +131,33 @@ class LlmMessage(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     role: Role = Field(..., description="Role of the chat message.")
-    content: str = Field(..., min_length=1, description="Text content for the message.")
+    content: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Text content, optional only for an assistant tool request.",
+    )
+    tool_calls: tuple[ToolCall, ...] = Field(
+        default=(),
+        description="Tool invocations emitted by an assistant message.",
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Invocation id answered by a tool-role result message.",
+    )
+
+    @model_validator(mode="after")
+    def validate_role_payload(self) -> Self:
+        """Require role-appropriate text, tool calls, and tool result ids."""
+        if self.tool_calls and self.role != Role.ASSISTANT:
+            raise ValueError("tool_calls are valid only on assistant messages")
+        if self.tool_call_id is not None and self.role != Role.TOOL:
+            raise ValueError("tool_call_id is valid only on tool messages")
+        if self.role == Role.TOOL and self.tool_call_id is None:
+            raise ValueError("tool messages require tool_call_id")
+        if self.content is None and not (self.role == Role.ASSISTANT and self.tool_calls):
+            raise ValueError("message content is required unless assistant tool_calls are present")
+        return self
 
 
 class Finding(BaseModel):
@@ -161,6 +230,10 @@ class LlmResult(BaseModel):
     served_model: str | None = Field(default=None, description="Provider-reported served model.")
     finish_reason: str | None = Field(default=None, description="Provider finish reason.")
     usage: LlmUsage = Field(..., description="Normalized usage metrics.")
+    tool_calls: tuple[ToolCall, ...] = Field(
+        default=(),
+        description="Validated tool invocations requested by the model.",
+    )
     guardrail: GuardrailReport = Field(..., description="Guardrail report for the call.")
     raw_text: str | None = Field(
         default=None,

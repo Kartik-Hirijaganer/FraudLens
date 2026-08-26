@@ -410,9 +410,16 @@ function transactionColumns(
             onClick={() => void investigate(transaction.transactionId)}
             disabled={investigatingId !== null}
             aria-label={`Investigate transaction ${displayRef}`}
-            className="text-mute hover:text-ink disabled:opacity-50"
+            className="gap-xs text-body-sm text-ink inline-flex items-center font-semibold disabled:opacity-50"
           >
-            {busy ? <span className="text-body-sm">Starting…</span> : <ChevronRight />}
+            {busy ? (
+              "Starting…"
+            ) : (
+              <>
+                Investigate
+                <ChevronRight />
+              </>
+            )}
           </button>
         );
       },

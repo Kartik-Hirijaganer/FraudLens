@@ -6,7 +6,7 @@ vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
 import { signIn, signOut, type UserRole } from "../lib/session";
-import { alertDetail, alertView, demoPersona, makeClient } from "../test/factories";
+import { agentRun, alertDetail, alertView, demoPersona, makeClient } from "../test/factories";
 import { AlertDetail } from "./AlertDetail";
 
 function signInAs(role: UserRole): void {
@@ -193,8 +193,33 @@ describe("AlertDetail", () => {
     });
     render(<AlertDetail alertId="alert-1" client={client} />);
     expect(await screen.findByText("Case closed")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the investigation run" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close alert" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("shows shared production provenance and opens the originating investigation", async () => {
+    signInAs("reviewer");
+    const client = makeClient({
+      getAlert: vi.fn(() =>
+        Promise.resolve(
+          alertDetail({
+            workflowMode: "multi_agent",
+            graphVersion: "agents-v1",
+            agentExecutions: [agentRun()],
+          }),
+        ),
+      ),
+    });
+    render(<AlertDetail alertId="alert-1" client={client} />);
+
+    expect(await screen.findByText("How this SAR was produced")).toBeInTheDocument();
+    expect(screen.getByText("4-agent review")).toBeInTheDocument();
+    expect(screen.getByText("Recorded")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open the investigation run" }));
+    expect(window.location.hash).toBe("#/investigations/run-1");
   });
 
   it("shows only analyst-permitted actions", async () => {

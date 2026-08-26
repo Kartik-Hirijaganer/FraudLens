@@ -33,7 +33,9 @@ describe("Transactions", () => {
     render(<Transactions client={client} />);
     expect(await screen.findByText(DEFAULT_TRANSACTION_REF)).toBeInTheDocument();
     expect(client.listModelVersions).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: /Investigate transaction/ }));
+    const investigateButton = screen.getByRole("button", { name: /Investigate transaction/ });
+    expect(investigateButton).toHaveTextContent("Investigate");
+    await userEvent.click(investigateButton);
     expect(client.startInvestigation).toHaveBeenCalledWith({
       transactionId: "tx-1",
       modelOverride: undefined,
