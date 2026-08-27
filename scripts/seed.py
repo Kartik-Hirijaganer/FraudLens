@@ -100,7 +100,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "labelMaturityDays": 7,
     "canaryPercent": 0,
     "modelGates": ModelGates().model_dump(by_alias=True),
-    "featureFlags": {"phiNerMasking": False},
+    "featureFlags": {"phiNerMasking": False, "multiAgentSar": False},
 }
 
 
@@ -204,12 +204,25 @@ async def _ensure_bootstrap_admin(
     return 1
 
 
-async def _ensure_config(session: AsyncSession) -> int:
-    """Insert each default GLOBAL config key (agency_id NULL) if absent; return the count."""
+async def _ensure_config(session: AsyncSession, config: PortfolioDemoConfig | None = None) -> int:
+    """Ensure global defaults plus the demo tenant's explicit multi-agent feature override."""
     for key, value in _DEFAULT_CONFIG.items():
         stmt = select(SystemConfig).where(SystemConfig.agency_id.is_(None), SystemConfig.key == key)
         if (await session.execute(stmt)).scalar_one_or_none() is None:
             session.add(SystemConfig(agency_id=None, key=key, value=value))
+    if config is not None:
+        feature_stmt = select(SystemConfig).where(
+            SystemConfig.agency_id == config.agency.id,
+            SystemConfig.key == "featureFlags",
+        )
+        if (await session.execute(feature_stmt)).scalar_one_or_none() is None:
+            session.add(
+                SystemConfig(
+                    agency_id=config.agency.id,
+                    key="featureFlags",
+                    value={"multiAgentSar": config.execution.multi_agent_sar_enabled},
+                )
+            )
     return len(_DEFAULT_CONFIG)
 
 
@@ -323,7 +336,7 @@ async def seed(
     await session.flush()  # the agency must exist before its FKs (users, config, job)
     user_count = await _ensure_users(session, resolved_config)
     user_count += await _ensure_bootstrap_admin(session, resolved_settings, resolved_config)
-    config_count = await _ensure_config(session)
+    config_count = await _ensure_config(session, resolved_config)
     rules_count = await _ensure_rules(session)
     await _ensure_fixture_model(session)
     summary = SeedSummary(
