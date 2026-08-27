@@ -31,6 +31,7 @@ from tenancy import new_user_id
 from fraudlens_backend.api.deps import get_tenant
 from fraudlens_backend.db.models import (
     Agency,
+    AgentExecution,
     Alert,
     AlertAction,
     AlertOrigin,
@@ -49,6 +50,7 @@ from fraudlens_backend.db.models import (
     User,
     UserRole,
 )
+from fraudlens_backend.db.models.enums import AgentExecutionStatus, AgentRole
 from fraudlens_backend.db.repositories import (
     AnalysisRunRepository,
     ModelRegistryRepository,
@@ -239,6 +241,33 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
         origin=AlertOrigin.SEED,
         assigned_to=_REVIEWER_ID,
     )
+    async with db_sessionmaker() as session:
+        run = await session.get(AnalysisRun, ids["run_id"])
+        run.workflow_mode = "multi_agent"
+        run.graph_version = "agents-v1"
+        session.add(
+            AgentExecution(
+                agency_id=DEMO_AGENCY_ID,
+                run_id=ids["run_id"],
+                agent=AgentRole.EVIDENCE_INVESTIGATOR,
+                attempt=1,
+                model_id="mock",
+                prompt_version="v1",
+                prompt_hash="p" * 64,
+                input_hash="i" * 64,
+                result_hash="r" * 64,
+                status=AgentExecutionStatus.COMPLETED,
+                latency_ms=0,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                cost_usd=Decimal("0"),
+                model_call_count=2,
+                result={"outcome": "completed"},
+                tool_calls=[],
+            )
+        )
+        await session.commit()
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
@@ -251,6 +280,12 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     assert body["alert"]["assignedTo"] == str(_REVIEWER_ID)
     assert body["alert"]["assignedToName"] == "Demo Reviewer"
     assert body["sarDraft"]["citations"][0]["citation"] == "31 CFR 1010.314"
+    assert body["workflowMode"] == "multi_agent"
+    assert body["graphVersion"] == "agents-v1"
+    assert body["revisionCount"] == 0
+    assert body["sarContent"] == "Original SAR narrative."
+    assert body["agentExecutions"][0]["agent"] == "evidence_investigator"
+    assert body["agentExecutions"][0]["modelCallCount"] == 2
     assert body["actions"] == []
 
 
