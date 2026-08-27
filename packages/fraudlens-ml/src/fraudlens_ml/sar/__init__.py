@@ -8,7 +8,9 @@ Re-exports are intentional (the public SAR contract surface)."""
 from __future__ import annotations
 
 from fraudlens_ml.sar.protocol import (
+    SarAgentEvent,
     SarCitation,
+    SarClaim,
     SarDraftContent,
     SarDrafter,
     SarDraftResult,
@@ -22,7 +24,9 @@ from fraudlens_ml.sar.protocol import (
 )
 
 __all__ = [
+    "SarAgentEvent",
     "SarCitation",
+    "SarClaim",
     "SarDraftContent",
     "SarDraftResult",
     "SarDraftStatus",
