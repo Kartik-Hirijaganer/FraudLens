@@ -1,6 +1,6 @@
 """Tests for the in-process RunManager + the SSE `_event_stream` (plan §16 Phase 8, ADR-016):
-idempotency dedupe, background-task launch + live broadcast to subscribers, run-state eviction, and
-the observer's replay-from-`Last-Event-ID` then live-tail with seq de-duplication. The Runner is
+background-task launch + live broadcast to subscribers, run-state eviction, and the observer's
+replay-from-`Last-Event-ID` then live-tail with seq de-duplication. The Runner is
 driven through fakes (build_pipeline_deps is patched) so these assert the orchestration plumbing
 without the heavy model; the SSE generator is stepped deterministically via `__anext__`."""
 
@@ -75,41 +75,12 @@ def _pipeline_input(run_id: uuid.UUID) -> PipelineInput:
     )
 
 
-def test_idempotency_lookup_and_remember(
-    make_settings: Callable[..., AppSettings],
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    manager = _manager(make_settings, db_sessionmaker)
-    assert manager.lookup_idempotent("a1", "key-1") is None
-    manager.remember_idempotent("a1", "key-1", "run-1")
-    assert manager.lookup_idempotent("a1", "key-1") == "run-1"
-    assert manager.lookup_idempotent("a2", "key-1") is None  # scoped per agency
-
-
 def test_attach_returns_none_for_unknown_run(
     make_settings: Callable[..., AppSettings],
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     manager = _manager(make_settings, db_sessionmaker)
     assert manager.attach(str(uuid.uuid4())) is None
-
-
-def test_idempotency_map_is_lru_bounded(
-    make_settings: Callable[..., AppSettings],
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    manager = RunManager(
-        sessionmaker=db_sessionmaker,
-        components=_components(make_settings),
-        settings=make_settings(investigation_idempotency_cache_size=2),
-    )
-    manager.remember_idempotent("a", "k1", "r1")
-    manager.remember_idempotent("a", "k2", "r2")
-    assert manager.lookup_idempotent("a", "k1") == "r1"  # touch k1 → k2 becomes least-recent
-    manager.remember_idempotent("a", "k3", "r3")  # over cap → evict the LRU entry (k2)
-    assert manager.lookup_idempotent("a", "k2") is None  # evicted
-    assert manager.lookup_idempotent("a", "k1") == "r1"  # retained (recently used)
-    assert manager.lookup_idempotent("a", "k3") == "r3"  # retained (newest)
 
 
 async def test_start_drives_run_and_broadcasts_then_evicts(
