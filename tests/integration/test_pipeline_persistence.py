@@ -11,6 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from pipeline_fakes import (
     FakeExplainerPort,
     FakeRetrieverPort,
@@ -22,6 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tenancy import new_agency_id
 
+import fraudlens_backend.pipeline_wiring as wiring
 from fraudlens_backend.db.models import (
     Agency,
     Alert,
@@ -50,6 +52,7 @@ from fraudlens_backend.pipeline_wiring import PipelineRunStore
 from fraudlens_core import RiskBand, RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
+from fraudlens_ml.sar import SarDraftResult, SarDraftStatus
 
 _AGENCY_ID = new_agency_id()
 _VERSION_ID = uuid.UUID("33333333-3333-4333-8333-0000000000aa")
@@ -222,6 +225,42 @@ async def test_run_persists_all_rows_and_completes(
         ).scalar_one()
         assert scored_txn.latest_run_id == run.id
         assert scored_txn.risk_band is RiskBand.HIGH
+
+
+async def test_multi_agent_draft_does_not_emit_a_duplicate_aggregate_llm_call(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Agent attempts own telemetry; save_sar retains aggregate logging for single-writer only."""
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(wiring, "log_llm_call", lambda **fields: calls.append(fields))
+    async with db_sessionmaker() as session:
+        transaction = await _seed(session)
+        run = await AnalysisRunRepository(session, _AGENCY_ID).create_running(
+            transaction_id=transaction.id,
+            workflow_mode="multi_agent",
+        )
+        await session.commit()
+        store = PipelineRunStore(
+            session=session,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            analysis=AnalysisRunRepository(session, _AGENCY_ID),
+            registry=ModelRegistryRepository(session),
+            sar=SarDraftRepository(session, _AGENCY_ID),
+        )
+        await store.save_sar(
+            SarDraftResult(
+                status=SarDraftStatus.DRAFT,
+                content="Synthetic multi-agent draft.",
+                model_id="mock",
+                prompt_version="v1",
+                prompt_hash="h",
+                workflow="multi_agent",
+            )
+        )
+
+    assert calls == []
 
 
 async def test_low_score_completes_without_alert(

@@ -79,8 +79,9 @@ def test_readyz_is_ready_with_skipped_dependencies(
     assert {check["name"] for check in body["checks"]} == {
         "database",
         "chromadb",
-        "jwks",
+        "supabaseAuth",
         "infisical",
+        "openrouter",
     }
     assert all(check["status"] == "skipped" for check in body["checks"])
 
@@ -167,7 +168,7 @@ def test_readyz_chromadb_skipped_when_index_dir_unset(
     assert _check(client.get("/readyz").json(), "chromadb")["status"] == "skipped"
 
 
-def test_readyz_reports_jwks_ok_when_configured_and_reachable(
+def test_readyz_reports_supabase_auth_ok_when_configured_and_reachable(
     client_factory: Callable[..., TestClient],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -178,10 +179,10 @@ def test_readyz_reports_jwks_ok_when_configured_and_reachable(
     client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
     response = client.get("/readyz")
     assert response.status_code == 200
-    assert _check(response.json(), "jwks")["status"] == "ok"
+    assert _check(response.json(), "supabaseAuth")["status"] == "ok"
 
 
-def test_readyz_reports_jwks_down_when_configured_but_unreachable(
+def test_readyz_reports_supabase_auth_down_when_configured_but_unreachable(
     client_factory: Callable[..., TestClient],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -192,7 +193,47 @@ def test_readyz_reports_jwks_down_when_configured_but_unreachable(
     client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert _check(response.json(), "jwks")["status"] == "down"
+    assert _check(response.json(), "supabaseAuth")["status"] == "down"
+
+
+def test_readyz_live_profile_rejects_skipped_dependencies(
+    client_factory: Callable[..., TestClient],
+) -> None:
+    """A live LLM profile is not ready when any mandatory dependency is skipped."""
+    response = client_factory(llm_mode="live").get("/readyz")
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+
+
+def test_readyz_live_profile_requires_all_dependencies_ok(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A fully configured live profile reports ready only when all five probes pass."""
+
+    async def ok(_url: str, _timeout: float, **_kwargs: object) -> int:
+        return 200
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "synthetic-test-value")
+    monkeypatch.setattr(ops, "_fetch_status", ok)
+    client = client_factory(
+        llm_mode="live",
+        auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
+    )
+    client.app.state.db_engine = _OkEngine()
+    client.app.state.rag_index_dir = _build_fixture_index(
+        tmp_path / "live-chroma", client.app.state.settings.rag_collection
+    )
+    client.app.state.infisical_readiness_probe = lambda: DependencyCheck(
+        name="infisical", status="ok"
+    )
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert all(check["status"] == "ok" for check in response.json()["checks"])
 
 
 def test_resolve_index_dir_keeps_absolute_paths(

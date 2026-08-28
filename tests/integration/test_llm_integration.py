@@ -33,6 +33,8 @@ from fraudlens_llm import (
     Role,
     StreamGenerationRequest,
     TaskType,
+    ToolCall,
+    ToolDefinition,
 )
 from fraudlens_llm.adapters.base import (
     AdapterEmbeddingResult,
@@ -49,14 +51,19 @@ class _FakeAdapter:
         text: str = "safe response",
         fail_once: bool = False,
         embeddings: list[list[float]] | None = None,
+        tool_calls: tuple[ToolCall, ...] = (),
     ) -> None:
         self.text = text
         self.fail_once = fail_once
         self.embeddings = embeddings or [[0.1, 0.2]]
+        self.tool_calls = tool_calls
         self.generate_calls: list[Sequence[LlmMessage]] = []
         self.stream_generate_calls: list[Sequence[LlmMessage]] = []
         self.embed_calls: list[Sequence[str]] = []
         self.params: list[GenerationParams] = []
+        self.tools: list[Sequence[ToolDefinition]] = []
+        self.tool_choices: list[str | None] = []
+        self.response_schemas: list[dict[str, object] | None] = []
 
     async def generate(
         self,
@@ -65,10 +72,16 @@ class _FakeAdapter:
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, object] | None = None,
     ) -> AdapterGenerateResult:
-        _ = (model_id, card, params)
+        _ = (model_id, card)
         self.generate_calls.append(messages)
         self.params.append(params)
+        self.tools.append(tools)
+        self.tool_choices.append(tool_choice)
+        self.response_schemas.append(response_schema)
         if self.fail_once:
             self.fail_once = False
             raise LlmTimeoutError("timeout")
@@ -77,6 +90,7 @@ class _FakeAdapter:
             served_model="served",
             finish_reason="stop",
             usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+            tool_calls=self.tool_calls,
         )
 
     async def generate_stream(
@@ -118,7 +132,13 @@ class _FakeAdapter:
         )
 
 
-def _model_card(kind: Kind, *, callable_value: bool = True) -> ModelCard:
+def _model_card(
+    kind: Kind,
+    *,
+    callable_value: bool = True,
+    tool_calling: bool = False,
+    structured_output: bool = False,
+) -> ModelCard:
     return ModelCard(
         kind=kind,
         context_window=1000,
@@ -131,6 +151,8 @@ def _model_card(kind: Kind, *, callable_value: bool = True) -> ModelCard:
         verified_at="2026-06-10",
         lifecycle=Lifecycle.GA,
         callable=callable_value,
+        tool_calling=tool_calling,
+        structured_output=structured_output,
         pricing_basis="per_million_tokens",
     )
 
@@ -167,11 +189,21 @@ def _client(
     catalog = Catalog(
         providers={
             "openai": {
-                "chat": _model_card(Kind.CHAT),
+                "chat": _model_card(
+                    Kind.CHAT,
+                    tool_calling=True,
+                    structured_output=True,
+                ),
                 "embed": _model_card(Kind.EMBED),
                 "disabled": _model_card(Kind.CHAT, callable_value=False),
             },
-            "anthropic": {"chat": _model_card(Kind.CHAT)},
+            "anthropic": {
+                "chat": _model_card(
+                    Kind.CHAT,
+                    tool_calling=True,
+                    structured_output=True,
+                )
+            },
             "ollama": {"llama": _model_card(Kind.CHAT)},
             **({"openrouter": {"chat": _model_card(Kind.CHAT)}} if include_openrouter else {}),
         }
@@ -206,6 +238,19 @@ def _client(
     )
 
 
+def _tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="transaction_history",
+        description="Read transaction history by identifier.",
+        parameters={
+            "type": "object",
+            "properties": {"transaction_id": {"type": "string"}},
+            "required": ["transaction_id"],
+            "additionalProperties": False,
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_generate_masks_phi_before_fake_adapter_and_excludes_raw_by_default() -> None:
     client = _client()
@@ -227,6 +272,182 @@ async def test_generate_masks_phi_before_fake_adapter_and_excludes_raw_by_defaul
     assert result.raw_text is None
     assert result.guardrail.masking.total_masked == 2
     assert fake.params[0].max_tokens == 7
+
+
+@pytest.mark.asyncio
+async def test_generate_round_trips_tools_schema_and_masks_tool_surfaces() -> None:
+    client = _client()
+    fake = _FakeAdapter(
+        text="",
+        tool_calls=(
+            ToolCall(
+                id="call-2",
+                name="transaction_history",
+                arguments={"transaction_id": "a@example.com"},
+            ),
+        ),
+    )
+    client._adapters["openai"] = fake
+    prior_call = ToolCall(
+        id="call-1",
+        name="transaction_history",
+        arguments={"transaction_id": "txn-1"},
+    )
+    response_schema = {
+        "type": "object",
+        "properties": {"summary": {"type": "string"}},
+    }
+
+    result = await client.generate(
+        [
+            LlmMessage(role=Role.USER, content="Analyze the transaction."),
+            LlmMessage(role=Role.ASSISTANT, tool_calls=(prior_call,)),
+            LlmMessage(
+                role=Role.TOOL,
+                tool_call_id="call-1",
+                content='{"contact":"b@example.com"}',
+            ),
+        ],
+        model="openai/chat",
+        tools=[_tool()],
+        tool_choice="transaction_history",
+        response_schema=response_schema,
+        task_type=TaskType.ANALYSIS,
+    )
+
+    provider_messages = fake.generate_calls[0]
+    assert provider_messages[-1].content == '{"contact":"[REDACTED_EMAIL]"}'
+    assert fake.tools[0] == (_tool(),)
+    assert fake.tool_choices[0] == "transaction_history"
+    assert fake.response_schemas[0] == response_schema
+    assert result.tool_calls[0].arguments == {"transaction_id": "[REDACTED_EMAIL]"}
+    assert result.guardrail.masking.total_masked == 2
+
+
+@pytest.mark.asyncio
+async def test_undeclared_tool_calls_require_explicit_capture_for_refusal_workflows() -> None:
+    client = _client()
+    undeclared = ToolCall(
+        id="call-undeclared",
+        name="other",
+        arguments={"contact": "analyst@example.com"},
+    )
+    fake = _FakeAdapter(text="", tool_calls=(undeclared,))
+    client._adapters["openai"] = fake
+
+    with pytest.raises(GuardrailError, match="undeclared tool"):
+        await client.generate(
+            [LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+            model="openai/chat",
+            tools=[_tool()],
+            task_type=TaskType.ANALYSIS,
+        )
+
+    captured = await client.generate(
+        [LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+        model="openai/chat",
+        tools=[_tool()],
+        task_type=TaskType.ANALYSIS,
+        capture_undeclared_tool_calls=True,
+    )
+
+    assert captured.tool_calls[0].name == "other"
+    assert captured.tool_calls[0].arguments == {"contact": "[REDACTED_EMAIL]"}
+
+    fake.text = "safe response"
+    fake.tool_calls = ()
+    follow_up = await client.generate(
+        [
+            LlmMessage(role=Role.ASSISTANT, tool_calls=captured.tool_calls),
+            LlmMessage(
+                role=Role.TOOL,
+                tool_call_id="call-undeclared",
+                content="unauthorized_tool_call",
+            ),
+        ],
+        model="openai/chat",
+        tools=[_tool()],
+        task_type=TaskType.ANALYSIS,
+        capture_undeclared_tool_calls=True,
+    )
+
+    assert follow_up.safe_text == "safe response"
+    assert fake.generate_calls[-1][1].tool_calls[0].arguments == {"contact": "[REDACTED_EMAIL]"}
+
+
+@pytest.mark.asyncio
+async def test_tool_arguments_fail_closed_before_provider_access() -> None:
+    client = _client()
+    fake = _FakeAdapter()
+    client._adapters["openai"] = fake
+
+    for arguments in (
+        {"transaction_id": 7},
+        {"transaction_id": "http://127.0.0.1/private"},
+        {"transaction_id": "file:///etc/passwd"},
+        {"transaction_id": "https://example.com/not-allowlisted"},
+    ):
+        with pytest.raises(GuardrailError):
+            await client.generate(
+                [
+                    LlmMessage(
+                        role=Role.ASSISTANT,
+                        tool_calls=(
+                            ToolCall(
+                                id="call-1",
+                                name="transaction_history",
+                                arguments=arguments,
+                            ),
+                        ),
+                    )
+                ],
+                model="openai/chat",
+                tools=[_tool()],
+                task_type=TaskType.ANALYSIS,
+            )
+
+    assert fake.generate_calls == []
+
+
+@pytest.mark.asyncio
+async def test_tool_and_structured_capabilities_include_fallbacks() -> None:
+    client = _client()
+    fake = _FakeAdapter()
+    client._adapters["openai"] = fake
+
+    with pytest.raises(CapabilityMismatchError, match="openrouter/chat"):
+        await client.generate(
+            [LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+            model="openai/chat",
+            tools=[_tool()],
+            response_schema={"type": "object"},
+            fallbacks=["openrouter/chat"],
+            task_type=TaskType.ANALYSIS,
+        )
+    assert fake.generate_calls == []
+
+
+@pytest.mark.asyncio
+async def test_primary_model_capability_mismatch_fails_before_provider_access() -> None:
+    client = _client()
+    fake = _FakeAdapter()
+    client._adapters["openrouter"] = fake
+
+    with pytest.raises(CapabilityMismatchError, match="tool calling"):
+        await client.generate(
+            [LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+            model="openrouter/chat",
+            tools=[_tool()],
+            task_type=TaskType.ANALYSIS,
+        )
+    with pytest.raises(CapabilityMismatchError, match="structured output"):
+        await client.generate(
+            [LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+            model="openrouter/chat",
+            response_schema={"type": "object"},
+            task_type=TaskType.ANALYSIS,
+        )
+    assert fake.generate_calls == []
 
 
 @pytest.mark.asyncio

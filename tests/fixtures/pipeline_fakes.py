@@ -126,7 +126,19 @@ class FakeRetrieverPort:
             else "",
             mode="vector" if self._citations else "empty",
             rag_version="rag-test",
-            chunks=({"chunkId": "d::0", "citation": "31 CFR 1010.314"},) if self._citations else (),
+            chunks=(
+                {
+                    "chunk_id": "d::0",
+                    "doc_id": "d",
+                    "citation": "31 CFR 1010.314",
+                    "title": "Structuring",
+                    "source": "FinCEN",
+                    "text": "No person shall structure a transaction.",
+                    "score": 0.98,
+                },
+            )
+            if self._citations
+            else (),
         )
 
 
@@ -141,6 +153,7 @@ class FakeSarDrafter:
         prompt_version: str = "sar-v1",
         no_terminal: bool = False,
         raise_mid: bool = False,
+        raise_after_terminal: bool = False,
         include_empty_token: bool = False,
     ) -> None:
         self._tokens = tokens
@@ -148,6 +161,7 @@ class FakeSarDrafter:
         self._prompt_version = prompt_version
         self._no_terminal = no_terminal
         self._raise_mid = raise_mid
+        self._raise_after_terminal = raise_after_terminal
         self._include_empty_token = include_empty_token
 
     async def draft(self, sar_input: SarInput):
@@ -182,6 +196,8 @@ class FakeSarDrafter:
             SarEventType.COMPLETED if self._status is SarDraftStatus.DRAFT else SarEventType.FAILED
         )
         yield SarStreamEvent(type=event_type, result=result)
+        if self._raise_after_terminal:
+            raise RuntimeError("drafter teardown boom")
 
 
 class RecordingEmit:

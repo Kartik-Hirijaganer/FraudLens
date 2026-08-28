@@ -38,6 +38,7 @@ from fraudlens_llm import (
     Protocol,
     ProviderConfig,
     Providers,
+    ToolDefinition,
 )
 from fraudlens_llm.adapters.base import AdapterGenerateChunk, AdapterGenerateResult
 from fraudlens_llm.exceptions import LlmTimeoutError
@@ -64,7 +65,18 @@ class _FakeAdapter:
         self.calls: list[Sequence[LlmMessage]] = []
         self.emitted_deltas: list[str] = []
 
-    async def generate(self, *, model_id, card, messages, params) -> AdapterGenerateResult:
+    async def generate(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, object] | None = None,
+    ) -> AdapterGenerateResult:
+        _ = (model_id, card, params, tools, tool_choice, response_schema)
         self.calls.append(messages)
         if self.fail_once:
             self.fail_once = False
