@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.db.models import (
+    AgentExecution,
     Alert,
     AlertStatus,
     AnalysisRun,
@@ -34,6 +35,7 @@ from fraudlens_backend.db.models import (
     TrainingDataset,
     Transaction,
 )
+from fraudlens_backend.db.models.enums import AgentExecutionStatus, AgentRole
 from fraudlens_backend.db.repositories import DashboardRepository
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
@@ -246,6 +248,27 @@ async def test_metrics_aggregate_all_signals(
                 feature_hash="0" * 64,
             )
         )
+        session.add(
+            AgentExecution(
+                agency_id=DEMO_AGENCY_ID,
+                run_id=run_id,
+                agent=AgentRole.SAR_WRITER,
+                attempt=1,
+                model_id="openrouter/openai/gpt-5-mini",
+                prompt_version="v1",
+                prompt_hash="p" * 64,
+                input_hash="i" * 64,
+                result_hash="r" * 64,
+                status=AgentExecutionStatus.COMPLETED,
+                latency_ms=10,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                cost_usd=Decimal("0.004000"),
+                result={},
+                tool_calls=[],
+            )
+        )
         scored = await session.get(Transaction, transaction_id)
         scored.risk_band = RiskBand.HIGH
         await session.commit()
@@ -258,6 +281,7 @@ async def test_metrics_aggregate_all_signals(
     assert data.sar_cost_total == Decimal("0.010000")
     assert data.sar_cost_today == Decimal("0.010000")
     assert data.sar_draft_count == 1
+    assert data.agent_cost_usd == {"sar_writer": Decimal("0.004000")}
     assert data.recent_inference_count == 1
     assert data.transaction_risk_bands.get("high") == 1
     assert data.transaction_risk_bands.get("unscored", 0) == 0

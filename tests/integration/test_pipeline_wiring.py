@@ -18,7 +18,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tenancy import new_agency_id
 
-from fraudlens_backend.db.models import Agency, SystemConfig, Transaction
+import fraudlens_backend.pipeline_wiring as wiring
+from fraudlens_backend.agents.config import AgentRole
+from fraudlens_backend.agents.mock import MockAgentTeam
+from fraudlens_backend.db.models import (
+    Agency,
+    AgentExecution,
+    AnalysisRun,
+    RunStatus,
+    SystemConfig,
+    Transaction,
+)
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.pipeline_wiring import (
     ExplainerAdapter,
@@ -26,9 +36,11 @@ from fraudlens_backend.pipeline_wiring import (
     RulesAdapter,
     ScorerAdapter,
     build_pipeline_components,
+    build_pipeline_deps,
     build_pipeline_input,
     load_risk_policy,
 )
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import (
     DEFAULT_RULE_DEFINITIONS,
@@ -38,7 +50,9 @@ from fraudlens_core import (
     RuleRegistry,
 )
 from fraudlens_core.rules.base import TransactionDirection
+from fraudlens_ml.pipeline import StreamMessage
 from fraudlens_ml.rag import HashingEmbedder, Retriever
+from fraudlens_ml.sar import SarEventType, SarInput
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
 
 _AGENCY_ID = new_agency_id()
@@ -113,6 +127,101 @@ def test_build_pipeline_components_smoke(make_settings: Callable[..., AppSetting
     assert components.explainer is not None
     assert components.retriever is not None
     assert components.drafter is not None  # the mock drafter (no keys)
+
+
+async def test_build_pipeline_deps_binds_fresh_mock_team_and_persists_attempts(
+    make_settings: Callable[..., AppSettings],
+    make_sar_input: Callable[..., SarInput],
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real wiring binds a run-scoped mock team, tools, stable events, and persistence."""
+    telemetry: list[dict[str, object]] = []
+    monkeypatch.setattr(wiring, "log_llm_call", lambda **fields: telemetry.append(fields))
+    settings = make_settings(llm_mode="mock", multi_agent_sar_enabled=True)
+    components = build_pipeline_components(settings)
+    story = load_portfolio_demo_config(settings=settings)
+    scenario = next(
+        item
+        for item in story.scenarios
+        if item.scenario_id == story.execution.mock_agent_revision_scenario
+    )
+    async with db_sessionmaker() as session:
+        session.add(Agency(id=_AGENCY_ID, name="Agents", slug="agent-wiring"))
+        transaction = Transaction(
+            **_txn(external_id=story.external_id(scenario))  # type: ignore[arg-type]
+        )
+        session.add(transaction)
+        await session.flush()
+        run = AnalysisRun(
+            agency_id=_AGENCY_ID,
+            transaction_id=transaction.id,
+            status=RunStatus.RUNNING,
+            workflow_mode="multi_agent",
+            graph_version=components.agent_config.graph_version,
+        )
+        session.add(run)
+        await session.commit()
+
+        async def emit(_message: StreamMessage) -> None:
+            return None
+
+        deps = await build_pipeline_deps(
+            components=components,
+            session=session,
+            sessionmaker=db_sessionmaker,
+            settings=settings,
+            agency_id=_AGENCY_ID,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            workflow_mode="multi_agent",
+            emit=emit,
+        )
+        assert isinstance(deps.drafter, MockAgentTeam)
+        events = [
+            event
+            async for event in deps.drafter.draft(
+                make_sar_input(
+                    agency_id=str(_AGENCY_ID),
+                    transaction_id=str(transaction.id),
+                )
+            )
+        ]
+        replayed_deps = await build_pipeline_deps(
+            components=components,
+            session=session,
+            sessionmaker=db_sessionmaker,
+            settings=settings,
+            agency_id=_AGENCY_ID,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            workflow_mode="multi_agent",
+            emit=emit,
+        )
+        replayed_events = [
+            event
+            async for event in replayed_deps.drafter.draft(
+                make_sar_input(
+                    agency_id=str(_AGENCY_ID),
+                    transaction_id=str(transaction.id),
+                )
+            )
+        ]
+        executions = (
+            (await session.execute(select(AgentExecution).where(AgentExecution.run_id == run.id)))
+            .scalars()
+            .all()
+        )
+
+    assert len(executions) == 6
+    assert sum(event.type is SarEventType.AGENT_REVISION_REQUESTED for event in events) == 1
+    assert events[-1].result is not None
+    assert events[-1].result.workflow == "multi_agent"
+    assert not any(event.agent is not None for event in replayed_events)
+    assert len(telemetry) == 6
+    assert {item["agent"] for item in telemetry} == {role.value for role in AgentRole}
+    assert all(item["latency_ms"] == 0 for item in telemetry)
+    assert all("attempt" in item for item in telemetry)
 
 
 def _txn(**overrides: object) -> dict[str, object]:
