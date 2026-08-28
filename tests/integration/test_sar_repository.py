@@ -40,6 +40,8 @@ def _draft_result() -> SarDraftResult:
         model_id="mock",
         prompt_version="v1@1.0.0",
         prompt_hash="hash",
+        workflow="multi_agent",
+        revision_count=1,
         token_usage=SarTokenUsage(output_tokens=10, total_tokens=10),
         cost_usd=Decimal("0.000200"),
     )
@@ -59,6 +61,8 @@ async def test_create_persists_camelcase_and_bumps_version(db_session: AsyncSess
     assert "citedRegulations" in first.structured  # stored camelCase
     assert first.citations[0]["citation"] == "31 CFR 1010.314"
     assert first.cost_usd == Decimal("0.000200")
+    assert first.workflow == "multi_agent"
+    assert first.revision_count == 1
 
 
 @pytest.mark.asyncio
