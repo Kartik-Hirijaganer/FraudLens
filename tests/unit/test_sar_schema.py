@@ -8,6 +8,7 @@ from fraudlens_backend.sar.schema import (
     SarSchemaError,
     ground_citations,
     parse_and_ground,
+    parse_content,
     render_markdown,
 )
 from fraudlens_ml.sar import SarCitation, SarDraftContent
@@ -36,6 +37,12 @@ def test_parse_and_ground_tolerates_code_fence() -> None:
     fenced = f"```json\n{_VALID}\n```"
     content, _ = parse_and_ground(fenced, _citations())
     assert content.narrative == "Narrative."
+
+
+def test_parse_content_preserves_ungrounded_claims_for_review() -> None:
+    content = parse_content(_VALID)
+
+    assert content.cited_regulations == ("31 CFR 1010.314", "99 FAKE 1")
 
 
 def test_parse_and_ground_rejects_invalid_json() -> None:
@@ -76,3 +83,21 @@ def test_render_markdown_masks_phi_and_lists_citations() -> None:
 def test_render_markdown_handles_no_citations() -> None:
     content = SarDraftContent(subject="s", narrative="n", recommended_action="escalate")
     assert "**Cited regulations:** none" in render_markdown(content)
+
+
+def test_render_markdown_is_byte_identical_with_empty_claims() -> None:
+    content = SarDraftContent(
+        subject="Suspected structuring",
+        narrative="The transaction pattern warrants review.",
+        sections=(),
+        cited_regulations=("31 CFR 1010.314",),
+        recommended_action="Escalate for human review.",
+    )
+
+    assert render_markdown(content) == (
+        "# Suspicious Activity Report (draft — pending human review)\n\n"
+        "**Subject:** Suspected structuring\n\n"
+        "The transaction pattern warrants review.\n\n"
+        "**Cited regulations:** 31 CFR 1010.314\n\n"
+        "**Recommended action:** Escalate for human review."
+    )

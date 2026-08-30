@@ -9,8 +9,9 @@ running output policy/phishing scans + sanitization + governed fallback (plan §
 unvalidated partial JSON reaches an analyst; (4) parses the complete model JSON into a schema-valid,
 citation-GROUNDED `SarDraftContent` (no
 fabricated regulation ids); (5) records token usage + estimated cost for the audit trail (plan §7.4)
-and caches the result; (6) streams only the validated rendered result. Any
-provider/guardrail/schema failure degrades to a terminal
+ and caches the result; (6) streams only the validated rendered result. A schema-invalid provider
+response retains its token and cost telemetry before degrading. Any provider/guardrail/schema
+failure degrades to a terminal
 `failed` result so the run still completes with score+SHAP+RAG (plan §7.5) — it never throws except
 for the budget 429.
 
@@ -48,6 +49,7 @@ from fraudlens_llm import (
     LlmError,
     LlmMessage,
     LlmRateLimitError,
+    LlmResult,
     LlmTimeoutError,
     LlmUsage,
     ModelNotFoundError,
@@ -126,7 +128,9 @@ class LiveSarDrafter:
         try:
             content, grounded = parse_and_ground(llm_result.safe_text, sar_input.citations)
         except SarSchemaError:
-            async for event in stream_result(self._failed_result("sar_schema_invalid")):
+            async for event in stream_result(
+                self._failed_result("sar_schema_invalid", llm_result=llm_result)
+            ):
                 yield event
             return
 
@@ -150,13 +154,30 @@ class LiveSarDrafter:
         async for event in stream_result(result):
             yield event
 
-    def _failed_result(self, error_code: str) -> SarDraftResult:
-        """Build a terminal failed result (the run still completes with score+SHAP+RAG)."""
+    def _failed_result(
+        self, error_code: str, *, llm_result: LlmResult | None = None
+    ) -> SarDraftResult:
+        """Build a terminal failure, retaining provider accounting when a call completed."""
+        if llm_result is None:
+            return SarDraftResult(
+                status=SarDraftStatus.FAILED,
+                model_id=self._model,
+                prompt_version=self._prompt.prompt_version,
+                prompt_hash=self._prompt.prompt_hash,
+                error_code=error_code,
+            )
+        cost = self._estimate_cost(llm_result.model, llm_result.usage)
+        self._budget.record(cost)
         return SarDraftResult(
             status=SarDraftStatus.FAILED,
-            model_id=self._model,
+            model_id=llm_result.model,
+            provider=llm_result.provider,
             prompt_version=self._prompt.prompt_version,
             prompt_hash=self._prompt.prompt_hash,
+            token_usage=_usage(llm_result.usage),
+            cost_usd=cost,
+            fallback_count=0 if llm_result.model == self._model else 1,
+            guardrail_decision=llm_result.guardrail.decision.value,
             error_code=error_code,
         )
 
