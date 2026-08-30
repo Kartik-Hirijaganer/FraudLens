@@ -270,11 +270,17 @@ class JwksTokenVerifier:
         return AccessClaims(agency_id=agency_id, user_id=user_id, role=str(role))
 
 
-def get_token_verifier(settings: SettingsDep) -> TokenVerifier:
-    """Return the configured JWKS verifier, or the fail-closed verifier when absent."""
-    if settings.auth_jwks_url is None:
-        return _UnconfiguredTokenVerifier()
-    return JwksTokenVerifier(settings)
+def get_token_verifier(request: Request, settings: SettingsDep) -> TokenVerifier:
+    """Return one app-scoped JWKS verifier, or the fail-closed verifier when absent."""
+    verifier = getattr(request.app.state, "token_verifier", None)
+    if verifier is None:
+        verifier = (
+            _UnconfiguredTokenVerifier()
+            if settings.auth_jwks_url is None
+            else JwksTokenVerifier(settings)
+        )
+        request.app.state.token_verifier = verifier
+    return cast(TokenVerifier, verifier)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
