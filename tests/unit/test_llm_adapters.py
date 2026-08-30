@@ -62,6 +62,8 @@ from fraudlens_llm import (
     Protocol,
     ProviderConfig,
     Role,
+    ToolCall,
+    ToolDefinition,
     UnsupportedParameterError,
 )
 from fraudlens_llm.adapters.anthropic import AnthropicAdapter
@@ -146,10 +148,26 @@ class _OpenAiChatCompletions:
                     ),
                 ]
             )
+        tool_calls = (
+            [
+                SimpleNamespace(
+                    id="call-1",
+                    function=SimpleNamespace(
+                        name="transaction_history",
+                        arguments='{"transaction_id":"txn-1"}',
+                    ),
+                )
+            ]
+            if kwargs.get("tools")
+            else None
+        )
         return SimpleNamespace(
             choices=[
                 SimpleNamespace(
-                    message=SimpleNamespace(content="adapter ok"),
+                    message=SimpleNamespace(
+                        content=None if tool_calls else "adapter ok",
+                        tool_calls=tool_calls,
+                    ),
                     finish_reason="stop",
                 )
             ],
@@ -195,8 +213,20 @@ class _AnthropicMessages:
 
     async def create(self, **kwargs: object) -> object:
         self.calls.append(kwargs)
+        content = (
+            [
+                SimpleNamespace(
+                    type="tool_use",
+                    id="call-1",
+                    name="transaction_history",
+                    input={"transaction_id": "txn-1"},
+                )
+            ]
+            if kwargs.get("tools")
+            else [SimpleNamespace(type="text", text="anthropic ok")]
+        )
         return SimpleNamespace(
-            content=[SimpleNamespace(text="anthropic ok")],
+            content=content,
             usage=SimpleNamespace(input_tokens=3, output_tokens=4),
             model="served-anthropic",
             stop_reason="end_turn",
@@ -211,6 +241,19 @@ class _AnthropicClient:
 def _request_response(status_code: int = 400) -> tuple[httpx.Request, httpx.Response]:
     request = httpx.Request("GET", "https://example.com/models")
     return request, httpx.Response(status_code, request=request)
+
+
+def _tool() -> ToolDefinition:
+    return ToolDefinition(
+        name="transaction_history",
+        description="Read transaction history by identifier.",
+        parameters={
+            "type": "object",
+            "properties": {"transaction_id": {"type": "string"}},
+            "required": ["transaction_id"],
+            "additionalProperties": False,
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -243,6 +286,7 @@ async def test_openai_adapter_chat_and_embed_happy_paths() -> None:
 
     assert chat.text == "adapter ok"
     assert chat.usage.total_tokens == 9
+    assert fake.chat.completions.calls[0]["messages"] == [{"role": "user", "content": "hello"}]
     assert fake.chat.completions.calls[0]["response_format"] == {"type": "json_object"}
     assert embed.embeddings == [[0.1, 0.2]]
     assert fake.embeddings.calls[0]["dimensions"] == 2
@@ -251,6 +295,63 @@ async def test_openai_adapter_chat_and_embed_happy_paths() -> None:
     assert fake.chat.completions.calls[1]["stream"] is True
     assert fake.chat.completions.calls[1]["stream_options"] == {"include_usage": True}
     assert fake.chat.completions.calls[1]["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_maps_tools_messages_and_structured_output() -> None:
+    adapter = OpenAiCompatibleAdapter("openai", _provider_config())
+    fake = _OpenAiClient()
+    adapter._client = fake
+    tool_call = ToolCall(
+        id="call-0",
+        name="transaction_history",
+        arguments={"transaction_id": "txn-0"},
+    )
+
+    result = await adapter.generate(
+        model_id="gpt-5-mini",
+        card=_card(),
+        messages=[
+            LlmMessage(role=Role.USER, content="Find transaction context."),
+            LlmMessage(role=Role.ASSISTANT, tool_calls=(tool_call,)),
+            LlmMessage(role=Role.TOOL, tool_call_id="call-0", content='{"count":1}'),
+        ],
+        params=GenerationParams(max_tokens=10),
+        tools=[_tool()],
+        tool_choice="transaction_history",
+        response_schema={
+            "title": "Agent Result",
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+        },
+    )
+
+    call = fake.chat.completions.calls[0]
+    assert call["messages"][1]["tool_calls"][0]["function"]["name"] == "transaction_history"
+    assert call["messages"][2] == {
+        "role": "tool",
+        "content": '{"count":1}',
+        "tool_call_id": "call-0",
+    }
+    assert call["tools"][0]["function"]["parameters"]["type"] == "object"
+    assert call["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "transaction_history"},
+    }
+    assert call["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "Agent_Result",
+            "strict": True,
+            "schema": {
+                "title": "Agent Result",
+                "type": "object",
+                "properties": {"summary": {"type": "string"}},
+            },
+        },
+    }
+    assert result.text == ""
+    assert result.tool_calls[0].arguments == {"transaction_id": "txn-1"}
 
 
 @pytest.mark.asyncio
@@ -336,6 +437,29 @@ def test_openai_adapter_client_factory_and_normalizers(
     assert usage.total_tokens == 3
 
 
+def test_provider_tool_call_parsers_fail_closed_on_malformed_blocks() -> None:
+    with pytest.raises(ProviderError, match="malformed tool arguments"):
+        openai_module._tool_calls_from_openai(
+            [
+                SimpleNamespace(
+                    id="call-1",
+                    function=SimpleNamespace(name="lookup", arguments="not-json"),
+                )
+            ]
+        )
+    with pytest.raises(ProviderError, match="invalid tool call"):
+        anthropic_module._tool_calls_from_anthropic(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "call-1",
+                    "name": "lookup",
+                    "input": "not-an-object",
+                }
+            ]
+        )
+
+
 def test_openai_error_mapping_ladder() -> None:
     request, bad_response = _request_response(400)
     _same_request, retry_response = _request_response(503)
@@ -391,6 +515,7 @@ async def test_anthropic_adapter_chat_and_rejects_embed() -> None:
     assert result.usage.total_tokens == 7
     call = fake.messages.calls[0]
     assert call["system"] == "policy"
+    assert call["messages"] == [{"role": "user", "content": "hello"}]
     assert call["stop_sequences"] == ["END"]
     with pytest.raises(CapabilityMismatchError):
         await adapter.embed(
@@ -399,6 +524,57 @@ async def test_anthropic_adapter_chat_and_rejects_embed() -> None:
             inputs=["hello"],
             params=GenerationParams(),
         )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_maps_tool_use_and_tool_result_blocks() -> None:
+    adapter = AnthropicAdapter("anthropic", _provider_config(Protocol.ANTHROPIC))
+    fake = _AnthropicClient()
+    adapter._client = fake
+    tool_call = ToolCall(
+        id="call-0",
+        name="transaction_history",
+        arguments={"transaction_id": "txn-0"},
+    )
+
+    result = await adapter.generate(
+        model_id="claude-sonnet",
+        card=_card(),
+        messages=[
+            LlmMessage(role=Role.SYSTEM, content="policy"),
+            LlmMessage(role=Role.ASSISTANT, content="Checking.", tool_calls=(tool_call,)),
+            LlmMessage(role=Role.TOOL, tool_call_id="call-0", content='{"count":1}'),
+        ],
+        params=GenerationParams(max_tokens=10),
+        tools=[_tool()],
+        tool_choice="required",
+        response_schema={"type": "object"},
+    )
+
+    call = fake.messages.calls[0]
+    assert call["messages"][0]["content"][1] == {
+        "type": "tool_use",
+        "id": "call-0",
+        "name": "transaction_history",
+        "input": {"transaction_id": "txn-0"},
+    }
+    assert call["messages"][1] == {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": "call-0", "content": '{"count":1}'}],
+    }
+    assert call["tools"][0]["input_schema"]["type"] == "object"
+    assert call["tool_choice"] == {"type": "any"}
+    assert call["output_config"] == {
+        "format": {"type": "json_schema", "schema": {"type": "object"}}
+    }
+    assert result.text == ""
+    assert result.tool_calls == (
+        ToolCall(
+            id="call-1",
+            name="transaction_history",
+            arguments={"transaction_id": "txn-1"},
+        ),
+    )
 
 
 @pytest.mark.asyncio
