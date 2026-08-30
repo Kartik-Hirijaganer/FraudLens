@@ -98,6 +98,8 @@ def test_log_llm_call_records_cost_and_provenance_without_content() -> None:
         model_version="v0-fixture",
         run_id="run-1",
         agency_id="ag-1",
+        agent="sar_writer",
+        attempt=2,
     )
     record = _last_record(buf)
     assert record["event"] == "llm.call"
@@ -110,6 +112,8 @@ def test_log_llm_call_records_cost_and_provenance_without_content() -> None:
     assert record["model_version"] == "v0-fixture"
     assert record["run_id"] == "run-1"
     assert record["agency_id"] == "ag-1"
+    assert record["agent"] == "sar_writer"
+    assert record["attempt"] == 2
 
 
 def test_log_llm_call_omits_absent_optional_fields() -> None:
