@@ -135,10 +135,14 @@ dup-check: ## Copy/paste detection (jscpd).
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
 deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
-	# --skip-editable: the local workspace packages are not on PyPI. --ignore-vuln: CVE-2026-45829
-	# (ChromaDB HTTP-server /api/v2 RCE) is not exploitable here — we use the embedded/baked index,
-	# not the server, and no fix is published; assessed in docs/runbooks/security.md §5.
-	$(UV) run pip-audit --desc --skip-editable --ignore-vuln CVE-2026-45829
+	# --skip-editable: local workspace packages are not on PyPI. The four ChromaDB advisories
+	# affect its unexposed HTTP/auth server, not FraudLens's embedded PersistentClient; no fixes
+	# are published. Each exception is assessed in docs/runbooks/security.md §5.1.
+	$(UV) run pip-audit --desc --skip-editable \
+		--ignore-vuln CVE-2026-45829 \
+		--ignore-vuln CVE-2026-45830 \
+		--ignore-vuln CVE-2026-45831 \
+		--ignore-vuln CVE-2026-45833
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run python scripts/update_docs.py --check openapi
@@ -321,7 +325,7 @@ sar-eval-scenarios: ## Generate the deterministic, synthetic 8x4 evaluation matr
 sar-eval-run: ## Run API arms (required: SAR_EVAL_RUN + cap; optional retry: SAR_EVAL_RETRY_FAILED=1; spends).
 	@test -n "$(SAR_EVAL_RUN)" || { echo "SAR_EVAL_RUN=<run-id> is required"; exit 2; }
 	@test -n "$(SAR_EVAL_RUN_MAX_USD)" || { echo "SAR_EVAL_RUN_MAX_USD=<hard-cap> is required"; exit 2; }
-	infisical run --env=prod --path=/backend -- env \
+	infisical run --env=prod --path=/ --recursive -- env \
 		SAR_EVAL_RUN_MAX_USD="$(SAR_EVAL_RUN_MAX_USD)" \
 		$(SAR_EVAL) run --run "$(SAR_EVAL_RUN)" $(SAR_EVAL_RETRY_ARG)
 sar-eval-judge: ## Run the blind cross-family judge (SAR_EVAL_RUN + SAR_EVAL_JUDGE_MAX_USD required; spends).
