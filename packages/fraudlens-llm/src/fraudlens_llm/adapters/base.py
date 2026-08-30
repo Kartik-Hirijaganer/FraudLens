@@ -24,7 +24,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from fraudlens_llm.catalog import GenerationParams, ModelCard
-from fraudlens_llm.models import LlmMessage, LlmUsage
+from fraudlens_llm.models import LlmMessage, LlmUsage, ToolCall, ToolDefinition
 
 
 class AdapterGenerateResult(BaseModel):
@@ -36,6 +36,10 @@ class AdapterGenerateResult(BaseModel):
     served_model: str | None = Field(default=None, description="Provider-reported model.")
     finish_reason: str | None = Field(default=None, description="Provider finish reason.")
     usage: LlmUsage = Field(..., description="Normalized usage metrics.")
+    tool_calls: tuple[ToolCall, ...] = Field(
+        default=(),
+        description="Provider tool invocations normalized from the response.",
+    )
 
 
 class AdapterGenerateChunk(BaseModel):
@@ -63,13 +67,16 @@ class AdapterEmbeddingResult(BaseModel):
 class ProviderAdapter(Protocol):
     """Private provider adapter protocol."""
 
-    async def generate(
+    async def generate(  # noqa: PLR0913 - explicit provider capability arguments.
         self,
         *,
         model_id: str,
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> AdapterGenerateResult:
         """Generate text with a provider SDK."""
 
