@@ -10,7 +10,9 @@ from pydantic import ValidationError
 
 from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_ml.sar import (
+    SarAgentEvent,
     SarCitation,
+    SarClaim,
     SarDraftContent,
     SarDrafter,
     SarDraftResult,
@@ -40,8 +42,32 @@ def test_sar_draft_content_rejects_unknown_fields() -> None:
 
 def test_sar_draft_content_defaults_are_empty() -> None:
     content = SarDraftContent(subject="s", narrative="n", recommended_action="escalate")
+    assert content.claims == ()
     assert content.sections == ()
     assert content.cited_regulations == ()
+
+
+def test_sar_claim_aliases_round_trip() -> None:
+    content = SarDraftContent.model_validate(
+        {
+            "subject": "Structuring indicators",
+            "narrative": "Multiple transactions remained below a reporting threshold.",
+            "claims": [
+                {
+                    "statement": "The transaction pattern warrants human review.",
+                    "evidenceRefs": ["rule-hit:structuring"],
+                    "citationIds": ["31 CFR 1010.314"],
+                }
+            ],
+            "recommendedAction": "Escalate for human review.",
+        }
+    )
+
+    dumped = content.model_dump(mode="json", by_alias=True)
+    assert dumped["claims"][0]["evidenceRefs"] == ["rule-hit:structuring"]
+    assert dumped["claims"][0]["citationIds"] == ["31 CFR 1010.314"]
+    assert SarDraftContent.model_validate(dumped) == content
+    assert isinstance(content.claims[0], SarClaim)
 
 
 def test_sar_stream_event_defaults_are_none() -> None:
@@ -54,6 +80,28 @@ def test_sar_stream_event_defaults_are_none() -> None:
         ),
     )
     assert completed.token is None
+    assert completed.agent is None
+
+
+def test_sar_agent_event_and_result_defaults_preserve_single_writer_contract() -> None:
+    agent = SarAgentEvent(
+        agent_run_id="agent-run-1",
+        agent="evidence_investigator",
+        attempt=1,
+        tool_name="rule_hits",
+    )
+    event = SarStreamEvent(type=SarEventType.AGENT_TOOL_COMPLETED, agent=agent)
+    result = SarDraftResult(
+        status=SarDraftStatus.DRAFT,
+        model_id="mock",
+        prompt_version="v1@1.0.0",
+        prompt_hash="h",
+    )
+
+    assert event.model_dump(by_alias=True)["agent"]["agentRunId"] == "agent-run-1"
+    assert event.model_dump(by_alias=True)["agent"]["toolName"] == "rule_hits"
+    assert result.workflow == "single_writer"
+    assert result.revision_count == 0
 
 
 def test_sar_drafter_is_runtime_checkable() -> None:
@@ -81,12 +129,22 @@ def test_sar_draft_view_projects_camelcase() -> None:
         model_id="mock",
         prompt_version="v1@1.0.0",
         prompt_hash="h",
+        workflow="multi_agent",
+        revision_count=1,
         token_usage={"totalTokens": 10},
         cost_usd=Decimal("0"),
         created_at=datetime.now(UTC),
     )
     dumped = view.model_dump(by_alias=True)
-    assert {"sarDraftId", "runId", "modelId", "promptVersion", "costUsd"} <= set(dumped)
+    assert {
+        "sarDraftId",
+        "runId",
+        "modelId",
+        "promptVersion",
+        "workflow",
+        "revisionCount",
+        "costUsd",
+    } <= set(dumped)
 
 
 def test_sar_citation_and_status_values() -> None:

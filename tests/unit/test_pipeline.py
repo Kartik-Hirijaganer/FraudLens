@@ -22,7 +22,14 @@ from pipeline_fakes import (
 from fraudlens_core import RiskBand, RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
-from fraudlens_ml.sar import SarDraftStatus
+from fraudlens_ml.sar import (
+    SarAgentEvent,
+    SarDraftContent,
+    SarDraftResult,
+    SarDraftStatus,
+    SarEventType,
+    SarStreamEvent,
+)
 
 _FULL_SEQUENCE = [
     "run.started",
@@ -134,6 +141,50 @@ async def test_tokens_stream_live_but_are_not_persisted() -> None:
     assert emit.event_types[-1] == "run.completed"
 
 
+async def test_agent_lifecycle_persists_while_tool_event_remains_ephemeral() -> None:
+    class _AgentEventDrafter:
+        """Emit one agent lifecycle with an ephemeral tool event and terminal draft."""
+
+        async def draft(self, sar_input):
+            agent = SarAgentEvent(
+                agent_run_id="agent-run-1",
+                agent="evidence_investigator",
+                attempt=1,
+            )
+            yield SarStreamEvent(type=SarEventType.AGENT_STARTED, agent=agent)
+            yield SarStreamEvent(
+                type=SarEventType.AGENT_TOOL_COMPLETED,
+                agent=agent.model_copy(update={"tool_name": "rule_hits", "status": "completed"}),
+            )
+            yield SarStreamEvent(
+                type=SarEventType.AGENT_COMPLETED,
+                agent=agent.model_copy(update={"status": "completed"}),
+            )
+            result = SarDraftResult(
+                status=SarDraftStatus.DRAFT,
+                content="Synthetic draft.",
+                structured=SarDraftContent(
+                    subject="Synthetic review",
+                    narrative="Synthetic draft.",
+                    recommended_action="Escalate for human review.",
+                ),
+                model_id="mock",
+                prompt_version="v1",
+                prompt_hash="hash",
+            )
+            yield SarStreamEvent(type=SarEventType.COMPLETED, result=result)
+
+    store, emit = FakeRunStore(), RecordingEmit()
+    await Runner(_deps(store, emit, drafter=_AgentEventDrafter())).run(_pipeline_input())
+
+    assert "agent.started" in store.event_types
+    assert "agent.completed" in store.event_types
+    assert "agent.tool.completed" not in store.event_types
+    assert "agent.tool.completed" in emit.event_types
+    started_payload = dict(store.events)["agent.started"]
+    assert started_payload["agentRunId"] == "agent-run-1"
+
+
 async def test_scoring_event_payload_carries_probability_and_model_version() -> None:
     store = FakeRunStore()
     await Runner(_deps(store, RecordingEmit())).run(_pipeline_input())
@@ -211,6 +262,17 @@ async def test_drafter_raising_mid_stream_degrades_to_failed_sentinel() -> None:
 
     assert report.status == "completed"  # a drafter fault never fails the run (plan §7.5)
     assert store.sars[0].status is SarDraftStatus.FAILED
+
+
+async def test_drafter_raising_after_terminal_preserves_captured_result() -> None:
+    store = FakeRunStore()
+    report = await Runner(
+        _deps(store, RecordingEmit(), drafter=FakeSarDrafter(raise_after_terminal=True))
+    ).run(_pipeline_input())
+
+    assert report.status == "completed"
+    assert store.sars[0].status is SarDraftStatus.DRAFT
+    assert store.sars[0].error_code is None
 
 
 async def test_drafter_empty_token_is_skipped_not_streamed() -> None:
