@@ -67,6 +67,155 @@ def test_load_catalog_get_split_and_select_defaults() -> None:
     assert "ollama/llama3.1" in catalog.select(include_unverified=True)
 
 
+def test_agent_models_declare_required_tool_and_structured_capabilities(
+    tmpdir: object,
+) -> None:
+    catalog = load_catalog(REPO_ROOT / "config" / "llm" / "catalog.yml")
+    agent_refs = {
+        "openrouter/x-ai/grok-4.3",
+        "openrouter/google/gemini-2.5-flash",
+        "openrouter/openai/gpt-5-mini",
+        "openrouter/anthropic/claude-sonnet-4.6",
+    }
+
+    for ref in agent_refs:
+        _provider, _model_id, card = catalog.get(ref)
+        assert card.tool_calling is True
+        assert card.structured_output is True
+
+    agents_path = Path(str(tmpdir)) / "agents.yml"
+    agents_path.write_text(
+        """
+agents:
+  evidence_investigator:
+    model: openrouter/x-ai/grok-4.3
+    fallbacks: [openrouter/google/gemini-2.5-flash]
+    tools: [transaction_history]
+  sar_writer:
+    model: openrouter/openai/gpt-5-mini
+    fallbacks: [openrouter/anthropic/claude-sonnet-4.6]
+    tools: []
+""",
+        encoding="utf-8",
+    )
+
+    assert check_llm_catalog._agent_capability_findings(catalog, agents_path) == []
+    assert (
+        check_llm_catalog._agent_capability_findings(
+            catalog,
+            agents_path.with_name("absent.yml"),
+        )
+        == []
+    )
+
+
+def test_agent_capability_gate_reports_missing_flags_refs_and_shape(tmpdir: object) -> None:
+    scratch_dir = Path(str(tmpdir))
+    catalog = Catalog(
+        providers={
+            "test": {
+                "chat": ModelCard(
+                    kind=Kind.CHAT,
+                    context_window=8,
+                    verified_at="2026-06-10",
+                    lifecycle=Lifecycle.GA,
+                    callable=True,
+                    pricing_basis="per_million_tokens",
+                )
+            }
+        }
+    )
+    agents_path = scratch_dir / "agents.yml"
+    agents_path.write_text(
+        """
+agents:
+  investigator:
+    model: test/chat
+    fallbacks: [test/missing]
+    tools: [lookup]
+  malformed: not-a-mapping
+""",
+        encoding="utf-8",
+    )
+
+    findings = check_llm_catalog._agent_capability_findings(catalog, agents_path)
+
+    assert any("lacks structured_output" in finding for finding in findings)
+    assert any("lacks tool_calling" in finding for finding in findings)
+    assert any("absent from the catalog" in finding for finding in findings)
+    assert any("every agent entry" in finding for finding in findings)
+
+    agents_path.write_text("unexpected: true\n", encoding="utf-8")
+    assert check_llm_catalog._agent_capability_findings(catalog, agents_path) == [
+        f"{agents_path}: expected an agents mapping"
+    ]
+
+
+def test_live_catalog_check_scopes_provider_and_uses_embedding_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = Catalog(
+        providers={
+            "openrouter": {
+                "chat": ModelCard(
+                    kind=Kind.CHAT,
+                    context_window=8,
+                    verified_at="2026-08-17",
+                    lifecycle=Lifecycle.GA,
+                    callable=True,
+                    pricing_basis="per_million_tokens",
+                ),
+                "embed": ModelCard(
+                    kind=Kind.EMBED,
+                    context_window=8,
+                    verified_at="2026-08-17",
+                    lifecycle=Lifecycle.GA,
+                    callable=True,
+                    pricing_basis="per_million_tokens",
+                ),
+                "retired": ModelCard(
+                    kind=Kind.CHAT,
+                    context_window=8,
+                    verified_at="2026-08-17",
+                    lifecycle=Lifecycle.RETIRED,
+                    callable=False,
+                    pricing_basis="per_million_tokens",
+                ),
+            }
+        }
+    )
+    providers = load_providers(REPO_ROOT / "config" / "llm" / "providers.yml")
+    endpoints: list[str] = []
+
+    def fetch_models(
+        _provider: str,
+        _base_url: str,
+        _api_key: str,
+        *,
+        endpoint: str = "models",
+    ) -> set[str]:
+        endpoints.append(endpoint)
+        return {"embed"} if endpoint == "embeddings/models" else {"chat"}
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder")
+    monkeypatch.setattr(check_llm_catalog, "_fetch_openai_compatible_models", fetch_models)
+
+    assert (
+        check_llm_catalog._live_findings(
+            catalog,
+            providers,
+            provider_names={"openrouter"},
+        )
+        == []
+    )
+    assert endpoints == ["models", "embeddings/models"]
+    assert check_llm_catalog._live_findings(
+        catalog,
+        providers,
+        provider_names={"missing"},
+    ) == ["missing: --live-provider is not configured"]
+
+
 def test_catalog_model_lookup_and_validation_errors(tmpdir: object) -> None:
     scratch_dir = Path(str(tmpdir))
     catalog = Catalog(

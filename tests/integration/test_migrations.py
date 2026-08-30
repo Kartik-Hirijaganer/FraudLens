@@ -108,6 +108,44 @@ def test_alert_origin_migration_backfills_and_downgrades(tmp_path: Path) -> None
         engine.dispose()
 
 
+def test_agent_execution_migration_constraints_and_downgrade(tmp_path: Path) -> None:
+    """Phase 5 adds the exact agent indexes/unique keys and cleanly reverses to 0004."""
+    db_path = tmp_path / "agent-executions.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "head")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        inspector = inspect(engine)
+        assert "model_call_count" in {
+            column["name"] for column in inspector.get_columns("agent_executions")
+        }
+        assert {"agency_id", "run_id"} == next(
+            set(index["column_names"])
+            for index in inspector.get_indexes("agent_executions")
+            if index["name"] == "ix_agent_executions_agency_id_run_id"
+        )
+        assert {"run_id", "agent", "attempt"} == next(
+            set(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("agent_executions")
+            if constraint["name"] == "uq_agent_executions_run_id_agent_attempt"
+        )
+        assert {"agency_id", "idempotency_key"} == next(
+            set(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("analysis_runs")
+            if constraint["name"] == "uq_analysis_runs_agency_id_idempotency_key"
+        )
+
+        command.downgrade(cfg, "0004_harden_supabase_access")
+        downgraded = inspect(engine)
+        assert "agent_executions" not in downgraded.get_table_names()
+        assert "idempotency_key" not in {
+            column["name"] for column in downgraded.get_columns("analysis_runs")
+        }
+        assert "workflow" not in {column["name"] for column in downgraded.get_columns("sar_drafts")}
+    finally:
+        engine.dispose()
+
+
 def test_exactly_one_alembic_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite+aiosqlite:///unused.db"))
     assert len(script.get_heads()) == 1
