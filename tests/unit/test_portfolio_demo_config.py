@@ -82,6 +82,7 @@ def _with_one_scenario(**overrides: Any) -> dict[str, Any]:
     document = _document()
     scenario = _scenario(**overrides)
     document["scenarios"] = [scenario]
+    document["execution"]["mock_agent_revision_scenario"] = scenario["scenario_id"]
     band = scenario.get("expected_risk_band")
     document["expected"] = {
         "transactions": 1,
