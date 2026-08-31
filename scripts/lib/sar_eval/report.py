@@ -458,10 +458,15 @@ def _headline(deltas: tuple[MetricDelta, ...]) -> str:
     elif completeness.point_estimate < 0:
         verb = "reduced"
     else:
-        verb = "did not change"
+        return (
+            "Multi-agent drafting did not change mean FinCEN narrative completeness "
+            f"(multi-agent - single-writer delta {completeness.point_estimate:+.3f}; "
+            f"95% BCa CI [{completeness.ci_lower:+.3f}, {completeness.ci_upper:+.3f}])."
+        )
     return (
         f"Multi-agent drafting {verb} mean FinCEN narrative completeness by "
-        f"{completeness.point_estimate:+.3f} (95% BCa CI "
+        f"{abs(completeness.point_estimate):.3f} (multi-agent - single-writer delta "
+        f"{completeness.point_estimate:+.3f}; 95% BCa CI "
         f"[{completeness.ci_lower:+.3f}, {completeness.ci_upper:+.3f}])."
     )
 
