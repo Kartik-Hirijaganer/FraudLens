@@ -275,9 +275,23 @@ def _structured_response_format(response_schema: dict[str, Any]) -> dict[str, ob
         "json_schema": {
             "name": normalized_name[:64],
             "strict": True,
-            "schema": response_schema,
+            "schema": _strict_json_schema(response_schema),
         },
     }
+
+
+def _strict_json_schema(value: Any) -> Any:
+    """Copy a JSON Schema into the strict object subset required by OpenAI-compatible APIs."""
+    if isinstance(value, list):
+        return [_strict_json_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    normalized = {key: _strict_json_schema(item) for key, item in value.items() if key != "default"}
+    properties = normalized.get("properties")
+    if isinstance(properties, dict):
+        normalized["additionalProperties"] = False
+        normalized["required"] = list(properties)
+    return normalized
 
 
 def _tool_calls_from_openai(raw_tool_calls: Any) -> tuple[ToolCall, ...]:
