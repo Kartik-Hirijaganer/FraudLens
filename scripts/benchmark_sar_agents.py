@@ -26,19 +26,25 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from fraudlens_llm import LlmClient, get_llm_settings, load_catalog
+from fraudlens_llm import LlmClient, LlmError, get_llm_settings, load_catalog
 from fraudlens_ml.rag import load_corpus
 from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config
 from lib.sar_eval.judge import JudgePromptTemplate, load_judgments, run_judge_stage, write_judgments
 from lib.sar_eval.publish import REPORT_BASENAME, publish_report, validate_published_artifacts
 from lib.sar_eval.report import build_study_report, validate_report_binding
 from lib.sar_eval.runner import load_api_runs, run_api_stage, write_api_runs
-from lib.sar_eval.scenarios import generate_scenarios, load_scenarios, write_scenarios
+from lib.sar_eval.scenarios import (
+    generate_scenarios,
+    load_scenarios,
+    validate_alert_preflight,
+    write_scenarios,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCENARIOS = "scenarios.json"
 _RUNS = "runs.json"
 _JUDGMENTS = "judgments.json"
+_JUDGMENTS_CHECKPOINT = "judgments.checkpoint.json"
 _DOCS_DIR = Path("docs") / "reference" / "benchmarks"
 _FRONTEND_JSON = Path("frontend") / "src" / "data" / "sar-multi-agent-study.json"
 
@@ -89,6 +95,7 @@ def _scenarios(config_path: Path) -> int:
     config_bytes = config_path.read_bytes()
     config = load_sar_eval_config(config_path)
     artifact = generate_scenarios(config, config_bytes)
+    validate_alert_preflight(artifact, config)
     target = REPO_ROOT / config.paths.output_dir / artifact.run_id / _SCENARIOS
     write_scenarios(target, artifact)
     print(f"sar-eval-scenarios OK ({artifact.run_id}): 32 synthetic scenarios -> {target}")
@@ -138,6 +145,7 @@ async def _judge_async(config_path: Path, run_id: str) -> int:
         catalog=catalog,
         prompt=prompt,
         max_usd=max_usd,
+        checkpoint_path=run_dir / _JUDGMENTS_CHECKPOINT,
     )
     write_judgments(run_dir / _JUDGMENTS, artifact)
     print(f"sar-eval-judge OK ({run_id}): 96 blind samples, spent ${artifact.spent_usd}")
@@ -204,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "judge":
             return asyncio.run(_judge_async(config_path, args.run))
         return _publish(config_path, args.run)
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except (FileNotFoundError, LlmError, ValueError, RuntimeError) as exc:
         print(f"sar-eval-{args.command} failed: {exc}")
         return 1
 

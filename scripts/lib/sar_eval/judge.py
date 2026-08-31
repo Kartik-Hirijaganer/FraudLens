@@ -2,6 +2,8 @@
 The judge is loaded through the shared exact-byte prompt provenance contract, must be
 from a different model family than every writer, and produces three independent samples
 per narrative under a conservative pre-call USD reservation.
+Every provider attempt is durably reserved before the call and settled immediately after the
+response so interrupted or invalid attempts remain bounded and completed samples resume safely.
 
 Key classes:
 - JudgePromptTemplate: exact-byte prompt version and hash provenance.
@@ -11,6 +13,8 @@ Key classes:
 - JudgeResponse: strict provider response for both blinded candidates.
 - ArmJudgeSample: a candidate score restored to its workflow arm.
 - JudgeSample: one unblinded, auditable sample for a scenario.
+- JudgeCallReservation: one durable worst-case reservation and optional observed settlement.
+- JudgeCheckpoint: resumable partial samples plus every provider-attempt reservation.
 - JudgmentArtifact: all 96 samples plus judge provenance and spend.
 - JudgeClient: the minimal guarded generation protocol for the stage.
 
@@ -23,6 +27,8 @@ Key functions:
 
 Notes:
 - Candidate messages contain labels A/B only; workflow identity is added after parsing.
+- Quote drift is mapped only to unique exact narrative anchors; a positive element without one is
+  conservatively recorded absent, while an unresolved unsupported-claim quote rejects the sample.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -59,6 +66,7 @@ from lib.sar_eval.runner import (
     Arm,
     DurableEvaluationFacts,
     ToolEvidenceFact,
+    _paired_facts_equal,
 )
 from lib.sar_eval.scenarios import SarEvalScenario, ScenarioArtifact, validate_scenario_binding
 
@@ -71,6 +79,10 @@ _ELEMENTS = ("who", "what", "when", "where", "why")
 _ARMS: tuple[Arm, Arm] = ("single_writer", "multi_agent")
 _SCENARIO_COUNT = 32
 _MODEL_REFERENCE_PARTS = 3
+_MIN_QUOTE_ANCHOR_TOKENS = 4
+_QUOTE_PUNCTUATION_TRANSLATION = str.maketrans(
+    {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-"}
+)
 
 
 class JudgePromptTemplate(VersionedPrompt):
@@ -179,6 +191,74 @@ class JudgeSample(BaseModel):
         if set(self.presented_order) != expected or {item.arm for item in self.arms} != expected:
             raise ValueError("judge samples must contain both workflow arms exactly once")
         return self
+
+
+class JudgeCallReservation(BaseModel):
+    """One durable judge-attempt reservation, settled when provider usage is observed."""
+
+    model_config = _MODEL_CONFIG
+
+    scenario_id: str = Field(..., min_length=1, description="Scenario key for this attempt.")
+    sample_index: int = Field(..., ge=1, le=3, description="One-based sample being attempted.")
+    attempt: int = Field(..., ge=1, description="One-based attempt for this scenario sample.")
+    reserved_usd: Decimal = Field(..., gt=0, description="Worst-case pre-call reservation.")
+    cost_usd: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Observed provider cost, or null while the reservation remains unsettled.",
+    )
+
+
+class JudgeCheckpoint(BaseModel):
+    """Resumable partial judge state with conservative authorization accounting."""
+
+    model_config = _MODEL_CONFIG
+
+    run_id: str = Field(..., min_length=1, description="Evaluation run id.")
+    config_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$", description="Protocol hash.")
+    model_id: str = Field(..., min_length=1, description="Judge catalog reference.")
+    prompt_version: str = Field(..., min_length=1, description="Judge prompt version.")
+    prompt_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$", description="Judge prompt hash.")
+    samples: tuple[JudgeSample, ...] = Field(
+        default=(), max_length=96, description="Completed, validated blind samples."
+    )
+    reservations: tuple[JudgeCallReservation, ...] = Field(
+        default=(), description="All provider attempts, including unsettled interrupted calls."
+    )
+
+    @model_validator(mode="after")
+    def _unique_progress(self) -> JudgeCheckpoint:
+        sample_keys = {(item.scenario_id, item.sample_index) for item in self.samples}
+        reservation_keys = {
+            (item.scenario_id, item.sample_index, item.attempt) for item in self.reservations
+        }
+        if len(sample_keys) != len(self.samples):
+            raise ValueError("judge checkpoint samples must be unique")
+        if len(reservation_keys) != len(self.reservations):
+            raise ValueError("judge checkpoint reservations must be unique")
+        attempted_samples = {(item.scenario_id, item.sample_index) for item in self.reservations}
+        if not sample_keys.issubset(attempted_samples):
+            raise ValueError("completed judge samples require a provider reservation")
+        return self
+
+    @property
+    def authorization_used_usd(self) -> Decimal:
+        """Return settled spend plus full reservations for calls with unknown cost."""
+        return sum(
+            (
+                item.cost_usd if item.cost_usd is not None else item.reserved_usd
+                for item in self.reservations
+            ),
+            start=Decimal("0"),
+        )
+
+    @property
+    def observed_spend_usd(self) -> Decimal:
+        """Return provider costs observed for every completed response, valid or invalid."""
+        return sum(
+            (item.cost_usd for item in self.reservations if item.cost_usd is not None),
+            start=Decimal("0"),
+        )
 
 
 class JudgmentArtifact(BaseModel):
@@ -346,18 +426,145 @@ def _unblind(
     return values[0], values[1]
 
 
-def _validate_quote_integrity(
+def _canonical_span(span: str, narrative: str) -> str | None:
+    """Map quote drift to one unique exact narrative substring with a strong token anchor."""
+    if span in narrative:
+        return span
+    stripped = span.strip()
+    if stripped in narrative:
+        return stripped
+    requested_tokens = stripped.split()
+    if not requested_tokens:
+        return None
+    narrative_tokens = list(re.finditer(r"\S+", narrative))
+
+    def matches(tokens: list[str]) -> list[str]:
+        width = len(tokens)
+        normalized_tokens = [item.translate(_QUOTE_PUNCTUATION_TRANSLATION) for item in tokens]
+        found: list[str] = []
+        for index in range(len(narrative_tokens) - width + 1):
+            candidate_tokens = [
+                item.group(0).translate(_QUOTE_PUNCTUATION_TRANSLATION)
+                for item in narrative_tokens[index : index + width]
+            ]
+            if candidate_tokens == normalized_tokens:
+                found.append(
+                    narrative[
+                        narrative_tokens[index].start() : narrative_tokens[index + width - 1].end()
+                    ]
+                )
+        return found
+
+    exact_matches = matches(requested_tokens)
+    if exact_matches:
+        return exact_matches[0] if len(exact_matches) == 1 else None
+    minimum_width = max(_MIN_QUOTE_ANCHOR_TOKENS, (len(requested_tokens) + 1) // 2)
+    for width in range(len(requested_tokens) - 1, minimum_width - 1, -1):
+        anchored: list[str] = []
+        for start in range(len(requested_tokens) - width + 1):
+            anchored.extend(matches(requested_tokens[start : start + width]))
+        if anchored:
+            return anchored[0] if len(anchored) == 1 else None
+    return None
+
+
+def _canonicalize_quote_integrity(
     response: JudgeResponse,
     narratives: dict[CandidateLabel, str],
-) -> None:
+) -> JudgeResponse:
+    """Canonicalize uniquely anchored drift and reject every unresolved judge quote."""
+    candidates: list[CandidateScore] = []
     for candidate in response.candidates:
         narrative = narratives[candidate.candidate]
-        spans = [claim.quoted_span for claim in candidate.unsupported_claims]
-        spans.extend(
-            element.quoted_span for element in candidate.elements if element.quoted_span is not None
+        claims = tuple(
+            claim.model_copy(update={"quoted_span": _canonical_span(claim.quoted_span, narrative)})
+            for claim in candidate.unsupported_claims
         )
-        if any(span not in narrative for span in spans):
+        elements: list[ElementScore] = []
+        for element in candidate.elements:
+            canonical = (
+                _canonical_span(element.quoted_span, narrative)
+                if element.quoted_span is not None
+                else None
+            )
+            elements.append(
+                element.model_copy(
+                    update={
+                        "present": element.present and canonical is not None,
+                        "quoted_span": canonical,
+                    }
+                )
+            )
+        canonical_elements = tuple(elements)
+        spans = [claim.quoted_span for claim in claims]
+        spans.extend(
+            element.quoted_span for element in canonical_elements if element.quoted_span is not None
+        )
+        if any(span is None or span not in narrative for span in spans):
             raise RuntimeError("judge returned a quoted span absent from its candidate narrative")
+        candidates.append(
+            candidate.model_copy(
+                update={"unsupported_claims": claims, "elements": canonical_elements}
+            )
+        )
+    return response.model_copy(update={"candidates": tuple(candidates)})
+
+
+def _new_checkpoint(
+    scenarios: ScenarioArtifact,
+    config: SarEvalConfig,
+    prompt: JudgePromptTemplate,
+) -> JudgeCheckpoint:
+    """Create empty judge progress bound to the current immutable protocol inputs."""
+    return JudgeCheckpoint(
+        run_id=scenarios.run_id,
+        config_sha256=scenarios.config_sha256,
+        model_id=config.judge.model,
+        prompt_version=prompt.prompt_version,
+        prompt_hash=prompt.prompt_hash,
+    )
+
+
+def _load_checkpoint(
+    path: Path | None,
+    scenarios: ScenarioArtifact,
+    config: SarEvalConfig,
+    prompt: JudgePromptTemplate,
+) -> JudgeCheckpoint:
+    """Load resumable progress or initialize it, rejecting any protocol drift."""
+    expected = _new_checkpoint(scenarios, config, prompt)
+    if path is None or not path.exists():
+        return expected
+    checkpoint = JudgeCheckpoint.model_validate_json(path.read_text(encoding="utf-8"))
+    binding = (
+        "run_id",
+        "config_sha256",
+        "model_id",
+        "prompt_version",
+        "prompt_hash",
+    )
+    if any(getattr(checkpoint, field) != getattr(expected, field) for field in binding):
+        raise ValueError("judge checkpoint does not match the current run and protocol")
+    return checkpoint
+
+
+def _write_checkpoint(path: Path | None, checkpoint: JudgeCheckpoint) -> None:
+    """Atomically persist partial progress when the CLI supplies a checkpoint path."""
+    if path is not None:
+        _atomic_write(path, checkpoint)
+
+
+def _settle_reservation(
+    checkpoint: JudgeCheckpoint,
+    reservation_index: int,
+    cost_usd: Decimal,
+) -> JudgeCheckpoint:
+    """Replace one pending reservation with its observed provider cost."""
+    reservations = list(checkpoint.reservations)
+    reservations[reservation_index] = reservations[reservation_index].model_copy(
+        update={"cost_usd": cost_usd}
+    )
+    return checkpoint.model_copy(update={"reservations": tuple(reservations)})
 
 
 async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid testability.
@@ -369,8 +576,9 @@ async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid t
     catalog: Catalog,
     prompt: JudgePromptTemplate,
     max_usd: Decimal,
+    checkpoint_path: Path | None = None,
 ) -> JudgmentArtifact:
-    """Blindly judge every pair three times, reserving worst-case cost before each call."""
+    """Blindly judge every pair three times with durable pre-call cost reservations."""
     validate_scenario_binding(
         scenarios,
         expected_run_id=scenarios.run_id,
@@ -391,18 +599,26 @@ async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid t
     reserve = _reserve(catalog, config)
     if reserve <= 0:
         raise ValueError("judge model must have token pricing for hard-cap enforcement")
+    checkpoint = _load_checkpoint(checkpoint_path, scenarios, config, prompt)
+    if checkpoint.authorization_used_usd > max_usd:
+        raise RuntimeError("judge checkpoint already exceeds the authorized hard USD cap")
     rng = random.Random(config.seed)
-    spent = Decimal("0")
-    samples: list[JudgeSample] = []
+    sample_map = {(item.scenario_id, item.sample_index): item for item in checkpoint.samples}
+    ordered_keys: list[tuple[str, int]] = []
     for scenario in scenarios.scenarios:
         pair = _pair(runs, scenario.scenario_id)
-        if pair["single_writer"].facts != pair["multi_agent"].facts:
+        if not _paired_facts_equal(
+            pair["single_writer"].facts,
+            pair["multi_agent"].facts,
+        ):
             raise ValueError("paired API arms must expose identical durable evaluation facts")
         facts = pair["single_writer"].facts
         order: tuple[Arm, Arm] = _ARMS if rng.randrange(2) == 0 else tuple(reversed(_ARMS))  # type: ignore[assignment]
         for sample_index in range(1, config.judge.samples_per_narrative + 1):
-            if spent + reserve > max_usd:
-                raise RuntimeError("next judge call could exceed the authorized hard USD cap")
+            sample_key = (scenario.scenario_id, sample_index)
+            ordered_keys.append(sample_key)
+            if sample_key in sample_map:
+                continue
             messages = _messages(
                 prompt,
                 scenario,
@@ -414,6 +630,26 @@ async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid t
             input_bytes = sum(len((message.content or "").encode("utf-8")) for message in messages)
             if input_bytes > config.judge.max_input_bytes:
                 raise RuntimeError("judge input exceeds its configured UTF-8 byte limit")
+            if checkpoint.authorization_used_usd + reserve > max_usd:
+                raise RuntimeError("next judge call could exceed the authorized hard USD cap")
+            attempt = (
+                sum(
+                    item.scenario_id == scenario.scenario_id and item.sample_index == sample_index
+                    for item in checkpoint.reservations
+                )
+                + 1
+            )
+            reservation = JudgeCallReservation(
+                scenario_id=scenario.scenario_id,
+                sample_index=sample_index,
+                attempt=attempt,
+                reserved_usd=reserve,
+            )
+            checkpoint = checkpoint.model_copy(
+                update={"reservations": (*checkpoint.reservations, reservation)}
+            )
+            reservation_index = len(checkpoint.reservations) - 1
+            _write_checkpoint(checkpoint_path, checkpoint)
             result = await client.generate(
                 messages,
                 model=config.judge.model,
@@ -424,25 +660,32 @@ async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid t
                 task_type=TaskType.ANALYSIS,
                 response_schema=JudgeResponse.model_json_schema(by_alias=True),
             )
-            parsed = JudgeResponse.model_validate_json(result.safe_text)
-            _validate_quote_integrity(
-                parsed,
-                {"A": pair[order[0]].narrative, "B": pair[order[1]].narrative},
-            )
-            if result.model != config.judge.model:
-                raise RuntimeError("observed judge model does not match the requested model")
             call_cost = _price(catalog, result.model, result.usage)
+            checkpoint = _settle_reservation(checkpoint, reservation_index, call_cost)
+            _write_checkpoint(checkpoint_path, checkpoint)
             if call_cost > reserve:
                 raise RuntimeError("judge call exceeded its conservative pre-call USD reservation")
-            spent += call_cost
-            samples.append(
-                JudgeSample(
-                    scenario_id=scenario.scenario_id,
-                    sample_index=sample_index,
-                    presented_order=order,
-                    arms=_unblind(parsed, order),
+            parsed = JudgeResponse.model_validate_json(result.safe_text)
+            try:
+                parsed = _canonicalize_quote_integrity(
+                    parsed,
+                    {"A": pair[order[0]].narrative, "B": pair[order[1]].narrative},
                 )
+            except RuntimeError:
+                if checkpoint_path is not None:
+                    _atomic_write(checkpoint_path.with_name("judgments.invalid.json"), parsed)
+                raise
+            if result.model != config.judge.model:
+                raise RuntimeError("observed judge model does not match the requested model")
+            sample = JudgeSample(
+                scenario_id=scenario.scenario_id,
+                sample_index=sample_index,
+                presented_order=order,
+                arms=_unblind(parsed, order),
             )
+            sample_map[sample_key] = sample
+            checkpoint = checkpoint.model_copy(update={"samples": (*checkpoint.samples, sample)})
+            _write_checkpoint(checkpoint_path, checkpoint)
     return JudgmentArtifact(
         run_id=scenarios.run_id,
         config_sha256=scenarios.config_sha256,
@@ -451,12 +694,12 @@ async def run_judge_stage(  # noqa: PLR0913 -- explicit stage dependencies aid t
         prompt_version=prompt.prompt_version,
         prompt_hash=prompt.prompt_hash,
         authorized_max_usd=max_usd,
-        spent_usd=spent,
-        samples=tuple(samples),
+        spent_usd=checkpoint.observed_spend_usd,
+        samples=tuple(sample_map[key] for key in ordered_keys),
     )
 
 
-def _atomic_write(path: Path, artifact: JudgmentArtifact) -> None:
+def _atomic_write(path: Path, artifact: BaseModel) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     content = json.dumps(artifact.model_dump(mode="json", by_alias=True), indent=2, sort_keys=True)
