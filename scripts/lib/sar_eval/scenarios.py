@@ -10,6 +10,7 @@ Key classes:
 Key functions:
 - canonical_run_id: derive the only valid run id for a config hash and seed.
 - generate_scenarios: build the exact 8 x 4 scenario matrix.
+- validate_alert_preflight: prove every case reaches the pinned model's normal alert path locally.
 - write_scenarios: serialize the matrix atomically into one run directory.
 - load_scenarios: strictly parse a completed scenario artifact.
 - validate_scenario_binding: enforce run/config/seed lineage for later stages.
@@ -30,13 +31,24 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
+from fraudlens_core import (
+    DEFAULT_RULE_DEFINITIONS,
+    RiskPolicy,
+    RuleContext,
+    RuleRegistry,
+    RuleTransaction,
+    TransactionDirection,
+)
+from fraudlens_ml.scoring import DeploymentPointer, ModelCache, Scorer
 from lib.sar_eval.config import (
+    HistoryDirectionMode,
     SarEvalConfig,
     SarTypology,
     ScenarioVariant,
     validate_config_binding,
 )
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _MODEL_CONFIG = ConfigDict(
     frozen=True, extra="forbid", alias_generator=to_camel, populate_by_name=True
 )
@@ -107,25 +119,15 @@ _PATTERN_COUNTRY: dict[SarTypology, str] = {
     SarTypology.CRYPTO_OFF_RAMP: "SV",
     SarTypology.SHELL_COMPANY_TRANSFER: "PA",
 }
-_SPACING_MINUTES: dict[SarTypology, int] = {
-    SarTypology.STRUCTURING: 24 * 60,
-    SarTypology.HIGH_RISK_WIRE: 12 * 60,
-    SarTypology.RAPID_MOVEMENT: 10,
-    SarTypology.FUNNEL_ACCOUNT: 48 * 60,
-    SarTypology.MULE_VELOCITY: 5,
-    SarTypology.ROUND_AMOUNT_LAYERING: 24 * 60,
-    SarTypology.CRYPTO_OFF_RAMP: 6 * 60,
-    SarTypology.SHELL_COMPANY_TRANSFER: 72 * 60,
-}
-_SUBJECT_PATTERN: dict[SarTypology, tuple[Decimal, str, str, str]] = {
-    SarTypology.STRUCTURING: (Decimal("9700"), "in", "cash_deposit", "US"),
-    SarTypology.HIGH_RISK_WIRE: (Decimal("48000"), "out", "international_wire", "IR"),
-    SarTypology.RAPID_MOVEMENT: (Decimal("14900"), "out", "same_day_wire", "US"),
-    SarTypology.FUNNEL_ACCOUNT: (Decimal("17500"), "out", "outbound_wire", "US"),
-    SarTypology.MULE_VELOCITY: (Decimal("780"), "out", "peer_to_peer", "US"),
-    SarTypology.ROUND_AMOUNT_LAYERING: (Decimal("50000"), "out", "corporate_wire", "KY"),
-    SarTypology.CRYPTO_OFF_RAMP: (Decimal("13800"), "in", "crypto_exchange", "SV"),
-    SarTypology.SHELL_COMPANY_TRANSFER: (Decimal("125000"), "out", "business_wire", "PA"),
+_SUBJECT_PATTERN: dict[SarTypology, tuple[str, str]] = {
+    SarTypology.STRUCTURING: ("in", "cash_deposit"),
+    SarTypology.HIGH_RISK_WIRE: ("out", "international_wire"),
+    SarTypology.RAPID_MOVEMENT: ("out", "same_day_wire"),
+    SarTypology.FUNNEL_ACCOUNT: ("out", "outbound_wire"),
+    SarTypology.MULE_VELOCITY: ("out", "peer_to_peer"),
+    SarTypology.ROUND_AMOUNT_LAYERING: ("out", "corporate_wire"),
+    SarTypology.CRYPTO_OFF_RAMP: ("in", "crypto_exchange"),
+    SarTypology.SHELL_COMPANY_TRANSFER: ("out", "business_wire"),
 }
 
 
@@ -138,9 +140,15 @@ class SyntheticTransaction(BaseModel):
     amount: Decimal = Field(..., gt=0, description="Synthetic transaction amount.")
     currency: str = Field(..., min_length=3, max_length=3, description="ISO currency code.")
     occurred_at: datetime = Field(..., description="Deterministic UTC event time.")
-    origin_account: str = Field(..., min_length=1, description="Synthetic origin label.")
-    dest_account: str = Field(..., min_length=1, description="Synthetic destination label.")
-    channel: str = Field(..., min_length=1, description="Synthetic origination channel.")
+    origin_account: str = Field(
+        ..., min_length=1, max_length=128, description="Synthetic origin label."
+    )
+    dest_account: str = Field(
+        ..., min_length=1, max_length=128, description="Synthetic destination label."
+    )
+    channel: str = Field(
+        ..., min_length=1, max_length=128, description="Synthetic origination channel."
+    )
     country: str = Field(..., min_length=2, max_length=2, description="ISO country code.")
     features: dict[str, object] = Field(
         default_factory=dict, description="Synthetic model features."
@@ -208,6 +216,24 @@ def _anchor(config: SarEvalConfig) -> datetime:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
+def _subject_time(config: SarEvalConfig, typology: SarTypology) -> datetime:
+    """Place each typology in its own UTC week at the calibrated weekday/hour."""
+    index = list(SarTypology).index(typology)
+    week = _anchor(config) + timedelta(weeks=index)
+    monday = week - timedelta(
+        days=week.weekday(),
+        hours=week.hour,
+        minutes=week.minute,
+        seconds=week.second,
+        microseconds=week.microsecond,
+    )
+    calibrated = config.calibration.typologies[typology]
+    return monday + timedelta(
+        days=calibrated.subject_weekday,
+        hours=calibrated.subject_hour,
+    )
+
+
 def _transaction(  # noqa: PLR0913 -- mirrors the transaction API boundary.
     run_id: str,
     scenario_id: str,
@@ -242,9 +268,12 @@ def _scenario(
     variant: ScenarioVariant,
 ) -> SarEvalScenario:
     scenario_id = f"{typology.value}-{variant.value}"
-    index = list(SarTypology).index(typology)
-    base_time = _anchor(config) + timedelta(days=index * 3)
+    calibration = config.calibration.typologies[typology]
+    subject_time = _subject_time(config, typology)
     history_count = 2 if variant is ScenarioVariant.THIN_EVIDENCE else 6
+    directions = _HISTORY_DIRECTIONS[typology]
+    if calibration.history_direction_mode is HistoryDirectionMode.ALL_INBOUND:
+        directions = ("in",) * len(directions)
     history: list[SyntheticTransaction] = []
     for position in range(history_count):
         history.append(
@@ -252,14 +281,17 @@ def _scenario(
                 run_id,
                 scenario_id,
                 position,
-                base_time + timedelta(minutes=position * _SPACING_MINUTES[typology]),
-                amount=_HISTORY_AMOUNTS[typology][position],
-                direction=_HISTORY_DIRECTIONS[typology][position],
+                subject_time
+                - timedelta(
+                    minutes=(history_count - position) * calibration.history_spacing_minutes
+                ),
+                amount=_HISTORY_AMOUNTS[typology][position] * calibration.history_amount_scale,
+                direction=directions[position],
                 channel=_PATTERN_CHANNEL[typology],
                 country=_PATTERN_COUNTRY[typology],
             )
         )
-    subject_amount, subject_direction, channel, subject_country = _SUBJECT_PATTERN[typology]
+    subject_direction, channel = _SUBJECT_PATTERN[typology]
     if variant is ScenarioVariant.CONFLICTING_EVIDENCE:
         channel = "payroll"
     if variant is ScenarioVariant.CITATION_BAIT:
@@ -268,11 +300,11 @@ def _scenario(
         run_id,
         scenario_id,
         history_count,
-        base_time + timedelta(minutes=history_count * _SPACING_MINUTES[typology]),
-        amount=subject_amount,
+        subject_time,
+        amount=calibration.subject_amount,
         direction=subject_direction,
         channel=channel,
-        country=subject_country,
+        country=calibration.subject_country,
     )
     return SarEvalScenario(
         scenario_id=scenario_id,
@@ -306,6 +338,98 @@ def generate_scenarios(config: SarEvalConfig, config_bytes: bytes) -> ScenarioAr
         seed=config.seed,
         scenarios=scenarios,
     )
+
+
+def _rule_transaction(transaction: SyntheticTransaction, *, account: str) -> RuleTransaction:
+    """Mirror the backend's account-relative, identifier-free rule projection."""
+    direction = (
+        TransactionDirection.OUTBOUND
+        if transaction.origin_account == account
+        else TransactionDirection.INBOUND
+    )
+    return RuleTransaction(
+        amount=transaction.amount,
+        currency=transaction.currency,
+        country=transaction.country,
+        channel=transaction.channel,
+        occurred_at=transaction.occurred_at,
+        direction=direction,
+    )
+
+
+def _preflight_context(scenario: SarEvalScenario, config: SarEvalConfig) -> RuleContext:
+    """Reproduce build_pipeline_input's bounded origin/destination histories without a DB."""
+    subject = scenario.transactions[-1]
+    cutoff = subject.occurred_at - timedelta(hours=config.calibration.history_window_hours)
+    priors = sorted(
+        (
+            item
+            for item in scenario.transactions[:-1]
+            if cutoff <= item.occurred_at < subject.occurred_at
+        ),
+        key=lambda item: item.occurred_at,
+        reverse=True,
+    )
+    history_rows = [
+        item
+        for item in priors
+        if subject.origin_account in (item.origin_account, item.dest_account)
+    ][: config.calibration.history_limit]
+    counterparty_rows = [
+        item for item in priors if subject.dest_account in (item.origin_account, item.dest_account)
+    ][: config.calibration.history_limit]
+    return RuleContext(
+        transaction=RuleTransaction(
+            amount=subject.amount,
+            currency=subject.currency,
+            country=subject.country,
+            channel=subject.channel,
+            occurred_at=subject.occurred_at,
+            direction=TransactionDirection.OUTBOUND,
+        ),
+        history=tuple(
+            _rule_transaction(item, account=subject.origin_account) for item in history_rows
+        ),
+        counterparty_history=tuple(
+            _rule_transaction(item, account=subject.dest_account) for item in counterparty_rows
+        ),
+    )
+
+
+def validate_alert_preflight(
+    artifact: ScenarioArtifact,
+    config: SarEvalConfig,
+    *,
+    model_root: Path | None = None,
+) -> None:
+    """Fail before provider spend unless all 32 cases alert under the pinned local baseline."""
+    validate_scenario_binding(artifact, expected_run_id=artifact.run_id, config=config)
+    version = config.calibration.model_version
+    pointer = DeploymentPointer(
+        active_version_label=version,
+        active_artifact_uri=version,
+    )
+    scorer = Scorer(ModelCache(model_root or _REPO_ROOT / "data" / "models"))
+    registry = RuleRegistry()
+    policy = RiskPolicy()
+    failures: list[str] = []
+    for scenario in artifact.scenarios:
+        context = _preflight_context(scenario, config)
+        score = scorer.score(pointer, context)
+        if score.model_version_label != version:
+            raise ValueError("scenario preflight did not load the pinned scoring model")
+        rules = registry.evaluate(DEFAULT_RULE_DEFINITIONS, context)
+        assessment = policy.assess(
+            fraud_probability=score.fraud_probability,
+            rules_subscore=rules.subscore,
+            model_thresholds=score.risk_thresholds,
+        )
+        if assessment.combined_score < config.calibration.minimum_combined_score:
+            failures.append(f"{scenario.scenario_id}={assessment.combined_score:.6f}")
+    if failures:
+        raise ValueError(
+            "scenario alert preflight failed under the pinned model: " + ", ".join(failures)
+        )
 
 
 def write_scenarios(path: Path, artifact: ScenarioArtifact) -> None:
