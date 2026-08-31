@@ -5,6 +5,9 @@ sampling and bootstrap pins, API limits, and scratch-only paths before any spend
 Key classes:
 - SarTypology: the eight synthetic AML patterns in the study.
 - ScenarioVariant: the four evidence-quality variants applied to every typology.
+- HistoryDirectionMode: supported account-relative history calibration modes.
+- TypologyCalibration: deterministic model-compatible inputs for one typology.
+- ScenarioCalibrationConfig: pinned scoring model and exact eight-typology calibration.
 - JudgeConfig: pinned structured-judge sampling and token bounds.
 - ApiConfig: API timeout, polling, and per-run reservation limits.
 - BootstrapConfig: fixed paired BCa resampling protocol.
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from ipaddress import ip_address
 from pathlib import Path, PurePosixPath
@@ -35,6 +39,7 @@ DEFAULT_SAR_EVAL_CONFIG = _REPO_ROOT / "config" / "sar-eval.yaml"
 _REQUIRED_JUDGE_SAMPLES = 3
 _REQUIRED_BOOTSTRAP_RESAMPLES = 10_000
 _REQUIRED_CONFIDENCE_LEVEL = 0.95
+_REQUIRED_ALERT_THRESHOLD = 0.6
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 
@@ -58,6 +63,77 @@ class ScenarioVariant(StrEnum):
     THIN_EVIDENCE = "thin_evidence"
     CONFLICTING_EVIDENCE = "conflicting_evidence"
     CITATION_BAIT = "citation_bait"
+
+
+class HistoryDirectionMode(StrEnum):
+    """How a calibrated typology orients its history around the account under review."""
+
+    ORIGINAL = "original"
+    ALL_INBOUND = "all_inbound"
+
+
+class TypologyCalibration(BaseModel):
+    """One typology's deterministic inputs calibrated to the pinned scoring model."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_amount: Decimal = Field(
+        ..., gt=0, description="Subject transaction amount used for every evidence variant."
+    )
+    subject_weekday: int = Field(
+        ..., ge=0, le=6, description="UTC subject weekday, where Monday is zero."
+    )
+    subject_hour: int = Field(
+        ..., ge=0, le=23, description="UTC subject hour used by the pinned feature extractor."
+    )
+    subject_country: str = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Synthetic ISO country code for the subject transaction.",
+    )
+    history_amount_scale: Decimal = Field(
+        ..., gt=0, description="Multiplier applied to the typology's base history amounts."
+    )
+    history_spacing_minutes: int = Field(
+        ..., gt=0, description="Minutes between deterministic historical transactions."
+    )
+    history_direction_mode: HistoryDirectionMode = Field(
+        ..., description="Whether to preserve base directions or make all history inbound."
+    )
+
+
+class ScenarioCalibrationConfig(BaseModel):
+    """Model-pinned, provider-free calibration contract for the 32 API scenarios."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    model_version: str = Field(
+        ..., min_length=1, description="Registered scoring-model label pinned for every API arm."
+    )
+    minimum_combined_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Minimum local baseline score required before provider spending is allowed.",
+    )
+    history_window_hours: int = Field(
+        ..., gt=0, description="History lookback mirrored from the shipped investigation input."
+    )
+    history_limit: int = Field(
+        ..., gt=0, description="History row cap mirrored from the shipped investigation input."
+    )
+    typologies: dict[SarTypology, TypologyCalibration] = Field(
+        ..., description="Exact calibration inputs for all eight canonical typologies."
+    )
+
+    @model_validator(mode="after")
+    def _pins(self) -> ScenarioCalibrationConfig:
+        if self.minimum_combined_score != _REQUIRED_ALERT_THRESHOLD:
+            raise ValueError("calibration.minimum_combined_score must be exactly 0.6")
+        if set(self.typologies) != set(SarTypology):
+            raise ValueError("calibration.typologies must contain every SarTypology exactly once")
+        return self
 
 
 class JudgeConfig(BaseModel):
@@ -174,6 +250,9 @@ class SarEvalConfig(BaseModel):
     anchor_time: datetime = Field(..., description="UTC scenario time anchor.")
     typologies: tuple[SarTypology, ...] = Field(..., description="Exact eight typologies.")
     variants: tuple[ScenarioVariant, ...] = Field(..., description="Exact four variants.")
+    calibration: ScenarioCalibrationConfig = Field(
+        ..., description="Provider-free scenario calibration and pinned scoring model."
+    )
     judge: JudgeConfig = Field(..., description="Blind judge protocol.")
     api: ApiConfig = Field(..., description="API runner bounds.")
     bootstrap: BootstrapConfig = Field(..., description="Paired BCa protocol.")

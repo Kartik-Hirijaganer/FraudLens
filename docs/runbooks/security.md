@@ -125,14 +125,20 @@ risk: "false sense of security"). Known v1 limits, accepted by design:
 - **Deploy-time controls** (HTTPS `allowInsecure=false`, DB TLS, managed identity) are asserted
   in the Terraform plan and exercised in Phase 14, not this suite.
 
-### 5.1 Suppressed advisory: ChromaDB CVE-2026-45829
+### 5.1 Suppressed advisories: unexposed ChromaDB server and authorization paths
 
-`make deps-audit` suppresses one advisory via `--ignore-vuln CVE-2026-45829`, with this
-assessment: the CVE is a **pre-authentication RCE in the ChromaDB HTTP server's**
-`/api/v2/.../collections` endpoint, exploited by POSTing a malicious model repository with
-`trust_remote_code=true`. **FraudLens does not run the ChromaDB server** — the FinCEN/BSA index
-is an embedded, read-only persistent index baked into the image (plan §3), accessed in-process
-by the retriever; the vulnerable HTTP endpoint is never exposed and `trust_remote_code` is never
-set. No fix version is published, so an upgrade is not yet available. **Re-evaluate** when a
-fixed ChromaDB ships (drop the ignore and bump) or if the architecture ever exposes the ChromaDB
-server. Every other (non-ignored) advisory still fails the gate.
+`make deps-audit` suppresses the following ChromaDB advisories. All four affect HTTP-server or
+server-side authorization paths that FraudLens does not run or expose:
+
+| Advisory | Affected ChromaDB surface | FraudLens exposure |
+|---|---|---|
+| `CVE-2026-45829` | Pre-authentication `/api/v2/.../collections` code execution via a malicious model repository and `trust_remote_code=true` | None: there is no ChromaDB HTTP server or route, and FraudLens never sets `trust_remote_code`. |
+| `CVE-2026-45830` | Authenticated users can access collections outside their authorized tenant through the HTTP API | None: the application has no ChromaDB users, HTTP API, or ChromaDB tenant boundary. Application tenancy remains enforced by `agency_id` in Postgres and service authorization. |
+| `CVE-2026-45831` | `SimpleRBACAuthorizationProvider` does not bind permissions to the requested tenant, database, or collection | None: FraudLens does not configure or invoke ChromaDB's RBAC provider. |
+| `CVE-2026-45833` | Authenticated collection updates can request a malicious model repository with `trust_remote_code=true` | None: there is no collection-update HTTP endpoint and the baked regulatory index is queried in-process. |
+
+The FinCEN/BSA index is an embedded `chromadb.PersistentClient` store baked into the image and
+accessed in-process by the retriever. No fixed version is published for these advisories, so an
+upgrade is not yet available. **Re-evaluate every exception** when a fixed ChromaDB ships or if
+the architecture ever introduces a ChromaDB server, remote client, ChromaDB authentication, or
+runtime collection mutation. Every other non-ignored advisory continues to fail the gate.

@@ -3,6 +3,7 @@ that can reach provider SDKs and enforces compliance policy, PHI masking, prompt
 risk scanning, output scanning/sanitization, safe logging, and fallback governance.
 Chat generation supports both blocking and provider-native streaming transport; the
 streaming path buffers raw deltas until the complete output passes the same guardrails.
+Empty provider generations are retryable failures so an eligible governed fallback can serve them.
 
 Key classes:
 - BoundModel: Convenience wrapper bound to one provider/model reference.
@@ -40,6 +41,7 @@ from fraudlens_llm.exceptions import (
     GuardrailError,
     LlmError,
     PolicyError,
+    ProviderError,
 )
 from fraudlens_llm.models import (
     DataClass,
@@ -441,6 +443,11 @@ class LlmClient:
                     tool_choice=tool_choice,
                     response_schema=response_schema,
                 )
+                if not adapter_result.text.strip() and not adapter_result.tool_calls:
+                    raise ProviderError(
+                        "LLM provider returned an empty generation",
+                        retryable=True,
+                    )
             except LlmError as exc:
                 if exc.retryable:
                     last_error = exc

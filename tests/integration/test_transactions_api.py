@@ -92,6 +92,36 @@ async def test_ingest_single_masks_and_returns_201(
     assert body["riskBand"] is None
 
 
+async def test_ingest_accepts_the_documented_transaction_text_limit(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The 128-character request maximum must also fit in the persistence schema."""
+    await _seed_agency(db_sessionmaker, Agency(id=DEMO_AGENCY_ID, name="Demo", slug="demo"))
+    app = _demo_app(make_settings, db_engine, db_sessionmaker)
+    boundary = "SYNTH-" + ("A" * 122)
+    async with _client(app) as client:
+        accepted = await client.post(
+            "/api/v1/transactions",
+            json=_txn(
+                externalId="BOUNDARY",
+                originAccount=boundary,
+                destAccount=boundary,
+                channel="C" * 128,
+            ),
+        )
+        rejected = await client.post(
+            "/api/v1/transactions",
+            json=_txn(externalId="TOO-LONG", originAccount=boundary + "X"),
+        )
+
+    assert accepted.status_code == 201
+    assert len(accepted.json()["originAccount"]) == 128
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "validation_error"
+
+
 async def test_ingest_duplicate_returns_409(
     make_settings: Callable[..., AppSettings],
     db_engine: AsyncEngine,

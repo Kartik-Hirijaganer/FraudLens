@@ -6,11 +6,12 @@ exactly one head. These are sync tests so Alembic's command API can drive its ow
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import String, create_engine, inspect, text
 
 from fraudlens_backend.db.models import Base
 
@@ -146,6 +147,65 @@ def test_agent_execution_migration_constraints_and_downgrade(tmp_path: Path) -> 
         engine.dispose()
 
 
+def test_multi_agent_event_migration_expands_and_restores_column(tmp_path: Path) -> None:
+    """The revision-requested event fits after 0006 and downgrade restores the old bound."""
+    db_path = tmp_path / "analysis-event-type.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "0005_add_agent_executions")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        before = next(
+            column
+            for column in inspect(engine).get_columns("analysis_run_events")
+            if column["name"] == "event_type"
+        )
+        assert cast(String, before["type"]).length == 22
+
+        command.upgrade(cfg, "head")
+        expanded = next(
+            column
+            for column in inspect(engine).get_columns("analysis_run_events")
+            if column["name"] == "event_type"
+        )
+        assert cast(String, expanded["type"]).length == len("agent.revision.requested")
+
+        command.downgrade(cfg, "0005_add_agent_executions")
+        restored = next(
+            column
+            for column in inspect(engine).get_columns("analysis_run_events")
+            if column["name"] == "event_type"
+        )
+        assert cast(String, restored["type"]).length == 22
+    finally:
+        engine.dispose()
+
+
+def test_transaction_text_migration_matches_and_restores_request_bounds(tmp_path: Path) -> None:
+    """Valid 128-character ingest fields fit after 0007 and downgrade restores 64."""
+    db_path = tmp_path / "transaction-text-lengths.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "0006_expand_analysis_event_type")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        columns = ("origin_account", "dest_account", "channel")
+
+        def lengths() -> dict[str, int | None]:
+            return {
+                str(column["name"]): cast(String, column["type"]).length
+                for column in inspect(engine).get_columns("transactions")
+                if column["name"] in columns
+            }
+
+        assert lengths() == dict.fromkeys(columns, 64)
+        command.upgrade(cfg, "head")
+        assert lengths() == dict.fromkeys(columns, 128)
+        command.downgrade(cfg, "0006_expand_analysis_event_type")
+        assert lengths() == dict.fromkeys(columns, 64)
+    finally:
+        engine.dispose()
+
+
 def test_exactly_one_alembic_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite+aiosqlite:///unused.db"))
     assert len(script.get_heads()) == 1
+    assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
