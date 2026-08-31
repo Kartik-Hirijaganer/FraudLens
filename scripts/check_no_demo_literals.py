@@ -22,6 +22,8 @@ Notes:
   committed GFP artifact and `scripts/lib/gfp/partitions.py` legitimately hold (ADR-017, Phase 2).
   Rename the agency without renaming the partition and the name becomes forbidden again — the
   exemption is declared in the config, not hand-maintained here.
+- The model label is likewise exempt only when `model.shared_with_research` explicitly declares
+  that benchmark configs and generated research artifacts may repeat it as provenance.
 - The external-id NAMESPACE is forbidden, which covers every id derived from it as a substring;
   reporting the namespace keeps one finding per line instead of twenty near-identical ones.
 - The scan is line-based text, not an AST: a demo UUID hardcoded in a comment, a Markdown table, or
@@ -82,13 +84,14 @@ def forbidden_literals() -> tuple[str, ...]:
     values = {
         str(config.agency.id),
         config.agency.slug,
-        config.model.version_label,
         config.external_id_namespace,
     }
     # See the module note: a name that is ALSO the offline study partition key is a shared study
     # concept, not a runtime-only identity, so the config's own declaration exempts it.
     if config.agency.name != config.agency.research_partition_key:
         values.add(config.agency.name)
+    if not config.model.shared_with_research:
+        values.add(config.model.version_label)
     for persona in config.personas:
         values.update({str(persona.seed_user_id), persona.email})
     return tuple(sorted(values, key=len, reverse=True))

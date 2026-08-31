@@ -20,6 +20,7 @@ from pipeline_fakes import (
     FakeScorerPort,
 )
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tenancy import new_agency_id
 
@@ -32,6 +33,7 @@ from fraudlens_backend.db.models import (
     AnalysisResult,
     AnalysisRun,
     AnalysisRunEvent,
+    AnalysisRunEventType,
     ModelInferenceLog,
     ModelTrainingRun,
     ModelTrigger,
@@ -51,7 +53,7 @@ from fraudlens_backend.db.repositories import (
 from fraudlens_backend.pipeline_wiring import PipelineRunStore
 from fraudlens_core import RiskBand, RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
-from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
+from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner, RunProvenance
 from fraudlens_ml.sar import SarDraftResult, SarDraftStatus
 
 _AGENCY_ID = new_agency_id()
@@ -363,3 +365,54 @@ async def test_scoring_failure_persists_failed_run_and_partial_log(
             await session.execute(select(func.count()).select_from(AnalysisResult))
         ).scalar_one()
         assert result_count == 0
+
+
+async def test_fail_run_recovers_a_session_after_a_persistence_error(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A failed flush must not prevent the run from reaching a durable failed state."""
+    async with db_sessionmaker() as session:
+        transaction = await _seed(session)
+        analysis = AnalysisRunRepository(session, _AGENCY_ID)
+        run = await analysis.create_running(transaction_id=transaction.id)
+        await session.commit()
+        store = PipelineRunStore(
+            session=session,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            analysis=analysis,
+            registry=ModelRegistryRepository(session),
+            sar=SarDraftRepository(session, _AGENCY_ID),
+        )
+        duplicate_event = AnalysisRunEvent(
+            agency_id=_AGENCY_ID,
+            run_id=run.id,
+            seq=1,
+            event_type=AnalysisRunEventType.RUN_STARTED,
+            payload={},
+        )
+        session.add(duplicate_event)
+        await session.commit()
+        session.add(
+            AnalysisRunEvent(
+                agency_id=_AGENCY_ID,
+                run_id=run.id,
+                seq=1,
+                event_type=AnalysisRunEventType.RUN_STARTED,
+                payload={},
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.flush()
+
+        await store.fail_run(
+            error_code="investigation_failed",
+            provenance=RunProvenance(),
+        )
+
+    async with db_sessionmaker() as session:
+        failed_run = (
+            await session.execute(select(AnalysisRun).where(AnalysisRun.id == run.id))
+        ).scalar_one()
+        assert failed_run.status is RunStatus.FAILED
+        assert failed_run.error_code == "investigation_failed"

@@ -9,7 +9,8 @@ Key functions:
 - scan_output_risk: Scan raw provider output and return a guardrail outcome.
 
 Notes:
-- analysis/extraction receive descriptive leniency, but unsafe generation is blocked.
+- analysis/extraction flag descriptive or payment-only findings, while unsafe generation and
+  credential/script findings remain blocked.
 """
 
 from __future__ import annotations
@@ -73,7 +74,12 @@ def scan_output_risk(
         allow = ScanOutcome(decision=GuardrailDecision.ALLOW, findings=[])
         return allow, allow
 
-    decision = _decision_for_findings(text, strictness=strictness, task_type=task_type)
+    decision = _decision_for_findings(
+        text,
+        findings=findings,
+        strictness=strictness,
+        task_type=task_type,
+    )
     output_findings = [finding for finding in findings if finding.category == "script_payload"]
     phishing_findings = [finding for finding in findings if finding.category != "script_payload"]
     return (
@@ -85,12 +91,15 @@ def scan_output_risk(
 def _decision_for_findings(
     text: str,
     *,
+    findings: list[Finding],
     strictness: Strictness,
     task_type: TaskType,
 ) -> GuardrailDecision:
     """Return the output decision for matched findings."""
     if strictness == Strictness.FLAG:
         return GuardrailDecision.FLAG
-    if task_type in {TaskType.ANALYSIS, TaskType.EXTRACTION} and _DESCRIPTIVE_RE.search(text):
-        return GuardrailDecision.FLAG
+    if task_type in {TaskType.ANALYSIS, TaskType.EXTRACTION}:
+        categories = {finding.category for finding in findings}
+        if categories == {"payment_solicitation"} or _DESCRIPTIVE_RE.search(text):
+            return GuardrailDecision.FLAG
     return GuardrailDecision.BLOCK
