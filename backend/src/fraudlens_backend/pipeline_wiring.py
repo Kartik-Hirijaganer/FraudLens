@@ -392,6 +392,7 @@ class PipelineRunStore:
 
     async def fail_run(self, *, error_code: str, provenance: RunProvenance) -> None:
         """Mark the run failed with the stable error code (+ known partial provenance) + commit."""
+        await self._session.rollback()
         await self._analysis.fail(
             run_id=self._run_id,
             error_code=error_code,

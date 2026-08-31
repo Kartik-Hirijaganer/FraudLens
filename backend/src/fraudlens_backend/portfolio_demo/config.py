@@ -277,11 +277,17 @@ class PortfolioDemoProbe(BaseModel):
 
 
 class PortfolioDemoModel(BaseModel):
-    """The pinned scoring model the story's expected distribution was calibrated against."""
+    """The pinned model and whether its label is intentionally shared with offline research."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version_label: str = Field(..., min_length=1, description="Active model version label.")
+    shared_with_research: bool = Field(
+        ...,
+        description=(
+            "Whether offline research artifacts may repeat this model label as provenance."
+        ),
+    )
     feature_spec_version: int = Field(
         ..., gt=0, description="Feature-spec version the pinned bundle must carry."
     )
