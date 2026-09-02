@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import random
 import time
@@ -64,6 +65,10 @@ _CREATED = 201
 _CONFLICT = 409
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PAIRED_ARM_COUNT = 2
+# Live embedding providers can return small floating-point score drift for the same exact chunks.
+# Identity, content, order, and every non-score fact remain exact; this bound only admits ranking-
+# preserving score noise observed from the shipped embedder.
+_RAG_SCORE_ABS_TOLERANCE = 0.005
 
 
 class _TerminalInvestigationError(RuntimeError):
@@ -315,8 +320,38 @@ def _require_paired_facts(results: tuple[ApiArmResult, ...]) -> None:
     for result in results:
         by_scenario.setdefault(result.scenario_id, []).append(result)
     for paired in by_scenario.values():
-        if len(paired) == _PAIRED_ARM_COUNT and paired[0].facts != paired[1].facts:
+        if len(paired) == _PAIRED_ARM_COUNT and not _paired_facts_equal(
+            paired[0].facts, paired[1].facts
+        ):
             raise ValueError("paired workflow arms must expose identical durable evaluation facts")
+
+
+def _paired_facts_equal(
+    left: DurableEvaluationFacts,
+    right: DurableEvaluationFacts,
+) -> bool:
+    """Compare paired inputs while tolerating insignificant live-embedding score jitter."""
+    if left.model_copy(update={"retrieved_regulations": ()}) != right.model_copy(
+        update={"retrieved_regulations": ()}
+    ):
+        return False
+    if len(left.retrieved_regulations) != len(right.retrieved_regulations):
+        return False
+    for left_regulation, right_regulation in zip(
+        left.retrieved_regulations, right.retrieved_regulations, strict=True
+    ):
+        if left_regulation.model_copy(update={"score": 0.0}) != right_regulation.model_copy(
+            update={"score": 0.0}
+        ):
+            return False
+        if not math.isclose(
+            left_regulation.score,
+            right_regulation.score,
+            rel_tol=0.0,
+            abs_tol=_RAG_SCORE_ABS_TOLERANCE,
+        ):
+            return False
+    return True
 
 
 def _atomic_write(path: Path, value: BaseModel) -> None:
@@ -409,7 +444,11 @@ def _poll(  # noqa: PLR0913 -- injectable time functions keep polling determinis
 ) -> dict[str, Any]:
     deadline = clock() + timeout_s
     while clock() < deadline:
-        snapshot = _body(client.get(f"/api/v1/investigations/{run_id}"), 200)
+        try:
+            snapshot = _body(client.get(f"/api/v1/investigations/{run_id}"), 200)
+        except httpx.TimeoutException:
+            sleep(poll_interval_s)
+            continue
         if snapshot.get("runId") not in (None, run_id):
             raise RuntimeError("investigation snapshot run id does not match the requested run")
         status = snapshot.get("status")
@@ -766,6 +805,7 @@ def run_api_stage(  # noqa: PLR0913 -- explicit stage dependencies aid determini
                     "/api/v1/investigations",
                     json={
                         "transactionId": transaction_id,
+                        "modelOverride": config.calibration.model_version,
                         "workflowMode": arm,
                     },
                     headers={
@@ -790,10 +830,12 @@ def run_api_stage(  # noqa: PLR0913 -- explicit stage dependencies aid determini
                     raise RuntimeError("evaluation scenario did not raise an alert")
                 detail = _body(client.get(f"/api/v1/alerts/{alert_id}"), 200)
                 observed = _arm_result(scenario, arm, snapshot, detail, latency_ms)
+                if observed.facts.model_version != config.calibration.model_version:
+                    raise RuntimeError("API arm did not use the protocol-pinned scoring model")
                 if observed.cost_usd > reserve:
                     raise RuntimeError("one API arm exceeded the configured per-run cost cap")
                 paired = [item for item in results if item.scenario_id == scenario.scenario_id]
-                if paired and paired[0].facts != observed.facts:
+                if paired and not _paired_facts_equal(paired[0].facts, observed.facts):
                     raise RuntimeError("paired snapshots expose different durable evaluation facts")
             except Exception as exc:
                 if terminal_observed or isinstance(exc, _TerminalInvestigationError):

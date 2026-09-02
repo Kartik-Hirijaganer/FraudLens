@@ -27,10 +27,10 @@ agents:
     top_k: 6
   sar_writer:
     model: openrouter/openai/gpt-5-mini
-    fallbacks: [openrouter/anthropic/claude-sonnet-4.6]
+    fallbacks: [openrouter/google/gemini-2.5-flash]
     prompt_id: v1
-    max_output_tokens: 1400
-    reasoning_effort: low
+    max_output_tokens: 3000
+    reasoning_effort: minimal
     tools: []
   compliance_reviewer:
     model: openrouter/anthropic/claude-sonnet-4.6
