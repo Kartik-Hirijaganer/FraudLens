@@ -347,11 +347,48 @@ async def test_openai_adapter_maps_tools_messages_and_structured_output() -> Non
                 "title": "Agent Result",
                 "type": "object",
                 "properties": {"summary": {"type": "string"}},
+                "additionalProperties": False,
+                "required": ["summary"],
             },
         },
     }
     assert result.text == ""
     assert result.tool_calls[0].arguments == {"transaction_id": "txn-1"}
+
+
+def test_openai_strict_schema_requires_every_nested_property_without_mutating_input() -> None:
+    schema = {
+        "title": "Nested Result",
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "default": [],
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "default": []},
+                    },
+                    "required": ["value"],
+                },
+            }
+        },
+        "required": [],
+    }
+
+    formatted = openai_module._structured_response_format(schema)
+    strict = formatted["json_schema"]["schema"]
+
+    assert strict["required"] == ["items"]
+    assert strict["additionalProperties"] is False
+    nested = strict["properties"]["items"]["items"]
+    assert nested["required"] == ["value", "tags"]
+    assert nested["additionalProperties"] is False
+    assert "default" not in strict["properties"]["items"]
+    assert "default" not in nested["properties"]["tags"]
+    assert schema["required"] == []
+    assert schema["properties"]["items"]["default"] == []
 
 
 @pytest.mark.asyncio
