@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from starlette.requests import Request
 from tenancy import new_agency_id, new_user_id
 
-from fraudlens_backend.api.deps import CredentialsError, JwksTokenVerifier
+from fraudlens_backend.api.deps import CredentialsError, JwksTokenVerifier, get_token_verifier
 from fraudlens_backend.settings import AppSettings
 
 # Opaque claim values: this suite verifies JWT decoding and the dev bypass, not any
@@ -216,3 +218,19 @@ def test_jwks_token_verifier_can_use_custom_role_claim(
     )
 
     assert verifier(token).role == "reviewer"
+
+
+def test_get_token_verifier_reuses_one_jwks_cache_per_app() -> None:
+    settings = AppSettings(
+        environment="dev",
+        auth_jwks_url="https://jwks.localhost.invalid/keys",
+    )
+    request = cast(
+        Request,
+        SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())),
+    )
+
+    first = get_token_verifier(request, settings)
+    second = get_token_verifier(request, settings)
+
+    assert first is second
