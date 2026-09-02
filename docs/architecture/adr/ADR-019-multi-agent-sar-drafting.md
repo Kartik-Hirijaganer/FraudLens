@@ -115,7 +115,9 @@ The comparison is fixed before inspecting the published result:
 
 - **Cases:** 32 seeded paired scenarios: eight typologies, each with `clean`, `thin_evidence`,
   `conflicting_evidence`, and `citation_bait` variants. All content is synthetic and contains no real
-  PHI, credentials, customer data, or production case material.
+  PHI, credentials, customer data, or production case material. The frozen typology inputs are
+  calibrated provider-free against the pinned scoring artifact; scenario generation fails unless
+  every case reaches the normal `0.6` alert threshold, so an invalid matrix cannot spend on LLMs.
 - **Arms:** the existing live single writer and the bounded multi-agent drafter process the same case
   through the real API using `workflowMode`; neither arm uses a benchmark-only drafting path.
   Requested, resolved-run, and persisted-draft workflow labels must agree. A live fallback is valid
@@ -125,6 +127,10 @@ The comparison is fixed before inspecting the published result:
   but never bypasses tenant daily or per-run budgets. Arm order is seeded and randomized per scenario.
 - **Writer/judge separation:** the writer is `openai/gpt-5-mini`; the judge is
   `anthropic/claude-opus-4.6`. Exact served models, prompt versions, and content hashes are published.
+- **Scoring reproducibility:** every investigation requests the protocol-pinned
+  scoring model through the shipped `modelOverride` contract and rejects any result that reports
+  another model version; the benchmark never depends on mutable canary routing. The exact model
+  label is recorded in the bound config and generated artifact.
 - **Frozen lineage:** canonical config bytes determine the run id and are hash-bound through every
   stage. Spending and publication fail closed if the scenario matrix, config bytes, run id, judge
   prompt bytes, or prompt provenance no longer match. Synthetic transaction keys are run-scoped, and
