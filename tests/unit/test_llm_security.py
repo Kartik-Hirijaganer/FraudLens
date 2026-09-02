@@ -86,6 +86,22 @@ def test_output_scan_blocks_generation_but_flags_descriptive_analysis() -> None:
     assert descriptive_output.decision == GuardrailDecision.FLAG
     assert descriptive_phishing.decision == GuardrailDecision.FLAG
 
+    financial_output, financial_phishing = scan_output_risk(
+        "A wire transfer moved funds to the destination account.",
+        strictness=Strictness.BLOCK,
+        task_type=TaskType.ANALYSIS,
+    )
+    assert financial_output.decision == GuardrailDecision.FLAG
+    assert financial_phishing.decision == GuardrailDecision.FLAG
+
+    unsafe_analysis_output, unsafe_analysis_phishing = scan_output_risk(
+        raw,
+        strictness=Strictness.BLOCK,
+        task_type=TaskType.ANALYSIS,
+    )
+    assert unsafe_analysis_output.decision == GuardrailDecision.BLOCK
+    assert unsafe_analysis_phishing.decision == GuardrailDecision.BLOCK
+
     disabled_output, disabled_phishing = scan_output_risk(
         "Send your password.",
         strictness=Strictness.DISABLED,
