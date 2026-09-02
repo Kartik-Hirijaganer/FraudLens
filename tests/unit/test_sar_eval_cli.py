@@ -9,6 +9,7 @@ from typing import NoReturn
 import pytest
 
 import benchmark_sar_agents as cli
+from fraudlens_llm import ProviderError
 from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config
 
 _RUN_ID = "sar-eval-0123456789abcdef"
@@ -189,6 +190,21 @@ def test_judge_stage_alone_constructs_provider_client(
     assert calls["provider"] is True
     assert calls["judge"]["client"] is provider  # type: ignore[index]
     assert calls["path"] == tmp_path / f".local/sar-eval/{_RUN_ID}/judgments.json"
+
+
+def test_judge_stage_sanitizes_provider_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def fail_safely(*_args: object, **_kwargs: object) -> int:
+        raise ProviderError("Provider 'openrouter' returned an error")
+
+    monkeypatch.setattr(cli, "_judge_async", fail_safely)
+
+    assert cli.main(["judge", "--run", _RUN_ID]) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out == "sar-eval-judge failed: Provider 'openrouter' returned an error\n"
 
 
 @pytest.mark.parametrize("value", [None, "", "zero", "0", "NaN", "Infinity", "-1"])

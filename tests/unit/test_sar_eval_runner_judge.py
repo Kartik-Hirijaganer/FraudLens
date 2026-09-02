@@ -18,10 +18,12 @@ from lib.sar_eval.judge import (
     CandidateScore,
     ElementName,
     ElementScore,
+    JudgeCheckpoint,
     JudgeClient,
     JudgePromptTemplate,
     JudgeResponse,
     JudgmentArtifact,
+    _canonicalize_quote_integrity,
     load_judgments,
     model_family,
     run_judge_stage,
@@ -42,6 +44,7 @@ from lib.sar_eval.runner import (
     _idempotency_key,
     _ingest,
     _multi_model_calls,
+    _paired_facts_equal,
     _persisted_latency_ms,
     _poll,
     load_api_runs,
@@ -52,6 +55,7 @@ from lib.sar_eval.scenarios import ScenarioArtifact, generate_scenarios
 
 _HASH = "a" * 64
 _WRITER = "openrouter/openai/gpt-5-mini"
+_SCORING_MODEL = load_sar_eval_config().calibration.model_version
 
 
 def _facts() -> DurableEvaluationFacts:
@@ -60,7 +64,7 @@ def _facts() -> DurableEvaluationFacts:
         risk_band="high",
         rule_hits=({"code": "structuring", "reason": "Three sub-threshold synthetic deposits."},),
         top_features=({"feature": "amount_log", "value": 9.1, "shapValue": 0.72},),
-        model_version="v-test",
+        model_version=_SCORING_MODEL,
         rules_version="rules-test",
         rag_version="rag-test",
         retrieved_regulations=(
@@ -198,6 +202,7 @@ class _Api:
             self.workflows.append(body["workflowMode"])
             self.idempotency_keys.append(request.headers["Idempotency-Key"])
             assert body["transactionId"].startswith("sar-eval-")
+            assert body["modelOverride"] == _SCORING_MODEL
             if self.crash_after_post_for_run == self.run_index:
                 self.crash_after_post_for_run = None
                 raise SystemExit("simulated process crash")
@@ -226,7 +231,16 @@ class _Judge:
             "candidates": [
                 {
                     "candidate": label,
-                    "unsupportedClaims": [],
+                    "unsupportedClaims": (
+                        [
+                            {
+                                "quotedSpan": "not-in-candidate-unsupported",
+                                "reason": "Synthetic invalid quote.",
+                            }
+                        ]
+                        if self.hallucinated_span
+                        else []
+                    ),
                     "elements": [
                         {
                             "element": element,
@@ -597,6 +611,29 @@ def test_api_response_ingest_poll_and_draft_errors_fail_closed() -> None:
                 sleep=lambda _seconds: None,
             )
 
+    attempts = 0
+
+    def timeout_once(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("transient synthetic timeout", request=request)
+        return httpx.Response(200, json=_snapshot("single_writer", run_id="run-recovered"))
+
+    with httpx.Client(
+        base_url="https://fraudlens.invalid", transport=httpx.MockTransport(timeout_once)
+    ) as client:
+        recovered = _poll(
+            client,
+            "run-recovered",
+            timeout_s=1,
+            poll_interval_s=0.01,
+            clock=_Clock(),
+            sleep=lambda _seconds: None,
+        )
+    assert recovered["status"] == "completed"
+    assert attempts == 2
+
     scenario = _scenarios().scenarios[0]
     with pytest.raises(RuntimeError, match="no persisted draft"):
         _arm_result(
@@ -640,6 +677,32 @@ def test_arm_result_rejects_workflow_fallback_cost_and_paired_fact_drift() -> No
     raw["results"][1]["facts"]["fraudProbability"] = 0.1
     with pytest.raises(ValueError, match="identical durable evaluation facts"):
         ApiRunArtifact.model_validate(raw)
+
+    baseline = _facts()
+    score_jitter = baseline.model_copy(
+        update={
+            "retrieved_regulations": (
+                baseline.retrieved_regulations[0].model_copy(update={"score": 0.984}),
+            )
+        }
+    )
+    assert _paired_facts_equal(baseline, score_jitter)
+    material_score_drift = score_jitter.model_copy(
+        update={
+            "retrieved_regulations": (
+                score_jitter.retrieved_regulations[0].model_copy(update={"score": 0.95}),
+            )
+        }
+    )
+    assert not _paired_facts_equal(baseline, material_score_drift)
+    changed_chunk = score_jitter.model_copy(
+        update={
+            "retrieved_regulations": (
+                score_jitter.retrieved_regulations[0].model_copy(update={"text": "Changed text."}),
+            )
+        }
+    )
+    assert not _paired_facts_equal(baseline, changed_chunk)
 
     snapshot = _snapshot("single_writer")
     snapshot.pop("retrievedRegulations")
@@ -726,11 +789,34 @@ async def test_judge_stage_is_blind_deterministic_structured_three_sample_and_bo
 ) -> None:
     scenarios = _scenarios()
     runs = _api_runs(scenarios)
+    jittered_regulations = (
+        runs.results[1]
+        .facts.retrieved_regulations[0]
+        .model_copy(
+            update={
+                "score": runs.results[1].facts.retrieved_regulations[0].score + 0.001,
+            }
+        ),
+        *runs.results[1].facts.retrieved_regulations[1:],
+    )
+    jittered_facts = runs.results[1].facts.model_copy(
+        update={"retrieved_regulations": jittered_regulations}
+    )
+    runs = runs.model_copy(
+        update={
+            "results": (
+                runs.results[0],
+                runs.results[1].model_copy(update={"facts": jittered_facts}),
+                *runs.results[2:],
+            )
+        }
+    )
     config = load_sar_eval_config()
     prompt = JudgePromptTemplate.load(config.judge.prompt_id)
     catalog = load_catalog(find_config_dir() / "llm" / "catalog.yml")
     first_client = _Judge()
     second_client = _Judge()
+    checkpoint_path = tmp_path / "judgments.checkpoint.json"
 
     first = await run_judge_stage(
         scenarios,
@@ -740,6 +826,7 @@ async def test_judge_stage_is_blind_deterministic_structured_three_sample_and_bo
         catalog=catalog,
         prompt=prompt,
         max_usd=Decimal("10"),
+        checkpoint_path=checkpoint_path,
     )
     second = await run_judge_stage(
         scenarios,
@@ -749,9 +836,15 @@ async def test_judge_stage_is_blind_deterministic_structured_three_sample_and_bo
         catalog=catalog,
         prompt=prompt,
         max_usd=Decimal("10"),
+        checkpoint_path=checkpoint_path,
     )
 
     assert len(first.samples) == 96
+    assert second == first
+    assert not second_client.calls
+    checkpoint = JudgeCheckpoint.model_validate_json(checkpoint_path.read_text(encoding="utf-8"))
+    assert len(checkpoint.samples) == 96
+    assert len(checkpoint.reservations) == 96
     assert [item.presented_order for item in first.samples] == [
         item.presented_order for item in second.samples
     ]
@@ -776,7 +869,7 @@ async def test_judge_stage_is_blind_deterministic_structured_three_sample_and_bo
     assert '"code": "structuring"' in evidence_message
     assert '"feature": "amount_log"' in evidence_message
     assert '"shapValue": 0.72' in evidence_message
-    assert '"modelVersion": "v-test"' in evidence_message
+    assert f'"modelVersion": "{_SCORING_MODEL}"' in evidence_message
     assert '"retrievedRegulations"' in evidence_message
     assert "No person shall structure a transaction." in evidence_message
     assert '"historicalSyntheticCount": 3' in evidence_message
@@ -924,3 +1017,146 @@ async def test_judge_rejects_hallucinated_quote_spans() -> None:
             max_usd=Decimal("10"),
         )
     assert len(client.calls) == 1
+
+
+def test_judge_canonicalizes_only_unique_whitespace_quote_drift() -> None:
+    elements = tuple(
+        ElementScore(
+            element=cast(ElementName, element),
+            present=True,
+            quoted_span="Synthetic   paired-candidate",
+        )
+        for element in ("who", "what", "when", "where", "why")
+    )
+    response = JudgeResponse(
+        candidates=(
+            CandidateScore(candidate="A", elements=elements),
+            CandidateScore(candidate="B", elements=elements),
+        )
+    )
+    narrative = "Synthetic paired-candidate narrative."
+
+    canonical = _canonicalize_quote_integrity(response, {"A": narrative, "B": narrative})
+
+    assert all(
+        element.quoted_span == "Synthetic paired-candidate"
+        for candidate in canonical.candidates
+        for element in candidate.elements
+    )
+    ambiguous = _canonicalize_quote_integrity(
+        response,
+        {
+            "A": f"{narrative} {narrative}",
+            "B": f"{narrative} {narrative}",
+        },
+    )
+    assert all(
+        not element.present and element.quoted_span is None
+        for candidate in ambiguous.candidates
+        for element in candidate.elements
+    )
+
+
+def test_judge_canonicalizes_one_unique_majority_quote_anchor() -> None:
+    elements = tuple(
+        ElementScore(
+            element=cast(ElementName, element),
+            present=True,
+            quoted_span="evidence artifacts referenced by evidence ID synthetic-123",
+        )
+        for element in ("who", "what", "when", "where", "why")
+    )
+    response = JudgeResponse(
+        candidates=(
+            CandidateScore(candidate="A", elements=elements),
+            CandidateScore(candidate="B", elements=elements),
+        )
+    )
+    narrative = (
+        "The evidence artifacts referenced by the system were unavailable; "
+        "confirm evidence ID synthetic-123."
+    )
+
+    canonical = _canonicalize_quote_integrity(response, {"A": narrative, "B": narrative})
+
+    assert all(
+        element.quoted_span == "evidence artifacts referenced by"
+        for candidate in canonical.candidates
+        for element in candidate.elements
+    )
+
+
+def test_judge_canonicalizes_typographic_punctuation_to_exact_narrative_text() -> None:
+    elements = tuple(
+        ElementScore(
+            element=cast(ElementName, element),
+            present=True,
+            quoted_span="Destination country IR is on the institution's high-risk list.",
+        )
+        for element in ("who", "what", "when", "where", "why")
+    )
+    response = JudgeResponse(
+        candidates=(
+            CandidateScore(candidate="A", elements=elements),
+            CandidateScore(candidate="B", elements=elements),
+        )
+    )
+    narrative = (
+        "Destination country IR is on the institution\u2019s high-risk list. "
+        "Destination country IR is on the high-risk list."
+    )
+
+    canonical = _canonicalize_quote_integrity(response, {"A": narrative, "B": narrative})
+
+    assert all(
+        element.quoted_span == "Destination country IR is on the institution\u2019s high-risk list."
+        for candidate in canonical.candidates
+        for element in candidate.elements
+    )
+
+
+async def test_judge_checkpoint_settles_invalid_attempt_and_resumes(tmp_path: Path) -> None:
+    scenarios = _scenarios()
+    runs = _api_runs(scenarios)
+    config = load_sar_eval_config()
+    prompt = JudgePromptTemplate.load(config.judge.prompt_id)
+    catalog = load_catalog(find_config_dir() / "llm" / "catalog.yml")
+    checkpoint_path = tmp_path / "judgments.checkpoint.json"
+
+    with pytest.raises(RuntimeError, match="quoted span absent"):
+        await run_judge_stage(
+            scenarios,
+            runs,
+            config,
+            client=cast(JudgeClient, _Judge(hallucinated_span=True)),
+            catalog=catalog,
+            prompt=prompt,
+            max_usd=Decimal("10"),
+            checkpoint_path=checkpoint_path,
+        )
+
+    failed = JudgeCheckpoint.model_validate_json(checkpoint_path.read_text(encoding="utf-8"))
+    assert len(failed.reservations) == 1
+    assert failed.reservations[0].cost_usd is not None
+    assert not failed.samples
+
+    resumed = await run_judge_stage(
+        scenarios,
+        runs,
+        config,
+        client=cast(JudgeClient, _Judge()),
+        catalog=catalog,
+        prompt=prompt,
+        max_usd=Decimal("10"),
+        checkpoint_path=checkpoint_path,
+    )
+
+    final = JudgeCheckpoint.model_validate_json(checkpoint_path.read_text(encoding="utf-8"))
+    first_attempts = [
+        item
+        for item in final.reservations
+        if item.scenario_id == scenarios.scenarios[0].scenario_id and item.sample_index == 1
+    ]
+    assert len(resumed.samples) == 96
+    assert [item.attempt for item in first_attempts] == [1, 2]
+    assert resumed.spent_usd == final.observed_spend_usd
