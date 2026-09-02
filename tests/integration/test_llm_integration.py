@@ -473,6 +473,35 @@ async def test_generate_stream_assembles_ordered_deltas_before_output_guardrails
 
 
 @pytest.mark.asyncio
+async def test_generate_stream_falls_back_when_provider_returns_empty_generation() -> None:
+    client = _client()
+    primary = _FakeAdapter(text="")
+    fallback = _FakeAdapter(text="fallback response")
+    client._providers = Providers(
+        providers={
+            "openai": _provider(),
+            "anthropic": _provider(protocol=Protocol.ANTHROPIC),
+            "openrouter": _provider(),
+        }
+    )
+    client._adapters["openai"] = primary
+    client._adapters["openrouter"] = fallback
+
+    result = await client.generate_stream(
+        StreamGenerationRequest(
+            messages=[LlmMessage(role=Role.USER, content="Analyze the transaction.")],
+            model="openai/chat",
+            fallbacks=["openrouter/chat"],
+            task_type=TaskType.ANALYSIS,
+        )
+    )
+
+    assert result.safe_text == "fallback response"
+    assert len(primary.stream_generate_calls) == 1
+    assert len(fallback.stream_generate_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_generate_raw_output_requires_nonprod_setting_and_include_raw() -> None:
     client = _client(settings=LlmSettings(environment="dev", allow_raw_output=True))
     fake = _FakeAdapter(text="<b>raw</b>")
