@@ -274,10 +274,17 @@ async def test_live_fallback_chain_serves_from_backup(make_sar_input) -> None:
 
 @pytest.mark.asyncio
 async def test_live_schema_invalid_output_fails(make_sar_input) -> None:
-    events = await _draft(_live(_client(primary=_FakeAdapter(text="not json"))), make_sar_input())
+    budget = BudgetGuard()
+    events = await _draft(
+        _live(_client(primary=_FakeAdapter(text="not json")), budget=budget), make_sar_input()
+    )
     assert events[-1].type == SarEventType.FAILED
-    assert events[-1].result.error_code == "sar_schema_invalid"
-    assert events[-1].result.structured is None
+    result = events[-1].result
+    assert result.error_code == "sar_schema_invalid"
+    assert result.structured is None
+    assert result.token_usage.total_tokens == 150
+    assert result.cost_usd == Decimal("0.000200")
+    assert budget.session_spent_usd == result.cost_usd
 
 
 @pytest.mark.asyncio
@@ -326,3 +333,5 @@ def test_load_sar_llm_config_reads_repo_config() -> None:
     assert config.max_output_tokens == raw["max_output_tokens"]
     assert config.reasoning_effort == raw["reasoning_effort"]
     assert config.fallbacks == tuple(raw["fallbacks"])
+    assert config.max_output_tokens == 3000
+    assert config.reasoning_effort == "minimal"

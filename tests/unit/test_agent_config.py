@@ -13,6 +13,7 @@ from fraudlens_backend.agents.config import (
     AgentsConfigError,
     load_agents_config,
 )
+from fraudlens_backend.agents.runtime import estimate_workflow_max_cost_usd
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_llm import Catalog, load_catalog
 
@@ -41,10 +42,17 @@ def test_committed_agent_config_is_complete_frozen_and_catalog_validated() -> No
     assert config.graph_version == "agents-v1"
     assert [role for role, _agent in config.agents.items()] == list(AgentRole)
     assert config.agents.for_role(AgentRole.EVIDENCE_INVESTIGATOR).max_tool_calls == 6
-    assert config.agents.for_role(AgentRole.SAR_WRITER).tools == ()
+    writer = config.agents.for_role(AgentRole.SAR_WRITER)
+    assert writer.tools == ()
+    assert writer.max_output_tokens == 3000
+    assert writer.reasoning_effort == "minimal"
+    assert writer.fallbacks == ("openrouter/google/gemini-2.5-flash",)
     assert config.workflow.max_revisions == 1
     assert config.workflow.fallback_to_single_writer is True
     assert config.quotas.live_runs_total_per_day == 10
+    assert estimate_workflow_max_cost_usd(config, _catalog()) <= (
+        config.workflow.max_cost_usd_per_investigation
+    )
     with pytest.raises(ValidationError):
         config.graph_version = "changed"  # type: ignore[misc]
 
