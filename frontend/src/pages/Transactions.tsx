@@ -97,12 +97,16 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   // Debounce the search box, and reset to the first page when the applied query changes
   // (both state writes happen together so the list refetches once, not twice).
   useEffect(() => {
+    const nextSearch = searchInput.trim();
+    if (nextSearch === search) {
+      return;
+    }
     const timer = setTimeout(() => {
-      setSearch(searchInput.trim());
+      setSearch(nextSearch);
       setCursorStack([undefined]);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   const load = useCallback(async (): Promise<TransactionsData> => {
     const page = await client.listTransactions({
