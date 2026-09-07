@@ -29,14 +29,21 @@ def test_scenarios_stage_is_free_deterministic_and_instantiates_no_clients(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    preflights: list[tuple[object, object]] = []
     monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
     monkeypatch.setattr("benchmark_sar_agents.httpx.Client", _bomb)
     monkeypatch.setattr("benchmark_sar_agents.LlmClient.from_settings", _bomb)
+    monkeypatch.setattr(
+        cli,
+        "validate_alert_preflight",
+        lambda artifact, config: preflights.append((artifact, config)),
+    )
 
     assert cli.main(["--config", str(_config_copy(tmp_path)), "scenarios"]) == 0
     outputs = list((tmp_path / ".local" / "sar-eval").glob("*/scenarios.json"))
     assert len(outputs) == 1
     assert '"scenarios"' in outputs[0].read_text(encoding="utf-8")
+    assert len(preflights) == 1
 
 
 def test_publish_stage_is_local_only_and_run_requires_explicit_auth_and_cap(
