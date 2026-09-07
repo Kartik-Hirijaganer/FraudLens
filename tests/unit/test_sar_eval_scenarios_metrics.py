@@ -10,10 +10,15 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import find_config_dir
+from fraudlens_core import RuleContext
+from fraudlens_ml.scoring import DeploymentPointer, ModelCache, ScoreOutput
+from lib.sar_eval import scenarios as scenario_module
 from lib.sar_eval.config import (
     DEFAULT_SAR_EVAL_CONFIG,
     BootstrapConfig,
+    HistoryDirectionMode,
     JudgeConfig,
     SarEvalConfig,
     SarEvalPaths,
@@ -29,6 +34,7 @@ from lib.sar_eval.scenarios import (
     ScenarioArtifact,
     generate_scenarios,
     load_scenarios,
+    validate_alert_preflight,
     write_scenarios,
 )
 
@@ -43,6 +49,9 @@ def test_protocol_and_prompt_are_frozen_exact_and_hash_bound() -> None:
     assert config.judge.samples_per_narrative == 3
     assert config.judge.max_input_bytes == 32_768
     assert config.bootstrap.resamples == 10_000
+    assert config.calibration.minimum_combined_score == 0.6
+    assert config.calibration.model_version == load_portfolio_demo_config().model.version_label
+    assert set(config.calibration.typologies) == set(SarTypology)
     assert config.config_sha256 == hashlib.sha256(DEFAULT_SAR_EVAL_CONFIG.read_bytes()).hexdigest()
     assert prompt.prompt_version == "v1@1.0.0"
     assert prompt.prompt_hash == hashlib.sha256(prompt_path.read_bytes()).hexdigest()
@@ -66,6 +75,16 @@ def test_protocol_rejects_matrix_drift_and_non_scratch_output() -> None:
     raw = load_sar_eval_config().model_dump(mode="json")
     raw["variants"] = list(reversed(raw["variants"]))
     with pytest.raises(ValidationError, match="every ScenarioVariant"):
+        SarEvalConfig.model_validate(raw)
+
+    raw = load_sar_eval_config().model_dump(mode="json")
+    del raw["calibration"]["typologies"][SarTypology.STRUCTURING]
+    with pytest.raises(ValidationError, match="every SarTypology"):
+        SarEvalConfig.model_validate(raw)
+
+    raw = load_sar_eval_config().model_dump(mode="json")
+    raw["calibration"]["minimum_combined_score"] = 0.5
+    with pytest.raises(ValidationError, match=r"exactly 0\.6"):
         SarEvalConfig.model_validate(raw)
 
 
@@ -154,6 +173,37 @@ def test_scenario_matrix_is_deterministic_unique_synthetic_and_round_trips(tmp_p
         load_scenarios(wrong_target)
 
 
+def test_scenario_alert_preflight_uses_pinned_model_and_rejects_uncalibrated_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_sar_eval_config()
+    artifact = generate_scenarios(config, DEFAULT_SAR_EVAL_CONFIG.read_bytes())
+
+    class DeterministicScorer:
+        def __init__(self, _cache: ModelCache) -> None:
+            pass
+
+        def score(self, pointer: DeploymentPointer, context: RuleContext) -> ScoreOutput:
+            assert pointer.active_version_label == config.calibration.model_version
+            probability = 0.0 if context.transaction.amount == Decimal("1") else 1.0
+            return ScoreOutput(
+                fraud_probability=probability,
+                model_version_label=pointer.active_version_label,
+            )
+
+    monkeypatch.setattr(scenario_module, "Scorer", DeterministicScorer)
+    validate_alert_preflight(artifact, config)
+
+    scenario = artifact.scenarios[-1]
+    subject = scenario.transactions[-1].model_copy(
+        update={"amount": Decimal("1"), "channel": "card", "country": "US"}
+    )
+    weakened = scenario.model_copy(update={"transactions": (*scenario.transactions[:-1], subject)})
+    drifted = artifact.model_copy(update={"scenarios": (*artifact.scenarios[:-1], weakened)})
+    with pytest.raises(ValueError, match="alert preflight failed"):
+        validate_alert_preflight(drifted, config)
+
+
 def test_each_typology_has_a_distinct_api_visible_transaction_pattern() -> None:
     artifact = generate_scenarios(load_sar_eval_config(), DEFAULT_SAR_EVAL_CONFIG.read_bytes())
     clean = {
@@ -173,7 +223,7 @@ def test_each_typology_has_a_distinct_api_visible_transaction_pattern() -> None:
     rapid = clean[SarTypology.RAPID_MOVEMENT]
     assert rapid.transactions[-1].amount == Decimal("14900")
     rapid_gap = rapid.transactions[1].occurred_at - rapid.transactions[0].occurred_at
-    assert rapid_gap.total_seconds() == pytest.approx(600)
+    assert rapid_gap.total_seconds() == pytest.approx(43_200)
     assert rapid.transactions[0].dest_account.startswith("SYNTH-HUB")
     assert rapid.transactions[1].origin_account.startswith("SYNTH-HUB")
 
@@ -184,8 +234,9 @@ def test_each_typology_has_a_distinct_api_visible_transaction_pattern() -> None:
 
     mule = clean[SarTypology.MULE_VELOCITY]
     mule_gap = mule.transactions[1].occurred_at - mule.transactions[0].occurred_at
-    assert mule_gap.total_seconds() == pytest.approx(300)
+    assert mule_gap.total_seconds() == pytest.approx(3600)
     assert all(item.channel == "peer_to_peer" for item in mule.transactions)
+    assert mule.transactions[-1].country == "GB"
 
     layering = clean[SarTypology.ROUND_AMOUNT_LAYERING]
     assert all(item.amount % Decimal("1000") == 0 for item in layering.transactions)
@@ -199,7 +250,7 @@ def test_each_typology_has_a_distinct_api_visible_transaction_pattern() -> None:
 
     shell = clean[SarTypology.SHELL_COMPANY_TRANSFER]
     assert min(item.amount for item in shell.transactions) >= Decimal("75000")
-    assert shell.transactions[-1].amount == Decimal("125000")
+    assert shell.transactions[-1].amount == Decimal("1000000")
     assert shell.transactions[-1].country == "PA"
 
     signatures = {
@@ -215,6 +266,13 @@ def test_each_typology_has_a_distinct_api_visible_transaction_pattern() -> None:
         for scenario in clean.values()
     }
     assert len(signatures) == len(SarTypology)
+
+    assert (
+        load_sar_eval_config()
+        .calibration.typologies[SarTypology.HIGH_RISK_WIRE]
+        .history_direction_mode
+        is HistoryDirectionMode.ALL_INBOUND
+    )
 
 
 def test_scenario_artifact_rejects_duplicate_or_incomplete_matrix() -> None:

@@ -28,7 +28,7 @@ def test_the_forbidden_set_is_derived_from_the_committed_story() -> None:
     literals = set(forbidden_literals())
     assert str(config.agency.id) in literals
     assert config.agency.slug in literals
-    assert config.model.version_label in literals
+    assert config.model.version_label not in literals
     assert config.external_id_namespace in literals
     assert {str(p.seed_user_id) for p in config.personas} <= literals
     assert {p.email for p in config.personas} <= literals
@@ -44,9 +44,20 @@ def test_a_persona_email_is_flagged(tmp_path: Path) -> None:
     assert _hits(tmp_path, f'user = {{"email": "{email}"}}\n') == [email]
 
 
-def test_the_model_label_is_flagged_in_any_file_type(tmp_path: Path) -> None:
-    label = load_portfolio_demo_config().model.version_label
-    assert _hits(tmp_path, f"active model: {label}\n", name="notes.md") == [label]
+def test_a_shared_research_model_label_is_not_forbidden() -> None:
+    config = load_portfolio_demo_config()
+    assert config.model.shared_with_research is True
+    assert config.model.version_label not in forbidden_literals()
+
+
+def test_an_unshared_model_label_becomes_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = load_portfolio_demo_config()
+    unshared = config.model_copy(
+        update={"model": config.model.model_copy(update={"shared_with_research": False})}
+    )
+    monkeypatch.setattr(check_no_demo_literals, "load_portfolio_demo_config", lambda: unshared)
+
+    assert config.model.version_label in forbidden_literals()
 
 
 def test_a_comment_is_no_safer_than_code(tmp_path: Path) -> None:

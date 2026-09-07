@@ -154,7 +154,7 @@ def _elements(*, complete: bool) -> tuple[ElementScore, ...]:
     )
 
 
-def _judgments(scenarios: ScenarioArtifact) -> JudgmentArtifact:
+def _judgments(scenarios: ScenarioArtifact, *, multi_agent_better: bool = True) -> JudgmentArtifact:
     prompt = JudgePromptTemplate.load(load_sar_eval_config().judge.prompt_id)
     samples: list[JudgeSample] = []
     for scenario in scenarios.scenarios:
@@ -167,18 +167,29 @@ def _judgments(scenarios: ScenarioArtifact) -> JudgmentArtifact:
                     arms=(
                         ArmJudgeSample(
                             arm="single_writer",
-                            unsupported_claims=(
+                            unsupported_claims=()
+                            if not multi_agent_better
+                            else (
                                 UnsupportedClaim(
                                     quoted_span="unsupported assertion",
                                     reason="not present in synthetic evidence",
                                 ),
                             ),
-                            elements=_elements(complete=False),
+                            elements=_elements(complete=not multi_agent_better),
                         ),
                         ArmJudgeSample(
                             arm="multi_agent",
-                            unsupported_claims=(),
-                            elements=_elements(complete=True),
+                            unsupported_claims=(
+                                ()
+                                if multi_agent_better
+                                else (
+                                    UnsupportedClaim(
+                                        quoted_span="unsupported assertion",
+                                        reason="not present in synthetic evidence",
+                                    ),
+                                )
+                            ),
+                            elements=_elements(complete=multi_agent_better),
                         ),
                     ),
                 )
@@ -234,6 +245,26 @@ def test_report_uses_median_judge_scores_programmatic_metrics_and_bca() -> None:
     assert report.arm_provenance[1].writer_model_id == _WRITER
     assert report.arm_provenance[1].writer_model_family == "openai"
     assert "openrouter/anthropic/claude-sonnet-4.6" in report.arm_provenance[1].model_ids
+
+
+def test_report_headline_uses_unsigned_magnitude_for_a_negative_delta() -> None:
+    scenarios = _scenarios()
+    report = build_study_report(
+        scenarios,
+        _runs(scenarios),
+        _judgments(scenarios, multi_agent_better=False),
+        load_sar_eval_config(),
+        corpus_citation_ids={
+            citation
+            for scenario in scenarios.scenarios
+            for citation in scenario.expected_citation_ids
+        },
+    )
+
+    assert "reduced" in report.headline
+    assert "by 0.200" in report.headline
+    assert "delta -0.200" in report.headline
+    assert "by -0.200" not in report.headline
 
 
 def test_report_publishes_separate_element_count_and_span_agreement() -> None:
