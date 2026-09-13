@@ -1,10 +1,10 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / JWKS / Infisical) and returns 200 only
-when none report "down", else 503. Both are UNPREFIXED (no /api/v1) per the
-endpoint contract. The probes are pluggable via a dependency so real reachability
-checks can be wired in later (and so tests can simulate a degraded dependency);
-in this skeleton they report "skipped" because those services are not provisioned.
+set of dependency probes (database / ChromaDB / JWKS / Infisical / OpenRouter) and returns
+200 only when none report "down", else 503 — and, under a live LLM profile, only when
+every probe reports "ok". Both are UNPREFIXED (no /api/v1) per the endpoint contract.
+The probes are pluggable via a dependency so tests can simulate a degraded dependency;
+an unconfigured dependency reports "skipped" rather than failing the process.
 
 Key classes:
 - LivenessResponse: body of /healthz.
@@ -22,8 +22,15 @@ Notes:
   DATABASE_URL is configured it reports "skipped" (the app still boots).
 - The ChromaDB probe checks the baked RAG index for presence (plan §16 Phase 6): a populated
   index → "ok"; a missing/empty index → "down" when `rag_index_required` (prod bakes the
-  index) else "skipped" (dev/local need not have built it yet). Infisical remains "skipped".
+  index) else "skipped" (dev/local need not have built it yet).
 - The JWKS probe checks Supabase Auth reachability only when `auth_jwks_url` is configured.
+- The Infisical probe verifies DELIVERY, not reachability: the service never calls Infisical
+  (secrets are injected as env by `infisical run` / the CI action / the deploy platform), so
+  probing that host would couple pod readiness to an unrelated SaaS and still prove nothing
+  about the injection. With `infisical_secrets_delivery = "externally_injected"` it asserts
+  every `infisical_required_env_keys` name is present and non-blank — "down" (503) when a
+  secret sync fails — and reports "skipped" while no delivery is declared. Its detail carries
+  a COUNT, never key names, because /readyz is unauthenticated.
 - Probes may be sync or async; readyz awaits any awaitable result.
 """
 
@@ -147,12 +154,27 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="openrouter", status="down", detail="unexpected status")
         return DependencyCheck(name="openrouter", status="ok")
 
+    def _infisical() -> DependencyCheck:
+        """Verify Infisical-delivered secrets reached the process env (no outbound call)."""
+        if settings.infisical_secrets_delivery == "unconfigured":
+            return _skipped("infisical")
+        missing = sum(
+            1 for key in settings.infisical_required_env_keys if not os.environ.get(key, "").strip()
+        )
+        if missing:
+            # Count only — the response is unauthenticated, so the secret inventory of a
+            # deployment never leaks through a readiness body.
+            return DependencyCheck(
+                name="infisical", status="down", detail=f"{missing} injected secret(s) missing"
+            )
+        return DependencyCheck(name="infisical", status="ok", detail="externally injected")
+
     infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
     return [
         _database,
         _chromadb,
         _supabase_auth,
-        infisical_probe or (lambda: _skipped("infisical")),
+        infisical_probe or _infisical,
         _openrouter,
     ]
 

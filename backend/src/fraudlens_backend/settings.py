@@ -26,6 +26,10 @@ Notes:
 - `database_url` is read from the unprefixed DATABASE_URL env (Infisical-injected in
   prod, a local docker URL in dev) as well as FRAUDLENS_DATABASE_URL; it never lives
   in committed YAML.
+- `infisical_secrets_delivery` + `infisical_required_env_keys` declare HOW secrets reach
+  the process (the service never calls Infisical itself) and WHICH injected env-var names
+  the /readyz infisical check must find; declaring injection without any key to verify is
+  rejected at boot, so the readiness gate can never be satisfied vacuously.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -48,6 +52,7 @@ StorageBackend = Literal["local", "azure_blob"]
 QueueBackend = Literal["local", "container_apps_jobs"]
 LlmMode = Literal["mock", "live"]
 RagEmbeddingMode = Literal["offline", "live"]
+SecretsDelivery = Literal["unconfigured", "externally_injected"]
 
 # Safe defaults for the always-on static security headers. The Content-Security-Policy is
 # handled separately (it is path-aware: strict on the API, relaxed on the docs UI — see
@@ -359,6 +364,27 @@ class AppSettings(BaseSettings):
         description="When true, a missing/empty RAG index fails /readyz (prod bakes the index).",
     )
 
+    # --- Infisical secret delivery (Golden Rule 3): the service NEVER calls Infisical at
+    # runtime. Secrets arrive as process environment, injected by `infisical run` locally, the
+    # Infisical GitHub action in CI, Terraform-wired Container Apps secrets, or the Infisical
+    # Kubernetes operator. These keys declare that contract so /readyz can verify the injection
+    # actually happened instead of probing a service that is not in any request path.
+    infisical_secrets_delivery: SecretsDelivery = Field(
+        default="unconfigured",
+        description="How Infisical secrets reach this process. 'unconfigured' declares no "
+        "delivery mechanism, so the /readyz infisical check reports 'skipped'; "
+        "'externally_injected' declares that a CLI/CI job/deploy platform injects them as env, "
+        "so the check verifies every infisical_required_env_keys name is present and non-blank.",
+    )
+    infisical_required_env_keys: list[str] = Field(
+        default_factory=list,
+        description="Environment-variable NAMES (never values) the Infisical injection must "
+        "supply; the /readyz infisical check reports 'down' when any is missing or blank, so a "
+        "broken secret sync fails readiness instead of serving errors. Must be non-empty when "
+        "infisical_secrets_delivery is 'externally_injected' (an injection claim with nothing to "
+        "verify is rejected at boot).",
+    )
+
     # --- Database (secret value via env; non-secret local docker URL in dev) ---
     database_url: str | None = Field(
         default=None,
@@ -561,6 +587,17 @@ class AppSettings(BaseSettings):
         description="Max absolute deviation between the canary's and active's mean predicted "
         "probability (alert-rate/precision proxy) before auto-abort → rollback (plan §10.5.1).",
     )
+
+    @model_validator(mode="after")
+    def _require_verifiable_secret_injection(self) -> AppSettings:
+        """Reject an 'externally_injected' declaration with nothing to verify (fails closed)."""
+        declared_injection = self.infisical_secrets_delivery == "externally_injected"
+        if declared_injection and not self.infisical_required_env_keys:
+            raise ValueError(
+                "infisical_required_env_keys must list at least one env-var name when "
+                "infisical_secrets_delivery is 'externally_injected'"
+            )
+        return self
 
     @property
     def is_dev_bypass_enabled(self) -> bool:

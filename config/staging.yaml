@@ -17,3 +17,11 @@ multi_agent_sar_enabled: false
 
 # Mirror prod: the baked FinCEN/BSA RAG index is required at readiness (§10.6).
 rag_index_required: true
+
+# Mirror prod's secret-delivery contract: secrets are injected as env from the single
+# Infisical prod environment, and readiness verifies the injection landed. Names only.
+infisical_secrets_delivery: externally_injected
+infisical_required_env_keys:
+  - DATABASE_URL
+  - SUPABASE_SERVICE_ROLE_KEY
+  - OPENROUTER_API_KEY

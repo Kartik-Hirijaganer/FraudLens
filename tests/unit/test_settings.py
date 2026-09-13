@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from fraudlens_backend.settings import AppSettings, find_config_dir
 
@@ -132,6 +133,36 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.azure_arm_endpoint.startswith("https://")
     assert settings.azure_arm_token_resource.startswith("https://")
     assert settings.azure_storage_token_resource.startswith("https://")
+
+
+def test_secret_delivery_defaults_to_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing is claimed by default, so the /readyz Infisical check stays informational."""
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    settings = AppSettings(environment="dev")
+    assert settings.infisical_secrets_delivery == "unconfigured"
+    assert settings.infisical_required_env_keys == []
+
+
+def test_injected_secret_delivery_requires_at_least_one_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declaring injection with nothing to verify is rejected at boot (fails closed)."""
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    with pytest.raises(ValidationError, match="infisical_required_env_keys"):
+        AppSettings(environment="dev", infisical_secrets_delivery="externally_injected")
+
+
+def test_prod_overlay_declares_verifiable_secret_injection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """config/prod.yaml must make the live-mode Infisical readiness check satisfiable."""
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    settings = AppSettings()
+    assert settings.infisical_secrets_delivery == "externally_injected"
+    assert "DATABASE_URL" in settings.infisical_required_env_keys
+    # Names only — an overlay may never carry a secret VALUE (Golden Rule 3).
+    assert all(key.isupper() for key in settings.infisical_required_env_keys)
 
 
 def test_database_url_read_from_unprefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:

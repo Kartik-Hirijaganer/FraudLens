@@ -359,6 +359,8 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `rag_embedding_mode` | `Literal` | `'offline'` | RAG embedder mode: deterministic hashing or live OpenRouter embeddings. |
 | `rag_version` | `str` | `'rag-v1'` | Offline corpus/index version; live mode reads its version from llm/rag.yml. |
 | `rag_index_required` | `bool` | `False` | When true, a missing/empty RAG index fails /readyz (prod bakes the index). |
+| `infisical_secrets_delivery` | `Literal` | `'unconfigured'` | How Infisical secrets reach this process. 'unconfigured' declares no delivery mechanism, so the /readyz infisical check reports 'skipped'; 'externally_injected' declares that a CLI/CI job/deploy platform injects them as env, so the check verifies every infisical_required_env_keys name is present and non-blank. |
+| `infisical_required_env_keys` | `list` | `[]` | Environment-variable NAMES (never values) the Infisical injection must supply; the /readyz infisical check reports 'down' when any is missing or blank, so a broken secret sync fails readiness instead of serving errors. Must be non-empty when infisical_secrets_delivery is 'externally_injected' (an injection claim with nothing to verify is rejected at boot). |
 | `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
 | `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |

@@ -152,11 +152,48 @@ When the backend needs real runtime secrets:
    `https://management.azure.com/`, and the allowed service principal id for the Container
    App managed identity.
 4. Add the identity to the FraudLens project with read-only access to `prod` → `/backend`.
-5. Wire the backend through the Infisical SDK or Agent so the app reads secrets at runtime.
+5. Wire the Infisical Agent (or the platform's own secret sync) to inject those values into
+   the container's process environment at start. The application itself never calls
+   Infisical — see [Readiness verifies the injection](#readiness-verifies-the-injection).
 
 Do not pass application secrets as Terraform variables. Terraform may receive only
 non-secret identifiers such as subscription id, tenant id, client id, project slug, and
 identity id.
+
+## Readiness verifies the injection
+
+`GET /readyz` carries an `infisical` check, and under a live LLM profile
+(`llm_mode: live`, i.e. `prod` and `staging`) **every** check must report `ok` before the
+platform sends traffic. The check verifies **delivery, not reachability**: the service
+holds no Infisical client, so it asserts that the injected environment actually arrived.
+
+Two non-secret config keys declare the contract (`config/prod.yaml`, `config/staging.yaml`):
+
+```yaml
+infisical_secrets_delivery: externally_injected
+infisical_required_env_keys:
+  - DATABASE_URL
+  - SUPABASE_SERVICE_ROLE_KEY
+  - OPENROUTER_API_KEY
+```
+
+| Check result | Meaning |
+| --- | --- |
+| `skipped` | `infisical_secrets_delivery: unconfigured` — no mechanism declared (dev default). |
+| `ok` | Every listed name is present and non-blank in the process environment. |
+| `down` → 503 | At least one is missing or blank: the sync did not land. The body reports a **count**, never the names, because `/readyz` is unauthenticated. |
+
+So a deployment whose secret sync silently failed is drained rather than served. When a
+pod stays not-ready, check the `infisical` entry first:
+
+```bash
+curl -s https://<host>/readyz | jq '.checks[] | select(.name == "infisical")'
+```
+
+Then confirm the missing names are present in the container (presence only, never the
+value) and that the identity still has read access to `prod` → `/backend` and `/llm`.
+Adding a new runtime secret means adding its **name** to `infisical_required_env_keys`;
+declaring `externally_injected` with an empty list is rejected at boot.
 
 ## Verification
 

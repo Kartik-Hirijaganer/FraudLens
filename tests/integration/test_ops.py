@@ -1,5 +1,6 @@
 """Integration tests for the unprefixed ops probes (/healthz, /readyz), including the Phase 6
-ChromaDB RAG-index presence check (ok / down-when-required / skipped)."""
+ChromaDB RAG-index presence check (ok / down-when-required / skipped) and the config-driven
+Infisical secret-delivery check that makes live-mode readiness reachable."""
 
 from __future__ import annotations
 
@@ -234,6 +235,135 @@ def test_readyz_live_profile_requires_all_dependencies_ok(
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert all(check["status"] == "ok" for check in response.json()["checks"])
+
+
+def test_readyz_infisical_skipped_when_no_delivery_declared(
+    client_factory: Callable[..., TestClient],
+) -> None:
+    """With no declared delivery mechanism the Infisical check stays informational."""
+    check = _check(client_factory().get("/readyz").json(), "infisical")
+    assert check["status"] == "skipped"
+    assert check["detail"] == "not configured"
+
+
+def test_readyz_infisical_ok_when_injected_secrets_present(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A declared injection whose env names are all populated reports ok."""
+    monkeypatch.setenv("FRAUDLENS_TEST_INJECTED_A", "synthetic-test-value")
+    monkeypatch.setenv("FRAUDLENS_TEST_INJECTED_B", "synthetic-test-value")
+    client = client_factory(
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["FRAUDLENS_TEST_INJECTED_A", "FRAUDLENS_TEST_INJECTED_B"],
+    )
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    check = _check(response.json(), "infisical")
+    assert check["status"] == "ok"
+    assert check["detail"] == "externally injected"
+
+
+def test_readyz_infisical_down_when_an_injected_secret_is_missing(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed secret sync (name never injected) fails readiness closed with 503."""
+    monkeypatch.delenv("FRAUDLENS_TEST_INJECTED_A", raising=False)
+    client = client_factory(
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["FRAUDLENS_TEST_INJECTED_A"],
+    )
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    check = _check(response.json(), "infisical")
+    assert check["status"] == "down"
+    assert check["detail"] == "1 injected secret(s) missing"
+    # The response is unauthenticated: it must never disclose the secret inventory.
+    assert "FRAUDLENS_TEST_INJECTED_A" not in response.text
+
+
+def test_readyz_infisical_down_when_an_injected_secret_is_blank(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A present-but-blank value counts as missing, not as a delivered secret."""
+    monkeypatch.setenv("FRAUDLENS_TEST_INJECTED_A", "   ")
+    client = client_factory(
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["FRAUDLENS_TEST_INJECTED_A"],
+    )
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    assert _check(response.json(), "infisical")["status"] == "down"
+
+
+def test_readyz_live_profile_is_ready_without_an_app_state_infisical_probe(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression: live mode must reach 200 from config alone.
+
+    Production code registers no `app.state.infisical_readiness_probe`, so before the
+    config-driven delivery check the `infisical` probe was permanently "skipped" and a
+    live profile (config/prod.yaml) could never satisfy the all-checks-ok gate — the
+    Azure Container Apps and Kubernetes readiness probes would have failed forever.
+    """
+
+    async def ok(_url: str, _timeout: float, **_kwargs: object) -> int:
+        return 200
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "synthetic-test-value")
+    monkeypatch.setattr(ops, "_fetch_status", ok)
+    client = client_factory(
+        llm_mode="live",
+        auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["OPENROUTER_API_KEY"],
+    )
+    client.app.state.db_engine = _OkEngine()
+    client.app.state.rag_index_dir = _build_fixture_index(
+        tmp_path / "live-chroma", client.app.state.settings.rag_collection
+    )
+    assert not hasattr(client.app.state, "infisical_readiness_probe")
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert _check(response.json(), "infisical")["status"] == "ok"
+
+
+def test_readyz_live_profile_is_503_when_the_secret_injection_failed(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The fix stays fail-closed: an otherwise-healthy live profile is not ready."""
+
+    async def ok(_url: str, _timeout: float, **_kwargs: object) -> int:
+        return 200
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "synthetic-test-value")
+    monkeypatch.delenv("FRAUDLENS_TEST_INJECTED_A", raising=False)
+    monkeypatch.setattr(ops, "_fetch_status", ok)
+    client = client_factory(
+        llm_mode="live",
+        auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["FRAUDLENS_TEST_INJECTED_A"],
+    )
+    client.app.state.db_engine = _OkEngine()
+    client.app.state.rag_index_dir = _build_fixture_index(
+        tmp_path / "live-chroma-degraded", client.app.state.settings.rag_collection
+    )
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+    assert _check(response.json(), "infisical")["status"] == "down"
 
 
 def test_resolve_index_dir_keeps_absolute_paths(

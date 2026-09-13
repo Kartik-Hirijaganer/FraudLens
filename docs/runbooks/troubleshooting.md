@@ -9,6 +9,7 @@ specific command output, then make the smallest scoped fix.
 | --- | --- | --- |
 | Backend will not start | `uv run uvicorn fraudlens_backend.main:app --reload` or `make local-demo` output | Invalid config value, missing dependency sync, or occupied port. |
 | `/readyz` is `down` | `curl http://localhost:8000/readyz` | Start Postgres, fix `DATABASE_URL`, or rebuild the RAG index if required. |
+| `/readyz` `infisical` check is `down` | `curl -s <host>/readyz \| jq '.checks[] \| select(.name == "infisical")'` | The declared secret injection did not land: re-run the job/operator that injects `infisical_required_env_keys`, or add a newly required name to that list. See [Infisical secrets](infisical-secrets.md#readiness-verifies-the-injection). |
 | Auth returns 401 | Response body `code` and logs for `auth_fail` | Provide a bearer JWT, configure `FRAUDLENS_AUTH_JWKS_URL`, or use dev bypass only in non-prod. |
 | Cross-tenant request returns 403 | Compare path tenant id to JWT `agency_id` | Use the tenant from the verified token; never send arbitrary tenant ids. |
 | Tests fail on stale docs | `make docs-check` | Run `make docs`, inspect the generated diff, commit only intentional doc changes. |

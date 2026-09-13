@@ -186,7 +186,9 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 ### Endpoint & API contract (FraudLens)
 
 - **Ops/infra endpoints are unprefixed:** `GET /healthz` (liveness) and `GET /readyz`
-  (readiness: DB/ChromaDB/Infisical reachability). Smoke tests and platform probes use these.
+  (readiness: DB / ChromaDB / Supabase JWKS / OpenRouter reachability, plus verification that
+  the Infisical secret injection landed — the app never calls Infisical itself). Smoke tests
+  and platform probes use these.
 - **Only business APIs carry `/api/v1/`** (e.g. `/api/v1/health` as the API-surface heartbeat).
 - **Casing:** camelCase on the API surface, snake_case in Python internals (Pydantic alias
   generator bridges them).
