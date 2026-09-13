@@ -9,6 +9,7 @@ SHELL := bash
 
 UV ?= uv
 NPM ?= npm
+DOCKER_PLATFORM ?= linux/amd64
 FRONTEND := frontend
 PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src packages/fraudlens-ml/src scripts
 # Row budget for `make ingest-aml-demo` ONLY. `make run` / `make local-demo` drive
@@ -28,7 +29,8 @@ AML_SAMPLE_ROWS ?= 50000
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
-        docker-build ci pre-pr upgrade dev
+        docker-build docker-build-base docker-build-base-if-changed \
+        pr-title-check ci pre-pr pr-check upgrade dev
 
 help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
@@ -182,7 +184,22 @@ local-release-check: ci tf-validate docker-build local-demo-smoke release-gate #
 # Image build (separate required check; proves the deploy image in CI)
 # ---------------------------------------------------------------------------
 docker-build: ## Build the backend image (no push).
-	docker build -f backend/Dockerfile -t fraudlens-backend:local .
+	docker build --platform $(DOCKER_PLATFORM) -f backend/Dockerfile -t fraudlens-backend:local .
+
+docker-build-base: ## Build the linux/amd64 ML base image locally (no push).
+	docker build --platform $(DOCKER_PLATFORM) -f backend/Dockerfile.base -t fraudlens-base:local .
+
+docker-build-base-if-changed: ## Build the ML base only when its PR path-filter inputs changed.
+	@set -eu; \
+	base="$$(git merge-base "$(BASE_REF)" HEAD 2>/dev/null)" || { \
+		echo "Cannot resolve BASE_REF=$(BASE_REF); fetch the base branch or pass BASE_REF=<ref>."; \
+		exit 2; \
+	}; \
+	if git diff --quiet "$$base" -- backend/Dockerfile.base .github/workflows/build-base.yml uv.lock; then \
+		echo ">> build-base: skipped (no path-filter inputs changed vs $(BASE_REF))"; \
+	else \
+		$(MAKE) docker-build-base; \
+	fi
 
 # ---------------------------------------------------------------------------
 # Local demo & data lifecycle. `make run` is the clean one-command path: preserve/fetch IBM
@@ -356,8 +373,22 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
+pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
+	bash scripts/check_pr_title.sh
+
 ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
-pre-pr: fmt docs ci ## Format, regenerate docs, then run the full gate (the only writer).
+pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
+
+pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).
+	$(MAKE) pr-title-check
+	$(MAKE) install
+	$(MAKE) pre-pr
+	$(MAKE) ci-changed BASE_REF="$(BASE_REF)"
+	$(MAKE) docker-build
+	$(MAKE) tf-validate
+	$(MAKE) deps-audit
+	$(MAKE) docker-build-base-if-changed BASE_REF="$(BASE_REF)"
+	@echo ">> PR preflight passed"
 
 upgrade: ## Update dependencies, then re-run the pre-PR gate (manual).
 	$(UV) lock --upgrade

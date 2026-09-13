@@ -1,4 +1,4 @@
 # Conventional Commits policy for local tooling and release metadata.
-# CI enforces the same allowed types on PR titles in ci.yml.
+# CI and `make pr-title-check` share scripts/check_pr_title.sh for PR titles.
 extends:
   - "@commitlint/config-conventional"

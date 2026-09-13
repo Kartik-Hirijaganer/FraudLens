@@ -4,6 +4,10 @@ Branch protection is applied **manually via repo settings** (Golden Rule 1 — n
 automation writes repo config). This documents the intended configuration for protected
 branches: `main`, `dev`, and `release/*`.
 
+Before opening or updating a PR, run `make pr-check`. It mirrors the complete applicable GitHub PR
+gate locally; pass `PR_TITLE='type: subject'` before a PR exists, or let the command read the title
+from the current branch's open PR through `gh`.
+
 ## Branch policy
 
 | Branch pattern | Purpose | Direct pushes | Deletion | Deploys |
@@ -25,7 +29,8 @@ the protected-branch push created by the merge. A CI-green push to `main` must n
 Require these checks to pass before merge. The `ci / *` checks come from `ci.yml` for
 human PRs and from `dependency-update.yml` for Renovate PRs — both call the same reusable
 workflow with caller job id `ci`, so the names match either way. `changed` and `commitlint`
-are defined directly in `ci.yml` and run on every PR.
+run on every PR: `changed` is defined in `ci.yml`, while `commitlint` is defined in the separate
+`commitlint.yml` workflow so title edits re-run only that fast check.
 
 | Required check | What it validates | Scope |
 | --- | --- | --- |
@@ -34,7 +39,7 @@ are defined directly in `ci.yml` and run on every PR.
 | `ci / quality` | SUMMARY headers, secret scan, generated-doc freshness, duplication, and LLM catalog validation | Whole repo |
 | `ci / docker-build` | Backend Docker image builds without pushing | Whole repo build context |
 | `changed` | Changed-file lint/format plus changed-line diff coverage against the PR base SHA | Changed files / changed lines only |
-| `commitlint` | PR title follows Conventional Commits | PR metadata only |
+| `commitlint` | PR title follows Conventional Commits via the same script as `make pr-title-check` | PR metadata only |
 
 Type-check and the full test suite stay in the repo-wide `ci / *` jobs (not `changed`):
 scoping them to changed files would miss breakage in files that import a changed file.
