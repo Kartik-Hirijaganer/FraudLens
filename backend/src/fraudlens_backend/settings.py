@@ -58,7 +58,7 @@ from fraudlens_backend.settings_defaults import (
 )
 from fraudlens_backend.settings_gateway import GatewayRuntimeFields
 
-__all__ = ["AppSettings", "find_config_dir", "get_settings"]
+__all__ = ["AppSettings", "_config_anchored", "find_config_dir", "get_settings"]
 
 
 def find_config_dir() -> Path:
@@ -72,6 +72,18 @@ def find_config_dir() -> Path:
             if (candidate / "default.yaml").is_file():
                 return candidate
     return Path(__file__).resolve().parents[3] / "config"  # pragma: no cover - last resort
+
+
+def _config_anchored(path_value: str) -> Path:
+    """Resolve a relative path below config/, rejecting absolute paths and traversal."""
+    path = Path(path_value)
+    if path.is_absolute():
+        raise ValueError("Configuration path must be relative to the config directory")
+    base = find_config_dir().resolve()
+    resolved = (base / path).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError("Configuration path must remain below the config directory")
+    return resolved
 
 
 def _active_environment() -> str:
@@ -223,6 +235,10 @@ class AppSettings(GatewayRuntimeFields, AzureRuntimeFields, BaseSettings):
     llm_mode: LlmMode = Field(
         default="mock",
         description="SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider.",
+    )
+    sar_config_file: str = Field(
+        default="llm/sar.yml",
+        description="SAR model-routing config resolved below the config directory.",
     )
     multi_agent_sar_enabled: bool = Field(
         default=False,

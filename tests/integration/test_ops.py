@@ -82,7 +82,7 @@ def test_readyz_is_ready_with_skipped_dependencies(
         "chromadb",
         "supabaseAuth",
         "infisical",
-        "openrouter",
+        "llmProvider",
     }
     assert all(check["status"] == "skipped" for check in body["checks"])
 
@@ -235,6 +235,67 @@ def test_readyz_live_profile_requires_all_dependencies_ok(
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert all(check["status"] == "ok" for check in response.json()["checks"])
+    assert _check(response.json(), "llmProvider")["detail"] == "openrouter"
+
+
+def test_readyz_reports_active_vllm_provider(
+    client_factory: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The live provider probe follows the selected SAR profile and resolved endpoint."""
+    calls: list[tuple[str, dict[str, str] | None]] = []
+
+    async def ok(
+        url: str,
+        _timeout: float,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> int:
+        calls.append((url, headers))
+        return 200
+
+    monkeypatch.setenv("VLLM_API_KEY", "synthetic-test-value")
+    monkeypatch.setenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")
+    monkeypatch.setattr(ops, "_fetch_status", ok)
+    client = client_factory(
+        llm_mode="live",
+        sar_config_file="llm/sar-vllm.yml",
+        auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
+        infisical_secrets_delivery="externally_injected",
+        infisical_required_env_keys=["VLLM_API_KEY"],
+    )
+    client.app.state.db_engine = _OkEngine()
+    client.app.state.rag_index_dir = _build_fixture_index(
+        tmp_path / "vllm-chroma", client.app.state.settings.rag_collection
+    )
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert _check(response.json(), "llmProvider") == {
+        "name": "llmProvider",
+        "status": "ok",
+        "detail": "vllm",
+    }
+    assert (
+        "http://127.0.0.1:8000/v1/models",
+        {"Authorization": "Bearer synthetic-test-value"},
+    ) in calls
+
+
+@pytest.mark.asyncio
+async def test_vllm_readiness_fails_closed_without_api_key(
+    client_factory: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The selected provider is down when its configured key was not injected."""
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    monkeypatch.setenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")
+    client = client_factory(llm_mode="live", sar_config_file="llm/sar-vllm.yml")
+
+    check = await ops._probe_llm_provider(client.app.state.settings, timeout=1.0)
+
+    assert check == DependencyCheck(name="llmProvider", status="down", detail="vllm")
 
 
 def test_readyz_infisical_skipped_when_no_delivery_declared(

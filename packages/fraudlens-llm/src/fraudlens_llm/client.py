@@ -443,7 +443,11 @@ class LlmClient:
         if adapter is not None:
             return adapter
         if resolved.provider_config.protocol == Protocol.OPENAI_COMPATIBLE:
-            adapter = OpenAiCompatibleAdapter(resolved.provider, resolved.provider_config)
+            adapter = OpenAiCompatibleAdapter(
+                resolved.provider,
+                resolved.provider_config,
+                self._settings,
+            )
         elif resolved.provider_config.protocol == Protocol.ANTHROPIC:
             adapter = AnthropicAdapter(resolved.provider, resolved.provider_config)
         else:

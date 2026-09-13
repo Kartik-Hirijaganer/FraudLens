@@ -47,7 +47,8 @@ from fraudlens_llm.exceptions import (
     UnsupportedParameterError,
 )
 from fraudlens_llm.models import LlmMessage, LlmUsage, ToolCall, ToolDefinition
-from fraudlens_llm.providers import ProviderConfig
+from fraudlens_llm.providers import ProviderConfig, resolve_base_url
+from fraudlens_llm.settings import LlmSettings
 
 _CHAT_PARAMS = {
     "temperature",
@@ -67,10 +68,16 @@ _RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 class OpenAiCompatibleAdapter:
     """Adapter for OpenAI-compatible providers."""
 
-    def __init__(self, provider: str, config: ProviderConfig) -> None:
+    def __init__(
+        self,
+        provider: str,
+        config: ProviderConfig,
+        settings: LlmSettings | None = None,
+    ) -> None:
         """Create an adapter for one configured provider."""
         self._provider = provider
         self._config = config
+        self._settings = settings
         self._client: AsyncOpenAI | None = None
 
     async def generate(  # noqa: PLR0913 - explicit provider capability arguments.
@@ -201,7 +208,7 @@ class OpenAiCompatibleAdapter:
             )
         self._client = AsyncOpenAI(
             api_key=api_key,
-            base_url=self._config.base_url,
+            base_url=resolve_base_url(self._config, self._settings),
             timeout=self._config.timeout_s,
             max_retries=self._config.max_retries,
             default_headers=self._config.headers or None,

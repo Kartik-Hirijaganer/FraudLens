@@ -1,6 +1,6 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / JWKS / Infisical / OpenRouter) and returns
+set of dependency probes (database / ChromaDB / JWKS / Infisical / active LLM provider) and returns
 200 only when none report "down", else 503 — and, under a live LLM profile, only when
 every probe reports "ok". Both are UNPREFIXED (no /api/v1) per the endpoint contract.
 The probes are pluggable via a dependency so tests can simulate a degraded dependency;
@@ -50,13 +50,14 @@ from starlette.responses import Response
 
 from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
-from fraudlens_backend.settings import AppSettings
-from fraudlens_llm import get_llm_settings, load_providers
+from fraudlens_backend.sar.factory import load_sar_llm_config
+from fraudlens_backend.settings import AppSettings, _config_anchored
+from fraudlens_llm import Protocol, get_llm_settings, load_providers, resolve_base_url
 
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
 _LIVE_REQUIRED_CHECKS = frozenset(
-    {"database", "chromadb", "supabaseAuth", "infisical", "openrouter"}
+    {"database", "chromadb", "supabaseAuth", "infisical", "llmProvider"}
 )
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
@@ -86,6 +87,36 @@ class ReadinessResponse(CamelModel):
 def _skipped(name: str) -> DependencyCheck:
     """Return a 'skipped' check for a dependency that is not configured/provisioned."""
     return DependencyCheck(name=name, status="skipped", detail="not configured")
+
+
+async def _probe_llm_provider(settings: AppSettings, timeout: float) -> DependencyCheck:
+    """Probe the active SAR provider's OpenAI-compatible models endpoint."""
+    if settings.llm_mode != "live":
+        return _skipped("llmProvider")
+    provider_name = "unconfigured"
+    try:
+        llm_settings = get_llm_settings()
+        sar_config = load_sar_llm_config(_config_anchored(settings.sar_config_file))
+        provider_name, separator, _model_id = sar_config.model.partition("/")
+        if not separator:
+            raise ValueError("SAR model reference has no provider")
+        provider = load_providers(llm_settings.providers_path).get(provider_name)
+        if provider.protocol != Protocol.OPENAI_COMPATIBLE:
+            raise ValueError("SAR provider does not expose an OpenAI-compatible models route")
+        base_url = resolve_base_url(provider, llm_settings)
+        api_key = os.environ.get(provider.api_key_env)
+        if not api_key:
+            raise ValueError("SAR provider API key was not injected")
+        status = await _fetch_status(
+            f"{base_url.rstrip('/')}/models",
+            min(timeout, provider.timeout_s),
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+    except Exception:  # provider/config/reachability failures all fail closed
+        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
+    if status != _HTTP_OK:
+        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
+    return DependencyCheck(name="llmProvider", status="ok", detail=provider_name)
 
 
 def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
@@ -133,27 +164,6 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="supabaseAuth", status="down", detail="unexpected status")
         return DependencyCheck(name="supabaseAuth", status="ok")
 
-    async def _openrouter() -> DependencyCheck:
-        """Probe the configured OpenRouter models endpoint in live LLM mode."""
-        if settings.llm_mode != "live":
-            return _skipped("openrouter")
-        try:
-            llm_settings = get_llm_settings()
-            provider = load_providers(llm_settings.providers_path).get("openrouter")
-            api_key = os.environ.get(provider.api_key_env)
-            if provider.base_url is None or not api_key:
-                return _skipped("openrouter")
-            status = await _fetch_status(
-                f"{provider.base_url.rstrip('/')}/models",
-                min(timeout, provider.timeout_s),
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-        except Exception:  # provider/config/reachability failures all fail closed
-            return DependencyCheck(name="openrouter", status="down", detail="unreachable")
-        if status != _HTTP_OK:
-            return DependencyCheck(name="openrouter", status="down", detail="unexpected status")
-        return DependencyCheck(name="openrouter", status="ok")
-
     def _infisical() -> DependencyCheck:
         """Verify Infisical-delivered secrets reached the process env (no outbound call)."""
         if settings.infisical_secrets_delivery == "unconfigured":
@@ -175,7 +185,7 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
         _chromadb,
         _supabase_auth,
         infisical_probe or _infisical,
-        _openrouter,
+        lambda: _probe_llm_provider(settings, timeout),
     ]
 
 

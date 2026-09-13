@@ -28,12 +28,12 @@ azure_storage_token_resource: "https://storage.azure.com/"
 rag_index_required: true
 
 # Secret delivery contract. The service never calls Infisical: the deploy platform injects
-# the prod /backend + /llm secrets as process environment, so readiness VERIFIES the injection
+# the prod runtime secrets as process environment, so readiness VERIFIES the injection
 # instead of probing app.infisical.com (which would tie pod readiness to an unrelated SaaS and
-# still prove nothing). A failed secret sync leaves a name unset → /readyz 503. Names only —
-# the values live in Infisical prod and are never written here (Golden Rule 3).
+# still prove nothing). The active llmProvider probe separately verifies its profile-selected API
+# key, so this provider-neutral list contains only shared service secrets. A failed secret sync
+# leaves a name unset → /readyz 503. Names only — values stay in Infisical prod (Golden Rule 3).
 infisical_secrets_delivery: externally_injected
 infisical_required_env_keys:
   - DATABASE_URL
   - SUPABASE_SERVICE_ROLE_KEY
-  - OPENROUTER_API_KEY

@@ -262,7 +262,7 @@ def test_live_readiness_fails_closed_when_infisical_is_unavailable(
         "chromadb": "ok",
         "supabaseAuth": "ok",
         "infisical": "down",
-        "openrouter": "ok",
+        "llmProvider": "ok",
     }
     client.app.dependency_overrides[get_readiness_probes] = lambda: [
         lambda name=name, status=status: DependencyCheck(name=name, status=status)

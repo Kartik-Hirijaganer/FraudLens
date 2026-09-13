@@ -265,6 +265,7 @@ def test_openai_adapter_client_factory_and_normalizers(
 
     assert adapter._client_instance() is adapter._client
     assert captured["api_key"] == "test-key"
+    assert str(captured["base_url"]) == "https://example.com/v1"
     assert openai_module._content_to_text([{"text": "a"}, SimpleNamespace(text="b")]) == "ab"
     assert openai_module._content_to_text(None) == ""
     assert openai_module._content_to_text(123) == "123"

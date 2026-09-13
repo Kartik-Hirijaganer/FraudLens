@@ -45,14 +45,13 @@ from fraudlens_backend.pipeline_ports import (
     RulesAdapter,
     ScorerAdapter,
     _anchored,
-    _config_anchored,
 )
 from fraudlens_backend.pipeline_runs import PipelineRunStore, RunManager, _RunState
 from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
 from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
 from fraudlens_backend.sar.factory import AgentDrafterFactory, build_agent_drafter_factory
-from fraudlens_backend.settings import AppSettings
+from fraudlens_backend.settings import AppSettings, _config_anchored
 from fraudlens_backend.telemetry import log_llm_call
 from fraudlens_core import RuleRegistry
 from fraudlens_ml.pipeline import EventEmitter, PipelineDeps

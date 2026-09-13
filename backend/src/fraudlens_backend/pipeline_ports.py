@@ -10,7 +10,7 @@ Key functions:
 - (none)
 
 Notes:
-- The underscored path helpers remain re-exported by pipeline_wiring for compatibility.
+- The underscored general path helper remains re-exported by pipeline_wiring for compatibility.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fraudlens_backend.settings import find_config_dir
 from fraudlens_core import RuleContext, RuleEvaluation, RuleRegistry
 from fraudlens_ml.pipeline import RagResult, ScoreResult, ShapResult
 from fraudlens_ml.rag import Retriever, build_rag_context, extract_citations
@@ -30,18 +29,6 @@ def _anchored(path_value: str) -> Path:
     """Resolve a config path; a relative value anchors at the process CWD (repo root / /app)."""
     path = Path(path_value)
     return path if path.is_absolute() else Path.cwd() / path
-
-
-def _config_anchored(path_value: str) -> Path:
-    """Resolve a relative path below config/, rejecting absolute paths and traversal."""
-    path = Path(path_value)
-    if path.is_absolute():
-        raise ValueError("Multi-agent configuration must be relative to the config directory")
-    base = find_config_dir().resolve()
-    resolved = (base / path).resolve()
-    if not resolved.is_relative_to(base):
-        raise ValueError("Multi-agent configuration must remain below the config directory")
-    return resolved
 
 
 # --------------------------------------------------------------------------------------------------

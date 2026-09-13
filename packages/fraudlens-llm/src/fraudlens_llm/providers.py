@@ -10,6 +10,7 @@ Key classes:
 
 Key functions:
 - load_providers: Load and validate provider YAML.
+- resolve_base_url: Resolve and validate a provider endpoint from config/environment.
 - allows_data_class: Return whether a provider allows a data class.
 - is_equal_or_stricter: Compare two provider governance postures.
 
@@ -19,10 +20,13 @@ Notes:
 
 from __future__ import annotations
 
+import ipaddress
+import os
 import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import (
@@ -38,6 +42,9 @@ from pydantic import (
 from fraudlens_llm.exceptions import CatalogError, ProviderNotConfiguredError
 from fraudlens_llm.models import DataClass
 
+if TYPE_CHECKING:
+    from fraudlens_llm.settings import LlmSettings
+
 
 class Protocol(StrEnum):
     """Supported SDK adapter protocols."""
@@ -46,7 +53,7 @@ class Protocol(StrEnum):
     ANTHROPIC = "anthropic"
 
 
-_API_KEY_ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_ENV_VAR_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _SECRET_KEY_RE = re.compile(
     r"(?i)\b(passwd|password|secret|token|api[_-]?key|private[_-]?key|"
     r"access[_-]?key|client[_-]?secret|credential)\b"
@@ -83,6 +90,14 @@ class ProviderConfig(BaseModel):
     base_url: str | None = Field(
         default=None, description="HTTPS base URL for OpenAI-compatible providers."
     )
+    base_url_env: str | None = Field(
+        default=None,
+        description="Optional uppercase env-var name containing a runtime base URL.",
+    )
+    allow_plain_http: bool = Field(
+        default=False,
+        description="Allow loopback HTTP from base_url_env outside production.",
+    )
     api_key_env: str = Field(..., description="Environment variable name containing the API key.")
     timeout_s: float = Field(..., gt=0, le=600, description="Per-request timeout in seconds.")
     max_retries: int = Field(..., ge=0, le=10, description="SDK-native retry count.")
@@ -99,17 +114,17 @@ class ProviderConfig(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str | None) -> str | None:
-        """Validate base URLs when present."""
-        if value is not None and not value.startswith("https://"):
-            raise ValueError("base_url must use https://")
+        """Require a complete HTTPS URL for static provider endpoints."""
+        if value is not None:
+            _validate_url(value, allow_loopback_http=False, environment="prod")
         return value
 
-    @field_validator("api_key_env")
+    @field_validator("api_key_env", "base_url_env")
     @classmethod
-    def _validate_api_key_env(cls, value: str) -> str:
-        """Validate that api_key_env is an env-var reference, not a value."""
-        if not _API_KEY_ENV_RE.fullmatch(value):
-            raise ValueError("api_key_env must be an uppercase environment variable name")
+    def _validate_env_reference(cls, value: str | None) -> str | None:
+        """Validate that connection fields name env vars rather than containing values."""
+        if value is not None and not _ENV_VAR_RE.fullmatch(value):
+            raise ValueError("connection env references must be uppercase environment names")
         return value
 
     @field_validator("headers")
@@ -127,8 +142,12 @@ class ProviderConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_protocol_requirements(self) -> ProviderConfig:
         """Enforce protocol-specific connection rules."""
-        if self.protocol == Protocol.OPENAI_COMPATIBLE and self.base_url is None:
-            raise ValueError("base_url is required for openai_compatible providers")
+        if (
+            self.protocol == Protocol.OPENAI_COMPATIBLE
+            and self.base_url is None
+            and self.base_url_env is None
+        ):
+            raise ValueError("base_url or base_url_env is required for openai_compatible providers")
         return self
 
 
@@ -149,6 +168,59 @@ class Providers(BaseModel):
         if config is None:
             raise ProviderNotConfiguredError(f"Provider '{provider}' is not configured")
         return config
+
+
+def resolve_base_url(
+    config: ProviderConfig,
+    settings: LlmSettings | None = None,
+) -> str:
+    """Resolve an endpoint with env precedence and production-safe transport rules."""
+    configured_value: str | None = None
+    if config.base_url_env is not None:
+        configured_value = os.environ.get(config.base_url_env)
+        if configured_value is not None:
+            configured_value = configured_value.strip()
+    if configured_value is None:
+        configured_value = config.base_url
+    if configured_value is None:
+        raise ProviderNotConfiguredError("Provider base URL is not configured")
+
+    if settings is None:
+        from fraudlens_llm.settings import get_llm_settings  # noqa: PLC0415
+
+        settings = get_llm_settings()
+    return _validate_url(
+        configured_value,
+        allow_loopback_http=config.allow_plain_http,
+        environment=settings.environment,
+    )
+
+
+def _validate_url(value: str, *, allow_loopback_http: bool, environment: str) -> str:
+    """Validate one resolved absolute endpoint without exposing it in errors."""
+    parsed = urlsplit(value)
+    if not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        raise ValueError("provider base URL must be an absolute URL without credentials")
+    if parsed.scheme == "https":
+        return value
+    if (
+        parsed.scheme == "http"
+        and allow_loopback_http
+        and environment != "prod"
+        and _is_loopback_host(parsed.hostname)
+    ):
+        return value
+    raise ValueError("provider base URL must use HTTPS or permitted non-production loopback HTTP")
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether a URL host is unambiguously local to this process."""
+    if host.rstrip(".").lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def allows_data_class(config: ProviderConfig, data_class: DataClass) -> bool:

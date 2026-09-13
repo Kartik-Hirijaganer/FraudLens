@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from fraudlens_backend.settings import AppSettings, find_config_dir
+from fraudlens_backend.settings import AppSettings, _config_anchored, find_config_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -62,6 +62,17 @@ def test_config_dir_override_is_honored(monkeypatch: pytest.MonkeyPatch) -> None
         assert find_config_dir() == Path(override_dir)
 
 
+def test_config_anchored_rejects_absolute_and_traversing_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    assert _config_anchored("llm/sar.yml") == REPO_ROOT / "config" / "llm" / "sar.yml"
+    with pytest.raises(ValueError, match="relative"):
+        _config_anchored(str(REPO_ROOT / "config" / "llm" / "sar.yml"))
+    with pytest.raises(ValueError, match="remain below"):
+        _config_anchored("../pyproject.toml")
+
+
 def test_dev_bypass_is_inert_in_prod() -> None:
     assert AppSettings(environment="prod", auth_dev_bypass=True).is_dev_bypass_enabled is False
     assert AppSettings(environment="dev", auth_dev_bypass=True).is_dev_bypass_enabled is True
@@ -104,6 +115,7 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.azure_arm_endpoint == ""
     assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
+    assert settings.sar_config_file == "llm/sar.yml"
     assert settings.rag_embedding_mode == "offline"
     assert settings.investigation_rag_min_similarity == 0.2
     assert settings.database_url is None

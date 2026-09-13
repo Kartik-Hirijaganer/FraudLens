@@ -45,7 +45,13 @@ from fraudlens_llm.models import (
     ToolCall,
     ToolDefinition,
 )
-from fraudlens_llm.providers import Protocol, ProviderConfig, Providers, load_providers
+from fraudlens_llm.providers import (
+    Protocol,
+    ProviderConfig,
+    Providers,
+    load_providers,
+    resolve_base_url,
+)
 from fraudlens_llm.settings import LlmSettings, get_llm_settings
 
 GenerationOverrides = GenerationParams
@@ -99,4 +105,5 @@ __all__ = [
     "get_llm_settings",
     "load_catalog",
     "load_providers",
+    "resolve_base_url",
 ]

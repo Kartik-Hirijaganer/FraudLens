@@ -26,7 +26,7 @@ AML_SAMPLE_ROWS ?= 50000
         header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
-        run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
+        run rebuild run-live run-live-vllm run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
         docker-build docker-build-base docker-build-base-if-changed \
@@ -226,6 +226,8 @@ rebuild: ## Alias for `make run`.
 	$(MAKE) run
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live
+run-live-vllm: ## Boot the backend against self-hosted vLLM over a local SSH tunnel.
+	infisical run --env=prod --path=/ml -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run uvicorn fraudlens_backend.main:app --reload --host 127.0.0.1 --port $${BACKEND_PORT:-18000}
 run-live-demo: ## Boot live dev AND bootstrap the exact portfolio demo story (mutating; prints the URL).
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live-demo
 local-demo-down: ## Stop the local demo stack and remove its containers.

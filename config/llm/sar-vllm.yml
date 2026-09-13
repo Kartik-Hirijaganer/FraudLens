@@ -1,0 +1,10 @@
+# =====================================================================
+# FraudLens self-hosted vLLM SAR route (NON-SECRET).
+# =====================================================================
+# Endpoint and API-key values arrive through VLLM_BASE_URL and VLLM_API_KEY.
+# No governed fallback may leave the self-hosted provider.
+# =====================================================================
+
+model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ
+fallbacks: []
+max_output_tokens: 3000

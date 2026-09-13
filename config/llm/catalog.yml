@@ -285,6 +285,79 @@ gemini:
     callable: true
     pricing_basis: per_million_tokens
 
+vllm:
+  Qwen/Qwen2.5-7B-Instruct:
+    kind: chat
+    context_window: 32768
+    max_token_output: 8192
+    modality: [text]
+    default_params: { temperature: 0.0 }
+    input_price_per_million: 0.0
+    output_price_per_million: 0.0
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+    verified_at: 2026-09-13
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+    notes: Benchmark evidence publishes in docs/reference/benchmarks/vllm-awq-sar-inference.md.
+
+  Qwen/Qwen2.5-7B-Instruct-AWQ:
+    kind: chat
+    context_window: 32768
+    max_token_output: 8192
+    modality: [text]
+    default_params: { temperature: 0.0 }
+    input_price_per_million: 0.0
+    output_price_per_million: 0.0
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-AWQ
+    verified_at: 2026-09-13
+    lifecycle: ga
+    callable: true
+    pricing_basis: per_million_tokens
+    notes: Benchmark evidence publishes in docs/reference/benchmarks/vllm-awq-sar-inference.md.
+
+  Qwen/Qwen3-8B:
+    kind: chat
+    context_window: 32768
+    max_token_output: 8192
+    modality: [text]
+    default_params: { temperature: 0.0 }
+    input_price_per_million: 0.0
+    output_price_per_million: 0.0
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://huggingface.co/Qwen/Qwen3-8B
+    verified_at: 2026-09-13
+    lifecycle: reference
+    callable: false
+    pricing_basis: per_million_tokens
+    notes: Configured alternative; not callable until the benchmark protocol adopts it.
+
+  Qwen/Qwen3-8B-AWQ:
+    kind: chat
+    context_window: 32768
+    max_token_output: 8192
+    modality: [text]
+    default_params: { temperature: 0.0 }
+    input_price_per_million: 0.0
+    output_price_per_million: 0.0
+    speed: fast
+    reasoning_capable: false
+    intelligence: medium
+    source_url: https://huggingface.co/Qwen/Qwen3-8B-AWQ
+    verified_at: 2026-09-13
+    lifecycle: reference
+    callable: false
+    pricing_basis: per_million_tokens
+    notes: Configured alternative; not callable until the benchmark protocol adopts it.
+
 openrouter:
   openai/text-embedding-3-small:
     kind: embed

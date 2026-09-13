@@ -24,10 +24,12 @@ from fraudlens_llm import (
     PhiMaskingMode,
     Protocol,
     ProviderConfig,
+    Providers,
     Speed,
     Strictness,
     load_catalog,
     load_providers,
+    resolve_base_url,
 )
 from fraudlens_llm.exceptions import ModelNotFoundError, ProviderNotConfiguredError
 from fraudlens_llm.providers import allows_data_class, is_equal_or_stricter
@@ -261,6 +263,32 @@ def test_provider_schema_governance_and_posture() -> None:
         providers.get("ollama")
 
 
+def test_vllm_provider_and_model_pairs_match_benchmark_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    providers = load_providers(REPO_ROOT / "config" / "llm" / "providers.yml")
+    catalog = load_catalog(REPO_ROOT / "config" / "llm" / "catalog.yml")
+    vllm = providers.get("vllm")
+
+    assert vllm.base_url_env == "VLLM_BASE_URL"
+    assert vllm.allow_plain_http is True
+    assert vllm.max_retries == 0
+    assert vllm.allowed_data_classes == list(DataClass)
+    for model_id in ("Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct-AWQ"):
+        _provider, _model_id, card = catalog.get(f"vllm/{model_id}")
+        assert card.callable is True
+        assert card.reasoning_capable is False
+        assert card.input_price_per_million == 0
+        assert card.output_price_per_million == 0
+    for model_id in ("Qwen/Qwen3-8B", "Qwen/Qwen3-8B-AWQ"):
+        _provider, _model_id, card = catalog.get(f"vllm/{model_id}")
+        assert card.callable is False
+        assert card.lifecycle == Lifecycle.REFERENCE
+        assert card.input_price_per_million == 0
+        assert card.output_price_per_million == 0
+
+
 def test_provider_posture_region_and_retention_edges() -> None:
     current = ProviderConfig(
         protocol=Protocol.OPENAI_COMPATIBLE,
@@ -307,6 +335,8 @@ def test_provider_validation_rejects_bad_connection_and_headers() -> None:
     with pytest.raises(ValidationError):
         ProviderConfig(**{**base, "api_key_env": "not-valid"}, base_url="https://example.com")
     with pytest.raises(ValidationError):
+        ProviderConfig(**base, base_url_env="not-valid")
+    with pytest.raises(ValidationError):
         ProviderConfig(**base, base_url="https://example.com", headers={"Authorization": "x"})
     with pytest.raises(ValidationError):
         ProviderConfig(**base, base_url="https://example.com", headers={"X-Note": "sk-secret"})
@@ -316,6 +346,54 @@ def test_provider_validation_rejects_bad_connection_and_headers() -> None:
         ).base_url
         is None
     )
+
+
+def test_provider_base_url_resolution_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime endpoints allow HTTPS, or explicitly enabled dev-loopback HTTP only."""
+    base = {
+        "protocol": Protocol.OPENAI_COMPATIBLE,
+        "api_key_env": "VLLM_API_KEY",
+        "timeout_s": 30,
+        "max_retries": 0,
+        "region": "self-hosted",
+        "data_retention": "none",
+        "zdr_supported": True,
+        "training_opt_out": True,
+        "baa_required": False,
+        "allowed_data_classes": [DataClass.SYNTHETIC],
+    }
+    config = ProviderConfig(
+        **base,
+        base_url="https://configured.example.test/v1",
+        base_url_env="VLLM_BASE_URL",
+        allow_plain_http=True,
+    )
+    dev = LlmSettings(environment="dev")
+
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    assert resolve_base_url(config, dev) == "https://configured.example.test/v1"
+    monkeypatch.setenv("VLLM_BASE_URL", "https://runtime.example.test/v1")
+    assert resolve_base_url(config, dev) == "https://runtime.example.test/v1"
+    monkeypatch.setenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")
+    assert resolve_base_url(config, dev) == "http://127.0.0.1:8000/v1"
+
+    monkeypatch.setenv("VLLM_BASE_URL", "http://public.example.test/v1")
+    with pytest.raises(ValueError, match="loopback HTTP"):
+        resolve_base_url(config, dev)
+    monkeypatch.setenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+    with pytest.raises(ValueError, match="loopback HTTP"):
+        resolve_base_url(config, LlmSettings(environment="prod"))
+
+    env_only = ProviderConfig(**base, base_url_env="VLLM_BASE_URL")
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    with pytest.raises(ProviderNotConfiguredError, match="base URL"):
+        resolve_base_url(env_only, dev)
+
+    warnings = check_llm_catalog._provider_connection_warnings(
+        Providers(providers={"vllm": env_only}),
+        settings=dev,
+    )
+    assert warnings == ["vllm: base URL is not resolvable in the current environment"]
 
 
 def test_settings_env_overrides_and_prod_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:

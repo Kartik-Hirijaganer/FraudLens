@@ -28,6 +28,20 @@ openrouter:
   baa_required: false
   allowed_data_classes: [synthetic, deidentified]
 
+vllm:
+  protocol: openai_compatible
+  base_url_env: VLLM_BASE_URL
+  allow_plain_http: true
+  api_key_env: VLLM_API_KEY
+  timeout_s: 300
+  max_retries: 0
+  region: self-hosted
+  data_retention: none
+  zdr_supported: true
+  training_opt_out: true
+  baa_required: false
+  allowed_data_classes: [synthetic, deidentified, internal, restricted]
+
 openai:
   protocol: openai_compatible
   base_url: https://api.openai.com/v1
