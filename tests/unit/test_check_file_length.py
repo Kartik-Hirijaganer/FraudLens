@@ -1,4 +1,4 @@
-"""Behavioral tests for the configured physical-line cap and shrink-only baseline."""
+"""Behavioral tests for the configured physical-line cap and optional baseline parser."""
 
 from __future__ import annotations
 
@@ -38,14 +38,12 @@ def _write_lines(path: Path, count: int, *, trailing_newline: bool = True) -> No
     path.write_text("\n".join("line" for _ in range(count)) + suffix, encoding="utf-8")
 
 
-def test_committed_baseline_captures_exactly_the_33_current_offenders() -> None:
+def test_committed_policy_enforces_the_absolute_cap_without_a_baseline() -> None:
     settings = load_file_length_settings(REPO_ROOT)
     baseline = load_baseline(REPO_ROOT, settings)
-    assert len(baseline.entries) == 33
+    assert settings.baseline_file is None
+    assert baseline.entries == ()
     assert check_file_lengths(REPO_ROOT, settings, baseline) == []
-    for entry in baseline.entries:
-        assert count_physical_lines(REPO_ROOT / entry.path) == entry.lines
-        assert entry.lines > settings.max_lines
 
 
 def test_unlisted_501_line_source_fails_the_absolute_cap(sandbox: Path) -> None:
@@ -114,7 +112,7 @@ def test_policy_rejects_escaping_paths_and_duplicate_baseline_entries() -> None:
         )
 
 
-def test_cli_reports_the_committed_ratchet_as_compliant(
+def test_cli_reports_the_committed_absolute_cap_as_compliant(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert check_file_length.main([]) == 0

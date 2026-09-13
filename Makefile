@@ -23,7 +23,7 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -118,7 +118,7 @@ ci-changed: lint-changed format-check-changed test-coverage-diff ## Changed-file
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 	$(UV) run python scripts/check_headers.py
-file-length-check: ## Enforce the 500-physical-line source cap and temporary shrink-only baseline.
+file-length-check: ## Enforce the absolute 500-physical-line source cap.
 	$(UV) run python scripts/check_file_length.py
 docs-links-check: ## Validate every relative link in README, AGENTS, docs, and plans.
 	$(UV) run python scripts/check_docs_links.py
@@ -141,7 +141,7 @@ supabase-security-check: ## Audit live Supabase DB CIDRs + TLS (SUPABASE_PROJECT
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
-	npx --yes jscpd@4 backend/src packages frontend/src --config .jscpd.json
+	npx --yes jscpd@4 backend/src packages frontend/src scripts --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
 deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
@@ -345,7 +345,9 @@ SAR_EVAL := $(UV) run python scripts/benchmark_sar_agents.py
 SAR_EVAL_RETRY_ARG := $(if $(filter 1 true yes,$(SAR_EVAL_RETRY_FAILED)),--retry-failed,)
 SAR_EVAL_TESTS := tests/unit/test_sar_eval_cli.py \
 	tests/unit/test_sar_eval_scenarios_metrics.py \
-	tests/unit/test_sar_eval_runner_judge.py \
+	tests/unit/test_sar_eval_runner.py \
+	tests/unit/test_sar_eval_runner_contracts.py \
+	tests/unit/test_sar_eval_judge.py \
 	tests/unit/test_sar_eval_report_publish.py
 
 sar-eval-scenarios: ## Generate the deterministic, synthetic 8x4 evaluation matrix (free).
@@ -373,6 +375,19 @@ sar-eval-test: ## Portable SAR evaluation suite with >=90% harness coverage; nev
 		--cov-report=term-missing --cov-fail-under=90
 	$(MAKE) sar-eval-validate
 
+SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
+	tests/integration/test_train_model.py tests/integration/test_train_model_cli.py \
+	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
+	tests/unit/test_study_helpers.py $(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
+scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
+	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
+		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
+		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
+		--cov=lib.model_training --cov=lib.sar_eval --cov=lib.study \
+		--cov=local_demo --cov=train_model --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+	$(MAKE) sar-eval-validate
+
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform
 	@for env in dev prod; do \
@@ -387,7 +402,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

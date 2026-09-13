@@ -21,9 +21,7 @@ Notes:
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -47,6 +45,8 @@ from lib.sar_eval.config import (
     ScenarioVariant,
     validate_config_binding,
 )
+from lib.study.artifacts import atomic_write_text
+from lib.study.binding import sha256_hex
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MODEL_CONFIG = ConfigDict(
@@ -204,13 +204,6 @@ class ScenarioArtifact(BaseModel):
         return self
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(content, encoding="utf-8")
-    os.replace(temporary, path)
-
-
 def _anchor(config: SarEvalConfig) -> datetime:
     parsed = config.anchor_time
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
@@ -319,12 +312,12 @@ def _scenario(
 def canonical_run_id(config_sha256: str, seed: int) -> str:
     """Derive the only valid evaluation run id for a protocol hash and seed."""
     payload = json.dumps({"configSha256": config_sha256, "seed": seed}, sort_keys=True)
-    return f"sar-eval-{hashlib.sha256(payload.encode()).hexdigest()[:16]}"
+    return f"sar-eval-{sha256_hex(payload)[:16]}"
 
 
 def generate_scenarios(config: SarEvalConfig, config_bytes: bytes) -> ScenarioArtifact:
     """Build the canonical scenario matrix and its deterministic protocol id."""
-    config_hash = hashlib.sha256(config_bytes).hexdigest()
+    config_hash = sha256_hex(config_bytes)
     validate_config_binding(config, config_hash)
     run_id = canonical_run_id(config_hash, config.seed)
     scenarios = tuple(
@@ -439,7 +432,7 @@ def write_scenarios(path: Path, artifact: ScenarioArtifact) -> None:
     content = (
         json.dumps(artifact.model_dump(mode="json", by_alias=True), indent=2, sort_keys=True) + "\n"
     )
-    _atomic_write(path, content)
+    atomic_write_text(path, content)
 
 
 def load_scenarios(path: Path) -> ScenarioArtifact:

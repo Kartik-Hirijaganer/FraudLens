@@ -204,10 +204,10 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 11. **Frontend follows the `wise` design system** ([`DESIGN.md`](DESIGN.md)) — see
     [Frontend design system](#frontend-design-system) above.
 12. **Every source file is at most 500 physical lines.** `make file-length-check` enforces
-    the cap. Only Alembic migration history and generated files are exempt. A temporary
-    shrink-only baseline exists through Phase 2 of the active vLLM/AWQ plan; Phase 2 removes
-    it. Split-module facades must declare an explicit `__all__` so the public surface stays
-    intentional.
+    the absolute cap. Only Alembic migration history and generated files are exempt. Split-module
+    facades keep established import paths stable, own only cohesive orchestration or loading
+    behavior, re-export sibling implementations through an explicit `__all__`, and avoid wildcard
+    imports so the public surface stays intentional and dead-code tooling remains accurate.
 
 ### Endpoint & API contract (FraudLens)
 

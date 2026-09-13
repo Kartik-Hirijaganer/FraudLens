@@ -33,9 +33,7 @@ Notes:
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +44,9 @@ from lib.gfp.boundaries import CuratedMotif, CuratedVisualData, StudyHighlightMe
 from lib.gfp.config import GfpBenchmarkConfig
 from lib.gfp.curation import TYPOLOGIES
 from lib.gfp.report import ArmDelta, ArmMetrics, ScopeComparison, StudyReport
+from lib.study.artifacts import atomic_write_text, install_bound_artifacts
+from lib.study.binding import sha256_hex
+from lib.study.redaction import scan_forbidden
 
 STUDY_JSON = "study.json"
 MOTIFS_JSON = "motifs.json"
@@ -99,10 +100,7 @@ class PublishResult:
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Write text atomically (tmp file + os.replace) so no partial artifact survives."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_text(path, content)
 
 
 def _report_json(report: StudyReport) -> str:
@@ -196,12 +194,7 @@ def validate_publishable(
 
 def _scan_redaction(content: str, artifact: str) -> None:
     """Fail closed when a committed byte stream carries a forbidden pattern."""
-    for pattern in _REDACTION_FORBIDDEN:
-        if pattern in content:
-            raise ValueError(
-                f"redaction scan failed for {artifact}: forbidden pattern "
-                f"{pattern.encode('unicode_escape').decode('ascii')!r} present"
-            )
+    scan_forbidden(content, artifact=artifact, forbidden=_REDACTION_FORBIDDEN)
 
 
 def _isolation_phrase(delta: float) -> str:
@@ -406,7 +399,7 @@ def publish_run(
     report, payload = load_run(run_dir)
     validate_publishable(report, payload, config)
     report_json = _report_json(report) + "\n"
-    report_sha256 = hashlib.sha256(report_json.encode("utf-8")).hexdigest()
+    report_sha256 = sha256_hex(report_json)
     visual = CuratedVisualData(
         report_sha256=report_sha256,
         metrics=_highlight_metrics(report),
@@ -425,10 +418,14 @@ def publish_run(
     _scan_redaction(markdown, f"{REPORT_BASENAME}.md")
     report_json_path = docs_dir / f"{REPORT_BASENAME}.json"
     report_markdown_path = docs_dir / f"{REPORT_BASENAME}.md"
-    _atomic_write_text(report_json_path, report_json)
-    _atomic_write_text(report_markdown_path, markdown)
-    _atomic_write_text(frontend_json_path, frontend_json)
-    validate_published_artifacts(report_json_path, frontend_json_path)
+    install_bound_artifacts(
+        {
+            report_json_path: report_json,
+            report_markdown_path: markdown,
+            frontend_json_path: frontend_json,
+        },
+        validate=lambda: validate_published_artifacts(report_json_path, frontend_json_path),
+    )
     return PublishResult(
         report_json_path=report_json_path,
         report_markdown_path=report_markdown_path,
@@ -441,7 +438,7 @@ def validate_published_artifacts(report_json_path: Path, frontend_json_path: Pat
     """Assert the committed report + frontend JSONs are still hash-bound (no drift)."""
     report_bytes = report_json_path.read_bytes()
     visual = CuratedVisualData.model_validate_json(frontend_json_path.read_text(encoding="utf-8"))
-    observed = hashlib.sha256(report_bytes).hexdigest()
+    observed = sha256_hex(report_bytes)
     if observed != visual.report_sha256:
         raise ValueError(
             f"published artifacts drifted: {report_json_path.name} hashes to "

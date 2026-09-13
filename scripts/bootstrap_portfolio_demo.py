@@ -51,7 +51,7 @@ from fraudlens_backend.portfolio_demo.ingest import StoryIngestError
 from fraudlens_backend.portfolio_demo.probe import probe_story, render_probe_report
 from fraudlens_backend.portfolio_demo.verification import format_deltas, verify_story
 from fraudlens_backend.settings import AppSettings, get_settings
-from train_model import _artifacts_root
+from train_model import artifacts_root
 
 _FAILURE = 1
 _SUCCESS = 0
@@ -59,7 +59,7 @@ _SUCCESS = 0
 
 async def promote_configured_model(session: AsyncSession, *, version_label: str) -> str:
     """Register + promote the configured bundle through `activate_model.py`'s real chain."""
-    bundles = discover_bundles(_artifacts_root(get_settings()), label=version_label)
+    bundles = discover_bundles(artifacts_root(get_settings()), label=version_label)
     if not bundles:
         raise BootstrapRefusedError(
             f"no gates-passed bundle '{version_label}' is available to promote — train or fetch it"
@@ -71,7 +71,7 @@ async def promote_configured_model(session: AsyncSession, *, version_label: str)
 
 def _models_dir(settings: AppSettings) -> Path:
     """Resolve the artifacts root the scorer loads from (relative values anchor at the repo)."""
-    return _artifacts_root(settings)
+    return artifacts_root(settings)
 
 
 async def _run_probe(config: PortfolioDemoConfig, settings: AppSettings) -> int:

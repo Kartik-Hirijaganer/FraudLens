@@ -47,29 +47,18 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-Environment = Literal["dev", "prod", "staging"]
-StorageBackend = Literal["local", "azure_blob"]
-QueueBackend = Literal["local", "container_apps_jobs"]
-LlmMode = Literal["mock", "live"]
-RagEmbeddingMode = Literal["offline", "live"]
-SecretsDelivery = Literal["unconfigured", "externally_injected"]
-
-# Safe defaults for the always-on static security headers. The Content-Security-Policy is
-# handled separately (it is path-aware: strict on the API, relaxed on the docs UI — see
-# middleware/security.py). All values are overridable via config (plan §12.3).
-_DEFAULT_SECURITY_HEADERS: dict[str, str] = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-}
-
-# Strict default Content-Security-Policy for the JSON API surface: nothing loads, frames,
-# or submits. The interactive docs UI relaxes this via content_security_policy_docs (which
-# carries the documentation CDN origin and therefore lives in config, not source — §12.3).
-_DEFAULT_CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+from fraudlens_backend.settings_cloud import AzureRuntimeFields
+from fraudlens_backend.settings_defaults import (
+    Environment,
+    LlmMode,
+    QueueBackend,
+    RagEmbeddingMode,
+    SecretsDelivery,
+    StorageBackend,
 )
+from fraudlens_backend.settings_gateway import GatewayRuntimeFields
+
+__all__ = ["AppSettings", "find_config_dir", "get_settings"]
 
 
 def find_config_dir() -> Path:
@@ -90,7 +79,7 @@ def _active_environment() -> str:
     return os.environ.get("FRAUDLENS_ENVIRONMENT", "dev")
 
 
-class AppSettings(BaseSettings):
+class AppSettings(GatewayRuntimeFields, AzureRuntimeFields, BaseSettings):
     """Validated, immutable application settings loaded from YAML + env."""
 
     model_config = SettingsConfigDict(
@@ -209,78 +198,6 @@ class AppSettings(BaseSettings):
         "Infisical; deliberately non-secret demo data, but never an inline YAML value.",
     )
 
-    # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
-    cors_allow_origins: list[str] = Field(
-        default_factory=list,
-        description="Exact allowed CORS origins; set per-env in config (never hardcoded).",
-    )
-    cors_allow_methods: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="Allowed CORS methods for the gateway edge.",
-    )
-    cors_allow_headers: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="Allowed CORS request headers for the gateway edge.",
-    )
-    cors_allow_credentials: bool = Field(
-        default=False,
-        description="Whether the gateway allows credentialed CORS requests.",
-    )
-
-    # --- Gateway edge: rate limiting (fixed-window, per client) ---
-    rate_limit_enabled: bool = Field(
-        default=True,
-        description="Enable the gateway fixed-window rate limiter.",
-    )
-    rate_limit_requests: int = Field(
-        default=120,
-        gt=0,
-        description="Max requests per client within the window before 429.",
-    )
-    rate_limit_window_seconds: float = Field(
-        default=60.0,
-        gt=0,
-        description="Length of the rate-limit fixed window, in seconds.",
-    )
-
-    # --- Gateway edge: security response headers (config-overridable safe defaults) ---
-    security_headers: dict[str, str] = Field(
-        default_factory=lambda: dict(_DEFAULT_SECURITY_HEADERS),
-        description="Static security response headers applied to every gateway response.",
-    )
-    csp_enabled: bool = Field(
-        default=True,
-        description="Stamp a Content-Security-Policy header on every gateway response.",
-    )
-    content_security_policy: str = Field(
-        default=_DEFAULT_CONTENT_SECURITY_POLICY,
-        description="Strict CSP applied to the API surface (config-overridable, plan §12.3).",
-    )
-    content_security_policy_docs: str = Field(
-        default="",
-        description="Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. "
-        "Empty falls back to the strict policy so the API surface is never weakened.",
-    )
-    docs_ui_paths: list[str] = Field(
-        default_factory=lambda: ["/docs", "/redoc"],
-        description="Paths serving the interactive docs UI that receive the relaxed CSP.",
-    )
-    gateway_routes_file: str | None = Field(
-        default=None,
-        description="Override path to the gateway routing table; else discovered under config/.",
-    )
-
-    # --- Observability (plan §11.5, §16 Phase 12): optional OTel export, OFF by default ---
-    telemetry_enabled: bool = Field(
-        default=False,
-        description="Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default "
-        "(stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14).",
-    )
-    telemetry_service_name: str = Field(
-        default="fraudlens-backend",
-        description="Service name reported by telemetry export when enabled (App Insights / OTel).",
-    )
-
     # --- Config-driven backends (plan §12.3): local for the one-command demo, cloud later ---
     storage_backend: StorageBackend = Field(
         default="local",
@@ -395,85 +312,6 @@ class AppSettings(BaseSettings):
         default=5.0,
         gt=0,
         description="Timeout for the /readyz database connectivity probe, in seconds.",
-    )
-
-    # --- Azure runtime integration (non-secret resource names + managed identity) ---
-    azure_managed_identity_token_url: str = Field(
-        default="",
-        description="Managed-identity token endpoint URL, supplied by config/env in Azure.",
-    )
-    azure_managed_identity_api_version: str = Field(
-        default="2018-02-01",
-        description="Managed-identity token API version.",
-    )
-    azure_managed_identity_client_id: str | None = Field(
-        default=None,
-        description=(
-            "User-assigned managed identity client id used for Azure data/control-plane calls."
-        ),
-    )
-    azure_arm_endpoint: str = Field(
-        default="",
-        description="Azure Resource Manager endpoint base URL, supplied by config/env.",
-    )
-    azure_arm_token_resource: str = Field(
-        default="",
-        description="Token resource/audience for Azure Resource Manager.",
-    )
-    azure_subscription_id: str | None = Field(
-        default=None,
-        description="Azure subscription id containing the Container Apps Jobs.",
-    )
-    azure_resource_group_name: str | None = Field(
-        default=None,
-        description="Azure resource group containing the Container Apps Jobs.",
-    )
-    azure_container_apps_api_version: str = Field(
-        default="2024-03-01",
-        description="Azure Container Apps Jobs ARM API version.",
-    )
-    azure_container_apps_retrain_job_name: str | None = Field(
-        default=None,
-        description="Container Apps Job name for model retraining.",
-    )
-    azure_container_apps_batch_score_job_name: str | None = Field(
-        default=None,
-        description="Container Apps Job name for batch scoring.",
-    )
-    azure_storage_account_name: str | None = Field(
-        default=None,
-        description="Azure Storage account name for artifact and SAR-PDF blobs.",
-    )
-    azure_storage_blob_host_suffix: str = Field(
-        default="blob.core.windows.net",
-        description="Azure Blob DNS suffix used to build the storage endpoint.",
-    )
-    azure_storage_blob_endpoint: str | None = Field(
-        default=None,
-        description=(
-            "Optional full Azure Blob endpoint base URL; otherwise derived from account name."
-        ),
-    )
-    azure_storage_token_resource: str = Field(
-        default="",
-        description="Token resource/audience for Azure Blob Storage.",
-    )
-    azure_storage_container_name: str = Field(
-        default="artifacts",
-        description="Blob container for model/artifact keys.",
-    )
-    azure_storage_sar_pdf_container_name: str = Field(
-        default="sar-pdfs",
-        description="Blob container for SAR PDF keys.",
-    )
-    azure_storage_blob_api_version: str = Field(
-        default="2023-11-03",
-        description="Azure Blob data-plane API version.",
-    )
-    azure_rest_timeout_seconds: float = Field(
-        default=10.0,
-        gt=0,
-        description="Timeout for Azure managed-identity, Blob, and ARM REST calls.",
     )
 
     # --- Ingestion limits (plan §16 Phase 3; config-driven, never hardcoded) ---

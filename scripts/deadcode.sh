@@ -14,7 +14,8 @@ strict="${DEADCODE_STRICT:-0}"
 status=0
 
 echo "== vulture (Python dead code) =="
-uv run vulture backend/src packages/fraudlens-core/src packages/fraudlens-ml/src scripts \
+uv run vulture backend/src packages/fraudlens-core/src packages/fraudlens-llm/src \
+  packages/fraudlens-ml/src scripts \
   --min-confidence 80 --ignore-decorators "@router.*,@app.*,@api_router.*" || status=1
 
 echo "== ruff unused symbols (F401/F811/F841) =="

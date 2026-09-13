@@ -4,7 +4,6 @@ strict structured output, enforces the role's exact tool allowlist, fences
 masked tool data, bounds tool invocations, and normalizes every outcome.
 
 Key classes:
-- AgentBudgetExceededError: pre-call worst-case budget refusal.
 - AgentRuntime: bounded role-agnostic execution loop.
 
 Key functions:
@@ -34,12 +33,12 @@ from fraudlens_backend.agents.contracts import (
     AgentToolCallStatus,
 )
 from fraudlens_backend.agents.prompts import AgentPromptTemplate, build_agent_messages
+from fraudlens_backend.agents.runtime_contracts import AgentBudgetExceededError, ExecutionState
 from fraudlens_backend.sar.budget import estimate_cost_usd
 from fraudlens_core.phi import mask_text
 from fraudlens_llm import (
     Catalog,
     GenerationParams,
-    GuardrailDecision,
     GuardrailError,
     LlmClient,
     LlmError,
@@ -70,42 +69,12 @@ _LLM_NON_RETRYABLE_ERROR = "llm_non_retryable_error"
 _AGENT_RUNTIME_ERROR = "agent_runtime_error"
 _COST_QUANTUM = Decimal("0.000001")
 
-
-class AgentBudgetExceededError(RuntimeError):
-    """Raised before provider access when configured worst-case cost exceeds the cap."""
-
-
-class _ExecutionState:
-    """Mutable attempt-local accounting retained across timeout cancellation."""
-
-    def __init__(self, *, model_id: str) -> None:
-        """Initialize empty, PHI-free execution accounting."""
-        self.model_id = model_id
-        self.model_call_count = 0
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.total_tokens = 0
-        self.cost_usd = Decimal("0")
-        self.tool_calls: list[AgentToolCallRecord] = []
-        self.tool_call_count = 0
-        self.guardrail_decision: GuardrailDecision | None = None
-        self.degraded_code: str | None = None
-
-    def record_result(self, result: LlmResult, *, cost_usd: Decimal) -> None:
-        """Accumulate one completed provider call's served model, usage, cost, and guardrails."""
-        self.model_id = result.model
-        self.model_call_count += 1
-        self.input_tokens += result.usage.input_tokens
-        self.output_tokens += result.usage.output_tokens
-        self.total_tokens += result.usage.total_tokens
-        self.cost_usd += cost_usd
-        if _decision_rank(result.guardrail.decision) > _decision_rank(self.guardrail_decision):
-            self.guardrail_decision = result.guardrail.decision
-
-    def mark_degraded(self, error_code: str) -> None:
-        """Retain the first degraded-path code for stable downstream interpretation."""
-        if self.degraded_code is None:
-            self.degraded_code = error_code
+__all__ = [
+    "AgentBudgetExceededError",
+    "AgentRuntime",
+    "agent_input_hash",
+    "estimate_workflow_max_cost_usd",
+]
 
 
 class AgentRuntime:
@@ -156,7 +125,7 @@ class AgentRuntime:
         agent_config = self._config.agents.for_role(agent)
         messages = build_agent_messages(prompt, user_content)
         input_hash = _agent_messages_hash(agent=agent, prompt=prompt, messages=messages)
-        state = _ExecutionState(model_id=agent_config.model)
+        state = ExecutionState(model_id=agent_config.model)
         started = time.perf_counter()
         try:
             async with asyncio.timeout(self._config.workflow.agent_timeout_s):
@@ -217,7 +186,7 @@ class AgentRuntime:
         response_model: type[BaseModel],
         attempt: int,
         input_hash: str,
-        state: _ExecutionState,
+        state: ExecutionState,
         started: float,
     ) -> AgentExecutionRecord:
         """Call, service bounded tools, and parse the first final structured response."""
@@ -317,7 +286,7 @@ class AgentRuntime:
         agent_config: AgentConfig,
         allowlist: tuple[ToolDefinition, ...],
         messages: list[LlmMessage],
-        state: _ExecutionState,
+        state: ExecutionState,
     ) -> None:
         """Refuse unauthorized calls or append one masked, fenced structured result."""
         safe_arguments = _mask_json_mapping(tool_call.arguments)
@@ -439,7 +408,7 @@ def _build_record(  # noqa: PLR0913 - persistence record fields stay explicit.
     status: AgentExecutionStatus,
     error_code: str | None,
     input_hash: str,
-    state: _ExecutionState,
+    state: ExecutionState,
     started: float,
     result: dict[str, JsonValue] | None = None,
 ) -> AgentExecutionRecord:
@@ -512,15 +481,3 @@ def _agent_messages_hash(
             "messages": [message.model_dump(mode="json", by_alias=True) for message in messages],
         }
     )
-
-
-def _decision_rank(decision: GuardrailDecision | None) -> int:
-    """Rank guardrail outcomes for strictest-decision aggregation."""
-    ranks = {
-        None: 0,
-        GuardrailDecision.NOT_APPLICABLE: 0,
-        GuardrailDecision.ALLOW: 1,
-        GuardrailDecision.FLAG: 2,
-        GuardrailDecision.BLOCK: 3,
-    }
-    return ranks[decision]

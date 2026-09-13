@@ -31,4 +31,5 @@ canonical record.
 | ADR-017 | Graph-feature serving boundary: GFP measured offline, never served | Accepted (2026-07-14) | [ADR-017-graph-feature-serving-boundary.md](ADR-017-graph-feature-serving-boundary.md) |
 | ADR-018 | Portfolio demo data provenance: pipeline-produced, config-asserted, single-tenant | Accepted (2026-07-26) | [ADR-018-portfolio-demo-data-provenance.md](ADR-018-portfolio-demo-data-provenance.md) |
 | ADR-019 | Multi-agent SAR drafting: bounded enrichment, deterministic control, human authority | Accepted (2026-08-17) | [ADR-019-multi-agent-sar-drafting.md](ADR-019-multi-agent-sar-drafting.md) |
+| ADR-022 | Source files: absolute 500-line cap with responsibility-based module splits | Accepted (2026-09-13) | [ADR-022-source-file-cap-and-module-splitting.md](ADR-022-source-file-cap-and-module-splitting.md) |
 | ADR-024 | Agent skills: one canonical source with a generated Codex mirror | Accepted (2026-09-13) | [ADR-024-agent-skills-single-source.md](ADR-024-agent-skills-single-source.md) |

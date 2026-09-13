@@ -22,4 +22,3 @@ file_length:
     - "**/.ruff_cache/**"
     - "**/.pytest_cache/**"
     - "alembic/versions/*.py"
-  baseline_file: config/quality/file-length-baseline.yaml

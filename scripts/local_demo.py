@@ -17,9 +17,6 @@ Key classes:
 
 Key functions:
 - runner_guard: hold the repository-scoped single-runner lock for stack-starting commands.
-- local_database_url: build the local asyncpg URL from (non-secret) env/defaults.
-- demo_environment: the dev environment overrides handed to the child processes.
-- live_environment: dev-local overrides for real Supabase Auth/Postgres + OpenRouter.
 - up: boot Postgres + backend + frontend, print the URL, wait for Ctrl-C.
 - live: boot backend + frontend against real services, print the URL, wait for Ctrl-C.
 - live_demo: boot the live stack AND apply the configured portfolio demo story.
@@ -31,11 +28,11 @@ Key functions:
 
 Notes:
 - Local Docker credentials are non-secret conveniences. The Kaggle token is injected from
-  Infisical only for the fetch child and removed before database, backend, and frontend children.
+Infisical only for the fetch child and removed before database, backend, and frontend children.
 - Missing IBM data or credentials fail startup; this command never falls back to sample alerts.
 - `live` stays read-only: only `live-demo` migrates, seeds, or writes story rows. A database that
-  already holds the IBM case pack is NOT converted automatically — the bootstrap refuses a tenant
-  carrying rows outside the story and tells the operator to run `make portfolio-demo-reset`.
+already holds the IBM case pack is NOT converted automatically — the bootstrap refuses a tenant
+carrying rows outside the story and tells the operator to run `make portfolio-demo-reset`.
 """
 
 from __future__ import annotations
@@ -44,19 +41,118 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
-import json
 import os
-import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+
+from lib.demo_dataset_steps import (
+    activate_trained_model as _activate_trained_model,
+)
+from lib.demo_dataset_steps import (
+    backend_command as _backend_command,
+)
+from lib.demo_dataset_steps import (
+    bootstrap_portfolio_demo as _bootstrap_portfolio_demo,
+)
+from lib.demo_dataset_steps import (
+    build_rag_index as _build_rag_index,
+)
+from lib.demo_dataset_steps import (
+    fetch_ibm_demo_data as _fetch_ibm_demo_data,
+)
+from lib.demo_dataset_steps import (
+    frontend_command as _frontend_command,
+)
+from lib.demo_dataset_steps import (
+    ingest_ibm_demo_data as _ingest_ibm_demo_data,
+)
+from lib.demo_dataset_steps import (
+    migrate_and_seed as _migrate_and_seed,
+)
+from lib.demo_dataset_steps import (
+    portfolio_story_environment as _portfolio_story_environment,
+)
+from lib.demo_dataset_steps import (
+    score_ibm_demo_data as _score_ibm_demo_data,
+)
+from lib.demo_dataset_steps import (
+    start_postgres as _start_postgres,
+)
+from lib.demo_environment import (
+    _assign_available_default_ports,
+    _base_url,
+    _env,
+    _is_port_available,
+    demo_environment,
+    live_environment,
+    local_database_url,
+)
+from lib.demo_processes import (
+    await_backend_ready as _await_backend_ready,
+)
+from lib.demo_processes import (
+    clear_local_caches as _clear_local_caches,
+)
+from lib.demo_processes import (
+    compose_command as _compose,
+)
+from lib.demo_processes import (
+    compose_down as _compose_down,
+)
+from lib.demo_processes import (
+    free_fraudlens_ports as _free_fraudlens_ports,
+)
+from lib.demo_processes import http_ok as _http_ok
+from lib.demo_processes import remove_path as _remove_path
+from lib.demo_processes import (
+    require_tools as _require_tools,
+)
+from lib.demo_processes import (
+    wait_for_http as _wait_for_http,
+)
+
+__all__ = [
+    "_activate_trained_model",
+    "_assign_available_default_ports",
+    "_await_backend_ready",
+    "_backend_command",
+    "_base_url",
+    "_bootstrap_portfolio_demo",
+    "_build_rag_index",
+    "_clear_local_caches",
+    "_compose",
+    "_compose_down",
+    "_env",
+    "_fetch_ibm_demo_data",
+    "_free_fraudlens_ports",
+    "_frontend_command",
+    "_http_ok",
+    "_ingest_ibm_demo_data",
+    "_is_port_available",
+    "_migrate_and_seed",
+    "_portfolio_story_environment",
+    "_remove_path",
+    "_require_tools",
+    "_score_ibm_demo_data",
+    "_start_postgres",
+    "_wait_for_http",
+    "demo_environment",
+    "down",
+    "live",
+    "live_demo",
+    "local_database_url",
+    "main",
+    "rebuild",
+    "reset",
+    "runner_guard",
+    "smoke",
+    "up",
+]
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.local.yml"
@@ -126,479 +222,6 @@ def runner_guard() -> Iterator[object]:
             yield handle
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _env(name: str) -> str:
-    """Return an env var, falling back to the documented non-secret local default."""
-    return os.environ.get(name, _DEFAULTS[name])
-
-
-def _parse_port(port: str) -> int | None:
-    """Parse and validate a TCP port string."""
-    if not port.isdigit():
-        return None
-    value = int(port)
-    return value if _MIN_TCP_PORT <= value <= _MAX_TCP_PORT else None
-
-
-def _is_port_available(port: str) -> bool:
-    """Return True when a local TCP port can be bound by the demo."""
-    parsed = _parse_port(port)
-    if parsed is None:
-        return False
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind((_env("DEMO_HOST"), parsed))
-    except OSError:
-        return False
-    return True
-
-
-def _first_available_port(name: str) -> str:
-    """Find the first available fallback port for a known local-demo port variable."""
-    start = _AUTO_PORT_STARTS[name]
-    for port in range(start, start + _AUTO_PORT_SEARCH_SPAN):
-        candidate = str(port)
-        if _is_port_available(candidate):
-            return candidate
-    raise RuntimeError(f"no available fallback port found for {name}")
-
-
-def _assign_available_default_ports(names: tuple[str, ...]) -> None:
-    """Move unset default ports to free fallbacks when another project owns the common ports."""
-    for name in names:
-        if name in os.environ:
-            continue
-        requested = _DEFAULTS[name]
-        if _is_port_available(requested):
-            continue
-        selected = _first_available_port(name)
-        os.environ[name] = selected
-        print(f">> {name} default {requested} is unavailable; using {selected}", flush=True)
-
-
-def local_database_url() -> str:
-    """Build the local async (asyncpg) database URL from env/defaults."""
-    user, password = _env("POSTGRES_USER"), _env("POSTGRES_PASSWORD")
-    host, port, name = _env("POSTGRES_HOST"), _env("POSTGRES_PORT"), _env("POSTGRES_DB")
-    return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}"
-
-
-def _base_url(port: str) -> str:
-    """Build a local base URL from the (config-driven) demo host + a port."""
-    return f"http://{_env('DEMO_HOST')}:{port}"
-
-
-def demo_environment() -> dict[str, str]:
-    """Return the child-process environment: dev config, local backends, mock LLM."""
-    env = dict(os.environ)
-    for name in ("POSTGRES_PORT", "BACKEND_PORT", "FRONTEND_PORT"):
-        env.setdefault(name, _env(name))
-    env.update(
-        {
-            "FRAUDLENS_ENVIRONMENT": "dev",
-            "VITE_AUTH_DEV_BYPASS": "true",
-            "VITE_DEMO_AUTH_ENABLED": "false",
-            "DATABASE_URL": local_database_url(),
-            "FRAUDLENS_STORAGE_BACKEND": "local",
-            "FRAUDLENS_QUEUE_BACKEND": "local",
-            "FRAUDLENS_LOCAL_JOB_EXECUTE_ON_SUBMIT": "true",
-            "FRAUDLENS_ALLOW_CANDIDATE_SCORING_IN_DEV": "false",
-            "FRAUDLENS_LLM_MODE": "mock",
-            "FRAUDLENS_RAG_EMBEDDING_MODE": "offline",
-        }
-    )
-    frontend_origin = _base_url(env["FRONTEND_PORT"])
-    env.setdefault("FRAUDLENS_CORS_ALLOW_ORIGINS", json.dumps([frontend_origin]))
-    env.setdefault("VITE_API_BASE_URL", _base_url(env["BACKEND_PORT"]))
-    return env
-
-
-def _supabase_project_url(env: dict[str, str]) -> str:
-    """Return the non-secret Supabase project URL from accepted env names."""
-    value = (
-        env.get("SUPABASE_PROJECT_URL")
-        or env.get("SUPABASE_URL")
-        or env.get("FRAUDLENS_SUPABASE_URL")
-        or env.get("VITE_SUPABASE_URL")
-    )
-    if not value:
-        raise RuntimeError("SUPABASE_URL or SUPABASE_PROJECT_URL is required for live mode")
-    return value.rstrip("/")
-
-
-def _require_live_env(env: dict[str, str]) -> None:
-    """Fail fast when run-live is missing required Infisical-injected secrets."""
-    required = (
-        "DATABASE_URL",
-        "OPENROUTER_API_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "VITE_SUPABASE_ANON_KEY",
-    )
-    missing = [name for name in required if not env.get(name)]
-    if missing:
-        raise RuntimeError(f"missing live secret env vars: {', '.join(missing)}")
-
-
-def live_environment() -> dict[str, str]:
-    """Return child-process env for local live Supabase Auth/Postgres + OpenRouter."""
-    env = dict(os.environ)
-    for name in ("BACKEND_PORT", "FRONTEND_PORT"):
-        env.setdefault(name, _env(name))
-    supabase_url = _supabase_project_url(env)
-    _require_live_env(env)
-    env.update(
-        {
-            "FRAUDLENS_ENVIRONMENT": "dev",
-            "FRAUDLENS_AUTH_DEV_BYPASS": "false",
-            "VITE_AUTH_DEV_BYPASS": "false",
-            "VITE_DEMO_AUTH_ENABLED": "true",
-            "FRAUDLENS_AUTH_JWKS_URL": f"{supabase_url}/auth/v1/.well-known/jwks.json",
-            "FRAUDLENS_AUTH_JWT_ISSUER": f"{supabase_url}/auth/v1",
-            "FRAUDLENS_AUTH_JWT_AUDIENCE": "authenticated",
-            "FRAUDLENS_AUTH_ROLE_CLAIM": "user_role",
-            "FRAUDLENS_SUPABASE_URL": supabase_url,
-            "FRAUDLENS_STORAGE_BACKEND": "local",
-            "FRAUDLENS_QUEUE_BACKEND": "local",
-            "FRAUDLENS_ALLOW_CANDIDATE_SCORING_IN_DEV": "true",
-            "FRAUDLENS_LLM_MODE": "live",
-            "FRAUDLENS_RAG_EMBEDDING_MODE": "live",
-            "VITE_SUPABASE_URL": supabase_url,
-        }
-    )
-    frontend_origin = _base_url(env["FRONTEND_PORT"])
-    env.setdefault("FRAUDLENS_CORS_ALLOW_ORIGINS", json.dumps([frontend_origin]))
-    env.setdefault("VITE_API_BASE_URL", _base_url(env["BACKEND_PORT"]))
-    return env
-
-
-def _compose(*args: str) -> list[str]:
-    """Build a `docker compose -f <file> ...` command for the local stack."""
-    return ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
-
-
-def _require_tools(*tools: str) -> None:
-    """Raise a clear error if any required CLI tool is not on PATH."""
-    missing = [tool for tool in tools if shutil.which(tool) is None]
-    if missing:
-        raise RuntimeError(f"missing required tools: {', '.join(missing)}")
-
-
-def _compose_down(*, remove_volumes: bool) -> None:
-    """Stop the FraudLens compose stack, optionally dropping volumes too."""
-    args = ["down", "--remove-orphans"]
-    if remove_volumes:
-        args.append("-v")
-    subprocess.run(_compose(*args), cwd=REPO_ROOT, check=True)
-
-
-def _remove_path(path: Path) -> None:
-    """Remove a generated local path when present (directory or file)."""
-    if path.is_dir():
-        shutil.rmtree(path)
-    elif path.exists():
-        path.unlink()
-
-
-def _clear_local_caches() -> None:
-    """Delete generated demo/check caches while preserving downloaded IBM AML source data."""
-    for path in _LOCAL_CACHE_PATHS:
-        _remove_path(path)
-
-
-def _listening_pids(port: str) -> list[int]:
-    """Return PIDs listening on a TCP port, or an empty list when `lsof` is unavailable."""
-    if shutil.which("lsof") is None:
-        return []
-    proc = subprocess.run(
-        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return sorted({int(line) for line in proc.stdout.splitlines() if line.strip().isdigit()})
-
-
-def _process_command(pid: int) -> str:
-    """Return a process command line, best-effort."""
-    proc = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "command="],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return proc.stdout.strip()
-
-
-def _process_cwd(pid: int) -> Path | None:
-    """Return a process working directory via lsof, best-effort."""
-    if shutil.which("lsof") is None:
-        return None
-    proc = subprocess.run(
-        ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    for line in proc.stdout.splitlines():
-        if line.startswith("n"):
-            return Path(line[1:])
-    return None
-
-
-def _is_under_repo(path: Path | None) -> bool:
-    """Return True when path resolves under the FraudLens repository."""
-    if path is None:
-        return False
-    with contextlib.suppress(OSError, RuntimeError):
-        return path.resolve().is_relative_to(REPO_ROOT.resolve())
-    return False
-
-
-def _is_fraudlens_listener(pid: int) -> bool:
-    """Return True when a listener is a FraudLens-owned local dev process."""
-    if pid == os.getpid():
-        return False
-    command = _process_command(pid)
-    if str(REPO_ROOT) in command or any(marker in command for marker in _REPO_PROCESS_MARKERS):
-        return True
-    return _is_under_repo(_process_cwd(pid))
-
-
-def _wait_for_ports_to_drain(ports: tuple[str, ...]) -> bool:
-    """Wait briefly for all configured ports to have no remaining listeners."""
-    deadline = time.monotonic() + _PORT_DRAIN_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        if not any(_listening_pids(port) for port in ports):
-            return True
-        time.sleep(_HEALTH_POLL_SECONDS)
-    return not any(_listening_pids(port) for port in ports)
-
-
-def _free_fraudlens_ports(ports: tuple[str, ...], *, fail_on_blockers: bool = True) -> list[str]:
-    """Terminate FraudLens-owned listeners and optionally report unrelated port owners."""
-    blockers: list[str] = []
-    to_terminate: set[int] = set()
-    ports_to_drain: set[str] = set()
-    for port in ports:
-        for pid in _listening_pids(port):
-            if _is_fraudlens_listener(pid):
-                to_terminate.add(pid)
-                ports_to_drain.add(port)
-            else:
-                blockers.append(f"{port}: pid {pid} ({_process_command(pid) or 'unknown'})")
-    if blockers and fail_on_blockers:
-        details = "; ".join(blockers)
-        raise RuntimeError(
-            "local demo port(s) are occupied by non-FraudLens processes: "
-            f"{details}. Stop them or override BACKEND_PORT/FRONTEND_PORT/POSTGRES_PORT."
-        )
-    for pid in to_terminate:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGTERM)
-    drain_ports = tuple(sorted(ports_to_drain))
-    if to_terminate and not _wait_for_ports_to_drain(drain_ports):
-        for pid in to_terminate:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
-        if not _wait_for_ports_to_drain(drain_ports):
-            raise RuntimeError("FraudLens local listeners did not release their ports in time")
-    return blockers
-
-
-def _http_ok(url: str) -> bool:
-    """Return True if a single GET to url returns HTTP 200 (within the poll timeout)."""
-    try:
-        with urllib.request.urlopen(url, timeout=_HEALTH_POLL_SECONDS) as response:
-            return bool(response.status == _HTTP_OK)
-    except (urllib.error.URLError, OSError):
-        return False
-
-
-def _wait_for_http(url: str, *, timeout: float = _HEALTH_TIMEOUT_SECONDS) -> bool:
-    """Poll url until it returns HTTP 200 or the timeout elapses."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _http_ok(url):
-            return True
-        time.sleep(_HEALTH_POLL_SECONDS)
-    return False
-
-
-def _await_backend_ready(
-    base: str, process: subprocess.Popen[bytes], *, timeout: float = _HEALTH_TIMEOUT_SECONDS
-) -> bool:
-    """Wait for /healthz then /readyz==200, bailing FAST if the backend process exits first.
-
-    Hardens the smoke gate (plan §16 Phase 14): a crash-on-boot fails immediately with the exit
-    code instead of blocking for the full timeout, and a never-ready /readyz is reported by name.
-    """
-    deadline = time.monotonic() + timeout
-    for path in ("/healthz", "/readyz"):
-        while not _http_ok(f"{base}{path}"):
-            if process.poll() is not None:
-                print(
-                    f"backend exited (code {process.returncode}) before {path} was ready",
-                    file=sys.stderr,
-                )
-                return False
-            if time.monotonic() >= deadline:
-                print(f"timed out waiting for {path}", file=sys.stderr)
-                return False
-            time.sleep(_HEALTH_POLL_SECONDS)
-    return True
-
-
-def _start_postgres(env: dict[str, str]) -> None:
-    """Start the compose Postgres in the background and wait for it to be healthy."""
-    subprocess.run(_compose("up", "-d", "--wait"), cwd=REPO_ROOT, env=env, check=True)
-
-
-def _migrate_and_seed(env: dict[str, str]) -> None:
-    """Apply migrations then the foundation seed; a missing script is a broken checkout."""
-    if not (REPO_ROOT / "alembic.ini").is_file():
-        raise RuntimeError("Alembic config is missing; local demo cannot migrate the database")
-    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=REPO_ROOT, env=env, check=True)
-    if not (REPO_ROOT / "scripts" / "seed.py").is_file():
-        raise RuntimeError("foundation seed script is missing; local demo cannot seed identity")
-    subprocess.run(["uv", "run", "python", "scripts/seed.py"], cwd=REPO_ROOT, env=env, check=True)
-
-
-def _fetch_ibm_demo_data(env: dict[str, str]) -> None:
-    """Idempotently fetch/verify the real IBM AML dataset before local demo bootstrap."""
-    script = REPO_ROOT / "scripts" / "fetch_dataset.py"
-    if not script.is_file():
-        raise RuntimeError(
-            "IBM AML fetch script is missing; local demo cannot fall back to samples"
-        )
-    subprocess.run(
-        ["uv", "run", "python", "scripts/fetch_dataset.py", "--source", "ibm-aml"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-
-def _ingest_ibm_demo_data(env: dict[str, str]) -> None:
-    """Ingest a bounded, masked IBM AML partition into the freshly migrated local database."""
-    script = REPO_ROOT / "scripts" / "ingest_aml_demo.py"
-    if not script.is_file():
-        raise RuntimeError("IBM AML demo ingest script is missing")
-    subprocess.run(
-        ["uv", "run", "python", "scripts/ingest_aml_demo.py"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-
-def _activate_trained_model(env: dict[str, str]) -> None:
-    """Promote the best locally trained gates-passed bundle to ACTIVE (fixture stays otherwise).
-
-    A gates-failed or absent bundle is never promoted; the script prints the honest outcome and
-    the seeded fixture keeps serving, so a fresh clone still boots.
-    """
-    subprocess.run(
-        ["uv", "run", "python", "scripts/activate_model.py"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-
-def _score_ibm_demo_data(env: dict[str, str]) -> None:
-    """Batch-investigate the primary IBM demo partition through the production pipeline."""
-    subprocess.run(
-        ["uv", "run", "python", "-m", "fraudlens_backend.jobs.runner"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-
-def _build_rag_index(env: dict[str, str]) -> None:
-    """Build the FinCEN/BSA RAG index; a missing script is a broken checkout, not a skip."""
-    if not (REPO_ROOT / "scripts" / "ingest_rag.py").is_file():
-        raise RuntimeError("RAG ingest script is missing; local demo cannot build the index")
-    subprocess.run(
-        ["uv", "run", "python", "scripts/ingest_rag.py"], cwd=REPO_ROOT, env=env, check=True
-    )
-
-
-def _portfolio_story_environment(env: dict[str, str]) -> dict[str, str]:
-    """Overlay what the portfolio story needs: its calibrated provider modes, and its own gate.
-
-    Provider modes are not optional. The bootstrap refuses to run when the runtime `llm_mode` /
-    `rag_embedding_mode` differ from the story's `execution:` block, and a RAG index built with one
-    embedder cannot be queried with another — so the index build, the bootstrap, and the servers
-    that later answer a visitor's live investigation must all agree. Identity and the database stay
-    real; only the provider modes are pinned, and their values are READ from the story config
-    rather than restated here.
-
-    `portfolio_demo_enabled` is overlaid for the same reason. It defaults to False in code AND in
-    `config/default.yaml` (a security gate fails closed), and live mode turns the dev bypass off,
-    so without it `_projection_enabled` is False and `GET /api/v1/portfolio-demo/config` 404s: the
-    login picker renders "personas unavailable" and a visitor would have to TYPE the synthetic
-    password instead of clicking a persona. This command exists to serve that demo, so it asserts
-    the gate exactly as `portfolio-demo-reset.yml` and `deploy-backend.yml`'s bootstrap step do.
-    `live()` is untouched and still boots with the gate closed.
-    """
-    from fraudlens_backend.portfolio_demo import load_portfolio_demo_config  # noqa: PLC0415
-
-    execution = load_portfolio_demo_config().execution
-    return {
-        **env,
-        "FRAUDLENS_LLM_MODE": execution.llm_mode,
-        "FRAUDLENS_RAG_EMBEDDING_MODE": execution.rag_embedding_mode,
-        "FRAUDLENS_PORTFOLIO_DEMO_ENABLED": "true",
-    }
-
-
-def _bootstrap_portfolio_demo(env: dict[str, str]) -> None:
-    """Apply the configured portfolio demo story; a missing script is a broken checkout."""
-    if not (REPO_ROOT / "scripts" / "bootstrap_portfolio_demo.py").is_file():
-        raise RuntimeError("portfolio demo bootstrap script is missing")
-    print(">> applying the configured portfolio demo story", flush=True)
-    subprocess.run(
-        ["uv", "run", "python", "scripts/bootstrap_portfolio_demo.py"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-    )
-
-
-def _backend_command(env: dict[str, str]) -> list[str]:
-    """Build the uvicorn command for the gateway+services app."""
-    return [
-        "uv",
-        "run",
-        "uvicorn",
-        "fraudlens_backend.main:app",
-        "--host",
-        "localhost",
-        "--port",
-        env.get("BACKEND_PORT", _DEFAULTS["BACKEND_PORT"]),
-    ]
-
-
-def _frontend_command(env: dict[str, str]) -> list[str]:
-    """Build the Vite command for the SPA, pinning the selected local port."""
-    return [
-        "npm",
-        "--prefix",
-        "frontend",
-        "run",
-        "dev",
-        "--",
-        "--host",
-        env.get("DEMO_HOST", _DEFAULTS["DEMO_HOST"]),
-        "--port",
-        env.get("FRONTEND_PORT", _DEFAULTS["FRONTEND_PORT"]),
-        "--strictPort",
-    ]
 
 
 def _serve(env: dict[str, str], *, banner: str) -> int:

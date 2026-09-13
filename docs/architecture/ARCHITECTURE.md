@@ -306,6 +306,39 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 <!-- AUTOGEN:config-keys -->
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
+| `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |
+| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version. |
+| `azure_managed_identity_client_id` | `str | None` | `None` | User-assigned identity client id for Azure data/control-plane calls. |
+| `azure_arm_endpoint` | `str` | `''` | Azure Resource Manager endpoint base URL, supplied by config/env. |
+| `azure_arm_token_resource` | `str` | `''` | Token resource/audience for Azure Resource Manager. |
+| `azure_subscription_id` | `str | None` | `None` | Azure subscription id containing the Container Apps Jobs. |
+| `azure_resource_group_name` | `str | None` | `None` | Azure resource group containing the Container Apps Jobs. |
+| `azure_container_apps_api_version` | `str` | `'2024-03-01'` | Azure Container Apps Jobs ARM API version. |
+| `azure_container_apps_retrain_job_name` | `str | None` | `None` | Container Apps Job name for model retraining. |
+| `azure_container_apps_batch_score_job_name` | `str | None` | `None` | Container Apps Job name for batch scoring. |
+| `azure_storage_account_name` | `str | None` | `None` | Azure Storage account name for artifact and SAR-PDF blobs. |
+| `azure_storage_blob_host_suffix` | `str` | `'blob.core.windows.net'` | Azure Blob DNS suffix used to build the storage endpoint. |
+| `azure_storage_blob_endpoint` | `str | None` | `None` | Optional Azure Blob endpoint; otherwise derived from the account name. |
+| `azure_storage_token_resource` | `str` | `''` | Token resource/audience for Azure Blob Storage. |
+| `azure_storage_container_name` | `str` | `'artifacts'` | Blob container for model/artifact keys. |
+| `azure_storage_sar_pdf_container_name` | `str` | `'sar-pdfs'` | Blob container for SAR PDF keys. |
+| `azure_storage_blob_api_version` | `str` | `'2023-11-03'` | Azure Blob data-plane API version. |
+| `azure_rest_timeout_seconds` | `float` | `10.0` | Timeout for Azure managed-identity, Blob, and ARM REST calls. |
+| `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
+| `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
+| `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
+| `cors_allow_credentials` | `bool` | `False` | Whether the gateway allows credentialed CORS requests. |
+| `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
+| `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
+| `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
+| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Static security response headers applied to every gateway response. |
+| `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
+| `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable). |
+| `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI; empty keeps the strict policy. |
+| `docs_ui_paths` | `list` | `['/docs', '/redoc']` | Interactive documentation paths that receive the relaxed CSP. |
+| `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
+| `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry exporter; disabled by default. |
+| `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled. |
 | `app_name` | `str` | `'FraudLens'` | Human-readable service name. |
 | `environment` | `Literal` | `'dev'` | Active deployment environment; gates the auth dev-bypass. |
 | `log_level` | `str` | `'INFO'` | Python logging level name. |
@@ -327,21 +360,6 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `portfolio_demo_enabled` | `bool` | `False` | Enable the config-driven portfolio demo story; a security gate that fails closed in code, so a missing YAML key leaves it off (like auth_dev_bypass). |
 | `portfolio_demo_config_file` | `str` | `'portfolio-demo.yaml'` | Portfolio-demo story config FILENAME, resolved relative to find_config_dir(); absolute paths and upward traversal are rejected by the loader. |
 | `demo_auth_password` | `str | None` | `None` | Public synthetic demo credential supplied by FRAUDLENS_DEMO_AUTH_PASSWORD / Infisical; deliberately non-secret demo data, but never an inline YAML value. |
-| `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
-| `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
-| `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
-| `cors_allow_credentials` | `bool` | `False` | Whether the gateway allows credentialed CORS requests. |
-| `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
-| `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
-| `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
-| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Static security response headers applied to every gateway response. |
-| `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
-| `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable, plan §12.3). |
-| `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. Empty falls back to the strict policy so the API surface is never weakened. |
-| `docs_ui_paths` | `list` | `['/docs', '/redoc']` | Paths serving the interactive docs UI that receive the relaxed CSP. |
-| `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
-| `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default (stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14). |
-| `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled (App Insights / OTel). |
 | `storage_backend` | `Literal` | `'local'` | Artifact/PDF storage backend selector (local-FS vs Azure Blob). |
 | `storage_local_dir` | `str` | `'.local/artifacts'` | Root directory for the local-FS storage backend (gitignored). |
 | `queue_backend` | `Literal` | `'local'` | Background-job backend selector (local runner vs Container Apps Jobs). |
@@ -363,24 +381,6 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `infisical_required_env_keys` | `list` | `[]` | Environment-variable NAMES (never values) the Infisical injection must supply; the /readyz infisical check reports 'down' when any is missing or blank, so a broken secret sync fails readiness instead of serving errors. Must be non-empty when infisical_secrets_delivery is 'externally_injected' (an injection claim with nothing to verify is rejected at boot). |
 | `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
-| `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |
-| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version. |
-| `azure_managed_identity_client_id` | `str | None` | `None` | User-assigned managed identity client id used for Azure data/control-plane calls. |
-| `azure_arm_endpoint` | `str` | `''` | Azure Resource Manager endpoint base URL, supplied by config/env. |
-| `azure_arm_token_resource` | `str` | `''` | Token resource/audience for Azure Resource Manager. |
-| `azure_subscription_id` | `str | None` | `None` | Azure subscription id containing the Container Apps Jobs. |
-| `azure_resource_group_name` | `str | None` | `None` | Azure resource group containing the Container Apps Jobs. |
-| `azure_container_apps_api_version` | `str` | `'2024-03-01'` | Azure Container Apps Jobs ARM API version. |
-| `azure_container_apps_retrain_job_name` | `str | None` | `None` | Container Apps Job name for model retraining. |
-| `azure_container_apps_batch_score_job_name` | `str | None` | `None` | Container Apps Job name for batch scoring. |
-| `azure_storage_account_name` | `str | None` | `None` | Azure Storage account name for artifact and SAR-PDF blobs. |
-| `azure_storage_blob_host_suffix` | `str` | `'blob.core.windows.net'` | Azure Blob DNS suffix used to build the storage endpoint. |
-| `azure_storage_blob_endpoint` | `str | None` | `None` | Optional full Azure Blob endpoint base URL; otherwise derived from account name. |
-| `azure_storage_token_resource` | `str` | `''` | Token resource/audience for Azure Blob Storage. |
-| `azure_storage_container_name` | `str` | `'artifacts'` | Blob container for model/artifact keys. |
-| `azure_storage_sar_pdf_container_name` | `str` | `'sar-pdfs'` | Blob container for SAR PDF keys. |
-| `azure_storage_blob_api_version` | `str` | `'2023-11-03'` | Azure Blob data-plane API version. |
-| `azure_rest_timeout_seconds` | `float` | `10.0` | Timeout for Azure managed-identity, Blob, and ARM REST calls. |
 | `ingest_max_batch_size` | `int` | `500` | Max transactions accepted in one /transactions/batch request. |
 | `ingest_csv_max_bytes` | `int` | `5242880` | Max accepted /transactions/upload body size in bytes (413 above it). |
 | `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |

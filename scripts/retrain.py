@@ -49,10 +49,8 @@ from fraudlens_backend.db.models import (
     JobStatus,
     JobType,
     ModelEvaluation,
-    ModelTrainingRun,
     ModelTrigger,
     ModelVersion,
-    ModelVersionStatus,
     TrainingDataset,
 )
 from fraudlens_backend.db.repositories import ModelLifecycleRepository
@@ -70,8 +68,9 @@ from fraudlens_ml.scoring import (
     save_artifact,
 )
 from lib.dataset import DataSplit, split_dataset
+from lib.model_training import build_candidate_version, build_training_run
 from lib.synthetic_fraud import generate_dataset
-from train_model import TrainedCandidate, _artifacts_root, train_candidate
+from train_model import TrainedCandidate, artifacts_root, train_candidate
 
 # Reuse Phase 5's deterministic seed/size so the candidate reliably clears the gates (and, trained
 # on the identical synthetic data as the fixture active model, never trips the regression gate).
@@ -199,23 +198,21 @@ async def register_retrained_candidate(  # noqa: PLR0913 - registers several row
     )
     session.add(dataset)
     await session.flush()
-    training_run = ModelTrainingRun(
+    training_run = build_training_run(
         trigger=trigger,
         dataset_id=dataset.id,
-        status=JobStatus.SUCCEEDED,
         params={"seed": seed, "rows": rows, "source": "synthetic"},
         metrics=metrics_payload,
         artifact_uri=artifact_uri,
     )
     session.add(training_run)
     await session.flush()
-    version = ModelVersion(
+    version = build_candidate_version(
         version_label=version_label,
         training_run_id=training_run.id,
         artifact_uri=artifact_uri,
         feature_spec=spec.model_dump(),
         metrics=metrics_payload,
-        status=ModelVersionStatus.CANDIDATE,
         notes="Retrained candidate (Phase 10); promotion is human-gated (shadow→canary→active).",
     )
     session.add(version)
@@ -303,7 +300,7 @@ async def _amain(trigger: ModelTrigger, rows: int, seed: int) -> int:
             label = _version_label(seed, counts)
             label_window = f"matured<={now.date().isoformat()}"
             save_artifact(
-                _artifacts_root(settings) / label,
+                artifacts_root(settings) / label,
                 trained.booster,
                 version_label=label,
                 feature_spec=current_feature_spec(),

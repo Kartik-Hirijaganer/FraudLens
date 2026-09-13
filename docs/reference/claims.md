@@ -10,7 +10,7 @@ A demonstrated row always links to its committed evidence.
 | Claim | Status | Evidence |
 | --- | --- | --- |
 | FraudLens provides an explainable, tenant-safe AML investigation path. | tested | [Tenant boundary tests](../../tests/integration/test_repositories.py) and [pipeline tests](../../tests/unit/test_pipeline.py) |
-| The repository uses no real PHI, stores masked demo data, validates JWT tenant identity, and keeps secrets out of source. | tested | [Adversarial security tests](../../tests/security/test_agent_adversarial.py), [auth tests](../../tests/integration/test_api_v1.py), and [secret guard](../../scripts/check_no_secrets.py) |
+| The repository uses no real PHI, stores masked demo data, validates JWT tenant identity, and keeps secrets out of source. | tested | [Adversarial security tests](../../tests/security/test_agent_adversarial_tool_safety.py), [auth tests](../../tests/integration/test_api_v1.py), and [secret guard](../../scripts/check_no_secrets.py) |
 | Transaction ingest supports single, batch, and CSV paths with tenant-scoped pagination. | tested | [Transaction API tests](../../tests/integration/test_transactions_api.py) |
 | Hybrid scoring combines deterministic rules with calibrated XGBoost operating points. | tested | [Pipeline tests](../../tests/unit/test_pipeline.py) and [model training tests](../../tests/integration/test_train_model.py) |
 | Decisions retain rule hits and SHAP contributions. | tested | [Scorer tests](../../tests/unit/test_scoring_scorer.py) and [explainer tests](../../tests/unit/test_scoring_explainer.py) |
