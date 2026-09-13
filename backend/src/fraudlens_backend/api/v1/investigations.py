@@ -240,7 +240,7 @@ async def start_investigation(
     return InvestigationStartResponse(run_id=run_id)
 
 
-def _snapshot(  # noqa: PLR0913 -- projection joins the run's tenant-scoped durable records.
+def _snapshot(  # noqa: PLR0913, PLR0917 -- projection joins the run's tenant-scoped durable records.
     run: AnalysisRun,
     result: AnalysisResult | None,
     retrieval: RagRetrieval | None,

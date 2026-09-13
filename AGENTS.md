@@ -68,9 +68,17 @@ The `drift-check` skill audits implementations against these rules (see below).
 - **Secrets** for deploy come from **Infisical** (short-lived, fetched at job/runtime via
   OIDC machine identities) and **GitHub→Azure OIDC** (federated, no stored client secret)
   — never long-lived cloud credentials in GitHub or the repo. See [Secrets](#secrets).
-- Azure/Vercel/Supabase accounts **do not exist yet**: IaC and deploy workflows are
-  **scaffolded and CI-validated but inert** (no `terraform apply`, no push) until the
-  accounts and the Terraform state backend exist.
+- **Azure is bootstrapped (2026-09-13)** — subscription `01417138-…` (personal,
+  `kartikhirijaganer@gmail.com`), Terraform state backend `fraudlens-tfstate-rg` /
+  `fraudlenstfstate` / `tfstate`, and GitHub→Azure OIDC via the `fraudlens-github-oidc`
+  Entra app. Deploy workflows stay **inert by choice**: `AZURE_DEPLOY_ENABLED=false` gates
+  every Azure job, so no `terraform apply` runs and nothing bills. Flipping that repo
+  variable to `true` is the only step to go live.
+  See [`docs/runbooks/azure-deploy.md`](docs/runbooks/azure-deploy.md).
+- **Vercel and Supabase already exist.** The frontend is live at
+  `https://fraud-lens-amber.vercel.app` (repo variable `FRONTEND_URL`); the Supabase Postgres
+  project is provisioned with credentials in Infisical. Like Azure, the *automated* frontend
+  deploy stays inert — `VERCEL_DEPLOY_ENABLED` is unset, so `deploy-frontend.yml` skips.
 - FraudLens governance (above) is **unchanged** by the cloud choice.
 
 ## Accounts & Identity

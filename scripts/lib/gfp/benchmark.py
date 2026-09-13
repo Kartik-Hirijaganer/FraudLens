@@ -198,7 +198,7 @@ def _arm_split(features: np.ndarray, edge_set: GfpEdgeSet) -> DataSplit:
     )
 
 
-def _evaluate_arm(  # noqa: PLR0913 - one evaluation binds arm identity + folds + the plan
+def _evaluate_arm(  # noqa: PLR0913, PLR0917 - one evaluation binds arm identity + folds + the plan
     inputs: DatasetBenchmarkInputs,
     features: np.ndarray,
     arm: str,

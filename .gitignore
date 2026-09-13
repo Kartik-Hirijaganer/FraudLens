@@ -285,6 +285,9 @@ coverage/
 *.auto.tfvars
 crash.log
 crash.*.log
+# Generated from the committed backend.tf.template (by deploy-backend.yml in CI, or by
+# hand locally). Ignored so the template stays the single source of truth (rule 5).
+infra/terraform/environments/*/backend.tf
 
 # Vercel
 .vercel/

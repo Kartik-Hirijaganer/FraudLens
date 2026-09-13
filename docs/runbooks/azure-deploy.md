@@ -71,29 +71,48 @@ against the committed workflow + Terraform files.
 `backend/Dockerfile` defaults `BASE_IMAGE` to `python:3.11-slim-bookworm` (so `make docker-build`
 is self-contained), and the deploy build overrides it to the prebuilt base for seconds-scale builds.
 
-## 4. State backend bootstrap (one-time, out-of-band)
+## 4. State backend bootstrap (one-time, out-of-band) — ✅ DONE 2026-09-13
 
-1. Create the state storage out of band (avoids a chicken-and-egg with the config it would manage):
-   ```bash
-   az group create -n fraudlens-tfstate-rg -l eastus
-   az storage account create -n fraudlenstfstate -g fraudlens-tfstate-rg -l eastus \
-     --sku Standard_LRS --min-tls-version TLS1_2
-   az storage container create -n tfstate --account-name fraudlenstfstate
-   ```
-2. In each environment, rename `backend.tf.template` → `backend.tf` (keys `dev.terraform.tfstate`,
-   `prod.terraform.tfstate`).
-3. `terraform -chdir=infra/terraform/environments/<env> init` now configures the azurerm backend.
+State storage exists: RG `fraudlens-tfstate-rg` (eastus), storage account `fraudlenstfstate`
+(Standard_LRS, TLS1_2 min, public blob access **disabled**, versioning **on**), container
+`tfstate` with keys `dev.terraform.tfstate` / `prod.terraform.tfstate`.
 
-## 5. GitHub → Azure OIDC (no stored secrets)
+```bash
+az group create -n fraudlens-tfstate-rg -l eastus
+az storage account create -n fraudlenstfstate -g fraudlens-tfstate-rg -l eastus \
+  --sku Standard_LRS --min-tls-version TLS1_2 --allow-blob-public-access false --kind StorageV2
+az storage account blob-service-properties update -n fraudlenstfstate \
+  -g fraudlens-tfstate-rg --enable-versioning true
+az storage container create -n tfstate --account-name fraudlenstfstate
+```
 
-The pipeline authenticates with a **federated credential** (no client secret in GitHub):
+`backend.tf` is **generated, never renamed** — `backend.tf.template` stays committed, the
+deploy job does `cp backend.tf.template backend.tf`, and the generated file is gitignored.
+Locally: `cp backend.tf.template backend.tf && terraform init`.
 
-1. Create an Entra app + service principal; grant Contributor on the subscription (and User Access
-   Administrator if it must create role assignments).
-2. Add a federated credential trusting this repo's GitHub OIDC token (subject e.g.
-   `repo:Kartik-Hirijaganer/FraudLens:ref:refs/heads/release/*` and the `production` environment).
-3. Workflows set `permissions: id-token: write`, use `azure/login@v2`, and Terraform's
-   `provider "azurerm" { use_oidc = true }` — no secret needed.
+## 5. GitHub → Azure OIDC (no stored secrets) — ✅ DONE 2026-09-13
+
+The pipeline authenticates with a **federated credential** — no client secret in GitHub.
+Entra app `fraudlens-github-oidc` holds `Contributor` + `User Access Administrator` at
+subscription scope (the latter is needed because the `identity` module creates the
+`acr_pull` / `blob_contributor` role assignments).
+
+Registered federated subjects:
+
+| Subject | Why |
+|---|---|
+| `repo:Kartik-Hirijaganer/FraudLens:environment:production` | all Azure jobs run under `environment: production` |
+| `repo:Kartik-Hirijaganer/FraudLens:environment:Production` | the stored GitHub environment is capital-P; the `sub` claim must match exactly |
+| `repo:Kartik-Hirijaganer/FraudLens:ref:refs/heads/dev` | deploy triggers on `dev` |
+| `repo:Kartik-Hirijaganer/FraudLens:ref:refs/heads/main` | headroom for main-triggered jobs |
+
+> Adding a subject in **zsh**: always brace the variable (`repo:${REPO}:environment:…`).
+> Bare `$REPO:e` / `$REPO:r` are zsh *parameter modifiers* and will silently eat the `:e`
+> of `:environment` and the `:r` of `:ref`, producing a malformed subject that fails auth
+> at runtime with no obvious cause.
+
+Workflows set `permissions: id-token: write`, use `azure/login@v2`, and Terraform's
+`provider "azurerm" { use_oidc = true }` — no secret needed.
 
 **Account ids** (subscription/tenant/client) are non-secret and supplied via `TF_VAR_*` /
 `azure/login`. **App + DB secrets** (DATABASE_URL, JWT keys, provider keys) are fetched at runtime
@@ -108,11 +127,28 @@ user-assigned identity's `AcrPull` role instead.
 
 ## 7. Enabling deploy (one time)
 
-1. Provision Azure + Vercel + Supabase; bootstrap state (§4) and rename the `backend.tf.template`s.
-2. Configure OIDC federation (§5); set repo **variables** (not secrets): `AZURE_CLIENT_ID`,
-   `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `VITE_API_BASE_URL` (HTTPS gateway URL), `FRONTEND_URL`,
-   `INFISICAL_PROJECT_SLUG`, `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID`.
-3. Flip `AZURE_DEPLOY_ENABLED=true` and/or `VERCEL_DEPLOY_ENABLED=true`.
+Steps 1–2 are **done** (2026-09-13). Deploy is intentionally still **off**.
+
+| # | Step | Status |
+|---|---|---|
+| 1 | Azure account + state backend (§4) | ✅ done |
+| 2 | OIDC federation (§5) | ✅ done |
+| 2b | Repo **variables** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | ✅ set |
+| 2c | `FRONTEND_URL`, `INFISICAL_PROJECT_SLUG`, `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID` | ✅ pre-existing |
+| 2d | `VITE_API_BASE_URL` (HTTPS gateway URL) | ⬜ not knowable until the first apply produces `app_fqdn` |
+| 3 | Supabase + Vercel provisioning | ⬜ separate from Azure |
+| 4 | Flip `AZURE_DEPLOY_ENABLED=true` / `VERCEL_DEPLOY_ENABLED=true` | ⬜ **the only switch left** |
+
+```bash
+gh variable set AZURE_DEPLOY_ENABLED --body true --repo Kartik-Hirijaganer/FraudLens
+```
+
+Until that flip, every Azure job in `deploy-backend.yml` / `deploy-frontend.yml` is gated by
+`if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}` and skips — so nothing runs and nothing bills.
+Local development is unaffected either way.
+
+After the first successful apply, read `app_fqdn` from the Terraform outputs and set
+`VITE_API_BASE_URL` (step 2d) so the frontend targets the gateway.
 
 ## 8. Documented switch paths (off by default)
 

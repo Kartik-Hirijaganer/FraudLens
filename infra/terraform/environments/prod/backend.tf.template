@@ -1,8 +1,14 @@
 # Remote-state backend (azurerm) for the prod environment.
 #
-# DO NOT rename to backend.tf until the Terraform state storage account exists
-# (see ../../README.md). As a .template, Terraform ignores it, so
-# `terraform init -backend=false && terraform validate` works with no backend.
+# The state storage below EXISTS (bootstrapped 2026-09-13; see ../../README.md →
+# "State backend bootstrap"). This stays a .template on purpose: it is the committed
+# source of truth, and `backend.tf` is GENERATED from it — by deploy-backend.yml
+# (`cp backend.tf.template backend.tf`) in CI, or by hand for local use:
+#
+#     cp backend.tf.template backend.tf && terraform init
+#
+# The generated backend.tf is gitignored. Keeping the template unrenamed also lets CI's
+# `terraform init -backend=false && terraform validate` run with no Azure credentials.
 
 terraform {
   backend "azurerm" {
