@@ -2,6 +2,19 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.2.0] - 2026-09-13
+
+### Features
+
+- Update backend configuration and documentation for Azure deployment; enhance code comments for clarity
+- Implement local PR preflight check; add scripts for title validation and update documentation
+
+### Miscellaneous
+
+- Update changelog for v0.1.0
+- Update version numbers to 0.1.0 across all packages and tests
+- Forbid AI co-author attribution and add enforcement guard
+
 ## [0.1.0] - 2026-09-07
 
 ### Documentation
