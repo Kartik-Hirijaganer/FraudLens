@@ -7,6 +7,8 @@ Key functions:
 - build_training_run:
 - build_candidate_version:
 - smote_neighbors: derive a safe minority-class neighbor count.
+- fit_platt: fit the shared Platt calibration mapping.
+- derive_risk_thresholds: derive operating thresholds from calibration probabilities.
 - train_candidate: fit, calibrate, evaluate, and package one candidate.
 - trained_params:
 - gate_report: evaluate the configured quantitative gates.
@@ -131,7 +133,7 @@ def build_candidate_version(  # noqa: PLR0913 -- explicit persisted row fields.
     )
 
 
-def _fit_platt(margins: np.ndarray, labels: np.ndarray) -> Calibration:
+def fit_platt(margins: np.ndarray, labels: np.ndarray) -> Calibration:
     """Fit a Platt (sigmoid) calibration mapping raw margins to probabilities."""
     logistic = LogisticRegression(max_iter=PLATT_MAX_ITER).fit(margins.reshape(-1, 1), labels)
     return Calibration(a=float(logistic.coef_[0][0]), b=float(logistic.intercept_[0]))
@@ -184,10 +186,10 @@ def _fit_classifier(split: DataSplit, seed: int) -> xgb.XGBClassifier:
     return xgb.XGBClassifier(**params).fit(split.x_train, split.y_train)
 
 
-def _derive_risk_thresholds(
+def derive_risk_thresholds(
     probabilities: np.ndarray, gates: ModelGates
 ) -> ModelRiskThresholds | None:
-    """Derive the model's risk operating points from its holdout score distribution.
+    """Derive the model's risk operating points from a calibration score distribution.
 
     The quantiles reuse the gates' own capacity semantics: the top `medium_review_fraction` of
     scored volume warrants at least MEDIUM, the top `alert_budget_fraction` warrants HIGH (the
@@ -208,15 +210,14 @@ def train_candidate(split: DataSplit, gates: ModelGates, *, seed: int) -> Traine
 
     The >=1% minority path (synthetic/fixture/retrain) is the historical SMOTE pipeline,
     byte-identical; the rare-event path swaps SMOTE for class weighting and persists the
-    holdout-quantile risk operating points (full-IBM plan Phase 4).
+    calibration-quantile risk operating points (ADR-025).
     """
     _validate_evaluation_folds(split)
     rare_event = _is_rare_event_fold(split.y_train)
     classifier = _fit_classifier(split, seed)
-    calibration = _fit_platt(
-        np.asarray(classifier.predict(split.x_calibration, output_margin=True)),
-        split.y_calibration,
-    )
+    calibration_margin = np.asarray(classifier.predict(split.x_calibration, output_margin=True))
+    calibration = fit_platt(calibration_margin, split.y_calibration)
+    calibration_probability = calibration.apply(calibration_margin)
     holdout_margin = np.asarray(classifier.predict(split.x_holdout, output_margin=True))
     holdout_probability = calibration.apply(holdout_margin)
     metrics = compute_metrics(split.y_holdout, holdout_probability, gates)
@@ -231,7 +232,7 @@ def train_candidate(split: DataSplit, gates: ModelGates, *, seed: int) -> Traine
         metrics=metrics,
         baseline_pr_auc=baseline_pr_auc(baseline, split.x_holdout, split.y_holdout),
         risk_thresholds=(
-            _derive_risk_thresholds(holdout_probability, gates) if rare_event else None
+            derive_risk_thresholds(calibration_probability, gates) if rare_event else None
         ),
         rare_event=rare_event,
     )

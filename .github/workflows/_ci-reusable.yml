@@ -76,7 +76,7 @@ jobs:
           curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
       - name: Cross-cutting quality and governance checks
-        run: make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check quality-gates
+        run: make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check quality-gates fulldata-test
 
   docker-build:
     name: docker-build

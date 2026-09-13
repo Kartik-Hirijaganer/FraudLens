@@ -34,4 +34,5 @@ canonical record.
 | ADR-022 | Source files: absolute 500-line cap with responsibility-based module splits | Accepted (2026-09-13) | [ADR-022-source-file-cap-and-module-splitting.md](ADR-022-source-file-cap-and-module-splitting.md) |
 | ADR-023 | SAR quality and privacy gates are deterministic CI contracts | Accepted (2026-09-13) | [ADR-023-sar-quality-and-privacy-gates.md](ADR-023-sar-quality-and-privacy-gates.md) |
 | ADR-024 | Agent skills: one canonical source with a generated Codex mirror | Accepted (2026-09-13) | [ADR-024-agent-skills-single-source.md](ADR-024-agent-skills-single-source.md) |
+| ADR-025 | Temporal evaluation and calibration-derived risk thresholds | Accepted (2026-09-13) | [ADR-025-temporal-evaluation-and-calibration-thresholds.md](ADR-025-temporal-evaluation-and-calibration-thresholds.md) |
 | ADR-026 | Model egress is synthetic-only and derived from persisted provenance | Accepted (2026-09-13) | [ADR-026-synthetic-only-model-egress.md](ADR-026-synthetic-only-model-egress.md) |

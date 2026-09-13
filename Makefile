@@ -17,18 +17,21 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
 # default — this knob does not change them.
 AML_DEMO_ROWS ?= 1600
 AML_SAMPLE_ROWS ?= 50000
+FULLDATA_CANDIDATE ?= hi-small
+FULLDATA_PILOT_ROWS ?= 1000000
+FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates fulldata-test \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-vllm run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
-        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
         docker-build docker-build-base docker-build-base-if-changed \
         pr-title-check ci pre-pr pr-check upgrade dev
 
@@ -285,6 +288,28 @@ train-aml: ## Train + register an IBM AML-Data candidate (active model is unchan
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml
 train-aml-sample: ## Fast real-data candidate smoke using a deterministic stratified sample.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml --sample-rows $(AML_SAMPLE_ROWS)
+fulldata-verify: ## Verify all three IBM full-data files against frozen hashes and row counts.
+	$(FULLDATA) verify
+fulldata-ingest: ## Ingest one IBM source into typed Parquet (FULLDATA_CANDIDATE).
+	$(FULLDATA) ingest --candidate $(FULLDATA_CANDIDATE)
+fulldata-features: ## Build the 19 live-parity features for one IBM source.
+	$(FULLDATA) features --candidate $(FULLDATA_CANDIDATE)
+fulldata-parity: ## Run the mandatory live-builder parity sample for one source.
+	$(FULLDATA) parity --candidate $(FULLDATA_CANDIDATE)
+fulldata-folds: ## Materialize whole-cohort temporal folds for one source.
+	$(FULLDATA) folds --candidate $(FULLDATA_CANDIDATE)
+fulldata-train: ## Train/resume and evaluate one fixed IBM candidate.
+	$(FULLDATA) train --candidate $(FULLDATA_CANDIDATE)
+fulldata-evaluate: ## Bind every completed source candidate into one run manifest.
+	$(FULLDATA) evaluate
+fulldata-report: ## Render the current aggregate full-data report locally.
+	$(FULLDATA) report
+fulldata-publish: ## Validate and publish the current report to docs + frontend data.
+	$(FULLDATA) publish
+fulldata-validate: ## Revalidate the committed full-data report/frontend hash binding.
+	$(FULLDATA) validate
+fulldata-pilot: ## Run the approved bounded pilot (candidate + row target configurable).
+	$(FULLDATA) pilot --candidate $(FULLDATA_CANDIDATE) --rows $(FULLDATA_PILOT_ROWS)
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
 batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).
@@ -394,6 +419,14 @@ scripts-test: ## Protect extracted script modules with >=90% aggregate branch co
 quality-gates: ## Run offline SAR citation, hallucination, and byte-level egress gates.
 	$(UV) run pytest tests/quality -q -o addopts='' -m quality
 
+FULLDATA_TESTS := tests/unit/test_fulldata_config_ingest.py \
+	tests/unit/test_fulldata_features_folds.py tests/unit/test_fulldata_train_report.py \
+	tests/unit/test_fulldata_cli.py
+fulldata-test: ## Portable DuckDB full-data suite with >=90% harness branch coverage.
+	$(UV) run --group fulldata pytest $(FULLDATA_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/fulldata --cov=fulldata --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform
 	@for env in dev prod; do \
@@ -408,7 +441,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

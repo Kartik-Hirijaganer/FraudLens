@@ -1,0 +1,92 @@
+# Frozen IBM AML full-data protocol (ADR-025). Inputs and working artifacts are
+# synthetic public data under gitignored .local/ paths; no database credentials are used.
+
+datasets:
+  - candidate: hi-small
+    source: ibm-aml
+    file: HI-Small_Trans.csv
+    sha256: b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040
+    rows_expected: 5078345
+  - candidate: hi-medium
+    source: ibm-aml-hi-medium
+    file: HI-Medium_Trans.csv
+    sha256: 3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5
+    rows_expected: 31898238
+  - candidate: li-medium
+    source: ibm-aml-li-medium
+    file: LI-Medium_Trans.csv
+    sha256: 0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910
+    rows_expected: 31251483
+
+usable_rules:
+  drop_unparsable_timestamp: true
+  drop_non_positive_amount: true
+  drop_unknown_currency: true
+  drop_missing_account: true
+  usd_rates_file: config/gfp-benchmark.yaml
+
+namespace_accounts_by_source: true
+
+folds:
+  train: "3/5"
+  calibration: "1/5"
+  holdout: "1/5"
+
+calibration_split:
+  tuning: "1/2"
+  calibration: "1/2"
+
+features:
+  spec_version: 2
+  window_hours: 24
+  history_max: 100
+
+training:
+  max_trees: 1200
+  max_depth: 9
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  tree_method: hist
+  max_bin: 256
+  early_stopping_rounds: 50
+  eval_metric: aucpr
+  threads: auto
+  seed: 1729
+  seed_per_iteration: true
+  imbalance_strategy: scale_pos_weight
+  checkpoint_every_trees: 100
+  baseline_sample_rows: 5000000
+  parquet_batch_rows: 65536
+  shap_background_rows: 64
+
+thresholds_from: calibration
+candidates: [hi-small, hi-medium, li-medium]
+application_candidate: hi-medium
+
+gates:
+  pr_auc_floor: 0.45
+  max_regression: 0.02
+  baseline_margin: 0.02
+  recall_at_budget: 0.60
+  alert_budget_fraction: 0.05
+  precision_at_top_pct: 0.20
+  top_pct_fraction: 0.01
+  ece_max: 0.05
+  calibration_bins: 10
+  tenant_slice_max_regression: 0.05
+  pr_auc_lift_min: 150.0
+  precision_lift_min: 20.0
+  medium_review_fraction: 0.15
+
+pilot:
+  row_targets: [1000000, 5000000]
+
+paths:
+  data_dir: .local/aml_data
+  work_dir: .local/fulldata
+  artifacts_dir: .local/fulldata/artifacts
+
+budget:
+  allocation: azure_cpu_batch

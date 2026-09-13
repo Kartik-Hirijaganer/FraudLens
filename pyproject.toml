@@ -61,6 +61,14 @@ gfp = [
     "snapml==1.17.2 ; platform_machine == 'x86_64'",
 ]
 
+# OFFLINE-ONLY group for the memory-bounded IBM full-data training pipeline (ADR-025).
+# Keep these analytical IO dependencies out of workspace members and serving images.
+# Install explicitly with `uv sync --all-packages --group fulldata`.
+fulldata = [
+    "duckdb>=1.4",
+    "pyarrow>=18",
+]
+
 # ---------------------------------------------------------------------------
 # ruff — lint + format (shared baseline; per-package layering bans extend this)
 # ---------------------------------------------------------------------------
@@ -122,7 +130,7 @@ exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 # stubs / py.typed marker; xgboost and numpy do. Ignoring their missing stubs keeps
 # the rest of the tree under strict typing while letting the scoring code import them.
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*"]
+module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*", "pyarrow.*"]
 ignore_missing_imports = true
 
 # snapml (benchmark-only `gfp` dependency group; ADR-017) ships no stubs/py.typed and is

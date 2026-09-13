@@ -131,9 +131,11 @@ def build_feature_matrix(
         window_amounts = stream.prefix_amount[hi] - stream.prefix_amount[lo]
         amount_sum_log[rows] = np.log1p(amounts[rows] + window_amounts)
         inbound_velocity[rows] = stream.prefix_inbound[hi] - stream.prefix_inbound[lo]
-        inbound_amount_log[rows] = np.log1p(
-            stream.prefix_inbound_amount[hi] - stream.prefix_inbound_amount[lo]
-        )
+        inbound_amounts = stream.prefix_inbound_amount[hi] - stream.prefix_inbound_amount[lo]
+        # Prefix subtraction can leave sub-microcent noise for an empty directional slice.
+        # The live scorer sums an empty tuple to exact zero, so pin the same semantic result.
+        inbound_amounts = np.where(inbound_velocity[rows] == 0, 0.0, inbound_amounts)
+        inbound_amount_log[rows] = np.log1p(inbound_amounts)
         round_counts = stream.prefix_round[hi] - stream.prefix_round[lo]
         round_share[rows] = (is_round[rows] + round_counts) / (1.0 + counts)
         has_prior = hi > lo
@@ -164,7 +166,11 @@ def build_feature_matrix(
             dest_fan_in[rows] = window_inbound
             dest_inbound_amount[rows] = amounts[rows] + window_inbound_amounts
             dest_outbound_velocity[rows] = window_counts - window_inbound
-            dest_outbound_amount[rows] = window_amounts - window_inbound_amounts
+            outbound_amounts = window_amounts - window_inbound_amounts
+            # Match extract_features' exact sum(empty)==0 despite prefix cancellation noise.
+            dest_outbound_amount[rows] = np.where(
+                dest_outbound_velocity[rows] == 0, 0.0, outbound_amounts
+            )
 
     columns: dict[str, np.ndarray] = {
         "amount_log": np.log1p(amounts),

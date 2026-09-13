@@ -102,6 +102,7 @@ def write_fixture_bundle(
         calibration=trained.calibration,
         background=trained.background,
         metrics=candidate_metrics_payload(trained, report),
+        threshold_source="calibration",
     )
     return report
 
@@ -258,6 +259,7 @@ async def _amain(  # noqa: PLR0911, PLR0913, PLR0917 - CLI orchestration: each g
         background=trained.background,
         metrics=candidate_metrics_payload(trained, report),
         risk_thresholds=trained.risk_thresholds,
+        threshold_source="calibration",
     )
     _write_manifest_sidecar(bundle_dir, manifest, seed=seed, rows=rows)
     if artifact_only or engine is None:

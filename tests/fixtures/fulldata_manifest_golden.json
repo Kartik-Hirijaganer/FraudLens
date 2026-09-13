@@ -1,0 +1,165 @@
+{
+  "applicationCandidate": "hi-small",
+  "commit": "<COMMIT>",
+  "completedAt": "<COMPLETEDAT>",
+  "configSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "cost": {
+    "actualUsd": 0.0,
+    "allocation": "azure_cpu_batch",
+    "projectedUsd": 3.0
+  },
+  "crossFileOverlap": [],
+  "durationSeconds": "<DURATIONSECONDS>",
+  "libraryVersions": {
+    "duckdb": "<VERSION>",
+    "pyarrow": "<VERSION>",
+    "xgboost": "<VERSION>"
+  },
+  "peakRssMib": "<PEAKRSSMIB>",
+  "provenance": "measured",
+  "runId": "<RUNID>",
+  "sources": [
+    {
+      "candidate": "hi-small",
+      "evaluation": {
+        "baselinePrAuc": 0.05060962104095935,
+        "calibrationMethod": "platt",
+        "candidate": "hi-small",
+        "completedTrees": 8,
+        "featureSpecVersion": 2,
+        "gates": {
+          "active_pr_auc": null,
+          "baseline_pr_auc": 0.05060962104095935,
+          "checks": [
+            {
+              "name": "pr_auc_floor",
+              "passed": false,
+              "threshold": 0.45,
+              "value": 0.03148024345202525
+            },
+            {
+              "name": "beats_baseline",
+              "passed": false,
+              "threshold": 0.02,
+              "value": -0.0191293775889341
+            },
+            {
+              "name": "recall_at_budget",
+              "passed": false,
+              "threshold": 0.6,
+              "value": 0.0
+            },
+            {
+              "name": "precision_at_top_pct",
+              "passed": false,
+              "threshold": 0.2,
+              "value": 0.0
+            },
+            {
+              "name": "calibration_ece",
+              "passed": true,
+              "threshold": 0.05,
+              "value": 0.0021495301276445375
+            }
+          ],
+          "metrics": {
+            "brier": 0.0244035292416811,
+            "ece": 0.0021495301276445375,
+            "holdout_base_rate": 0.025,
+            "pr_auc": 0.03148024345202525,
+            "precision_at_budget": 0.0,
+            "precision_at_top_pct": 0.0,
+            "recall_at_budget": 0.0
+          },
+          "passed": false
+        },
+        "metrics": {
+          "brier": 0.0244035292416811,
+          "ece": 0.0021495301276445375,
+          "holdout_base_rate": 0.025,
+          "pr_auc": 0.03148024345202525,
+          "precision_at_budget": 0.0,
+          "precision_at_top_pct": 0.0,
+          "recall_at_budget": 0.0
+        },
+        "modelBundle": "xgb-ibm-aml-ffffffffffff",
+        "modelSha256": "<MODEL_SHA>",
+        "riskThresholds": {
+          "critical": 0.031579893082380295,
+          "high": 0.028016606345772743,
+          "medium": 0.02605297602713108
+        },
+        "scalePosWeight": 38.93333333333333,
+        "source": "ibm-aml",
+        "thresholdSource": "calibration",
+        "trainingPeakRssMib": "<RSS>",
+        "trainingSeconds": "<SECONDS>"
+      },
+      "folds": {
+        "boundary_epochs": [
+          1641031080,
+          1641037020,
+          1641043020
+        ],
+        "calibration_fractions": [
+          "1/2",
+          "1/2"
+        ],
+        "candidate": "hi-small",
+        "counts": {
+          "calibration": {
+            "positives": 5,
+            "prevalence": 0.025,
+            "rows": 200
+          },
+          "holdout": {
+            "positives": 10,
+            "prevalence": 0.025,
+            "rows": 400
+          },
+          "train": {
+            "positives": 30,
+            "prevalence": 0.025041736227045076,
+            "rows": 1198
+          },
+          "tuning": {
+            "positives": 5,
+            "prevalence": 0.025252525252525252,
+            "rows": 198
+          }
+        },
+        "fractions": [
+          "3/5",
+          "1/5",
+          "1/5"
+        ],
+        "source": "ibm-aml"
+      },
+      "reconciliation": {
+        "candidate": "hi-small",
+        "input_sha256": "5c9fa32d6f20871cfa0f9994a098349e25c76136339bc001be5ca46a3c9a0d6b",
+        "limited_rows": null,
+        "parsed_rows": 1999,
+        "rejected": {
+          "missing_account": 1,
+          "non_positive_amount": 1,
+          "unknown_currency": 1,
+          "unparsable_timestamp": 1
+        },
+        "source": "ibm-aml",
+        "source_rows": 2000,
+        "usable_rows": 1996
+      },
+      "source": "ibm-aml"
+    }
+  ],
+  "stageDurationsSeconds": {
+    "train:ibm-aml": "<SECONDS>"
+  },
+  "stagePeakRssMib": {
+    "evaluate": "<RSS>",
+    "train:ibm-aml": "<RSS>"
+  },
+  "startedAt": "<STARTEDAT>",
+  "vmSku": "<HOST>"
+}
