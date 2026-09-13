@@ -14,6 +14,49 @@
 
 No Azure, Vercel, Supabase, or LLM-provider account is required for the default demo.
 
+## Before opening a pull request
+
+Run the complete local PR preflight from the repository root:
+
+```bash
+make pr-check
+```
+
+Before a PR exists, the command prompts for the exact proposed title and validates Conventional
+Commits syntax. For a non-interactive run, pass it explicitly:
+
+```bash
+make pr-check PR_TITLE='chore: add local PR preflight'
+```
+
+When the branch already has an open PR and `gh` is authenticated, the command reads its title
+automatically. Use `BASE_REF=<ref>` when the PR does not target `origin/main`.
+
+The command installs locked dependencies, formats source, regenerates docs, runs the whole-repo and
+changed-line coverage gates, builds the backend image, validates Terraform, audits dependencies,
+and conditionally builds the ML base image when the same path filter as GitHub Actions matches. It
+is intentionally slower than `make pre-pr`; it is the final check before opening or updating a PR.
+Formatting and docs generation can modify tracked files, so review `git status` afterward and rerun
+the command after committing those fixes. Both Docker builds target GitHub CI's `linux/amd64`
+architecture by default, including on Apple Silicon.
+
+Local prerequisites are `uv`, Node/npm, `gitleaks`, Terraform, Docker with its daemon running, and
+network access for dependency advisories. `gh` is optional unless the command must discover an
+existing PR title.
+
+| GitHub PR check | Local `make pr-check` step |
+| --- | --- |
+| `commitlint` | `make pr-title-check` using the shared `scripts/check_pr_title.sh` policy |
+| `ci / backend`, `ci / frontend`, `ci / quality` | `make pre-pr` → `make ci` |
+| `changed` | `make ci-changed BASE_REF=<target>` |
+| `ci / docker-build` | `make docker-build` |
+| `ci / tf-validate` | `make tf-validate` |
+| `ci / deps-audit` | `make deps-audit` |
+| Path-filtered `build-base` | `make docker-build-base-if-changed BASE_REF=<target>` |
+
+Vercel preview checks remain external deployment checks; a local command cannot reproduce the
+Vercel/GitHub integration status.
+
 ## Start it cleanly
 
 Use this as the normal local application command:

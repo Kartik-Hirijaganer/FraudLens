@@ -396,7 +396,8 @@ The root [Makefile](Makefile) is the single source of truth; CI invokes the same
 | `make dev` | Print the standalone backend and frontend dev-server commands |
 | `make test` | Run backend pytest and frontend Vitest suites |
 | `make coverage` | Enforce at least 90% coverage for both stacks, with Python branch coverage |
-| `make pre-pr` | Format, regenerate docs, and run the complete local CI gate |
+| `make pre-pr` | Format, regenerate docs, and run the shared code-quality CI umbrella |
+| `make pr-check` | Run the complete local PR preflight, including separate GitHub workflow checks |
 | `make docs` / `make docs-check` | Regenerate or verify headers, OpenAPI, ERD, and architecture regions |
 | `make deps-audit` | Run `pip-audit` and production npm dependency audit |
 | `make train-model` | Train/register a reproducible synthetic XGBoost candidate without activating it |
