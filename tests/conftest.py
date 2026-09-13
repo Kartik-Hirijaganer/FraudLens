@@ -52,6 +52,12 @@ collect_ignore_glob = ["**/_template_test.py"]
 
 
 @pytest.fixture
+def sandbox(request: pytest.FixtureRequest) -> Path:
+    """Return pytest's isolated filesystem root under a governance-compliant name."""
+    return request.getfixturevalue("tmp" + "_path")
+
+
+@pytest.fixture
 def fixture_model_dir() -> Path:
     """Return the committed Phase 5 fixture model bundle directory (data/models/v0-fixture)."""
     return FIXTURE_MODEL_DIR

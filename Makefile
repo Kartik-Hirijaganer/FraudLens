@@ -23,7 +23,7 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check openapi \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -118,6 +118,12 @@ ci-changed: lint-changed format-check-changed test-coverage-diff ## Changed-file
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 	$(UV) run python scripts/check_headers.py
+file-length-check: ## Enforce the 500-physical-line source cap and temporary shrink-only baseline.
+	$(UV) run python scripts/check_file_length.py
+docs-links-check: ## Validate every relative link in README, AGENTS, docs, and plans.
+	$(UV) run python scripts/check_docs_links.py
+experiment-budget-check: ## Reconcile the $75 experiment ceiling, ledger, and published run IDs.
+	$(UV) run python scripts/experiment_budget.py ledger-check
 attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
 	bash scripts/check_no_ai_attribution.sh
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
@@ -378,7 +384,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

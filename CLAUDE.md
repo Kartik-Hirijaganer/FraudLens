@@ -8,10 +8,12 @@ Project guidance for Claude Code. The canonical rules live in **[AGENTS.md](AGEN
 ## Claude Code specifics
 
 - **Permissions** are enforced by [`.claude/settings.json`](.claude/settings.json):
-  `git commit` / `git push` / `git reset --hard` prompt for confirmation, and reads of
-  secret files (`.env*`, `*.pem`, `*.key`, `secrets/`) are denied. This operationalizes
-  Golden Rules 1 and 3.
-- **Skills** ([`.claude/skills/`](.claude/skills/)):
+  Git history changes and billable or mutating cloud commands prompt for confirmation, while
+  reads of secret files (`.env*`, `*.pem`, `*.key`, `secrets/`) are denied. This
+  operationalizes Golden Rules 1, 3, and 7.
+- **Skills:** [`.claude/skills/`](.claude/skills/) is canonical; Phase 1 adds a generated,
+  byte-identical [`.agents/skills/`](.agents/skills/) mirror for Codex. Do not edit the mirror.
+  Current skills include:
   - `drift-check` — strict, read-only plan-vs-code audit. Invoke as
     `drift-check plans/<file>.md phase=<N>`.
 - **Plan mode:** for multi-step work, draft the plan into `plans/YYYY-MM-DD-<title>.md`

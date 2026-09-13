@@ -40,6 +40,13 @@ personal repo. Handoff/context lives in
 5. **Documents live in [`docs/`](docs/)** per [`docs/README.md`](docs/README.md). Don't
    drop deliverables in the repo root.
 6. **Hold the security governance below** on every change.
+7. **Never run a billable or mutating cloud action without explicit human permission.**
+   This includes `terraform apply|destroy`, Azure create/update/delete/start operations,
+   experiment Blob uploads, `kubectl apply|delete` outside a local kind context,
+   `helm install|upgrade|uninstall`, `docker push`, `gh workflow run`, and
+   `gh variable set`. Every ephemeral resource must have a paired teardown target and a
+   read-only "nothing left behind" verification. Local `kind` clusters are exempt because
+   they create no cloud resources and cost $0.
 
 ## Security & Governance (FraudLens)
 
@@ -75,10 +82,16 @@ The `drift-check` skill audits implementations against these rules (see below).
 ## Cloud & Deployment
 
 **Deployment target is Azure** (Container Apps + ACR + Blob) + **Vercel** (frontend) +
-**Supabase** (Postgres), per the handoff. This **replaces any AWS-as-cloud assumption**:
+**Supabase** (Postgres), per the handoff. Azure Container Apps remains the application deploy
+target and switch path. **AKS is the Kubernetes demonstration runtime** (ADR-021): this release
+proves it locally and validates its Terraform, while an actual AKS apply is a next-release step.
+This **replaces any AWS-as-cloud assumption**:
 
 - The AWS **`personal-admin`** profile is **local-only** (CLI experiments, scratch
-  storage) and is **NOT a project deploy target**. Nothing in FraudLens deploys to AWS.
+  storage) and is **NOT a project deploy target**. It is only a documented last-resort
+  benchmark fallback. Nothing in FraudLens deploys to AWS.
+- Temporary Azure data-batch and GPU-benchmark VMs are paid experiments, not deploy targets.
+  They are created and destroyed per run under the one-time $75 ceiling and Golden Rule 7.
 - **Secrets** for deploy come from **Infisical** (short-lived, fetched at job/runtime via
   OIDC machine identities) and **GitHub→Azure OIDC** (federated, no stored client secret)
   — never long-lived cloud credentials in GitHub or the repo. See [Secrets](#secrets).
@@ -94,6 +107,15 @@ The `drift-check` skill audits implementations against these rules (see below).
   project is provisioned with credentials in Infisical. Like Azure, the *automated* frontend
   deploy stays inert — `VERCEL_DEPLOY_ENABLED` is unset, so `deploy-frontend.yml` skips.
 - FraudLens governance (above) is **unchanged** by the cloud choice.
+
+### Experiment governance
+
+Every paid experiment has an allocation in
+[`config/experiments/budget.yaml`](config/experiments/budget.yaml), a resource-session row in
+[`docs/reference/experiments/ledger.md`](docs/reference/experiments/ledger.md), and a pilot whose
+measurements project the full-run cost before admission. The operator records teardown plus a
+read-only clean-resource verification for every session. FraudLens runs no recurring paid
+experiment jobs.
 
 ## Accounts & Identity
 
@@ -132,9 +154,8 @@ UI, read `DESIGN.md`** and match its tokens, type scale, components, and Do's/Do
 
 ## Tech Stack & Code Conventions
 
-The development foundation (tooling, CI/CD, IaC, automation) is defined in
-[`plans/2026-06-09-tech-stack-foundation-and-workflows.md`](plans/2026-06-09-tech-stack-foundation-and-workflows.md).
-The **root [`Makefile`](Makefile) is the single source of truth** for every check; the local
+The development foundation (tooling, CI/CD, IaC, automation) is encoded by the
+**root [`Makefile`](Makefile), the single source of truth** for every check; the local
 pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 
 ### Stack
@@ -148,7 +169,7 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
   `package-lock.json`, `npm ci`); follows the `wise` design system above.
 - **Cloud:** Azure + Vercel + Supabase (see [Cloud & Deployment](#cloud--deployment)).
 
-### Code conventions (rules 1–11)
+### Code conventions (rules 1–12)
 
 1. **Pydantic everywhere.** Every data boundary (request/response, domain, **config** via
    `pydantic-settings`) is a Pydantic v2 model; every field uses `Field(..., description=...)`.
@@ -182,6 +203,11 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
     local-only, not a deploy target; secrets via Infisical; FraudLens governance unchanged.
 11. **Frontend follows the `wise` design system** ([`DESIGN.md`](DESIGN.md)) — see
     [Frontend design system](#frontend-design-system) above.
+12. **Every source file is at most 500 physical lines.** `make file-length-check` enforces
+    the cap. Only Alembic migration history and generated files are exempt. A temporary
+    shrink-only baseline exists through Phase 2 of the active vLLM/AWQ plan; Phase 2 removes
+    it. Split-module facades must declare an explicit `__all__` so the public surface stays
+    intentional.
 
 ### Endpoint & API contract (FraudLens)
 
@@ -216,8 +242,23 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 | `.claude/settings.json` | Shared Claude Code permissions/policy |
 | `.claude/settings.local.json` | Local, gitignored overrides (e.g. `AWS_PROFILE=personal-admin`) |
 | `.claude/skills/` / `.claude/commands/` | Project skills (`drift-check`) + make-target wrappers |
+| `.agents/` | Codex project skills mirrored from the canonical `.claude/skills/` source |
+| `deploy/` | Kubernetes bases, overlays, kind topology, and load-test resources |
+| `infra/terraform/modules/{aks,budget,batch_vm,experiment_storage}` | Reusable AKS and ephemeral-experiment modules |
+| `infra/terraform/environments/{aks-demo,gpu-bench,data-batch}` | Inert Terraform roots for the Kubernetes and paid experiments |
+| `scripts/lib/{vllm_bench,fulldata,k8s_demo,study,quality}` | Bounded study, benchmark, and quality modules |
+| `tests/quality/` | Deterministic citation, hallucination, and model-egress gates |
+| `config/{quality,fulldata,k8s-demo}.yaml` / `config/experiments/` | Quality, full-data, Kubernetes-demo, and budget policy |
+| `docs/reference/experiments/` / `docs/reference/claims.md` / `docs/reference/interview-guide.md` | Experiment ledger, evidence-backed claims, and demo guide |
 | `plans/` | Dated implementation plans |
 | `docs/` | Project documents (handoff, architecture, runbooks, reference) |
+
+## Project skills
+
+`.claude/skills/<name>/` is the human-authored source for project skills. Phase 1 of the active
+vLLM/AWQ plan adds a checked mirror into `.agents/skills/<name>/` for Codex; after that lands,
+`make docs` refreshes the mirror and `make docs-check` rejects divergence. Do not hand-edit a
+generated `.agents/skills/` mirror.
 
 ## Plans & drift-check
 

@@ -1,7 +1,7 @@
 # Security hardening & threat model
 
 > Runbook for the FraudLens security posture and the **deploy gate** it must pass. Phase 13 of
-> the plan ([`plans/2026-06-12-aml-fraud-detection-system.md`](../../plans/2026-06-12-aml-fraud-detection-system.md))
+> the [retired foundation plan](../../plans/README.md#retired-plans)
 > verifies and tightens the posture **before any production-style deploy** — it is a hard
 > prerequisite for Phase 14 (Azure deploy). Pairs with
 > [phi-guardrails.md](phi-guardrails.md), [observability.md](observability.md), and the

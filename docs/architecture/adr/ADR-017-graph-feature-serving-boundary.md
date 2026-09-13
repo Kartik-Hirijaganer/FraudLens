@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-07-14
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when (per master-plan §22)
-- **Related:** [ADR-015 — tenant-safe global model training](../../../plans/2026-06-12-aml-fraud-detection-system.md#22-decision-records-adrs)
-  · study plan [`plans/2026-07-14-gfp-isolation-gap-visual-study.md`](../../../plans/2026-07-14-gfp-isolation-gap-visual-study.md)
+- **Related:** [ADR-015 — tenant-safe global model training](README.md)
+  · [retired-plan index](../../../plans/README.md#retired-plans)
   · [Snap ML `GraphFeaturePreprocessor` API](https://snapml.readthedocs.io/en/latest/graph_preprocessor.html)
   · [IBM AML graph-feature study](https://arxiv.org/html/2402.08593)
 
@@ -94,7 +94,7 @@ costed.
 
 The study's **dataset, sampling, temporal/leakage, tenant-ownership, arms/feature-naming,
 metrics, and curation contracts** are the "Benchmark contract" section of
-[`plans/2026-07-14-gfp-isolation-gap-visual-study.md`](../../../plans/2026-07-14-gfp-isolation-gap-visual-study.md).
+[retired-plan index](../../../plans/README.md#retired-plans).
 They are **frozen as of this ADR's acceptance (2026-07-14), before any new holdout result is
 inspected**, and are pinned in machine-validated form in `config/gfp-benchmark.yaml`
 (`GfpBenchmarkConfig`, `scripts/lib/gfp/`). If the isolation delta comes back zero or negative,

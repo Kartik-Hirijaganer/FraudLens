@@ -6,8 +6,8 @@
 > §10.5.1 promotion gates**; Phase 10 adds the **human-gated MLOps workflow** —
 > retrain → candidate → shadow → approve → canary → active → rollback, advisory drift, and
 > tenant-safe training — all with **no redeploy**. See plan
-> [§10.5 / §10.5.1](../../plans/2026-06-12-aml-fraud-detection-system.md) and
-> [§9.2 / §9.4](../../plans/2026-06-12-aml-fraud-detection-system.md) (model-lifecycle tables + tenant-safe policy).
+> the [retired foundation-plan index](../../plans/README.md#retired-plans) (promotion gates,
+> model-lifecycle tables, and tenant-safe policy).
 
 ## The pieces
 
