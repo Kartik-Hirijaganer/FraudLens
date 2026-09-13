@@ -4,7 +4,7 @@
 
 [project]
 name = "fraudlens-backend"
-version = "1.0.0"
+version = "0.1.0"
 description = "FraudLens FastAPI service for AML fraud investigation workflows."
 requires-python = ">=3.11"
 license = { text = "MIT" }
