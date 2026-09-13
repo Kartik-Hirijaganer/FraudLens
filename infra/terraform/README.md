@@ -1,9 +1,15 @@
 # Infrastructure (Terraform / Azure)
 
-Scaffolded, **CI-validated, and NOT applied.** The Azure account does not exist yet, so
-these configs are linted (`terraform fmt -check`) and validated
-(`terraform init -backend=false && terraform validate`) in CI, but **no `terraform apply`
-runs** until the account and the remote-state backend are bootstrapped (Golden Rule 1).
+Scaffolded, **CI-validated, and NOT applied.** These configs are linted
+(`terraform fmt -check`) and validated (`terraform init -backend=false && terraform validate`)
+in CI, but **no `terraform apply` runs** (Golden Rule 1).
+
+**Bootstrap status (2026-09-13):** the Azure account, the remote-state backend, and the
+GitHub→Azure OIDC federation now **exist** (see below). Deploy remains **inert by choice** —
+`AZURE_DEPLOY_ENABLED` is `false`, so `deploy-backend.yml` / `deploy-frontend.yml` skip every
+Azure job. Flipping that one repo variable to `true` is the only step left to go live.
+A verified `terraform plan` against the real subscription reports **15 to add, 0 to change,
+0 to destroy** for `dev`; nothing has been applied.
 
 ## Layout
 
@@ -43,32 +49,57 @@ terraform -chdir=environments/dev  validate
 
 `-backend=false` skips backend init, so validation needs no Azure account or state storage.
 
-## State backend bootstrap (out-of-band, one time)
+## State backend bootstrap (out-of-band, one time) — ✅ DONE 2026-09-13
 
-1. Create the state storage **out of band** (not managed by this config to avoid a
-   chicken-and-egg): a resource group + storage account + `tfstate` container, e.g.
-   ```
-   az group create -n fraudlens-tfstate-rg -l eastus
-   az storage account create -n fraudlenstfstate -g fraudlens-tfstate-rg -l eastus --sku Standard_LRS --min-tls-version TLS1_2
-   az storage container create -n tfstate --account-name fraudlenstfstate
-   ```
-2. In each environment, **rename `backend.tf.template` → `backend.tf`** (keys are
-   per-env: `dev.terraform.tfstate`, `prod.terraform.tfstate`).
-3. `terraform -chdir=environments/<env> init` (now configures the azurerm backend).
+State storage was created **out of band** (not managed by this config, to avoid a
+chicken-and-egg). What now exists:
 
-## GitHub → Azure OIDC (no stored secrets)
+| Resource | Value |
+|---|---|
+| Resource group | `fraudlens-tfstate-rg` (eastus) |
+| Storage account | `fraudlenstfstate` — Standard_LRS, TLS1_2 min, **public blob access disabled**, **versioning on** |
+| Container | `tfstate` (keys `dev.terraform.tfstate`, `prod.terraform.tfstate`) |
 
-The deploy pipeline authenticates to Azure with a **federated credential** (no client
-secret in GitHub):
+Reproduce (already applied):
+```bash
+az group create -n fraudlens-tfstate-rg -l eastus
+az storage account create -n fraudlenstfstate -g fraudlens-tfstate-rg -l eastus \
+  --sku Standard_LRS --min-tls-version TLS1_2 --allow-blob-public-access false --kind StorageV2
+az storage account blob-service-properties update -n fraudlenstfstate \
+  -g fraudlens-tfstate-rg --enable-versioning true
+az storage container create -n tfstate --account-name fraudlenstfstate
+```
 
-1. Create an Entra app + service principal; grant it Contributor on the subscription
-   (and User Access Administrator if it must create role assignments).
-2. Add a **federated credential** trusting this repo's GitHub OIDC token (subject e.g.
-   `repo:Kartik-Hirijaganer/FraudLens:ref:refs/heads/main` and the `production`
-   environment). `azuread_application_federated_identity_credential` can manage this later.
-3. The workflows set `permissions: id-token: write` and use `azure/login@v2` with
-   `client-id` / `tenant-id` / `subscription-id` (non-secret ids) — Terraform's
-   `provider "azurerm" { use_oidc = true }` then needs no secret.
+**`backend.tf` is generated, not renamed.** `backend.tf.template` stays the committed
+source of truth; `deploy-backend.yml` does `cp backend.tf.template backend.tf` before
+`init`, and the generated `backend.tf` is gitignored. Locally, do the same:
+
+```bash
+cp backend.tf.template backend.tf && terraform init
+```
+
+## GitHub → Azure OIDC (no stored secrets) — ✅ DONE 2026-09-13
+
+The deploy pipeline authenticates to Azure with a **federated credential** — there is no
+client secret anywhere in GitHub or the repo. What now exists:
+
+| Item | Value |
+|---|---|
+| Entra app / SP | `fraudlens-github-oidc` |
+| Roles (subscription scope) | `Contributor` + `User Access Administrator` |
+| Federated subjects | `…:environment:production`, `…:environment:Production`, `…:ref:refs/heads/dev`, `…:ref:refs/heads/main` |
+
+`User Access Administrator` is required because the `identity` module creates role
+assignments (`acr_pull`, `blob_contributor`). Both roles are subscription-scoped because
+Terraform creates the resource groups themselves — tighten to RG scope later if desired.
+
+Both `production` casings are registered: the workflows write `environment: production`
+while the GitHub environment is stored as `Production`, and the OIDC `sub` claim must
+match exactly.
+
+The workflows set `permissions: id-token: write` and use `azure/login@v2` with
+`client-id` / `tenant-id` / `subscription-id` (non-secret ids, stored as **repo
+variables**) — Terraform's `provider "azurerm" { use_oidc = true }` then needs no secret.
 
 ## Infisical and `TF_VAR_*` mapping
 

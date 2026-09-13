@@ -378,7 +378,7 @@ async def upload_csv(
 
 
 @router.get("/transactions", response_model=TransactionListResponse)
-async def list_transactions(  # noqa: PLR0913 - FastAPI handler: request + injected deps + filters.
+async def list_transactions(  # noqa: PLR0913, PLR0917 - FastAPI handler: request + injected deps + filters.
     request: Request,
     tenant: TenantDep,
     session: DbSessionDep,

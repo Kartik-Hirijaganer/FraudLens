@@ -225,7 +225,7 @@ async def act_on_alert(
 
 
 @router.post("/alerts/{alertId}/sar/review", response_model=SarDraftView)
-async def review_sar(  # noqa: PLR0913 - FastAPI handler: path + body + request + 3 injected deps.
+async def review_sar(  # noqa: PLR0913, PLR0917 - FastAPI handler: path + body + request + 3 injected deps.
     alert_id: Annotated[uuid.UUID, Path(alias="alertId")],
     payload: SarReviewRequest,
     request: Request,

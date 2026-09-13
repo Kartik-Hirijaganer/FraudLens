@@ -370,7 +370,7 @@ def _evidence(
     )
 
 
-def _messages(  # noqa: PLR0913 -- explicit blind-evidence inputs prevent candidate leakage.
+def _messages(  # noqa: PLR0913, PLR0917 -- explicit blind-evidence inputs prevent candidate leakage.
     prompt: JudgePromptTemplate,
     scenario: SarEvalScenario,
     facts: DurableEvaluationFacts,

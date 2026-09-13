@@ -532,7 +532,7 @@ def _write_manifest_sidecar(
     )
 
 
-async def _amain(  # noqa: PLR0911, PLR0913 - CLI orchestration: each guard exits with its own code
+async def _amain(  # noqa: PLR0911, PLR0913, PLR0917 - CLI orchestration: each guard exits with its own code
     source: str,
     fixture: bool,
     rows: int,
