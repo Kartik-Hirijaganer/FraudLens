@@ -1,22 +1,24 @@
 """Summary: The SAR draft replay cache (plan §7.6 "SAR/RAG/embedding caches", §16 Phase 7).
-A successful, schema-valid draft is keyed by a deterministic fingerprint of (prompt template hash,
-model reference, the full PHI-free `SarInput`), so an identical investigation replays the stored
+A successful, schema-valid draft is keyed by a deterministic fingerprint of tenant, prompt hash,
+model reference, exact egress evidence, and generation settings, so an identical investigation
+replays the stored
 `SarDraftResult` with NO new provider spend and NO new tokens (`cached=True`) — the cost-control
 "replay, no spend" path. `SarDraftCache` is a small protocol so a process-memory cache (the v1
 default here) can be swapped for a persistent/shared backend later without touching the drafter.
 
 Key classes:
+- SarCacheGenerationSettings:
 - SarDraftCache: the get/set protocol the live drafter caches completed drafts through.
 - InMemorySarDraftCache: a process-local dict-backed cache (the v1 default).
 
 Key functions:
-- sar_cache_key: derive the deterministic cache fingerprint for a (model, prompt, input) triple.
+- sar_cache_key: derive the deterministic tenant/evidence/prompt/model/settings fingerprint.
 
 Notes:
 - The fingerprint hashes the canonical JSON of the `SarInput`, so any change to the rules, SHAP
-  drivers, citations, or risk band produces a different key (no stale-input replay).
+drivers, citations, or risk band produces a different key (no stale-input replay).
 - Only successful drafts are cached by the drafter; failures are never stored, so a transient
-  provider failure is retried on the next request rather than replayed.
+provider failure is retried on the next request rather than replayed.
 """
 
 from __future__ import annotations
@@ -24,12 +26,41 @@ from __future__ import annotations
 import hashlib
 from typing import Protocol, runtime_checkable
 
-from fraudlens_ml.sar import SarDraftResult, SarInput
+from pydantic import BaseModel, ConfigDict, Field
+
+from fraudlens_backend.sar.egress import SarModelInput
+from fraudlens_ml.sar import SarDraftResult
 
 
-def sar_cache_key(model_id: str, prompt_hash: str, sar_input: SarInput) -> str:
-    """Derive the deterministic cache fingerprint for a (model, prompt, input) triple."""
-    canonical = "\n".join((model_id, prompt_hash, sar_input.model_dump_json()))
+class SarCacheGenerationSettings(BaseModel):
+    """Generation settings whose change must invalidate a draft replay."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_output_tokens: int = Field(..., gt=0, description="Maximum generated tokens.")
+    reasoning_effort: str | None = Field(default=None, description="Reasoning effort hint.")
+    fallbacks: tuple[str, ...] = Field(default=(), description="Ordered governed fallback refs.")
+    task_type: str = Field(..., min_length=1, description="Guardrail task classification.")
+
+
+def sar_cache_key(
+    *,
+    model_id: str,
+    prompt_hash: str,
+    agency_id: str,
+    model_input: SarModelInput,
+    generation_settings: SarCacheGenerationSettings,
+) -> str:
+    """Hash the exact tenant, evidence, prompt, model, and generation configuration."""
+    canonical = "\n".join(
+        (
+            agency_id,
+            model_id,
+            prompt_hash,
+            generation_settings.model_dump_json(),
+            model_input.model_dump_json(by_alias=True),
+        )
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

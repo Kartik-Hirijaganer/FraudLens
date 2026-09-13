@@ -18,6 +18,7 @@ generated regions below stay synchronized with the codebase.
 | Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
 | Regulatory RAG | FinCEN/BSA chunks are stored in ChromaDB. The deterministic 256-dimensional `HashingEmbedder` remains the keyless default; `make ingest-rag-live` and `make run-live` opt into 1536-dimensional OpenRouter `text-embedding-3-small`. | Expand the curated regulatory corpus and authoritative source metadata without changing the embedding/index contract. |
 | SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode retains the single writer and adds a bounded four-agent implementation behind process and tenant flags; production defaults to the single writer. Both use the injected `SarDrafter` seam and the existing human review gate. | Publication requires a committed synthetic evaluation that compares both live arms through the real API; enable the agent path by default only when its measured quality benefit justifies the additional cost and latency ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)). |
+| SAR quality + model egress | `make quality-gates` enforces configured citation/fact/hallucination thresholds and byte-level retry/fallback privacy offline. Live prompts consume only frozen `SarModelInput` projections authorized from persisted synthetic source provenance ([ADR-023](adr/ADR-023-sar-quality-and-privacy-gates.md), [ADR-026](adr/ADR-026-synthetic-only-model-egress.md)). | Real customer data remains out of scope; enabling another data class/source requires a new privacy/compliance and provider-contract decision. |
 
 The diagrams below show the full system shape. Where a diagram names an LLM provider or semantic
 RAG flow, treat it as the opt-in/target path described above, not the keyless local default.
@@ -184,8 +185,9 @@ SAR drafting reaches `fraudlens-ml` only through the injected `SarDrafter` proto
 (`fraudlens_ml.sar`), so ml never imports `fraudlens-llm`. The backend supplies three concrete
 implementations: a deterministic, keyless **mock** (the `make local-demo` default — no provider,
 no cost), the guarded **live single writer**, and a **bounded live four-agent** drafter selected only
-when both the process setting and tenant-scoped runtime flag permit it. All consume a PHI-free
-`SarInput` and return the same terminal contract, so draft persistence, SSE, review, approval, and
+when both the process setting and tenant-scoped runtime flag permit it. The mock consumes the broad
+internal `SarInput`; every live path first derives an exact frozen `SarModelInput` from persisted
+synthetic source provenance and returns the same terminal contract, so persistence, SSE, review, and
 PDF generation do not fork into parallel workflows.
 
 The agent graph is deterministic: Evidence Investigator and Regulatory Analyst run in parallel,
@@ -196,6 +198,15 @@ limits, and the preflight cost cap. Tenant-scoped execution attempts persist for
 restart-safe replay. The graph stops at `draft`; only the existing authenticated human endpoint can
 approve a SAR or transition its alert. [ADR-019](adr/ADR-019-multi-agent-sar-drafting.md) records
 these non-negotiable bounds and the synthetic-only evaluation protocol.
+
+`SarModelInput` omits tenant/user/database ids, account values, free text, edited narratives, and
+labels. It admits only verified transaction facts, controlled templated rule findings, numeric
+served-schema SHAP drivers, and exact digest-bound public regulation excerpts. Agent tool results
+are field-allowlisted and evidence ids become case aliases; output is remasked before another model
+sees it. `unknown` or `api-upload` provenance blocks live drafting before transport while preserving
+the deterministic investigation. The cache key includes tenant, projected evidence, prompt, model,
+and generation settings. [The quality-gate reference](../reference/quality-gates.md) documents the
+thresholds and socket-denied raw-request tests.
 
 Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML front-matter
 semantic version + a static instruction body). Every draft records the template's
@@ -221,6 +232,7 @@ silently substitutes the mock. Below-threshold runs never invoke RAG or SAR draf
 | Generated docs stay in sync | `make docs` / `make docs-check` (this file's AUTOGEN regions, OpenAPI, ERD) |
 | Graph-feature serving boundary: no cross-tenant graph topology in live scoring ([ADR-017](adr/ADR-017-graph-feature-serving-boundary.md)) | Offline-only `scripts/lib/gfp/` (never a runtime package); `snapml` confined to the benchmark-only `gfp` dependency group; served vector stays the 19 `FEATURE_NAMES`; identifier-free `RuleContext` |
 | Bounded multi-agent SAR drafting preserves human authority ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)) | Fixed four-role graph; read-only tenant-scoped tools with context-supplied `agency_id`; deterministic support checks; one revision maximum; preflight cost cap; human-only approval and alert transitions |
+| Synthetic-only live model egress ([ADR-026](adr/ADR-026-synthetic-only-model-egress.md)) | Persisted transaction source; frozen extra-forbid projection; controlled facts/rules/features; corpus digest binding; tool-result aliases; pre-transport refusal; transport byte tests |
 
 Decision records are indexed in [`adr/README.md`](adr/README.md). That index retains the historical
 summaries for ADR-001…016 after their retired source plan was removed; ADR-017 and later have
@@ -621,6 +633,7 @@ erDiagram
         string pdf_blob_url
         string prompt_hash
         string prompt_version
+        enum quality_status
         uuid reviewed_by FK
         integer revision_count
         uuid run_id FK
@@ -676,6 +689,7 @@ erDiagram
         datetime occurred_at
         string origin_account
         enum risk_band
+        enum source
     }
     users {
         uuid id PK

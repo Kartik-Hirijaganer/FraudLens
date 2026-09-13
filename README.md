@@ -58,8 +58,9 @@ secret outside source control.
   through regulatory retrieval and SAR drafting, avoiding unnecessary LLM work.
 - **Regulatory RAG** — retrieves versioned FinCEN/BSA context from ChromaDB, with a deterministic
   offline embedder for the default local demo and a guarded live embedding path as an opt-in.
-- **Governed SAR drafting** — produces masked, cited draft narratives through a versioned prompt,
-  strict output schema, citation grounding, budget guard, replay cache, and mock/live provider seam.
+- **Governed SAR drafting** — produces cited draft narratives through a provenance-derived,
+  synthetic-only model-input allowlist, versioned prompt, strict schema, citation grounding, budget
+  guard, replay cache, and mock/live provider seam.
 - **Analyst workflow** — exposes dashboards, transaction search, live investigation progress, alert
   review actions, SAR review, and role-aware navigation for analyst, reviewer, auditor, and admin
   responsibilities.
@@ -315,6 +316,11 @@ before using either live-service command.
   typing, branch coverage, changed-line coverage, tenancy checks, docs generation, duplication,
   secret scanning, dependency audits, Terraform validation, and container builds. →
   [Makefile](Makefile), [CI workflow](.github/workflows/ci.yml)
+- **SAR quality/privacy is thresholded and provider-free.** `make quality-gates` checks all 32
+  synthetic scenarios, adversarial unsupported claims, raw retry/fallback request bytes, and the
+  published study binding without network or credentials. →
+  [Quality gates](docs/reference/quality-gates.md),
+  [ADR-026](docs/architecture/adr/ADR-026-synthetic-only-model-egress.md)
 
 ## Cloud deployment status
 

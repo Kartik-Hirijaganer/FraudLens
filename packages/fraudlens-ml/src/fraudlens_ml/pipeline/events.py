@@ -158,6 +158,7 @@ class PipelineInput(BaseModel):
     agency_id: str = Field(..., min_length=1, description="Owning tenant id (provenance only).")
     run_id: str = Field(..., min_length=1, description="The persisted run this pipeline drives.")
     transaction_id: str = Field(..., min_length=1, description="Transaction under investigation.")
+    source: str = Field(..., min_length=1, description="Persisted transaction ingest provenance.")
     rule_context: RuleContext = Field(
         ..., description="PHI-free transaction + same-account history for rules + features."
     )

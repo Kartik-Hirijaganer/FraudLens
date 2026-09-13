@@ -168,6 +168,7 @@ async def build_pipeline_input(
         agency_id=str(agency_id),
         run_id=str(run_id),
         transaction_id=str(transaction.id),
+        source=transaction.source.value,
         rule_context=RuleContext(
             transaction=current,
             history=history,

@@ -215,6 +215,7 @@ erDiagram
         string pdf_blob_url
         string prompt_hash
         string prompt_version
+        enum quality_status
         uuid reviewed_by FK
         integer revision_count
         uuid run_id FK
@@ -270,6 +271,7 @@ erDiagram
         datetime occurred_at
         string origin_account
         enum risk_band
+        enum source
     }
     users {
         uuid id PK

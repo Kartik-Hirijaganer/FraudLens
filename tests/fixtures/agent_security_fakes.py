@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 
 from agent_fakes import (
@@ -47,7 +48,9 @@ from fraudlens_backend.db.models import (
     Transaction,
 )
 from fraudlens_backend.pipeline_wiring import RunManager
-from fraudlens_core import RiskBand
+from fraudlens_core import RiskBand, TransactionDirection
+from fraudlens_ml.rag.citations import escape_as_data
+from fraudlens_ml.rag.ingest import chunk_corpus, load_corpus
 from fraudlens_ml.sar import (
     SarCitation,
     SarClaim,
@@ -82,24 +85,31 @@ def _evidence_json() -> str:
 
 
 def _sar_input(transaction_id: uuid.UUID) -> SarInput:
+    corpus_root = Path(__file__).resolve().parents[2] / "data" / "regulations"
+    chunk = next(
+        item for item in chunk_corpus(load_corpus(corpus_root)) if item.citation == _CITATION
+    )
     return SarInput(
         agency_id="security-agency",
         transaction_id=str(transaction_id),
+        source="synthetic-generator",
         risk_band=RiskBand.HIGH,
         fraud_probability=0.91,
         amount=Decimal("9500.00"),
         currency="USD",
         country="US",
         channel="wire",
+        direction=TransactionDirection.OUTBOUND,
+        occurred_at=datetime(2024, 6, 1, 14, 0, tzinfo=UTC),
         model_version="security-model",
         rules_version="security-rules",
         rag_version="security-rag",
         citations=(
             SarCitation(
                 citation=_CITATION,
-                title="Structuring",
-                source="FinCEN",
-                snippet="Governed synthetic excerpt.",
+                title=chunk.title,
+                source=chunk.source,
+                snippet=escape_as_data(chunk.text),
             ),
         ),
     )

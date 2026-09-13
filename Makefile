@@ -23,7 +23,7 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -378,15 +378,19 @@ sar-eval-test: ## Portable SAR evaluation suite with >=90% harness coverage; nev
 SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
 	tests/integration/test_train_model.py tests/integration/test_train_model_cli.py \
 	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
-	tests/unit/test_study_helpers.py $(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
+	tests/unit/test_study_helpers.py tests/unit/test_quality_config.py \
+	$(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
 scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
 	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
 		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
 		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
-		--cov=lib.model_training --cov=lib.sar_eval --cov=lib.study \
+		--cov=lib.model_training --cov=lib.quality --cov=lib.sar_eval --cov=lib.study \
 		--cov=local_demo --cov=train_model --cov-branch \
 		--cov-report=term-missing --cov-fail-under=90
 	$(MAKE) sar-eval-validate
+
+quality-gates: ## Run offline SAR citation, hallucination, and byte-level egress gates.
+	$(UV) run pytest tests/quality -q -o addopts='' -m quality
 
 tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
 	terraform fmt -recursive -check infra/terraform
@@ -402,7 +406,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

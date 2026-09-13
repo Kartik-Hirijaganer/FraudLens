@@ -42,7 +42,7 @@ from typing import Any, NamedTuple
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import Transaction
+from fraudlens_backend.db.models import Transaction, TransactionSource
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_backend.services.phi_mask import PhiMasker
 from fraudlens_core import CanonicalTransaction, RiskBand
@@ -107,8 +107,13 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
-    async def ingest(self, canonical: CanonicalTransaction) -> IngestOutcome:
-        """Dedup by externalId; otherwise mask + persist the transaction (masked-only)."""
+    async def ingest(
+        self,
+        canonical: CanonicalTransaction,
+        *,
+        source: TransactionSource = TransactionSource.UNKNOWN,
+    ) -> IngestOutcome:
+        """Dedup or persist a masked transaction; omitted provenance fails closed as unknown."""
         existing = await self.get_by_external_id(canonical.external_id)
         if existing is not None:
             return IngestOutcome(existing, created=False, mask_report=None)
@@ -116,6 +121,7 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         transaction = Transaction(
             agency_id=self._agency_id,
             external_id=canonical.external_id,
+            source=source,
             amount=canonical.amount,
             currency=canonical.currency,
             occurred_at=canonical.occurred_at,

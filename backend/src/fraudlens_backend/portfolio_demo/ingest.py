@@ -32,6 +32,7 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fraudlens_backend.db.models import TransactionSource
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.portfolio_demo.config import PortfolioDemoConfig, PortfolioDemoScenario
 from fraudlens_core import CanonicalTransaction, build_canonical, compute_feature_hash
@@ -80,7 +81,7 @@ async def ensure_story_transactions(
     created = existing = 0
     for scenario in config.scenarios:
         canonical = canonical_for(config, scenario)
-        outcome = await repo.ingest(canonical)
+        outcome = await repo.ingest(canonical, source=TransactionSource.PORTFOLIO_DEMO)
         if outcome.created:
             created += 1
         else:

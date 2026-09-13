@@ -44,7 +44,7 @@ from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.sar import build_sar_drafter
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_llm_call
-from fraudlens_core.rules.base import RuleHit
+from fraudlens_core.rules.base import RuleHit, TransactionDirection
 from fraudlens_ml.sar import (
     SarCitation,
     SarDrafter,
@@ -68,6 +68,7 @@ def sar_draft_to_view(draft: SarDraft) -> SarDraftView:
         alert_id=str(draft.alert_id) if draft.alert_id is not None else None,
         version=draft.version,
         status=draft.status,
+        quality_status=draft.quality_status,
         content=draft.content,
         structured=dict(draft.structured or {}),
         citations=[dict(citation) for citation in (draft.citations or [])],
@@ -174,12 +175,15 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
     sar_input = SarInput(
         agency_id=str(agency_id),
         transaction_id=str(run.transaction_id),
+        source=transaction.source.value,
         risk_band=result.risk_band,
         fraud_probability=result.fraud_probability,
         amount=transaction.amount,
         currency=transaction.currency,
         country=transaction.country,
         channel=transaction.channel,
+        direction=TransactionDirection.OUTBOUND,
+        occurred_at=transaction.occurred_at,
         model_version=result.model_version,
         rules_version=run.rules_version or result.model_version,
         rag_version=run.rag_version or result.model_version,

@@ -34,7 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import fetch_dataset
-from fraudlens_backend.db.models import Agency, JobExecution, JobStatus, JobType
+from fraudlens_backend.db.models import Agency, JobExecution, JobStatus, JobType, TransactionSource
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
@@ -96,7 +96,9 @@ async def ingest_demo_transactions(
     for transaction in transactions:
         if transaction.agency_index >= config.case_pack_partition_count:
             raise ValueError("mapped demo agency index is outside the configured tenant set")
-        outcome = await repository.ingest(transaction.canonical)
+        outcome = await repository.ingest(
+            transaction.canonical, source=TransactionSource.IBM_AML_SYNTHETIC
+        )
         if outcome.created:
             accepted += 1
         else:

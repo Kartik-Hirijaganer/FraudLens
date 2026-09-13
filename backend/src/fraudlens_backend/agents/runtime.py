@@ -35,7 +35,12 @@ from fraudlens_backend.agents.contracts import (
 from fraudlens_backend.agents.prompts import AgentPromptTemplate, build_agent_messages
 from fraudlens_backend.agents.runtime_contracts import AgentBudgetExceededError, ExecutionState
 from fraudlens_backend.sar.budget import estimate_cost_usd
-from fraudlens_core.phi import mask_text
+from fraudlens_backend.sar.egress import (
+    EgressPolicy,
+    load_egress_policy,
+    project_agent_tool_result,
+    sanitize_model_payload,
+)
 from fraudlens_llm import (
     Catalog,
     GenerationParams,
@@ -80,7 +85,7 @@ __all__ = [
 class AgentRuntime:
     """Execute any configured SAR agent through one bounded structured-output loop."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit security dependencies stay injectable.
         self,
         *,
         client: LlmClient,
@@ -88,6 +93,7 @@ class AgentRuntime:
         config: AgentsConfig,
         tool_definitions: Mapping[str, ToolDefinition],
         tool_executor: ToolExecutor | None,
+        egress_policy: EgressPolicy | None = None,
     ) -> None:
         """Bind the client, pricing catalog, frozen config, and Phase 3 tool seam."""
         configured_tools = {
@@ -108,6 +114,7 @@ class AgentRuntime:
         self._config = config
         self._tool_definitions = dict(tool_definitions)
         self._tool_executor = tool_executor
+        self._egress_policy = egress_policy or load_egress_policy()
 
     async def execute(
         self,
@@ -219,15 +226,25 @@ class AgentRuntime:
                     started=started,
                 )
             if result.tool_calls:
+                safe_tool_calls = tuple(
+                    call.model_copy(
+                        update={
+                            "arguments": sanitize_model_payload(call.arguments, self._egress_policy)
+                        }
+                    )
+                    for call in result.tool_calls
+                )
                 messages.append(
                     LlmMessage(
                         role=Role.ASSISTANT,
-                        content=result.safe_text or None,
-                        tool_calls=result.tool_calls,
+                        content=(
+                            sanitize_model_payload(result.safe_text, self._egress_policy) or None
+                        ),
+                        tool_calls=safe_tool_calls,
                     )
                 )
-                if state.tool_call_count + len(result.tool_calls) > agent_config.max_tool_calls:
-                    state.tool_call_count += len(result.tool_calls)
+                if state.tool_call_count + len(safe_tool_calls) > agent_config.max_tool_calls:
+                    state.tool_call_count += len(safe_tool_calls)
                     state.mark_degraded(_TOOL_CALL_LIMIT_EXCEEDED)
                     return _build_record(
                         agent=agent,
@@ -239,7 +256,7 @@ class AgentRuntime:
                         state=state,
                         started=started,
                     )
-                for tool_call in result.tool_calls:
+                for tool_call in safe_tool_calls:
                     state.tool_call_count += 1
                     await self._handle_tool_call(
                         tool_call=tool_call,
@@ -289,7 +306,9 @@ class AgentRuntime:
         state: ExecutionState,
     ) -> None:
         """Refuse unauthorized calls or append one masked, fenced structured result."""
-        safe_arguments = _mask_json_mapping(tool_call.arguments)
+        safe_arguments: dict[str, JsonValue] = sanitize_model_payload(
+            tool_call.arguments, self._egress_policy
+        )
         if tool_call.name not in agent_config.tools:
             state.mark_degraded(_UNAUTHORIZED_TOOL_CALL)
             state.tool_calls.append(
@@ -322,7 +341,11 @@ class AgentRuntime:
             if self._tool_executor is None:
                 raise RuntimeError("tool executor unavailable")
             tool_result = await self._tool_executor(tool_call.name, tool_call.arguments)
-            safe_result = _mask_json_mapping(tool_result.model_dump(mode="json", by_alias=True))
+            safe_result = project_agent_tool_result(
+                tool_call.name,
+                tool_result.model_dump(mode="json", by_alias=True),
+                self._egress_policy,
+            )
         except Exception:
             state.mark_degraded(_TOOL_UNAVAILABLE)
             state.tool_calls.append(
@@ -449,16 +472,6 @@ def _fence_tool_result(result: Mapping[str, JsonValue]) -> str:
     canonical = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     escaped = escape_as_data(canonical)
     return f"{_TOOL_DATA_OPEN}\n{escaped}\n{_TOOL_DATA_CLOSE}"
-
-
-def _mask_json_mapping(value: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    """Apply the deterministic PHI masker to a JSON mapping without changing its shape."""
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    masked = mask_text(canonical).value
-    parsed = json.loads(masked)
-    if not isinstance(parsed, dict):  # pragma: no cover - serialization invariant
-        raise TypeError("Masked tool payload must remain an object")
-    return parsed
 
 
 def _hash_json(value: object) -> str:

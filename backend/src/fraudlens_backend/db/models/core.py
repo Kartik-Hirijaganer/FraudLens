@@ -54,7 +54,7 @@ from fraudlens_backend.db.base import (
     TimestampMixin,
     str_enum,
 )
-from fraudlens_backend.db.models.enums import Severity, UserRole
+from fraudlens_backend.db.models.enums import Severity, TransactionSource, UserRole
 from fraudlens_core import AmlRuleType, RiskBand
 
 
@@ -95,6 +95,12 @@ class Transaction(AgencyScopedMixin, CreatedAtMixin, Base):
     )
 
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[TransactionSource] = mapped_column(
+        str_enum(TransactionSource, create_constraint=True),
+        nullable=False,
+        default=TransactionSource.UNKNOWN,
+        server_default=TransactionSource.UNKNOWN.value,
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -53,6 +53,13 @@ from fraudlens_backend.agents.resume import (
     execution_replay_context,
 )
 from fraudlens_backend.agents.runtime import agent_input_hash
+from fraudlens_backend.sar.egress import (
+    EgressPolicy,
+    SarModelInput,
+    load_egress_policy,
+    project_for_model,
+    sanitize_model_payload,
+)
 from fraudlens_ml.sar import (
     SarAgentEvent,
     SarDraftContent,
@@ -78,19 +85,23 @@ class AgentGraph:
         compiled: Any,
         *,
         replay: AgentExecutionReplayPort | None = None,
+        egress_policy: EgressPolicy | None = None,
     ) -> None:
         """Bind a compiled LangGraph runnable and optional locked replay coordinator."""
         self._compiled = compiled
         self._replay = replay
+        self._egress_policy = egress_policy or load_egress_policy()
 
     async def run(self, sar_input: SarInput, *, emit: AgentEventEmitter) -> AgentGraphResult:
         """Run one in-memory workflow and return its complete typed outcome."""
         async with execution_replay_context(self._replay) as completed:
+            model_input = project_for_model(sar_input, self._egress_policy)
             raw = cast(
                 AgentGraphState,
                 await self._compiled.ainvoke(
                     {
                         "sar_input": sar_input,
+                        "model_input": model_input,
                         "emit": emit,
                         "writer_executions": (),
                         "reviewer_executions": (),
@@ -126,11 +137,13 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
     run_id: uuid.UUID | None = None,
     record_execution: AgentExecutionRecorder | None = None,
     replay: AgentExecutionReplayPort | None = None,
+    egress_policy: EgressPolicy | None = None,
 ) -> AgentGraph:
     """Compile the parallel investigation and structurally capped writer-reviewer graph."""
     missing_prompts = set(AgentRole) - set(prompts)
     if missing_prompts:
         raise ValueError("Agent graph requires a prompt for every role")
+    policy = egress_policy or load_egress_policy()
 
     async def execute_role(  # noqa: PLR0913 - lifecycle context is explicit at the call site.
         *,
@@ -194,7 +207,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
         record = await execute_role(
             state=state,
             role=AgentRole.EVIDENCE_INVESTIGATOR,
-            user_content=_base_input_json(state["sar_input"]),
+            user_content=_base_input_json(state["model_input"]),
             response_model=EvidenceBrief,
             attempt=1,
         )
@@ -215,7 +228,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
         record = await execute_role(
             state=state,
             role=AgentRole.REGULATORY_ANALYST,
-            user_content=_base_input_json(state["sar_input"]),
+            user_content=_base_input_json(state["model_input"]),
             response_model=RegulatoryBrief,
             attempt=1,
         )
@@ -237,7 +250,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
         record = await execute_role(
             state=state,
             role=AgentRole.SAR_WRITER,
-            user_content=_writer_input_json(state),
+            user_content=_writer_input_json(state, policy),
             response_model=SarDraftContent,
             attempt=attempt,
             agent_run_id=state.get("next_writer_run_id"),
@@ -258,7 +271,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
             "checks": evaluate_draft_checks(
                 content,
                 state["sar_input"].citations,
-                available_evidence_refs=_available_evidence_refs(state, run_id=run_id),
+                available_evidence_refs=_available_evidence_refs(state),
             ),
             "next_writer_run_id": None,
         }
@@ -273,7 +286,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
         record = await execute_role(
             state=state,
             role=AgentRole.COMPLIANCE_REVIEWER,
-            user_content=_reviewer_input_json(state),
+            user_content=_reviewer_input_json(state, policy),
             response_model=ReviewVerdict,
             attempt=attempt,
         )
@@ -351,7 +364,7 @@ def build_agent_graph(  # noqa: PLR0913, PLR0915 - explicit graph dependencies a
     graph.add_edge(["evidence", "regulatory"], "writer")
     graph.add_conditional_edges("writer", route_after_writer)
     graph.add_conditional_edges("reviewer", route_after_reviewer)
-    return AgentGraph(graph.compile(), replay=replay)
+    return AgentGraph(graph.compile(), replay=replay, egress_policy=policy)
 
 
 def _agent_event(  # noqa: PLR0913 - event identity and optional metadata stay explicit.
@@ -378,18 +391,18 @@ def _agent_event(  # noqa: PLR0913 - event identity and optional metadata stay e
     )
 
 
-def _base_input_json(sar_input: SarInput) -> str:
-    """Serialize prompt-safe run facts while excluding tenant provenance."""
-    payload = sar_input.model_dump(mode="json", by_alias=True, exclude={"agency_id"})
+def _base_input_json(sar_input: SarModelInput) -> str:
+    """Serialize the exact closed model-egress schema."""
+    payload = sar_input.model_dump(mode="json", by_alias=True)
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
-def _writer_input_json(state: AgentGraphState) -> str:
+def _writer_input_json(state: AgentGraphState, policy: EgressPolicy) -> str:
     """Serialize exact writer inputs, including reviewer feedback for the single revision."""
     reviewer_feedback = state.get("reviewer_feedback")
     deterministic_checks = state.get("checks")
     payload = {
-        "runFacts": json.loads(_base_input_json(state["sar_input"])),
+        "runFacts": json.loads(_base_input_json(state["model_input"])),
         "evidenceBrief": state["evidence_brief"].model_dump(mode="json", by_alias=True),
         "regulatoryBrief": state["regulatory_brief"].model_dump(mode="json", by_alias=True),
         "reviewerFeedback": (
@@ -403,10 +416,11 @@ def _writer_input_json(state: AgentGraphState) -> str:
             else None
         ),
     }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    safe_payload = sanitize_model_payload(payload, policy)
+    return json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
 
 
-def _reviewer_input_json(state: AgentGraphState) -> str:
+def _reviewer_input_json(state: AgentGraphState, policy: EgressPolicy) -> str:
     """Serialize the ungrounded draft and deterministic checks for compliance review."""
     content = state.get("content")
     checks = state.get("checks")
@@ -418,7 +432,8 @@ def _reviewer_input_json(state: AgentGraphState) -> str:
         "evidenceBrief": state["evidence_brief"].model_dump(mode="json", by_alias=True),
         "regulatoryBrief": state["regulatory_brief"].model_dump(mode="json", by_alias=True),
     }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    safe_payload = sanitize_model_payload(payload, policy)
+    return json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
 
 
 def _validated_or_none(response_model: type[BaseModel], record: AgentExecutionRecord) -> Any | None:
@@ -450,17 +465,9 @@ def _review_is_unavailable(record: AgentExecutionRecord) -> bool:
 
 def _available_evidence_refs(
     state: AgentGraphState,
-    *,
-    run_id: uuid.UUID | None,
 ) -> frozenset[str]:
     """Collect trusted evidence ids from persisted run facts and completed tool results."""
-    sar_input = state["sar_input"]
-    refs = {f"transaction:{sar_input.transaction_id}"}
-    if run_id is not None:
-        refs.update(f"rule-hit:{run_id}:{index}" for index, _hit in enumerate(sar_input.rule_hits))
-        refs.update(
-            f"shap-driver:{run_id}:{index}" for index, _feature in enumerate(sar_input.top_features)
-        )
+    refs: set[str] = set()
     executions = (
         state.get("evidence_execution"),
         state.get("regulatory_execution"),

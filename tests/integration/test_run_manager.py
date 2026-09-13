@@ -66,6 +66,7 @@ def _pipeline_input(run_id: uuid.UUID) -> PipelineInput:
         agency_id=str(_AGENCY_ID),
         run_id=str(run_id),
         transaction_id="t1",
+        source="synthetic-generator",
         rule_context=RuleContext(transaction=txn),
         amount=Decimal("9500"),
         currency="USD",

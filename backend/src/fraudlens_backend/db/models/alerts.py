@@ -50,6 +50,7 @@ from fraudlens_backend.db.models.enums import (
     AlertActionType,
     AlertOrigin,
     AlertStatus,
+    SarQualityStatus,
     SarStatus,
     Severity,
 )
@@ -119,6 +120,12 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     structured: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     citations: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    quality_status: Mapped[SarQualityStatus] = mapped_column(
+        str_enum(SarQualityStatus, create_constraint=True),
+        nullable=False,
+        default=SarQualityStatus.EVALUATED,
+        server_default=SarQualityStatus.EVALUATED.value,
+    )
     status: Mapped[SarStatus] = mapped_column(
         str_enum(SarStatus), nullable=False, default=SarStatus.DRAFT
     )

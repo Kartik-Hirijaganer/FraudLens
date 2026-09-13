@@ -30,7 +30,7 @@ from typing import Any
 
 from pydantic import ConfigDict, Field
 
-from fraudlens_backend.db.models.enums import SarStatus
+from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.models.common import CamelModel
 
 
@@ -48,6 +48,10 @@ class SarDraftView(CamelModel):
     )
     version: int = Field(..., ge=1, description="Monotonic draft version for the run.")
     status: SarStatus = Field(..., description="Human-review lifecycle status.")
+    quality_status: SarQualityStatus = Field(
+        default=SarQualityStatus.EVALUATED,
+        description="Quality evaluation state for this exact narrative version.",
+    )
     content: str = Field(..., description="The PHI-masked, human-readable SAR narrative.")
     structured: dict[str, Any] = Field(
         default_factory=dict, description="The structured SAR body (camelCase, PHI-free)."

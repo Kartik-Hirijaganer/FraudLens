@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models.enums import SarStatus
+from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.db.repositories import SarDraftRepository
 from fraudlens_ml.sar import (
     SarCitation,
@@ -63,6 +63,26 @@ async def test_create_persists_camelcase_and_bumps_version(db_session: AsyncSess
     assert first.cost_usd == Decimal("0.000200")
     assert first.workflow == "multi_agent"
     assert first.revision_count == 1
+    assert first.quality_status is SarQualityStatus.EVALUATED
+
+
+@pytest.mark.asyncio
+async def test_human_edit_invalidates_quality_without_changing_review_lifecycle(
+    db_session: AsyncSession,
+) -> None:
+    agency_id, run_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    repo = SarDraftRepository(db_session, agency_id)
+    base = await repo.create_from_result(run_id=run_id, result=_draft_result())
+
+    edited = await repo.create_edited_version(
+        base=base,
+        content="Analyst-edited masked narrative.",
+        created_by=actor_id,
+    )
+
+    assert edited.status is SarStatus.REVIEWED
+    assert edited.quality_status is SarQualityStatus.UNEVALUATED
+    assert base.quality_status is SarQualityStatus.EVALUATED
 
 
 @pytest.mark.asyncio

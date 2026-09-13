@@ -50,6 +50,7 @@ from fraudlens_backend.db.models import (
 from fraudlens_backend.db.models.enums import AnalysisRunEventType
 from fraudlens_backend.db.repositories import AgentExecutionRepository
 from fraudlens_backend.main import create_app
+from fraudlens_backend.sar.egress import load_egress_policy, project_for_model
 from fraudlens_backend.settings import AppSettings
 from fraudlens_ml.sar import (
     SarStreamEvent,
@@ -185,7 +186,7 @@ async def test_process_restart_replays_completed_attempt_without_provider_reexec
     sar_input = _sar_input(transaction_id)
     prompts = _prompts()
     base_user_content = json.dumps(
-        sar_input.model_dump(mode="json", by_alias=True, exclude={"agency_id"}),
+        project_for_model(sar_input, load_egress_policy()).model_dump(mode="json", by_alias=True),
         sort_keys=True,
         separators=(",", ":"),
     )

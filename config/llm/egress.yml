@@ -1,0 +1,93 @@
+# FraudLens model-egress policy (NON-SECRET).
+# Eligibility is derived from persisted transaction provenance; request payloads cannot override it.
+policy_version: sar-egress-v1
+allowed_data_classes: [synthetic]
+allowed_sources:
+  - portfolio-demo
+  - ibm-aml-synthetic
+  - synthetic-generator
+  - ieee-cis-sample
+source_data_classes:
+  portfolio-demo: synthetic
+  ibm-aml-synthetic: synthetic
+  synthetic-generator: synthetic
+  ieee-cis-sample: synthetic
+  api-upload: unclassified
+  unknown: unclassified
+allowed_field_set:
+  - caseAlias
+  - subjectAlias
+  - counterpartyAlias
+  - transaction
+  - aggregates
+  - riskBand
+  - fraudProbability
+  - ruleHits
+  - shapDrivers
+  - regulations
+  - unknowns
+allowed_tool_fields:
+  - transactions
+  - aggregates
+  - hits
+  - drivers
+  - alerts
+  - statusAggregates
+  - matches
+  - evidenceRef
+  - amount
+  - currency
+  - occurredAt
+  - channel
+  - country
+  - transactionCount
+  - totalAmount
+  - ruleType
+  - severity
+  - weight
+  - feature
+  - featureValue
+  - shapValue
+  - status
+  - alertCount
+  - citationId
+  - title
+  - source
+  - relevanceScore
+  - mode
+  - ragVersion
+rule_reason_templates:
+  structuring: Deterministic controls identified a structuring pattern.
+  velocity: Deterministic controls identified elevated transaction velocity.
+  high_risk_geography: Deterministic controls identified high-risk geography exposure.
+  round_amount: Deterministic controls identified repeated round-amount activity.
+  threshold_evasion: Deterministic controls identified threshold-evasion behavior.
+  rapid_movement: Deterministic controls identified rapid movement of funds.
+aliases:
+  case: case-under-review
+  subject: subject-account
+  counterparty: counterparty-account
+safe_placeholder: unknown
+categorical_value_pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+forbidden_patterns:
+  - name: email
+    pattern: "(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b"
+  - name: social-security-number
+    pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+  - name: account-number
+    pattern: "\\b\\d{12,19}\\b"
+  - name: jwt
+    pattern: "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b"
+  - name: bearer-token
+    pattern: "(?i)\\bbearer\\s+[A-Za-z0-9._~-]{8,}"
+  - name: database-url
+    pattern: "(?i)\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?)://[^\\s]+"
+  - name: secret-assignment
+    pattern: "(?i)\\b(?:DATABASE_URL|API_KEY|ACCESS_TOKEN|CLIENT_SECRET)\\s*[=:]\\s*[^\\s]+"
+detectors: [deterministic]
+presidio: optional
+regulation_corpus:
+  directory: data/regulations
+  chunk_size: 900
+  chunk_overlap: 150
+  snippet_chars: 600

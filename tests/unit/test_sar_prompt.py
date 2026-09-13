@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import pytest
 
+from fraudlens_backend.sar.egress import load_egress_policy, project_for_model
 from fraudlens_backend.sar.prompt import (
     SarPromptTemplate,
     _split_front_matter,
     build_messages,
 )
+
+
+def _messages(sar_input):
+    return build_messages(
+        SarPromptTemplate.load(), project_for_model(sar_input, load_egress_policy())
+    )
 
 
 def test_load_records_version_and_stable_hash() -> None:
@@ -27,27 +34,27 @@ def test_build_messages_masks_phi_and_fences_regulations(make_sar_input) -> None
     sar_input = make_sar_input(
         rag_context="<<REGS>>\nreach analyst@example.com SSN 123-45-6789\n<<END>>",
     )
-    messages = build_messages(SarPromptTemplate.load(), sar_input)
+    messages = _messages(sar_input)
     assert [m["role"] for m in messages] == ["system", "user"]
     user = messages[1]["content"]
     assert "analyst@example.com" not in user
     assert "123-45-6789" not in user
-    assert "[REDACTED_EMAIL]" in user and "[REDACTED_SSN]" in user
-    assert "<<REGS>>" in user  # the pre-fenced RAG-as-data block is embedded
-    assert "STRUCT" in user  # the rule indicator is surfaced
+    assert "[REDACTED_EMAIL]" not in user and "[REDACTED_SSN]" not in user
+    assert "<<REGS>>" not in user  # raw RAG context is outside the outbound allowlist
+    assert "structuring" in user  # the controlled rule type is surfaced
 
 
 def test_build_messages_handles_empty_rules_features_citations(make_sar_input) -> None:
     sar_input = make_sar_input(rule_hits=(), top_features=(), citations=(), rag_context="")
-    user = build_messages(SarPromptTemplate.load(), sar_input)[1]["content"]
+    user = _messages(sar_input)[1]["content"]
     assert "Rule indicators: none fired." in user
     assert "Regulations: none available" in user
 
 
 def test_build_messages_lists_citations_without_rag_block(make_sar_input) -> None:
     # Citations present but no retrieved excerpt block: the ids are still listed, no fence embedded.
-    user = build_messages(SarPromptTemplate.load(), make_sar_input(rag_context=""))[1]["content"]
-    assert "31 CFR 1010.314: Structuring transactions" in user
+    user = _messages(make_sar_input(rag_context=""))[1]["content"]
+    assert "31 CFR 1010.314: Structuring transactions to evade" in user
     assert "<<" not in user
 
 

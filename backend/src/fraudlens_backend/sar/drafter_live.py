@@ -37,7 +37,13 @@ from collections.abc import AsyncIterator
 from decimal import Decimal
 
 from fraudlens_backend.sar.budget import BudgetGuard, estimate_cost_usd
-from fraudlens_backend.sar.cache import SarDraftCache, sar_cache_key
+from fraudlens_backend.sar.cache import SarCacheGenerationSettings, SarDraftCache, sar_cache_key
+from fraudlens_backend.sar.egress import (
+    EgressBlockedError,
+    EgressPolicy,
+    load_egress_policy,
+    project_for_model,
+)
 from fraudlens_backend.sar.prompt import SarPromptTemplate, build_messages
 from fraudlens_backend.sar.schema import SarSchemaError, parse_and_ground, render_markdown
 from fraudlens_backend.sar.streaming import stream_result
@@ -82,6 +88,7 @@ class LiveSarDrafter:
         cache: SarDraftCache,
         fallbacks: tuple[str, ...] = (),
         task_type: TaskType = TaskType.ANALYSIS,
+        egress_policy: EgressPolicy | None = None,
     ) -> None:
         """Bind the guardrailed client, pricing catalog, prompt, model, budget, and cache."""
         self._client = client
@@ -94,10 +101,29 @@ class LiveSarDrafter:
         self._cache = cache
         self._fallbacks = fallbacks
         self._task_type = task_type
+        self._egress_policy = egress_policy or load_egress_policy()
 
     async def draft(self, sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:
         """Replay-or-native-stream a guarded SAR, then emit only its validated rendering."""
-        key = sar_cache_key(self._model, self._prompt.prompt_hash, sar_input)
+        try:
+            model_input = project_for_model(sar_input, self._egress_policy)
+        except EgressBlockedError as exc:
+            async for event in stream_result(self._failed_result(exc.code)):
+                yield event
+            return
+        generation_settings = SarCacheGenerationSettings(
+            max_output_tokens=self._max_output_tokens,
+            reasoning_effort=self._reasoning_effort,
+            fallbacks=self._fallbacks,
+            task_type=self._task_type.value,
+        )
+        key = sar_cache_key(
+            model_id=self._model,
+            prompt_hash=self._prompt.prompt_hash,
+            agency_id=sar_input.agency_id,
+            model_input=model_input,
+            generation_settings=generation_settings,
+        )
         cached = self._cache.get(key)
         if cached is not None:
             async for event in stream_result(cached.model_copy(update={"cached": True})):
@@ -105,7 +131,7 @@ class LiveSarDrafter:
             return
 
         self._budget.ensure_within_budget()
-        messages = build_messages(self._prompt, sar_input)
+        messages = build_messages(self._prompt, model_input)
         try:
             llm_result = await self._client.generate_stream(
                 StreamGenerationRequest(

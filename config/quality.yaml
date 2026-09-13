@@ -22,3 +22,12 @@ file_length:
     - "**/.ruff_cache/**"
     - "**/.pytest_cache/**"
     - "alembic/versions/*.py"
+
+sar_quality:
+  citation_precision_min: 1.0
+  citation_recall_min: 0.9
+  unsupported_claim_recall_min: 0.95
+  clean_draft_false_positive_max: 0.05
+  required_fact_coverage_min: 0.95
+
+egress_policy_file: config/llm/egress.yml

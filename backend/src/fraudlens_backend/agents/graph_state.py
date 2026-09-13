@@ -31,6 +31,7 @@ from fraudlens_backend.agents.contracts import (
 )
 from fraudlens_backend.agents.prompts import AgentPromptTemplate
 from fraudlens_backend.agents.resume import CompletedAgentExecutions
+from fraudlens_backend.sar.egress import SarModelInput
 from fraudlens_ml.sar import SarDraftContent, SarInput, SarStreamEvent
 
 AgentEventEmitter = Callable[[SarStreamEvent], Awaitable[None]]
@@ -86,6 +87,7 @@ class AgentGraphState(TypedDict, total=False):
     """In-memory graph state; parallel nodes write disjoint keys by construction."""
 
     sar_input: SarInput
+    model_input: SarModelInput
     emit: AgentEventEmitter
     evidence_brief: EvidenceBrief
     regulatory_brief: RegulatoryBrief

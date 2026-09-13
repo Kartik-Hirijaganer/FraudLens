@@ -2434,6 +2434,11 @@
             "title": "Promptversion",
             "type": "string"
           },
+          "qualityStatus": {
+            "$ref": "#/components/schemas/SarQualityStatus",
+            "default": "evaluated",
+            "description": "Quality evaluation state for this exact narrative version."
+          },
           "revisionCount": {
             "description": "Number of agent-writer revisions completed for this artifact.",
             "minimum": 0.0,
@@ -2546,6 +2551,15 @@
         ],
         "title": "SarMetrics",
         "type": "object"
+      },
+      "SarQualityStatus": {
+        "description": "Evaluation state for the exact current SAR narrative.",
+        "enum": [
+          "evaluated",
+          "unevaluated"
+        ],
+        "title": "SarQualityStatus",
+        "type": "string"
       },
       "SarReviewDecision": {
         "description": "The human SAR review verb applied to the latest draft (plan \u00a75.4 / \u00a710.4).",

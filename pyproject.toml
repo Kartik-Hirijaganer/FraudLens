@@ -145,6 +145,7 @@ testpaths = ["tests"]
 addopts = "-m 'not smoke and not llm_live' --cov --cov-report=term-missing --cov-fail-under=90 --strict-markers"
 markers = [
     "llm_live: opt-in live OpenRouter SAR tests (requires Infisical /llm credentials)",
+    "quality: deterministic provider-free citation, hallucination, and model-egress gates",
     "smoke: live-URL smoke tests run against a deployed environment (deploy gate)",
 ]
 
