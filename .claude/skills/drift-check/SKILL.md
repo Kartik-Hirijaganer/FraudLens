@@ -17,8 +17,8 @@ Parse the user's request as `<plan-path> <phase|all>`.
 
 Accepted forms:
 
-- `<plan-path> <phase>` such as `.agents/plans/foo.md phase-3`
-- `<plan-path> phase=<N>` such as `.agents/plans/foo.md phase=6`
+- `<plan-path> <phase>` such as `plans/foo.md phase-3`
+- `<plan-path> phase=<N>` such as `plans/foo.md phase=6`
 - `<plan-path> all` to validate every phase in the plan
 - `<plan-path>` alone: ask which phase to validate; do not guess
 

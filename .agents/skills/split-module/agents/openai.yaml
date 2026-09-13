@@ -1,0 +1,4 @@
+interface:
+  display_name: "Split Module"
+  short_description: "Split oversized modules without behavior drift"
+  default_prompt: "Use $split-module to perform the behavior-preserving split specified in plans/ and keep every source file under the cap."

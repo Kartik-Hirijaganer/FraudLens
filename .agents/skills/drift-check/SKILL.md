@@ -17,8 +17,8 @@ Parse the user's request as `<plan-path> <phase|all>`.
 
 Accepted forms:
 
-- `<plan-path> <phase>` such as `.agents/plans/foo.md phase-3`
-- `<plan-path> phase=<N>` such as `.agents/plans/foo.md phase=6`
+- `<plan-path> <phase>` such as `plans/foo.md phase-3`
+- `<plan-path> phase=<N>` such as `plans/foo.md phase=6`
 - `<plan-path> all` to validate every phase in the plan
 - `<plan-path>` alone: ask which phase to validate; do not guess
 
@@ -100,7 +100,7 @@ For each deviation:
 
 - Duplicate APIs, services, modules, loops, schemas, agents, models, tables, or workflows.
 - Overlapping responsibilities between new and existing components; cite both.
-- Parallel implementations that should have replaced the original; cite AGENTS.md or AGENTS.md "No parallel implementations".
+- Parallel implementations that should have replaced the original; cite CLAUDE.md or AGENTS.md "No parallel implementations".
 - Banned naming patterns found in merged code: `v2`, `new_`, `temp_`, `tmp_`, `old_`, `legacy_`, `copy_`, `_refactored`.
 
 ### 5. Data Model & Schema Validation

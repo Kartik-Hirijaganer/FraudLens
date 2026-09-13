@@ -1,0 +1,4 @@
+interface:
+  display_name: "Docs"
+  short_description: "Regenerate and verify deterministic documentation"
+  default_prompt: "Use $docs to regenerate documentation for the current work under plans/; never commit or push."

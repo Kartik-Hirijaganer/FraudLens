@@ -23,7 +23,7 @@ AML_SAMPLE_ROWS ?= 50000
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check openapi \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
         run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
@@ -156,9 +156,12 @@ deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs netw
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run python scripts/update_docs.py --check openapi
-docs: ## Regenerate header inventories + OpenAPI + ERD + architecture AUTOGEN (WRITES).
+docs: ## Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES).
+	$(UV) run python scripts/sync_skills.py
 	$(UV) run python scripts/update_docs.py
-docs-check: ## Fail if any generated doc / header inventory is stale.
+skills-check: ## Validate project skills and fail if the generated Codex mirror is stale.
+	$(UV) run python scripts/sync_skills.py --check
+docs-check: skills-check ## Fail if any generated skill or documentation artifact is stale.
 	$(UV) run python scripts/update_docs.py --check
 backend-coverage-diff: ## Backend: ≥90% coverage on CHANGED lines (diff-cover, Cobertura).
 	$(UV) run pytest -q --cov-report=xml --cov-fail-under=0
