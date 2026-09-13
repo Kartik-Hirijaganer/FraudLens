@@ -15,7 +15,7 @@ A later layer overrides the same key in an earlier layer. `AppSettings` uses
 `extra="forbid"`, so an unknown key in YAML or env fails fast rather than being
 silently ignored.
 
-## The Infisical boundary (Golden Rule 2)
+## The Infisical boundary (Golden Rule 3)
 
 These files hold **only non-secret config** — names, log levels, the API prefix,
 feature flags. **Secrets never live here.** Credentials (database URLs with
@@ -65,7 +65,7 @@ fractions, target quotas, `.local/` IO paths). It is **not** loaded by `AppSetti
 `scripts/lib/gfp/config.py` (`GfpBenchmarkConfig`, frozen + `extra="forbid"`) validates
 it and rejects bad windows/bins/fractions/quotas/paths/engine-versions. The values were
 frozen with [ADR-017](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md)
-and never influence live scoring. Non-secret (Golden Rule 2): dataset files and study
+and never influence live scoring. Non-secret (Golden Rule 3): dataset files and study
 outputs stay under gitignored `.local/`.
 
 ## Portfolio demo story (`portfolio-demo.yaml`)
@@ -80,7 +80,7 @@ accounts, and any `expected:` block that is not the algebraic consequence of the
 the **filename** comes from `AppSettings` (`portfolio_demo_config_file`), resolved under this
 directory with traversal and symlink escapes rejected.
 
-Non-secret (Golden Rule 2): the public synthetic demo password is **not** written here. The document
+Non-secret (Golden Rule 3): the public synthetic demo password is **not** written here. The document
 carries `auth.public_synthetic_password_env` — the env-reference form `check_no_secrets.py`
 sanctions — and the value resolves from Infisical `prod`. `scripts/check_no_demo_literals.py` derives
 its forbidden literals from this file, so any story value restated in code, docs, tests, or workflows

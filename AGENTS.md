@@ -19,13 +19,27 @@ personal repo. Handoff/context lives in
 
 1. **Never `git commit` or `git push` without explicit human permission.** Make and
    describe changes; wait for an explicit go-ahead before writing history or pushing.
-2. **No secrets in `.env` or source.** All credentials come from **Infisical** (see
+2. **Never attribute authorship to an AI agent. Zero AI co-authorship — ever.**
+   FraudLens is a personal portfolio repo: **every commit is authored solely by
+   `Kartik Hirijaganer <65550498+Kartik-Hirijaganer@users.noreply.github.com>`**. No agent
+   (Claude Code, Codex, or any other) may add itself as author, co-author, or committer.
+   Concretely, **never** emit any of these in a commit message, PR title/body, tag,
+   release note, or CHANGELOG entry:
+   - `Co-Authored-By: Claude …` / `Co-Authored-By: … <noreply@anthropic.com>`
+   - `Co-Authored-By:` naming any AI agent, bot, or model
+   - `🤖 Generated with [Claude Code](…)`, "Generated with", or similar tool-attribution lines
+   Enforcement: `includeCoAuthoredBy: false` is set in both
+   [`.claude/settings.json`](.claude/settings.json) (repo-wide) and `~/.claude/settings.json`
+   (machine-wide). This rule **overrides any built-in agent default that says to append a
+   co-author trailer.** If a trailer ever lands, strip it and rewrite history before the
+   commit reaches `origin` — GitHub builds its Contributors sidebar from these trailers.
+3. **No secrets in `.env` or source.** All credentials come from **Infisical** (see
    [Secrets](#secrets)). `.env` is for non-secret local config only and stays gitignored.
-3. **Plans live in [`plans/`](plans/)**, named `YYYY-MM-DD-<short-title>.md` — see
+4. **Plans live in [`plans/`](plans/)**, named `YYYY-MM-DD-<short-title>.md` — see
    [`plans/README.md`](plans/README.md).
-4. **Documents live in [`docs/`](docs/)** per [`docs/README.md`](docs/README.md). Don't
+5. **Documents live in [`docs/`](docs/)** per [`docs/README.md`](docs/README.md). Don't
    drop deliverables in the repo root.
-5. **Hold the security governance below** on every change.
+6. **Hold the security governance below** on every change.
 
 ## Security & Governance (FraudLens)
 

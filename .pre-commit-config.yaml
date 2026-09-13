@@ -23,6 +23,13 @@ repos:
         args: ["--maxkb=1024"]
   - repo: local
     hooks:
+      # Golden Rule 2: no AI co-authorship ever reaches a commit object.
+      # Needs `uv run pre-commit install --hook-type commit-msg` alongside the normal install.
+      - id: no-ai-attribution
+        name: no AI co-author/attribution trailers
+        entry: bash scripts/check_no_ai_attribution.sh --message
+        language: system
+        stages: [commit-msg]
       - id: docs-check
         name: docs-check (headers + generated docs in sync)
         entry: make docs-check

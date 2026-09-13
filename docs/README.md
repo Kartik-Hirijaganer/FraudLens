@@ -1,7 +1,7 @@
 # Documents
 
 Project documentation and deliverables for FraudLens. Keep documents here (not in the
-repo root) — **Golden Rule 4**.
+repo root) — **Golden Rule 5**.
 
 ## Layout
 

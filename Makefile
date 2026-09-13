@@ -118,6 +118,8 @@ ci-changed: lint-changed format-check-changed test-coverage-diff ## Changed-file
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 	$(UV) run python scripts/check_headers.py
+attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
+	bash scripts/check_no_ai_attribution.sh
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
@@ -376,7 +378,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

@@ -1,6 +1,6 @@
 # Bounded multi-agent SAR workflow + gateway-only Azure deployment
 
-> On approval, copy this file to `plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md` (AGENTS.md Golden Rule 3) before any code change.
+> On approval, copy this file to `plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md` (AGENTS.md Golden Rule 4) before any code change.
 
 ## Context
 

@@ -10,7 +10,7 @@ Project guidance for Claude Code. The canonical rules live in **[AGENTS.md](AGEN
 - **Permissions** are enforced by [`.claude/settings.json`](.claude/settings.json):
   `git commit` / `git push` / `git reset --hard` prompt for confirmation, and reads of
   secret files (`.env*`, `*.pem`, `*.key`, `secrets/`) are denied. This operationalizes
-  Golden Rules 1 and 2.
+  Golden Rules 1 and 3.
 - **Skills** ([`.claude/skills/`](.claude/skills/)):
   - `drift-check` — strict, read-only plan-vs-code audit. Invoke as
     `drift-check plans/<file>.md phase=<N>`.
@@ -27,6 +27,6 @@ Project guidance for Claude Code. The canonical rules live in **[AGENTS.md](AGEN
 - **Local overrides:** machine-specific non-secret settings live in
   `.claude/settings.local.json` (gitignored) — sets `AWS_PROFILE=personal-admin`. Do not
   put **`CONTEXT7_API_KEY`** or other credentials here; inject them with `infisical run`
-  or a one-command shell export instead (Golden Rule 2).
+  or a one-command shell export instead (Golden Rule 3).
 - **Infisical environment:** use only `prod` for secret reads and writes; do not create or
   rely on any other Infisical environment for this personal repo.
