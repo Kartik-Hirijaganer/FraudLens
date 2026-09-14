@@ -304,9 +304,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             end="",
         )
     elif args.command == "serve":
-        serve(config, args.arm)
+        serve(config, args.arm, repo_root=REPO_ROOT)
     elif args.command == "stop":
-        stop(config)
+        stop(config, repo_root=REPO_ROOT)
     elif args.command == "run":
         asyncio.run(_run(args, config))
     elif args.command == "report":

@@ -44,6 +44,9 @@ server:
   image: vllm/vllm-openai
   image_tag: v0.10.2
   container_name: fraudlens-vllm-bench
+  docker_publish_host: 127.0.0.1
+  docker_bind_host: 0.0.0.0
+  process_bind_host: 127.0.0.1
   port: 8000
   base_url: http://127.0.0.1:8000/v1
   base_url_env: VLLM_BENCH_BASE_URL

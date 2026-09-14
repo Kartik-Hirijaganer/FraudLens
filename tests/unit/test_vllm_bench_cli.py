@@ -34,8 +34,16 @@ def test_main_dispatches_validate_cases_serve_stop_and_report(monkeypatch) -> No
         "_build_cases",
         lambda _config, profile, source: calls.append((profile, source)),
     )
-    monkeypatch.setattr(benchmark_vllm, "serve", lambda _config, arm: calls.append(arm))
-    monkeypatch.setattr(benchmark_vllm, "stop", lambda _config: calls.append("stop"))
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "serve",
+        lambda _config, arm, **_kwargs: calls.append(arm),
+    )
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "stop",
+        lambda _config, **_kwargs: calls.append("stop"),
+    )
     monkeypatch.setattr(
         benchmark_vllm,
         "_report",

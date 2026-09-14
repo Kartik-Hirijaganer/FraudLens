@@ -23,6 +23,7 @@ from lib.vllm_bench.server import (
     parse_startup_logs,
     read_startup_logs,
     render_docker_argv,
+    render_process_argv,
     serve,
     server_provenance,
     stop,
@@ -48,8 +49,20 @@ def test_docker_argv_pins_fair_controls_and_arm_difference() -> None:
     assert f"{config.server.image}@{digest}" in render_docker_argv(config, "bf16", digest=digest)
     with pytest.raises(ValueError, match="digest"):
         render_docker_argv(config, "bf16", digest="latest")
+    assert bf16[bf16.index("--publish") + 1] == "127.0.0.1:8000:8000"
+    assert bf16[bf16.index("--host") + 1] == "0.0.0.0"
     for option in ("--max-model-len", "--gpu-memory-utilization", "--max-num-seqs"):
         assert bf16[bf16.index(option) + 1] == awq[awq.index(option) + 1]
+
+
+def test_process_argv_is_loopback_only_and_preserves_fairness() -> None:
+    config = load_config()
+    bf16 = render_process_argv(config, "bf16")
+    awq = render_process_argv(config, "awq")
+    assert bf16[:2] == ("vllm", "serve")
+    assert bf16[bf16.index("--host") + 1] == "127.0.0.1"
+    assert "--quantization" not in bf16
+    assert awq[awq.index("--quantization") + 1] == "awq_marlin"
 
 
 def test_startup_log_parser_deduplicates_and_rejects_missing_or_drifted() -> None:
@@ -98,10 +111,17 @@ def test_log_sources_cover_file_docker_and_kubectl(sandbox: Path, monkeypatch) -
     )
     assert "kubectl logs" in read_startup_logs(kube, repo_root=Path.cwd())
 
+    process_log = sandbox / config.paths.output_dir / "server-startup.log"
+    process_log.parent.mkdir(parents=True)
+    process_log.write_text(_LOGS)
+    monkeypatch.setenv("VLLM_BENCH_RUNTIME", "process")
+    assert read_startup_logs(config, repo_root=sandbox) == _LOGS
+
 
 def test_local_lifecycle_and_image_digest_are_checked(monkeypatch) -> None:
     config = load_config()
     calls = []
+    monkeypatch.delenv("VLLM_BENCH_RUNTIME", raising=False)
     monkeypatch.delenv(config.server.api_key_env, raising=False)
     with pytest.raises(ValueError, match="required"):
         serve(config, "bf16")
@@ -125,6 +145,75 @@ def test_local_lifecycle_and_image_digest_are_checked(monkeypatch) -> None:
     monkeypatch.setattr("lib.vllm_bench.server._command_output", lambda _command: "[]")
     with pytest.raises(ValueError, match="no locally resolved"):
         image_digest(config)
+
+
+def test_process_lifecycle_records_identity_and_stops_matching_group(sandbox, monkeypatch) -> None:
+    config = load_config()
+    digest = f"sha256:{'a' * 64}"
+    popen_calls = []
+    signals = []
+
+    class Process:
+        pid = 4321
+
+    def launch(command, **kwargs):
+        popen_calls.append((command, kwargs))
+        return Process()
+
+    monkeypatch.setenv("VLLM_BENCH_RUNTIME", "process")
+    monkeypatch.setenv(config.server.api_key_env, "test-key")
+    monkeypatch.setenv(config.server.image_digest_env, digest)
+    monkeypatch.setattr("lib.vllm_bench.server.subprocess.Popen", launch)
+    serve(config, "bf16", repo_root=sandbox)
+
+    state_path = sandbox / config.paths.output_dir / "server-process.json"
+    assert state_path.is_file()
+    assert popen_calls[0][0][:2] == ("vllm", "serve")
+    assert popen_calls[0][1]["start_new_session"] is True
+
+    monkeypatch.setattr("lib.vllm_bench.server._process_exists", lambda _pid: True)
+    monkeypatch.setattr(
+        "lib.vllm_bench.server._command_output",
+        lambda _command: f"vllm serve --model {config.arms['bf16'].model}",
+    )
+    monkeypatch.setattr("lib.vllm_bench.server.os.killpg", lambda *args: signals.append(args))
+    stop(config, repo_root=sandbox)
+    assert signals == [(4321, 15)]
+    assert not state_path.exists()
+
+
+def test_process_runtime_refuses_missing_digest_duplicate_and_pid_mismatch(
+    sandbox, monkeypatch
+) -> None:
+    config = load_config()
+    digest = f"sha256:{'b' * 64}"
+    monkeypatch.setenv("VLLM_BENCH_RUNTIME", "process")
+    monkeypatch.setenv(config.server.api_key_env, "test-key")
+    monkeypatch.delenv(config.server.image_digest_env, raising=False)
+    with pytest.raises(ValueError, match="required for process"):
+        serve(config, "bf16", repo_root=sandbox)
+
+    monkeypatch.setenv(config.server.image_digest_env, digest)
+    monkeypatch.setattr("lib.vllm_bench.server.subprocess.Popen", lambda *_args, **_kwargs: None)
+    state_path = sandbox / config.paths.output_dir / "server-process.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        f'{{"pid":4321,"arm":"bf16","model":"Qwen/Qwen2.5-7B-Instruct","image_digest":"{digest}"}}'
+    )
+    monkeypatch.setattr("lib.vllm_bench.server._process_exists", lambda _pid: True)
+    with pytest.raises(ValueError, match="already running"):
+        serve(config, "bf16", repo_root=sandbox)
+    monkeypatch.setattr("lib.vllm_bench.server._command_output", lambda _command: "sleep 100")
+    with pytest.raises(ValueError, match="does not match"):
+        stop(config, repo_root=sandbox)
+
+
+def test_runtime_selector_rejects_unknown_value(monkeypatch) -> None:
+    config = load_config()
+    monkeypatch.setenv("VLLM_BENCH_RUNTIME", "containerd")
+    monkeypatch.setenv(config.server.api_key_env, "test-key")
+    with pytest.raises(ValueError, match="must be docker or process"):
+        serve(config, "bf16")
 
 
 def test_provenance_binds_host_gpu_price_and_startup_evidence() -> None:
@@ -166,7 +255,7 @@ def test_provenance_binds_host_gpu_price_and_startup_evidence() -> None:
         server_provenance(
             config,
             arm="bf16",
-            host_key="runpod-rtx4090",
+            host_key=config.cost.default_host,
             purchase_option="spot",
             startup_logs=_LOGS,
             digest=digest,

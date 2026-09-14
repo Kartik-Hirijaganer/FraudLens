@@ -35,7 +35,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_VLLM_BENCH_CONFIG = REPO_ROOT / "config" / "vllm-bench.yaml"
@@ -115,6 +115,15 @@ class ServerConfig(BaseModel):
     image: str = Field(..., min_length=1, description="Container repository without tag.")
     image_tag: str = Field(..., min_length=1, description="Pinned immutable release tag.")
     container_name: str = Field(..., min_length=1, description="Local container identity.")
+    docker_publish_host: IPvAnyAddress = Field(
+        ..., description="Host interface receiving the Docker-published API port."
+    )
+    docker_bind_host: IPvAnyAddress = Field(
+        ..., description="Container interface on which vLLM accepts Docker traffic."
+    )
+    process_bind_host: IPvAnyAddress = Field(
+        ..., description="Host interface on which direct-process vLLM accepts traffic."
+    )
     port: int = Field(..., ge=1, le=65535, description="OpenAI-compatible server port.")
     base_url: str = Field(..., min_length=1, description="Default OpenAI-compatible API origin.")
     base_url_env: str = Field(..., min_length=1, description="Base URL environment override name.")
@@ -126,6 +135,14 @@ class ServerConfig(BaseModel):
     enable_prefix_caching: Literal[False] = Field(..., description="Prefix caching stays disabled.")
     extra_args: tuple[str, ...] = Field(default=(), description="Frozen extra server arguments.")
     log_source: LogSourceConfig = Field(..., description="Startup log collection source.")
+
+    @model_validator(mode="after")
+    def _private_bindings(self) -> ServerConfig:
+        if not self.docker_publish_host.is_loopback or not self.process_bind_host.is_loopback:
+            raise ValueError("host-side vLLM bindings must be loopback addresses")
+        if not self.docker_bind_host.is_unspecified:
+            raise ValueError("container-side vLLM binding must accept mapped-port traffic")
+        return self
 
 
 class RequestConfig(BaseModel):

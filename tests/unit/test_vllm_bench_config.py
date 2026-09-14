@@ -89,6 +89,14 @@ def test_config_pins_full_protocol_and_profiles() -> None:
             "loopback or private",
         ),
         (
+            lambda value: value["server"].update({"process_bind_host": "0.0.0.0"}),
+            "must be loopback",
+        ),
+        (
+            lambda value: value["server"].update({"docker_bind_host": "127.0.0.1"}),
+            "must accept mapped-port traffic",
+        ),
+        (
             lambda value: value["paths"].update({"output_dir": "../outside"}),
             "below .local",
         ),
