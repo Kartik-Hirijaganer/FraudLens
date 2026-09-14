@@ -23,6 +23,7 @@ FULLDATA_PILOT_ROWS ?= 1000000
 FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
 VLLM_BENCH := $(UV) run --group fulldata python scripts/benchmark_vllm.py
 RUNPOD_GPU := $(UV) run python scripts/runpod_gpu.py
+K8S_DEMO := $(UV) run python scripts/k8s_demo.py
 PROFILE ?= smoke
 SOURCE ?= sar-eval
 HOST ?= runpod-rtx4090
@@ -86,6 +87,9 @@ endef
 	data-batch-verify-clean data-batch-watchdog runpod-gpu-plan runpod-gpu-up \
 	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
 	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
+
+.PHONY: k8s-tools-check kind-image kind-up kind-load kind-deploy kind-smoke \
+	kind-hpa-demo kind-down kind-demo k8s-secrets-sync hpa-evidence-validate
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -469,6 +473,59 @@ runpod-gpu-test: ## Provider-free RunPod operator tests with >=90% branch covera
 	$(UV) run --group fulldata pytest $(RUNPOD_GPU_TESTS) -q -o addopts='' \
 		--cov=scripts/lib/runpod_gpu --cov=runpod_gpu --cov=runpod_bench --cov-branch \
 		--cov-report=term-missing --cov-fail-under=90
+
+# ---------------------------------------------------------------------------
+# Kubernetes demonstration. Every local mutation is guarded to the exact configured kind
+# context by scripts/k8s_demo.py. The AKS secret path additionally requires CONFIRM=yes and a
+# non-kind current context; no target here creates an Azure resource.
+# ---------------------------------------------------------------------------
+k8s-tools-check: ## Verify pinned local Kubernetes demonstration tools.
+	$(K8S_DEMO) tools-check
+
+kind-image: ## Build the backend image for the current host architecture (no push).
+	@set -eu; \
+	arch="$$(uname -m)"; \
+	case "$$arch" in arm64|aarch64) platform=arm64 ;; x86_64|amd64) platform=amd64 ;; *) echo "unsupported host architecture: $$arch"; exit 2 ;; esac; \
+	$(MAKE) docker-build DOCKER_PLATFORM=linux/$$platform
+
+kind-up: ## Create the pinned zero-cost kind cluster and install metrics-server.
+	$(K8S_DEMO) kind-up
+
+kind-load: ## Load fraudlens-backend:local into the configured kind nodes.
+	$(K8S_DEMO) kind-load
+
+kind-deploy: ## Apply the kind overlay and wait for DB bootstrap, API, and worker.
+	$(K8S_DEMO) deploy --platform kind
+
+kind-smoke: ## Prove both ops probes via port-forward and run the remote smoke suite.
+	$(K8S_DEMO) smoke
+
+kind-hpa-demo: ## Run the HPA staircase and forced worker-kill durability proof.
+	$(K8S_DEMO) hpa-demo
+
+hpa-evidence-validate: ## Revalidate the committed Kubernetes scaling evidence.
+	$(K8S_DEMO) evidence-validate
+
+k8s-secrets-sync: ## Apply allowlisted runtime Secrets to an explicitly confirmed AKS context.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS secret mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) secrets-sync --confirm-aks
+
+kind-down: ## Delete the configured kind cluster and prove no backing containers remain.
+	$(K8S_DEMO) kind-down
+
+kind-demo: ## Build, deploy, smoke, prove HPA/durability, and always tear down local kind.
+	@set -eu; \
+	cleanup() { $(K8S_DEMO) kind-down; }; \
+	trap cleanup EXIT INT TERM; \
+	$(MAKE) kind-image; \
+	$(K8S_DEMO) kind-up; \
+	$(K8S_DEMO) kind-load; \
+	$(K8S_DEMO) deploy --platform kind; \
+	$(K8S_DEMO) smoke; \
+	$(K8S_DEMO) hpa-demo; \
+	trap - EXIT INT TERM; \
+	cleanup
+
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
 batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).

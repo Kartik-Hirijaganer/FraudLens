@@ -8,12 +8,15 @@ metrics_server_version: "0.9.0"
 namespace: fraudlens
 image: fraudlens-backend:local
 service: fraudlens-api
+smoke_base_url: http://127.0.0.1
 local_port: 18080
 startup_timeout_seconds: 420
 metrics_timeout_seconds: 240
 sample_interval_seconds: 15
 scale_up_timeout_seconds: 300
 scale_down_timeout_seconds: 900
+worker_kill_delay_seconds: 2
+durability_timeout_seconds: 900
 load:
   target_url: http://fraudlens-api:8000/healthz
   mode: healthz
