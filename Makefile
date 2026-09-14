@@ -22,6 +22,7 @@ FULLDATA_CANDIDATE ?= hi-small
 FULLDATA_PILOT_ROWS ?= 1000000
 FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
 VLLM_BENCH := $(UV) run --group fulldata python scripts/benchmark_vllm.py
+RUNPOD_GPU := $(UV) run python scripts/runpod_gpu.py
 PROFILE ?= smoke
 SOURCE ?= sar-eval
 HOST ?= runpod-rtx4090
@@ -82,7 +83,9 @@ endef
 
 .PHONY: iac-scan data-batch-quota data-batch-plan data-batch-up data-batch-upload \
 	data-batch-download data-batch-ssh data-batch-start data-batch-down \
-	data-batch-verify-clean data-batch-watchdog
+	data-batch-verify-clean data-batch-watchdog runpod-gpu-plan runpod-gpu-up \
+	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
+	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -412,6 +415,53 @@ vllm-bench-test: ## Portable fake-server suite with >=90% benchmark-harness bran
 		--cov-report=term-missing --cov-fail-under=90
 vllm-bench-validate: ## Rebuild deterministic smoke cases and verify protocol/publication bindings.
 	$(VLLM_BENCH) validate
+
+# ---------------------------------------------------------------------------
+# RunPod Secure Cloud RTX 4090 operator. Every lifecycle mutation is separately
+# confirmed; the Pod exposes SSH only and carries an eight-hour self-stop guard.
+# ---------------------------------------------------------------------------
+RUNPOD_GPU_TESTS := $(wildcard tests/unit/test_runpod_gpu_*.py)
+
+runpod-gpu-plan: experiment-budget-check ## Check live Secure Cloud capacity and budget admission.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) plan --run "$(RUN)"
+runpod-gpu-up: ## Create the admitted RunPod Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod creation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) create --run "$(RUN)" --confirm-create
+runpod-gpu-status: ## Show redacted status for an existing RunPod session.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) status --run "$(RUN)"
+runpod-gpu-ssh: ## Open full SSH to a ready identity-matched RunPod Pod.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) ssh --run "$(RUN)"
+runpod-gpu-sync: ## Sync committed source, cases, and vLLM token (CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod sync: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	@test -f "$(VLLM_CASES)" || { echo "VLLM_CASES=$(VLLM_CASES) was not found"; exit 2; }
+	$(RUNPOD_GPU) sync --run "$(RUN)" --cases "$(VLLM_CASES)" --confirm-sync
+runpod-gpu-start: ## Start a stopped Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod start: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) start --run "$(RUN)" --confirm-start
+runpod-gpu-stop: ## Stop a running Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod stop: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) stop --run "$(RUN)" --confirm-stop
+runpod-gpu-export: ## Download and lineage-check benchmark artifacts before teardown.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) export --run "$(RUN)"
+runpod-gpu-down: ## Delete a stopped Pod and Pod volume (CONFIRM=yes; irreversible).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod deletion: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) delete --run "$(RUN)" --confirm-delete
+runpod-gpu-verify-clean: ## Prove no matching Pod or network volume remains (read-only).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) verify-clean --run "$(RUN)"
+runpod-gpu-test: ## Provider-free RunPod operator tests with >=90% branch coverage.
+	$(UV) run --group fulldata pytest $(RUNPOD_GPU_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/runpod_gpu --cov=runpod_gpu --cov=runpod_bench --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
 batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).
@@ -643,7 +693,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

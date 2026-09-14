@@ -1,0 +1,154 @@
+"""Summary: RunPod session persistence, contract checks, status, and SSH argv rendering.
+
+Key classes:
+- (none)
+
+Key functions:
+- state_path: locate the bounded gitignored state file for one run.
+- write_session: atomically persist non-secret local state.
+- load_session: read and identity-check non-secret local state.
+- validate_pod_contract: fail closed on provider drift from the frozen Pod contract.
+- matching_pods: find exact-name Pods for duplicate-safe lifecycle operations.
+- pod_status: return a redacted live status for one identity-matched Pod.
+- ssh_argv: build key-file-based full-SSH commands without secret content.
+- scp_argv: build key-file-based secure-copy commands without secret content.
+
+Notes:
+- Private key files are referenced by path and are never opened by this module.
+"""
+
+from __future__ import annotations
+
+import os
+from decimal import Decimal
+from pathlib import Path
+
+from lib.runpod_gpu.api import RunpodApi, RunpodPod
+from lib.runpod_gpu.config import RunpodGpuConfig
+from lib.runpod_gpu.models import PodStatus, RunpodSession
+
+
+def state_path(config: RunpodGpuConfig, repo_root: Path, run_id: str) -> Path:
+    """Return the bounded gitignored state path for one validated run."""
+    return repo_root / config.state_dir / config.validate_run_id(run_id) / "session.json"
+
+
+def write_session(config: RunpodGpuConfig, repo_root: Path, state: RunpodSession) -> RunpodSession:
+    """Atomically persist one non-secret RunPod session."""
+    path = state_path(config, repo_root, state.run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_suffix(".tmp")
+    staging.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    os.replace(staging, path)
+    return state
+
+
+def load_session(config: RunpodGpuConfig, repo_root: Path, run_id: str) -> RunpodSession:
+    """Load and identity-check one local RunPod session."""
+    state = RunpodSession.model_validate_json(
+        state_path(config, repo_root, run_id).read_text(encoding="utf-8")
+    )
+    if state.run_id != run_id or state.pod_name != config.pod_name(run_id):
+        raise ValueError("RunPod session identity does not match the requested run")
+    return state
+
+
+def validate_pod_contract(
+    config: RunpodGpuConfig, pod: RunpodPod, *, pod_name: str, expected_rate: Decimal
+) -> None:
+    """Reject any provider result that drifts from the frozen request."""
+    failures = []
+    if pod.name != pod_name:
+        failures.append("name")
+    if pod.gpu.gpu_id != config.pod.gpu_id or pod.gpu.count != config.pod.gpu_count:
+        failures.append("GPU")
+    if pod.image != config.pod.image_reference:
+        failures.append("image")
+    if pod.interruptible or pod.locked:
+        failures.append("lifecycle")
+    if pod.cost_per_hour != expected_rate:
+        failures.append("hourly rate")
+    if not pod.volume_encrypted or pod.volume_in_gb != config.pod.volume_gb:
+        failures.append("encrypted volume")
+    if pod.volume_mount_path != config.pod.volume_mount_path or set(pod.ports) != set(
+        config.pod.ports
+    ):
+        failures.append("network/storage")
+    if pod.machine and pod.machine.secure_cloud is False:
+        failures.append("Secure Cloud")
+    if failures:
+        raise ValueError(f"RunPod Pod violates frozen contract: {', '.join(failures)}")
+
+
+def matching_pods(api: RunpodApi, pod_name: str) -> tuple[RunpodPod, ...]:
+    """Return all exact-name Pods to enforce duplicate-safe creation."""
+    return tuple(pod for pod in api.list_pods() if pod.name == pod_name)
+
+
+def pod_status(
+    config: RunpodGpuConfig, api: RunpodApi, *, run_id: str, repo_root: Path
+) -> PodStatus:
+    """Return current redacted Pod lifecycle and SSH facts."""
+    state = load_session(config, repo_root, run_id)
+    pod = api.get_pod(state.pod_id)
+    validate_pod_contract(config, pod, pod_name=state.pod_name, expected_rate=state.hourly_rate_usd)
+    return PodStatus(
+        run_id=run_id,
+        pod_id=pod.pod_id,
+        pod_name=pod.name,
+        desired_status=pod.desired_status,
+        gpu_id=pod.gpu.gpu_id,
+        hourly_rate_usd=pod.cost_per_hour,
+        data_center_id=pod.machine.data_center_id if pod.machine else None,
+        public_ip=str(pod.public_ip) if pod.public_ip else None,
+        ssh_port=pod.ssh_port,
+        volume_encrypted=pod.volume_encrypted,
+    )
+
+
+def _private_key_path(config: RunpodGpuConfig) -> Path:
+    raw_path = os.environ.get(config.ssh.private_key_path_env, "")
+    if not raw_path.strip():
+        raise ValueError(f"{config.ssh.private_key_path_env} is required")
+    path = Path(raw_path).expanduser()
+    if not path.is_file():
+        raise ValueError("configured SSH private key path is not a file")
+    return path
+
+
+def ssh_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
+    """Build a full-SSH argv without reading or copying private key content."""
+    if status.desired_status != "RUNNING" or not status.public_ip or not status.ssh_port:
+        raise ValueError("RunPod Pod is not ready for full SSH")
+    return (
+        "ssh",
+        "-i",
+        str(_private_key_path(config)),
+        "-p",
+        str(status.ssh_port),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        f"{config.ssh.user}@{status.public_ip}",
+    )
+
+
+def scp_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
+    """Build the SCP prefix matching the verified full-SSH endpoint."""
+    ssh = ssh_argv(config, status)
+    return (
+        "scp",
+        "-i",
+        ssh[2],
+        "-P",
+        str(status.ssh_port),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    )
