@@ -9,6 +9,7 @@
  * - RegulationCitation:
  * - InvestigationRuleHit:
  * - InvestigationState:
+ * - RetrievedRegulation:
  * - InvestigationSnapshotData:
  *
  * Key functions:
@@ -19,7 +20,13 @@
  * Notes:
  * - Constants are the canonical SSE event and analyst-step ordering.
  */
-export type InvestigationStatus = "starting" | "running" | "completed" | "failed";
+export type InvestigationStatus =
+  | "pending"
+  | "running"
+  | "retrying"
+  | "completed"
+  | "failed"
+  | "drafting-blocked";
 export type WorkflowMode = "single_writer" | "multi_agent";
 export type AgentRunStatus =
   | "pending"
@@ -102,6 +109,8 @@ export interface InvestigationRuleHit {
 
 export interface InvestigationState {
   status: InvestigationStatus;
+  attempt: number;
+  maxAttempts: number;
   completedSteps: string[];
   transactionId?: string;
   subscore?: number;
@@ -129,7 +138,16 @@ export interface InvestigationState {
   agentRuns: AgentRun[];
   recorded: boolean;
   errorCode?: string;
+  draftingBlockReason?: string;
   lastEventId: string;
+}
+
+export interface RetrievedRegulation {
+  citation: string;
+  title: string;
+  source: string;
+  text: string;
+  score: number;
 }
 
 export interface InvestigationSnapshotData {
@@ -144,6 +162,7 @@ export interface InvestigationSnapshotData {
   topFeatures: ShapFeature[];
   ruleHits: InvestigationRuleHit[];
   citations: RegulationCitation[];
+  retrievedRegulations: RetrievedRegulation[];
   riskScore: number | null;
   riskBand: string | null;
   sarDraftId: string | null;

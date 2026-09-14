@@ -21,6 +21,7 @@ import pytest
 from vllm_bench_fakes import benchmark_case
 
 from fraudlens_ml.sar import SarInput
+from lib.fulldata.config import load_fulldata_config
 from lib.vllm_bench.cases_ibm import (
     _balanced,
     _candidate_rows,
@@ -88,12 +89,14 @@ def test_balanced_selection_prefers_distinct_subjects() -> None:
     assert {item.subject_key for item in selected} == {"same", "distinct"}
 
 
-def test_ibm_builder_stops_at_phase_6_boundary() -> None:
+def test_ibm_builder_stops_at_phase_6_boundary(sandbox: Path, monkeypatch) -> None:
     config = load_config()
+    full = load_fulldata_config(Path(config.cases.fulldata_config))
+    monkeypatch.setattr("lib.vllm_bench.cases_ibm.load_fulldata_config", lambda _path: full)
     with pytest.raises(FileNotFoundError, match="Phase 6 application-candidate artifact"):
-        build_ibm_cases(config, profile="full", repo_root=Path.cwd())
+        build_ibm_cases(config, profile="full", repo_root=sandbox)
     with pytest.raises(ValueError, match="profile=full"):
-        build_ibm_cases(config, profile="smoke", repo_root=Path.cwd())
+        build_ibm_cases(config, profile="smoke", repo_root=sandbox)
 
 
 def test_ibm_builder_assembles_exact_sets_when_phase_6_inputs_exist(
@@ -119,7 +122,6 @@ def test_ibm_builder_assembles_exact_sets_when_phase_6_inputs_exist(
         lambda *_args: SimpleNamespace(model_bundle="v0-fixture", model_sha256="b" * 64),
     )
     monkeypatch.setattr("lib.vllm_bench.cases_ibm.folded_path", lambda *_args: artifact_file)
-    monkeypatch.setattr("lib.vllm_bench.cases_ibm.feature_path", lambda *_args: artifact_file)
     monkeypatch.setattr("lib.vllm_bench.cases_ibm.ingested_scan", lambda *_args: "scan")
     monkeypatch.setattr("lib.vllm_bench.cases_ibm._retriever", lambda _root: object())
     monkeypatch.setattr(
@@ -162,7 +164,6 @@ def test_ibm_builder_reports_explicit_unfillable_quota(sandbox: Path, monkeypatc
         lambda *_args: SimpleNamespace(model_bundle="v0-fixture", model_sha256="b" * 64),
     )
     monkeypatch.setattr("lib.vllm_bench.cases_ibm.folded_path", lambda *_args: artifact_file)
-    monkeypatch.setattr("lib.vllm_bench.cases_ibm.feature_path", lambda *_args: artifact_file)
     monkeypatch.setattr("lib.vllm_bench.cases_ibm.ingested_scan", lambda *_args: "scan")
     monkeypatch.setattr("lib.vllm_bench.cases_ibm._retriever", lambda _root: object())
     monkeypatch.setattr("lib.vllm_bench.cases_ibm._candidate_rows", lambda *_args, **_kwargs: [])

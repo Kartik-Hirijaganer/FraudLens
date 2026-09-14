@@ -72,26 +72,51 @@ class FakeKubectl:
         )
 
     def assert_mutation_allowed(self, *, platform: str, confirmed: bool = False) -> None:
-        del confirmed
-        assert platform == "kind"
+        assert platform == "kind" or (platform == "aks" and confirmed)
 
     def apply(self, manifest: str, *, platform: str, confirmed: bool = False) -> None:
-        del confirmed
-        assert platform == "kind"
+        assert platform == "kind" or (platform == "aks" and confirmed)
         self.applied.append(manifest)
 
-    def wait_for(self, resource: str, condition: str, timeout_seconds: int) -> None:
+    def wait_for(
+        self,
+        resource: str,
+        condition: str,
+        timeout_seconds: int,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> None:
+        assert platform == "kind" or (platform == "aks" and confirmed)
         assert condition in {"Available", "Complete"}
         assert resource
         assert timeout_seconds > 0
 
-    def delete_worker_pod(self, pod_name: str | None = None) -> str:
+    def delete_worker_pod(
+        self,
+        pod_name: str | None = None,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> str:
+        assert platform == "kind" or (platform == "aks" and confirmed)
         assert pod_name == "worker-old"
         return "worker-old"
 
-    def kill_worker_process(self, pod_name: str) -> None:
+    def kill_worker_process(
+        self,
+        pod_name: str,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> None:
+        assert platform == "kind" or (platform == "aks" and confirmed)
         assert pod_name == "worker-old"
         self.calls.append(("kill", pod_name))
+
+    def wait_for_worker_claim(self, *, platform: str, confirmed: bool) -> str:
+        assert platform == "aks" and confirmed is True
+        return "worker-old"
 
 
 def test_main_returns_safe_statuses(
@@ -130,7 +155,7 @@ def test_dispatch_routes_lifecycle_render_deploy_and_secrets(
     monkeypatch.setattr(k8s_demo, "KindOperator", FakeKind)
     monkeypatch.setattr(k8s_demo, "_tools_check", lambda _config: called.append("tools"))
     monkeypatch.setattr(k8s_demo, "verify_kind_clean", lambda _config: called.append("clean"))
-    monkeypatch.setattr(k8s_demo, "_smoke", lambda _config: called.append("smoke"))
+    monkeypatch.setattr(k8s_demo, "_smoke", lambda _config, **_kwargs: called.append("smoke"))
     monkeypatch.setattr(
         k8s_demo,
         "render_overlay",
@@ -166,7 +191,7 @@ def test_dispatch_load_and_evidence_commands(
     evidence.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(k8s_demo, "load_config_from_env", lambda: config.load)
     monkeypatch.setattr(k8s_demo, "run_load", lambda _config: _summary())
-    monkeypatch.setattr(k8s_demo, "_hpa_demo", lambda _config: report)
+    monkeypatch.setattr(k8s_demo, "_hpa_demo", lambda _config, **_kwargs: report)
     monkeypatch.setattr(k8s_demo, "load_evidence", lambda _content: report)
     monkeypatch.setattr(k8s_demo, "validate_evidence", lambda _report: None)
     monkeypatch.setattr(k8s_demo, "render_markdown", lambda _report: "rendered evidence")
@@ -211,7 +236,7 @@ def test_scaling_state_machine_reaches_max_and_returns_to_min(
     )
     kubectl = FakeKubectl(samples)
     monkeypatch.setattr(k8s_demo, "render_load_job", lambda *_args, **_kwargs: "manifest")
-    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args: None)
+    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(k8s_demo, "_job_complete", lambda _kubectl: True)
     logs = SUMMARY_PREFIX + _summary().model_dump_json()
     monkeypatch.setattr(k8s_demo, "_job_logs", lambda _kubectl: logs)
@@ -247,7 +272,7 @@ def test_durability_state_machine_forces_worker_recovery(
         ]
     )
     monkeypatch.setattr(k8s_demo, "render_load_job", lambda *_args, **_kwargs: "manifest")
-    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args: None)
+    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(k8s_demo, "hold_transaction_reads", lambda *_args: nullcontext())
     monkeypatch.setattr(k8s_demo, "_job_logs", lambda *_args, **_kwargs: next(logs))
     monkeypatch.setattr(k8s_demo.time, "sleep", lambda _seconds: None)
@@ -258,6 +283,33 @@ def test_durability_state_machine_forces_worker_recovery(
     assert any("--replicas=0" in call for call in kubectl.calls)
     assert any("--replicas=1" in call for call in kubectl.calls)
     assert ("kill", "worker-old") in kubectl.calls
+
+
+def test_aks_durability_uses_claim_marker_without_local_database_barrier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+    kubectl = FakeKubectl()
+    kubectl.assert_mutation_allowed = lambda **_kwargs: None  # type: ignore[method-assign]
+    final = _summary(mode="investigations", runs=config.load.cases)
+    logs = iter(
+        [
+            f"K8S_DEMO_SUBMITTED={config.load.cases}\n",
+            f"{SUMMARY_PREFIX}{final.model_dump_json()}\n",
+        ]
+    )
+    monkeypatch.setattr(k8s_demo, "render_load_job", lambda *_args, **_kwargs: "manifest")
+    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        k8s_demo,
+        "hold_transaction_reads",
+        lambda *_args: pytest.fail("AKS must not use the local PostgreSQL barrier"),
+    )
+    monkeypatch.setattr(k8s_demo, "_job_logs", lambda *_args, **_kwargs: next(logs))
+    monkeypatch.setattr(k8s_demo.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(k8s_demo.time, "monotonic", lambda: 100.0)
+    evidence = k8s_demo._run_durability(config, kubectl, platform="aks", confirmed=True)
+    assert evidence.runs_completed == config.load.cases
 
 
 def test_active_claim_wait_times_out_when_no_lease_is_owned(

@@ -45,7 +45,7 @@ export function RagPanel({ citations, mode }: RagPanelProps) {
   }
   return (
     <div className="gap-md flex flex-col">
-      {mode ? <p className="text-caption text-mute">{modeLabel(mode)}</p> : null}
+      {mode ? <p className="text-caption text-body">{modeLabel(mode)}</p> : null}
       <ul className="gap-md flex flex-col">
         {citations.map((citation, index) => (
           <li
@@ -56,7 +56,7 @@ export function RagPanel({ citations, mode }: RagPanelProps) {
               <span className="text-body-md text-ink font-semibold">{citation.title}</span>
               <Badge tone="neutral">{citation.source}</Badge>
             </div>
-            <span className="text-caption text-mute">{citation.citation}</span>
+            <span className="text-caption text-body">{citation.citation}</span>
             <p className="text-body-sm text-body">{citation.snippet}</p>
           </li>
         ))}

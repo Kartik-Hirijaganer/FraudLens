@@ -6,7 +6,14 @@ vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
 import { signIn, signOut, type UserRole } from "../lib/session";
-import { agentRun, alertDetail, alertView, demoPersona, makeClient } from "../test/factories";
+import {
+  agentRun,
+  alertDetail,
+  alertView,
+  demoPersona,
+  makeClient,
+  snapshot,
+} from "../test/factories";
 import { AlertDetail } from "./AlertDetail";
 
 function signInAs(role: UserRole): void {
@@ -272,6 +279,38 @@ describe("AlertDetail", () => {
     expect(screen.queryByRole("button", { name: "Add note" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
+  });
+
+  it("shows persisted risk evidence, draft quality, and the allowlisted model input", async () => {
+    signInAs("reviewer");
+    const getInvestigation = vi.fn(() =>
+      Promise.resolve(
+        snapshot({
+          riskScore: 0.73,
+          riskBand: "high",
+          topFeatures: [{ feature: "amount_log", value: 5, shapValue: 0.4 }],
+        }),
+      ),
+    );
+    const client = makeClient({
+      getInvestigation,
+      getAlert: vi.fn(() =>
+        Promise.resolve(
+          alertDetail({
+            sarDraft: { ...alertDetail().sarDraft!, qualityStatus: "unevaluated" },
+          }),
+        ),
+      ),
+    });
+    render(<AlertDetail alertId="alert-1" client={client} />);
+
+    expect(await screen.findByRole("meter")).toHaveAttribute("aria-valuenow", "73");
+    expect(getInvestigation).toHaveBeenCalledWith("run-1");
+    expect(screen.getByText("Transaction amount (log scale)")).toBeInTheDocument();
+    expect(screen.getByText("Quality Unevaluated")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /What the model saw/i }));
+    expect(screen.getByText("case · subject · counterparty")).toBeInTheDocument();
+    expect(screen.getAllByText("31 CFR 1020.320")).toHaveLength(2);
   });
 
   it("shows an empty SAR state when there is no draft", async () => {

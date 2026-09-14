@@ -43,26 +43,20 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     assert runpod_quote.provider == "runpod"
     assert runpod_quote.region == "secure-cloud"
     assert runpod_quote.hourly_rate_usd == Decimal("0.740000")
-    cpu_quotes = {
-        "azure_e16ads_v5_payg",
-        "azure_e16ads_v5_spot",
-        "azure_e32ads_v5_payg",
-        "azure_e32ads_v5_spot",
-    }
+    azure_quotes = set(config.rates) - {"runpod_rtx4090_secure_payg"}
     assert config.rates["azure_e16ads_v5_payg"].hourly_rate_usd == Decimal("1.048000")
     assert config.rates["azure_e16ads_v5_spot"].hourly_rate_usd == Decimal("0.193670")
+    assert config.rates["azure_b2s_payg"].hourly_rate_usd == Decimal("0.041600")
+    assert config.rates["azure_d2as_v5_spot"].hourly_rate_usd == Decimal("0.015893")
     for key, quote in config.rates.items():
         if key == "runpod_rtx4090_secure_payg":
             assert str(quote.price_source_url) == "https://www.runpod.io/pricing"
         else:
             assert quote.provider == "azure"
             assert str(quote.price_source_url).startswith("https://prices.azure.com/")
-    for key in cpu_quotes:
+    for key in azure_quotes:
         assert config.rates[key].region == "westus3"
         assert config.rates[key].price_verified_at == date(2026, 9, 14)
-    for key in set(config.rates) - cpu_quotes - {"runpod_rtx4090_secure_payg"}:
-        assert config.rates[key].region == "eastus"
-        assert config.rates[key].price_verified_at == date(2026, 9, 13)
 
 
 def test_projection_scales_pilot_work_and_admission_applies_margin() -> None:
@@ -121,6 +115,8 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "gfp-c41b1fbb266f44d4",
         "sar-eval-e5c9a36b5f8a33f3",
     }
+    batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")
+    assert batch.evidence_run_ids == ("fulldata-b55c4ae63ed8bbae",)
     assert check_ledger(config, entries, REPO_ROOT / "docs/reference/benchmarks") == []
 
 

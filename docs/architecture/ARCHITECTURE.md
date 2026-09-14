@@ -34,7 +34,7 @@ C4Context
     System_Ext(supabase, "Supabase", "Postgres (tenant-scoped data)")
     System_Ext(llm, "LLM provider", "SAR drafting (primary + fallback)")
     Rel(analyst, fraudlens, "Investigates, reviews drafts", "HTTPS")
-    Rel(fraudlens, infisical, "Fetches secrets at runtime")
+    Rel(infisical, fraudlens, "Injects scoped secrets at process start")
     Rel(fraudlens, supabase, "Reads/writes tenant data", "TLS")
     Rel(fraudlens, llm, "Drafts SAR narratives", "HTTPS")
 ```
@@ -47,14 +47,17 @@ C4Container
     Person(analyst, "AML Analyst")
     Container(spa, "Frontend SPA", "React + TS + Vite (Vercel)", "wise design system")
     Container(api, "Backend API", "FastAPI on Azure Container Apps", "/api/v1 + /healthz,/readyz")
+    Container(worker, "Investigation worker", "Python process", "claims persisted runs with leases")
     ContainerDb(db, "Postgres", "Supabase", "agency_id-scoped tables")
     Container(vector, "Vector store", "ChromaDB", "FinCEN/BSA embeddings")
     System_Ext(infisical, "Infisical")
     Rel(analyst, spa, "Uses", "HTTPS")
     Rel(spa, api, "Calls", "HTTPS/JSON (camelCase)")
     Rel(api, db, "Queries (scoped by agency_id)")
+    Rel(worker, db, "Claims/writes fenced runs (scoped by agency_id)")
     Rel(api, vector, "Retrieves regulatory context")
-    Rel(api, infisical, "Fetches secrets at runtime")
+    Rel(infisical, api, "Injects runtime secrets")
+    Rel(infisical, worker, "Injects runtime secrets")
 ```
 
 ## C4 — Components (Backend)
@@ -129,8 +132,121 @@ graph TD
 ```
 
 - **Azure via GitHub→Azure OIDC** (federated; no long-lived client secret in GitHub).
-- **Vercel/Supabase credentials** are fetched **short-lived from Infisical at job/runtime**,
-  masked, never persisted. Deploy is **inert** until the accounts + Terraform state exist.
+- **Vercel/Supabase credentials** are injected from Infisical at job/runtime, masked, and never
+  persisted. The frontend and database exist; Azure application deploy jobs remain feature-gated.
+
+## Inference serving and benchmark
+
+The production-shaped self-hosted path reuses the governed OpenAI-compatible client; it does not
+introduce a benchmark-only prompt path. A random `VLLM_API_KEY` is injected into both vLLM and the
+backend, and the endpoint is reached through an SSH tunnel during the temporary experiment. RunPod
+Secure Cloud RTX 4090 is the default host, but no GPU has been created or measured yet.
+
+```mermaid
+flowchart LR
+    cases["1,000 synthetic cases<br/>+ warm-up/dev/abstention"] --> harness["Checkpointed benchmark harness"]
+    harness --> bf16["Qwen2.5-7B BF16<br/>same host + image"]
+    harness --> awq["Qwen2.5-7B AWQ-Marlin<br/>same host + image"]
+    bf16 --> aggregate["Aggregate latency, TTFT,<br/>throughput, memory, cost"]
+    awq --> aggregate
+    aggregate --> quality["Schema, citations, facts,<br/>abstention, unsupported claims"]
+    quality --> publish["Hash-bound JSON + Markdown<br/>+ frontend projection"]
+```
+
+The primary comparison holds KV-cache utilisation equal; a separate maximum-safe-concurrency
+observation describes capacity. Provider selection is a fresh quota/capacity/price decision at
+STOP 3, pilot cost is projected with a 30% margin, and teardown is part of acceptance. See
+[ADR-020](adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) and the
+[benchmark runbook](../runbooks/vllm-benchmark.md).
+
+## Full-data training on ephemeral compute
+
+The full-data pipeline processes frozen public IBM AML sources with DuckDB and Parquet in bounded,
+checkpointed stages. Raw account identifiers exist only long enough to build namespaced temporal
+windows; the published report contains reconciliation, timings, metrics, and provenance—not rows or
+identifiers. Source rows, usable rows, training rows, calibration rows, and holdout rows are distinct
+counts.
+
+```mermaid
+flowchart LR
+    source["Frozen IBM CSVs<br/>68,228,066 source rows"] --> verify["Hash, row-count,<br/>schema verification"]
+    verify --> parquet["Typed Parquet ingest"]
+    parquet --> features["19 live-parity temporal features"]
+    features --> parity["Live-builder parity sample"]
+    parity --> folds["Whole-account chronological folds"]
+    folds --> train["XGBoost + Platt calibration"]
+    train --> gates["Holdout + shared promotion gates"]
+    gates --> report["Aggregate evidence + candidate only"]
+```
+
+Phase 6 uses an ephemeral Azure CPU VM with a measured admission gate, Blob checkpoints, automatic
+deallocation, and explicit teardown. The final Medium aggregate is not yet published; existing
+pilots are not promoted to release evidence. See the [data-batch runbook](../runbooks/data-batch.md).
+
+## Kubernetes deployment: kind to AKS
+
+One Kustomize base serves the local kind proof and the AKS overlay. The release measures HPA and
+durable-worker behavior on kind, while Terraform, policy, and the inert workflow validate the AKS
+shape without applying it.
+
+```mermaid
+flowchart TD
+    base["Kustomize base<br/>API + worker + Postgres + HPA"] --> kind["kind overlay<br/>zero-cost measured proof"]
+    base --> aks["AKS overlay<br/>Infisical operator + Cilium policy"]
+    kind --> evidence["1 → 5 → 1<br/>100/100 durable runs"]
+    aks --> validate["Terraform + Checkov + schema<br/>validate-only in release 0.3"]
+    validate --> next["Release 0.4<br/>approved apply → evidence → teardown"]
+```
+
+kindnet does not enforce the committed NetworkPolicies; Cilium is selected for AKS enforcement.
+The supported claim is “deployable to Azure AKS; autoscaling and durability proven on Kubernetes
+using kind,” not “deployed on AKS.” See [ADR-021](adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md).
+
+## Durable execution
+
+The API owns run creation, not execution. A worker atomically claims eligible rows using a lease,
+heartbeats while executing, and fences writes with its claim token. A reaper makes expired work
+eligible for bounded retry. SSE remains a pure observer/replay surface.
+
+```mermaid
+sequenceDiagram
+    participant API
+    participant DB as Postgres
+    participant W1 as Worker attempt 1
+    participant W2 as Replacement worker
+    API->>DB: create pending run (agency_id scoped)
+    W1->>DB: atomic claim + lease + fencing token
+    W1->>DB: heartbeat and persist step events
+    W1--xDB: process/pod terminates
+    W2->>DB: reclaim after lease expiry (attempt 2)
+    W2->>DB: fenced terminal write
+    DB-->>API: replayable snapshot/events
+```
+
+This is at-least-once execution with exactly-one accepted terminal write, not an exactly-once side
+effect guarantee. Idempotent persistence and bounded attempts make replacement explicit. See
+[ADR-027](adr/ADR-027-durable-investigation-execution.md).
+
+## Model-egress boundary
+
+Only persisted, allowlisted synthetic provenance may cross the model boundary. The backend rebuilds
+the exact typed projection from tenant-scoped persisted facts, maps identifiers to run-local aliases,
+checks the corpus binding and PHI policy, then sends bytes. The alert UI displays this same persisted
+projection under “What the model saw”; it does not infer it from browser state.
+
+```mermaid
+flowchart LR
+    persisted["Tenant-scoped transaction,<br/>score, rules, SHAP, retrieval"] --> provenance{"Allowed synthetic<br/>source + corpus hash?"}
+    provenance -->|no| block["Fail closed before transport"]
+    provenance -->|yes| project["SarModelInput<br/>extra=forbid + aliases"]
+    project --> scan["PHI + prompt-risk scan"]
+    scan --> transport["Governed provider client"]
+    project --> review["Alert review disclosure"]
+```
+
+Raw account IDs, names, addresses, free-form database records, and client-supplied tenant IDs are
+not model inputs. Extending allowed sources or data classes requires a new architecture/privacy
+decision. See [ADR-026](adr/ADR-026-synthetic-only-model-egress.md).
 
 ## LLM catalog, routing, and guardrails
 
@@ -347,7 +463,8 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
 | `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable). |
 | `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI; empty keeps the strict policy. |
-| `docs_ui_paths` | `list` | `['/docs', '/redoc']` | Interactive documentation paths that receive the relaxed CSP. |
+| `docs_ui_paths` | `list` | `['/docs', '/redoc', '/scalar']` | Interactive documentation paths that receive the relaxed CSP. |
+| `scalar_js_url` | `str` | `''` | Configured browser asset URL for the Scalar API reference runtime. |
 | `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
 | `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry exporter; disabled by default. |
 | `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled. |

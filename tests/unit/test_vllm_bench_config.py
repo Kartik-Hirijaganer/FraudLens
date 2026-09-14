@@ -48,6 +48,8 @@ def test_config_pins_full_protocol_and_profiles() -> None:
     assert config.arms["bf16"].dtype == "bfloat16"
     assert config.arms["awq"].quantization == "awq_marlin"
     assert config.server.enable_prefix_caching is False
+    assert config.application_pass.base_url_env == "FRAUDLENS_E2E_BASE_URL"
+    assert config.application_pass.auth_token_env == "FRAUDLENS_E2E_AUTH_TOKEN"
     assert config.request.temperature == 0
     with pytest.raises(ValueError, match="unknown benchmark profile"):
         resolve_profile(config, "missing")

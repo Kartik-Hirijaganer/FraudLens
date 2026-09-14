@@ -6,6 +6,7 @@ Key classes:
 - LogSourceConfig: provider-neutral startup-log retrieval configuration.
 - ServerConfig: comparable vLLM server settings and log source.
 - RequestConfig: exact streamed request controls.
+- ApplicationPassConfig: local application-gateway endpoint and environment indirection.
 - LoadConfig: concurrency, order, retry, and warm-up controls.
 - TelemetryConfig: hosting-neutral GPU sampler configuration.
 - HostCost: one provider/SKU price observation.
@@ -178,6 +179,20 @@ class RequestConfig(BaseModel):
         return hosts
 
 
+class ApplicationPassConfig(BaseModel):
+    """Local gateway settings for the functional API/worker/vLLM application pass."""
+
+    model_config = _MODEL_CONFIG
+
+    base_url: str = Field(..., min_length=1, description="Default application gateway origin.")
+    base_url_env: str = Field(
+        ..., pattern=r"^[A-Z][A-Z0-9_]+$", description="Gateway origin environment override name."
+    )
+    auth_token_env: str = Field(
+        ..., pattern=r"^[A-Z][A-Z0-9_]+$", description="Bearer-token environment variable name."
+    )
+
+
 class LoadConfig(BaseModel):
     """Closed-loop load shape and fairness controls."""
 
@@ -318,6 +333,9 @@ class VllmBenchConfig(BaseModel):
     arms: dict[ArmName, ArmConfig] = Field(..., description="Exactly BF16 and AWQ arms.")
     server: ServerConfig = Field(..., description="Comparable server configuration.")
     request: RequestConfig = Field(..., description="Streamed request controls.")
+    application_pass: ApplicationPassConfig = Field(
+        ..., description="Functional application-pass endpoint settings."
+    )
     load: LoadConfig = Field(..., description="Closed-loop load controls.")
     telemetry: TelemetryConfig = Field(..., description="GPU telemetry controls.")
     cost: CostConfig = Field(..., description="Cloud-neutral cost model.")

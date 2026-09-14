@@ -40,7 +40,7 @@ or duplicated.
 | **Dev bypass — prod-inert** | `settings.is_dev_bypass_enabled` | False whenever `environment == "prod"` regardless of the flag. Proven by `tests/security/test_fail_closed.py` + `test_api_v1.py`. |
 | **AuthZ — RBAC** | `get_admin_tenant` | `analyst \| reviewer \| admin` in the JWT claim; admin-only model/lifecycle routes return 403 `admin_role_required` for non-admins. |
 | **Tenant isolation** | `enforce_tenant` → `fraudlens_core.require_agency_id` | `agency_id` comes **only** from the verified claim; cross-tenant reads return 404 (no existence leak), claim/path mismatch returns 403. Every tenant table carries indexed `agency_id` (`make tenancy-check`). |
-| **Security headers + CSP** | [`middleware/security.py`](../../backend/src/fraudlens_backend/middleware/security.py) | HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a **path-aware Content-Security-Policy**: strict (`default-src 'none'`) on the API, relaxed only on the docs UI (Swagger/ReDoc CDN). Stamped by the gateway on every response. |
+| **Security headers + CSP** | [`middleware/security.py`](../../backend/src/fraudlens_backend/middleware/security.py) | HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a **path-aware Content-Security-Policy**: strict (`default-src 'none'`) on the API, relaxed only on the docs UI (Swagger/ReDoc/Scalar CDN). Stamped by the gateway on every response. |
 | **CORS allowlist** | gateway `install_gateway` | Exact origins from config per environment (never source); empty = deny all cross-origin. |
 | **Rate limiting** | gateway (global, per client) + `api/deps.rate_limit` (per route) | Fixed-window edge limiter returns a 429 envelope; the telemetry client-error sink adds a stricter per-route sliding-window limiter as defense-in-depth. |
 | **PHI masking + no-leak** | `services/phi_mask.py`, `fraudlens_core.phi`, logging redaction | Account identifiers masked at ingest (masked-only storage, ADR-014); masked before any LLM/log; the structlog redaction processor is a second net. Inference/drift tables persist only hashes + metrics. |
@@ -52,6 +52,9 @@ or duplicated.
 | **Supabase Data API** | Alembic `0004_harden_supabase_access` | Every exposed `public` table has RLS enabled; `anon`/`authenticated` table and sequence privileges are revoked, including defaults. Public function execution is denied by default. |
 | **Database network** | Supabase network restrictions + `make supabase-security-check` | Postgres/pooler ingress is an explicit least-privilege CIDR allowlist. Default IPv4/IPv6 routes and unapplied restrictions fail the live check. |
 | **HTTPS/TLS** | Container Apps ingress + Supabase SSL enforcement | `allow_insecure_connections = false`; Supabase rejects external non-TLS database connections. |
+| **Model egress** | `sar/egress.py` + governed LLM client | Only persisted allowlisted synthetic provenance is projected into `SarModelInput`; raw identifiers are aliased, corpus binding is verified, and transport bytes are tested. |
+| **Paid experiments** | ADR-028 + experiment ledger | Golden Rule 7 requires explicit approval for each cloud mutation, measured admission, watchdogs, aggregate-only export, and read-only teardown proof. |
+| **Ephemeral VM ingress** | data-batch/AKS/RunPod operator paths | Azure SSH is restricted to the operator CIDR; no public node IPs on AKS; RunPod exposes SSH only with a dedicated key. No app DB or real PHI enters experiment hosts. |
 
 ### 3.1 Supabase database boundary
 
@@ -124,6 +127,8 @@ risk: "false sense of security"). Known v1 limits, accepted by design:
   ever introduced (then flip to Azure OpenAI per ADR-003/§7.1).
 - **Deploy-time controls** (HTTPS `allowInsecure=false`, DB TLS, managed identity) are asserted
   in the Terraform plan and exercised in Phase 14, not this suite.
+- **Temporary compute is not a deployment boundary** — Azure data-batch and RunPod are disposable
+  research hosts. Stopped/deallocated resources can retain billable storage until verified destroy.
 
 ### 5.1 Suppressed advisories: unexposed ChromaDB server and authorization paths
 

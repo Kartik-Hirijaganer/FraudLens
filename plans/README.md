@@ -25,6 +25,15 @@ evidence remain the proof. Commit and push restrictions in AGENTS.md apply to ev
 | [2026-09-13 local PR check command](2026-09-13-local-pr-check-command.md) | One-command local PR preflight | Active |
 | [2026-09-13 vLLM/AWQ, full-data training, and AKS](2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md) | Release 0.3.0 benchmark, data, durability, and Kubernetes work | Approved; active |
 
+## Next release: 0.4.0 first steps
+
+After release 0.3 evidence is complete, the first 0.4 work is the human-approved AKS demonstration:
+enable `AKS_DEPLOY_ENABLED`, review the Terraform plan, apply the ephemeral cluster, install the
+Infisical operator, deploy one immutable image, run smoke plus HPA/durability evidence, publish
+`aks-hpa-scaling.{json,md}`, update the claim register/README, then stop or destroy and verify clean.
+Until that evidence exists, the only supported wording is “deployable to Azure AKS; autoscaling and
+durability proven on Kubernetes using kind.”
+
 ## Retired plans
 
 Retired plan files are intentionally absent from the working tree. Standalone ADRs, runbooks, and

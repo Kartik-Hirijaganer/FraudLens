@@ -33,6 +33,7 @@ export type Route =
   | { name: "modelAdmin" }
   | { name: "researchGraphTypologies" }
   | { name: "researchMultiAgentSar" }
+  | { name: "researchInferenceBenchmark" }
   | { name: "notFound" };
 
 export function parseHash(hash: string): Route {
@@ -66,6 +67,9 @@ export function parseHash(hash: string): Route {
   if (head === "research" && second === "multi-agent-sar" && segments.length === 2) {
     return { name: "researchMultiAgentSar" };
   }
+  if (head === "research" && second === "inference-benchmark" && segments.length === 2) {
+    return { name: "researchInferenceBenchmark" };
+  }
   return { name: "notFound" };
 }
 
@@ -90,6 +94,7 @@ export const paths = {
   modelAdmin: "#/model-admin",
   researchGraphTypologies: "#/research/graph-typologies",
   researchMultiAgentSar: "#/research/multi-agent-sar",
+  researchInferenceBenchmark: "#/research/inference-benchmark",
   alertDetail: (alertId: string): string => `#/alerts/${alertId}`,
   investigation: (runId: string): string => `#/investigations/${runId}`,
   // The band-filtered transactions link; an empty band means "no filter", so the same builder

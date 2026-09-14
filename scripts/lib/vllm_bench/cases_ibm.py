@@ -40,7 +40,6 @@ from fraudlens_ml.sar import SarFeature, SarInput
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
 from lib.aml_mapping import ibm_channel, ibm_country, ibm_currency
 from lib.fulldata.config import load_fulldata_config
-from lib.fulldata.features import feature_path
 from lib.fulldata.folds import folded_path
 from lib.fulldata.ingest import ingested_scan
 from lib.fulldata.train import load_candidate_evaluation
@@ -347,8 +346,7 @@ def build_ibm_cases(
         if required <= 0:
             continue
         folds = folded_path(full, dataset, repo_root)
-        features = feature_path(full, dataset, repo_root)
-        if not folds.is_file() or not features.is_file():
+        if not folds.is_file():
             raise FileNotFoundError(
                 f"full-data final-test artifacts are missing for {dataset.source}"
             )

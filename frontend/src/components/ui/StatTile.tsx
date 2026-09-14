@@ -37,9 +37,9 @@ export function StatTile({
   const valueClass = emphasis === "lg" ? "text-display-sm" : "text-display-xs";
   const content = (
     <>
-      <dt className="text-caption text-mute">{label}</dt>
+      <dt className="text-caption text-body">{label}</dt>
       <dd className={cx(valueClass, "text-ink")}>{value}</dd>
-      {hint ? <dd className="text-caption text-mute">{hint}</dd> : null}
+      {hint ? <dd className="text-caption text-body">{hint}</dd> : null}
     </>
   );
 

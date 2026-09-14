@@ -21,16 +21,25 @@ interface StatusPill {
   label: string;
 }
 
-export function statusPill(status: InvestigationState["status"]): StatusPill {
-  switch (status) {
+export function statusPill(state: InvestigationState): StatusPill {
+  switch (state.status) {
     case "completed":
       return { tone: "positive", label: "Auto-run complete" };
     case "failed":
       return { tone: "negative", label: "Auto-run failed" };
+    case "drafting-blocked":
+      return { tone: "warning", label: "Drafting blocked" };
+    case "retrying":
+      return {
+        tone: "warning",
+        label: `Retrying · attempt ${Math.max(1, state.attempt)}/${state.maxAttempts}`,
+      };
     case "running":
-      return { tone: "neutral", label: "Auto-run in progress" };
+      return state.attempt > 0
+        ? { tone: "neutral", label: `Running · attempt ${state.attempt}/${state.maxAttempts}` }
+        : { tone: "neutral", label: "Auto-run in progress" };
     default:
-      return { tone: "neutral", label: "Auto-run starting" };
+      return { tone: "neutral", label: "Pending worker" };
   }
 }
 

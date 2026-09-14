@@ -48,6 +48,7 @@ import { navigate, paths } from "../lib/router";
 import { hasPermission, useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
 import { useAsyncAction } from "../lib/useAsyncAction";
+import { AlertRiskEvidence, ModelInputDisclosure } from "./AlertEvidence";
 
 const SAR_STATUS_TONES: Record<string, StatusTone> = {
   approved: "positive",
@@ -97,7 +98,11 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
   const [editedContent, setEditedContent] = useState("");
   const [label, setLabel] = useState<TrainingLabel>("confirmed_fraud");
 
-  const load = useCallback(() => client.getAlert(alertId), [client, alertId]);
+  const load = useCallback(async () => {
+    const detail = await client.getAlert(alertId);
+    const investigation = await client.getInvestigation(detail.alert.runId);
+    return { detail, investigation };
+  }, [client, alertId]);
   const state = useAsync(load, [client, alertId]);
   const { busy, run } = useAsyncAction(state.reload);
   const session = useSession();
@@ -110,7 +115,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
     <section className="gap-xl flex flex-col">
       <PageHeader title="Alert review" description={`Alert ${alertId}`} />
       <AsyncBoundary state={state}>
-        {(detail) => {
+        {({ detail, investigation }) => {
           const sarStatus = detail.sarDraft?.status ?? null;
           const sarDecided = isSarDecided(sarStatus);
           const alertClosed = isAlertClosed(detail.alert.status);
@@ -160,6 +165,11 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                 </Card>
 
                 <Card className="gap-lg flex flex-col">
+                  <h2 className="text-display-xs text-ink">Risk evidence</h2>
+                  <AlertRiskEvidence investigation={investigation} />
+                </Card>
+
+                <Card className="gap-lg flex flex-col">
                   <AgentTimeline state={timelineState} title="How this SAR was produced" />
                   <Button
                     variant="tertiary"
@@ -173,9 +183,18 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                   <div className="gap-md flex items-center justify-between">
                     <h2 className="text-display-xs text-ink">SAR draft</h2>
                     {detail.sarDraft ? (
-                      <Badge tone={SAR_STATUS_TONES[detail.sarDraft.status] ?? "neutral"}>
-                        {humanize(detail.sarDraft.status)}
-                      </Badge>
+                      <div className="gap-sm flex flex-wrap">
+                        <Badge tone={SAR_STATUS_TONES[detail.sarDraft.status] ?? "neutral"}>
+                          {humanize(detail.sarDraft.status)}
+                        </Badge>
+                        <Badge
+                          tone={
+                            detail.sarDraft.qualityStatus === "unevaluated" ? "warning" : "neutral"
+                          }
+                        >
+                          Quality {humanize(detail.sarDraft.qualityStatus)}
+                        </Badge>
+                      </div>
                     ) : null}
                   </div>
                   {detail.sarDraft ? (
@@ -184,6 +203,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                         <Markdown text={detail.sarDraft.content} />
                       </div>
                       <RagPanel citations={detail.sarDraft.citations} />
+                      <ModelInputDisclosure modelInput={detail.sarDraft.modelInput} />
                     </>
                   ) : (
                     <EmptyState

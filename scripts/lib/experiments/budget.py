@@ -1,7 +1,8 @@
 """Summary: Pydantic budget policy, pilot projection, admission, and Markdown
 ledger validation for paid FraudLens experiments. Allocations sum to the one-time
 ceiling; a full run is admitted only when its projected cost plus configured margin
-fits its allocation. Published report run IDs must be represented in the ledger.
+fits its allocation. Published report run IDs must be represented by a resource session or its
+evidence IDs.
 
 Key classes:
 - RateQuote: one provenance-bound hourly rate for a provider SKU and purchase option.
@@ -59,6 +60,7 @@ LEDGER_HEADERS = (
     "Projected cost USD",
     "Actual cost USD",
     "Run ID",
+    "Evidence run IDs",
     "Budget scope",
     "Allocation",
     "Teardown verified",
@@ -176,6 +178,9 @@ class LedgerEntry(BaseModel):
     projected_cost_usd: Decimal = Field(..., ge=0, description="Admission-time projected cost.")
     actual_cost_usd: Decimal | None = Field(..., ge=0, description="Settled cost when available.")
     run_id: str = Field(..., min_length=1, description="Unique report or experiment run ID.")
+    evidence_run_ids: tuple[str, ...] = Field(
+        default=(), description="Published report run IDs produced by this resource session."
+    )
     budget_scope: Literal["current-plan", "historical"] = Field(
         ..., description="Whether this row consumes the current $75 ceiling."
     )
@@ -252,6 +257,14 @@ def _optional_decimal(value: str) -> Decimal | None:
     return None if missing is None else Decimal(missing)
 
 
+def _evidence_run_ids(value: str) -> tuple[str, ...]:
+    """Parse a comma-separated evidence-ID cell while accepting the ledger missing marker."""
+    missing = _optional(value)
+    if missing is None:
+        return ()
+    return tuple(item.strip().strip("`") for item in missing.split(",") if item.strip())
+
+
 def load_ledger(path: Path) -> tuple[LedgerEntry, ...]:
     """Parse the resource-session table from the Markdown ledger."""
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -281,9 +294,10 @@ def load_ledger(path: Path) -> tuple[LedgerEntry, ...]:
                     projected_cost_usd=_decimal(cells[8]),
                     actual_cost_usd=actual,
                     run_id=cells[10],
-                    budget_scope=cast(Literal["current-plan", "historical"], cells[11]),
-                    allocation=cells[12],
-                    teardown_verified=cast(Literal["yes", "no", "not-applicable"], cells[13]),
+                    evidence_run_ids=_evidence_run_ids(cells[11]),
+                    budget_scope=cast(Literal["current-plan", "historical"], cells[12]),
+                    allocation=cells[13],
+                    teardown_verified=cast(Literal["yes", "no", "not-applicable"], cells[14]),
                 )
             )
         return tuple(rows)
@@ -310,10 +324,12 @@ def check_ledger(
 ) -> list[str]:
     """Return budget, allocation, teardown, uniqueness, and report-coverage failures."""
     errors: list[str] = []
-    run_ids = [entry.run_id for entry in entries]
+    run_ids = [
+        identifier for entry in entries for identifier in (entry.run_id, *entry.evidence_run_ids)
+    ]
     duplicates = sorted({run_id for run_id in run_ids if run_ids.count(run_id) > 1})
     if duplicates:
-        errors.append(f"duplicate ledger run IDs: {duplicates}")
+        errors.append(f"duplicate ledger run/evidence IDs: {duplicates}")
     current = [entry for entry in entries if entry.budget_scope == "current-plan"]
     committed_total = sum(
         (entry.actual_cost_usd if entry.actual_cost_usd is not None else entry.projected_cost_usd)

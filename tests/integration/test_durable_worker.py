@@ -48,8 +48,15 @@ async def test_worker_completes_with_terminal_event_and_releases_lease(
     tmp_path: Path,
 ) -> None:
     now = datetime(2026, 9, 14, tzinfo=UTC)
+    claims: list[tuple[str, dict[str, object]]] = []
+
+    class Recorder:
+        def info(self, event: str, **fields: object) -> None:
+            claims.append((event, fields))
+
     run_id = await queue_run(db_sessionmaker, agency_id=_AGENCY_ID, now=now)
     monkeypatch.setattr(worker_module, "build_pipeline_deps", fake_pipeline_deps)
+    monkeypatch.setattr(worker_module, "get_logger", lambda _name: Recorder())
     heartbeat_file = tmp_path / "heartbeat"
     worker = build_worker(
         sessionmaker=db_sessionmaker,
@@ -82,6 +89,7 @@ async def test_worker_completes_with_terminal_event_and_releases_lease(
     assert run.lease_owner is None and run.lease_expires_at is None
     assert [event.event_type.value for event in events][-1] == "run.completed"
     assert heartbeat_file.exists()
+    assert claims == [("investigation.worker_claimed", {"run_id": str(run_id), "attempt": 1})]
 
 
 async def test_cancelled_worker_is_recovered_by_second_worker(

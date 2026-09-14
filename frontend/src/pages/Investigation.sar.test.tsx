@@ -67,10 +67,16 @@ describe("Investigation SAR review", () => {
       />,
     );
     emitReadyRun(harness, "alert-1", "failed");
-    await advanceToApproval();
+    await userEvent.click(screen.getByRole("button", { name: /continue to drivers/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to citations/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue to sar draft/i }));
 
-    expect(screen.getByText(/no draft that is eligible for approval/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve SAR" })).toBeDisabled();
+    expect(screen.getByText("Drafting blocked")).toBeInTheDocument();
+    expect(
+      screen.getByText(/risk score, rules, and model drivers remain available/i),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /continue to approval/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
     expect(reviewSar).not.toHaveBeenCalled();
   });
 

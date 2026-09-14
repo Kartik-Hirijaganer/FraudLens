@@ -76,6 +76,29 @@ def test_overlay_render_is_disposable_and_overrides_every_backend_image() -> Non
     assert Path("deploy/k8s/overlays/kind/kustomization.yaml").read_text(encoding="utf-8") == source
 
 
+def test_aks_render_injects_both_operator_identity_values_or_refuses() -> None:
+    config = load_config()
+    rendered = render_overlay(
+        config,
+        "aks",
+        image="example.invalid/fraudlens:sha",
+        infisical_identity_id="identity-123",
+        azure_managed_identity_client_id="client-456",
+    ).yaml_text
+    assert rendered.count("identityId: identity-123") == 2
+    assert rendered.count("azureManagedIdentityClientId: client-456") == 2
+    assert "replace-infisical" not in rendered
+    with pytest.raises(ValueError, match="requires both"):
+        render_overlay(config, "aks", infisical_identity_id="identity-123")
+    with pytest.raises(ValueError, match="unsupported"):
+        render_overlay(
+            config,
+            "aks",
+            infisical_identity_id="identity value",
+            azure_managed_identity_client_id="client-456",
+        )
+
+
 def test_load_render_uses_validated_overrides() -> None:
     config = load_config()
     load = LoadConfig(
@@ -146,5 +169,15 @@ def test_confirmed_aks_deploy_has_no_kind_waits() -> None:
             )
         return CommandResult(returncode=0, stdout="", stderr="")
 
-    deploy(config, "aks", image="app:sha", confirmed=True, runner=runner)
-    assert not any(" wait " in f" {' '.join(call)} " for call in calls)
+    deploy(
+        config,
+        "aks",
+        image="app:sha",
+        infisical_identity_id="identity-123",
+        azure_managed_identity_client_id="client-456",
+        confirmed=True,
+        runner=runner,
+    )
+    flattened = [" ".join(call) for call in calls]
+    assert any("rollout status deployment/fraudlens-api" in call for call in flattened)
+    assert any("rollout status deployment/fraudlens-worker" in call for call in flattened)

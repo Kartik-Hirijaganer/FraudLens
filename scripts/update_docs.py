@@ -24,6 +24,9 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+
+from fraudlens_backend.api.docs import scalar_api_reference
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
 from lib.docs_arch import (
@@ -32,6 +35,12 @@ from lib.docs_arch import (
     render_erd,
     render_module_map,
     replace_region,
+)
+from lib.docs_benchmarks import (
+    render_fulldata_training,
+    render_k8s_benchmark,
+    render_make_targets,
+    render_vllm_benchmark,
 )
 from lib.headers import iter_source_files, sync_header, validate_header
 
@@ -42,6 +51,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 API_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "api"
 ERD_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "erd"
 ARCH_DOC = REPO_ROOT / "docs" / "architecture" / "ARCHITECTURE.md"
+README_DOC = REPO_ROOT / "README.md"
 
 
 def _load_app() -> FastAPI:
@@ -52,6 +62,18 @@ def _load_app() -> FastAPI:
 def _openapi_json(app: FastAPI) -> str:
     """Return the app's OpenAPI schema as deterministic, sorted JSON."""
     return json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n"
+
+
+def _openapi_yaml(app: FastAPI) -> str:
+    """Return the app's OpenAPI schema as deterministic YAML."""
+    return yaml.safe_dump(app.openapi(), allow_unicode=True, sort_keys=True)
+
+
+def _standalone_scalar_html(app: FastAPI) -> str:
+    """Return a standalone Scalar page with the OpenAPI document embedded."""
+    response = scalar_api_reference(app, app.state.settings, embed_schema=True)
+    rendered = bytes(response.body).decode("utf-8").lstrip()
+    return "\n".join(line.rstrip() for line in rendered.splitlines()).rstrip() + "\n"
 
 
 def _endpoints_md(app: FastAPI) -> str:
@@ -66,6 +88,14 @@ def _arch_text(app: FastAPI, current: str) -> str:
     text = replace_region(text, "config-keys", render_config_keys(AppSettings))
     text = replace_region(text, "module-map", render_module_map())
     return replace_region(text, "erd", render_erd())
+
+
+def _readme_text(current: str) -> str:
+    """Return README.md with evidence and Makefile-owned regions refreshed."""
+    text = replace_region(current, "vllm-benchmark", render_vllm_benchmark(REPO_ROOT))
+    text = replace_region(text, "fulldata-training", render_fulldata_training(REPO_ROOT))
+    text = replace_region(text, "k8s-benchmark", render_k8s_benchmark(REPO_ROOT))
+    return replace_region(text, "make-targets", render_make_targets(REPO_ROOT))
 
 
 def _emit(path: Path, content: str, *, check: bool, stale: list[Path], changed: list[Path]) -> None:
@@ -112,6 +142,16 @@ def main() -> int:
             API_DIR / "openapi.json", _openapi_json(app), check=check, stale=stale, changed=changed
         )
         _emit(
+            API_DIR / "openapi.yaml", _openapi_yaml(app), check=check, stale=stale, changed=changed
+        )
+        _emit(
+            API_DIR / "index.html",
+            _standalone_scalar_html(app),
+            check=check,
+            stale=stale,
+            changed=changed,
+        )
+        _emit(
             API_DIR / "endpoints.md", _endpoints_md(app), check=check, stale=stale, changed=changed
         )
 
@@ -122,6 +162,10 @@ def main() -> int:
         app = _load_app()
         rewritten_arch = _arch_text(app, ARCH_DOC.read_text(encoding="utf-8"))
         _emit(ARCH_DOC, rewritten_arch, check=check, stale=stale, changed=changed)
+
+    if target == "all" and README_DOC.exists():
+        rewritten_readme = _readme_text(README_DOC.read_text(encoding="utf-8"))
+        _emit(README_DOC, rewritten_readme, check=check, stale=stale, changed=changed)
 
     if check:
         if stale:

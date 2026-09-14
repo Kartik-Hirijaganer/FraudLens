@@ -35,6 +35,9 @@ PURCHASE ?= pay_as_you_go
 TF_ROOTS ?= $(patsubst %/main.tf,%,$(wildcard infra/terraform/environments/*/main.tf))
 DATA_BATCH_DIR := infra/terraform/environments/data-batch
 DATA_BATCH_TFVARS := data-batch.tfvars
+AKS_DIR := infra/terraform/environments/aks-demo
+AKS_TFVARS := aks-demo.tfvars
+INFISICAL_OPERATOR_CHART_VERSION ?= 0.10.11
 DATA_BATCH_PILOT_HOURS ?= 2
 FULLDATA_DATA_DIR ?= .local/aml_data
 FULLDATA_DOWNLOAD_DIR ?= .local/fulldata/downloads
@@ -86,11 +89,40 @@ export TF_VAR_subscription_id="$$subscription_id" \
 	TF_VAR_run_id="$${TF_VAR_run_id:-$(if $(RUN),$(RUN),data-batch-pending)}"
 endef
 
+define AKS_ENV
+subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+admin_object_id="$${TF_VAR_cluster_admin_object_id:-$$(az ad signed-in-user show --query id -o tsv)}"; \
+admin_object_ids="$${TF_VAR_cluster_admin_object_ids:-[\"$$admin_object_id\"]}"; \
+authorized_ranges="$${TF_VAR_authorized_ip_ranges:-}"; \
+if [ -z "$$authorized_ranges" ]; then \
+	operator_ip="$$(curl -4 --fail --silent --show-error --max-time 10 https://api.ipify.org)"; \
+	authorized_ranges="[\"$$operator_ip/32\"]"; \
+fi; \
+budget_contacts="$${TF_VAR_budget_contact_emails:-}"; \
+if [ -z "$$budget_contacts" ]; then \
+	account_contact="$$(az account show --query user.name -o tsv)"; \
+	budget_contacts="[\"$$account_contact\"]"; \
+fi; \
+budget_start="$${TF_VAR_budget_start_date:-$$(date -u +%Y-%m-01T00:00:00Z)}"; \
+export TF_VAR_subscription_id="$$subscription_id" \
+	TF_VAR_tenant_id="$$tenant_id" \
+	TF_VAR_cluster_admin_object_ids="$$admin_object_ids" \
+	TF_VAR_authorized_ip_ranges="$$authorized_ranges" \
+	TF_VAR_budget_contact_emails="$$budget_contacts" \
+	TF_VAR_budget_start_date="$$budget_start" \
+	TF_VAR_use_oidc="$${TF_VAR_use_oidc:-false}"
+endef
+
 .PHONY: iac-scan data-batch-quota data-batch-plan data-batch-up data-batch-upload \
 	data-batch-download data-batch-ssh data-batch-start data-batch-down \
 	data-batch-verify-clean data-batch-watchdog runpod-gpu-plan runpod-gpu-up \
 	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
 	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
+
+.PHONY: aks-init aks-plan aks-up aks-credentials aks-operator-install aks-secrets-operator \
+	aks-secrets-sync aks-deploy aks-smoke aks-hpa-demo aks-stop aks-start aks-down \
+	aks-verify-clean
 
 .PHONY: k8s-tools-check k8s-validate k8s-demo-test kind-image kind-up kind-load \
 	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
@@ -105,10 +137,10 @@ endef
         header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates fulldata-test \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
-        run rebuild run-live run-live-vllm run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
+        run rebuild run-live run-live-vllm run-live-vllm-worker run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
-        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate \
+        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-e2e vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate \
         docker-build docker-build-base docker-build-base-if-changed \
         pr-title-check ci pre-pr pr-check worker upgrade dev
 
@@ -311,7 +343,9 @@ rebuild: ## Alias for `make run`.
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live
 run-live-vllm: ## Boot the backend against self-hosted vLLM over a local SSH tunnel.
-	infisical run --env=prod --path=/ml -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run uvicorn fraudlens_backend.main:app --reload --host 127.0.0.1 --port $${BACKEND_PORT:-18000}
+	infisical run --env=prod --path=/ --recursive -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml FRAUDLENS_RUN_EXECUTION_MODE=worker FRAUDLENS_MODEL_ARTIFACTS_DIR=.local/fulldata/artifacts VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run uvicorn fraudlens_backend.main:app --reload --host 127.0.0.1 --port $${BACKEND_PORT:-18000}
+run-live-vllm-worker: ## Run the durable worker against the same tunneled vLLM and dev database.
+	infisical run --env=prod --path=/ --recursive -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml FRAUDLENS_RUN_EXECUTION_MODE=worker FRAUDLENS_MODEL_ARTIFACTS_DIR=.local/fulldata/artifacts VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run python -m fraudlens_backend.worker
 run-live-demo: ## Boot live dev AND bootstrap the exact portfolio demo story (mutating; prints the URL).
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live-demo
 worker: ## Run the durable investigation worker against the configured database.
@@ -418,6 +452,9 @@ vllm-bench-run: ## Run/resume one arm (RUN + ARM; server must already be ready).
 	$(VLLM_BENCH) run $(if $(RUN),--run "$(RUN)",) --arm "$(ARM)" \
 		--profile "$(PROFILE)" --source "$(SOURCE)" \
 		--host "$(HOST)" --purchase-option "$(PURCHASE)"
+vllm-bench-e2e: ## Prove 100 API -> durable-worker -> vLLM cases (functional, never latency).
+	$(VLLM_BENCH) e2e --cases "$${E2E_CASES:-100}" --concurrency "$${E2E_CONCURRENCY:-4}" \
+		$(if $(RUN),--run "$(RUN)",) $(if $(MODEL_OVERRIDE),--model-override "$(MODEL_OVERRIDE)",)
 vllm-bench-report: ## Build the local report (RUN; VLLM_CASES may override the case path).
 	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
 	$(VLLM_BENCH) report --run "$(RUN)" --cases "$(VLLM_CASES)"
@@ -764,6 +801,111 @@ data-batch-verify-clean: ## Prove no tagged data-batch resource, RG, or budget r
 	fi; \
 	test "$$failed" = "0" || exit 1; \
 	echo "data-batch-verify-clean OK: no resource group, tagged resource, or budget remains"
+
+aks-init: ## Initialize the next-release AKS remote-state root without applying resources.
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
+
+aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never applies.
+	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v5_spot"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; disks, IP and traffic excluded)")'
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	terraform -chdir=$(AKS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
+	terraform -chdir=$(AKS_DIR) plan -refresh=false -input=false -lock=false -no-color \
+		-var-file=$(AKS_TFVARS)
+
+aks-up: ## Apply the reviewed AKS plan in the next release (requires CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS creation: pass CONFIRM=yes after explicit approval"; exit 2; }
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(AKS_DIR) plan -input=false -no-color -var-file=$(AKS_TFVARS) -out=aks-demo.tfplan; \
+	trap 'rm -f $(AKS_DIR)/aks-demo.tfplan' EXIT; \
+	terraform -chdir=$(AKS_DIR) apply -input=false -no-color aks-demo.tfplan
+
+aks-credentials: ## Fetch Entra-backed AKS credentials after an approved apply (CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing kubeconfig mutation: pass CONFIRM=yes"; exit 2; }
+	az aks get-credentials --overwrite-existing \
+		--resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-operator-install: ## Install the pinned Infisical operator on an approved AKS context.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing Helm mutation: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	context="$$(kubectl config current-context)"; \
+	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
+	test "$$context" = "$$expected" || { echo "Refusing Helm mutation on context $$context; expected $$expected"; exit 2; }; \
+	helm repo add --force-update infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/; \
+	helm repo update infisical-helm-charts; \
+	helm upgrade --install infisical-operator infisical-helm-charts/secrets-operator \
+		--version $(INFISICAL_OPERATOR_CHART_VERSION) --namespace infisical-operator-system \
+		--create-namespace --set 'scopedNamespaces={fraudlens}' --set scopedRBAC=true \
+		--set installCRDs=true --wait --timeout 10m
+
+aks-secrets-operator: ## Verify the approved Infisical operator and its CRD are ready.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	context="$$(kubectl config current-context)"; \
+	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
+	test "$$context" = "$$expected" || { echo "Unexpected kubectl context: $$context"; exit 2; }; \
+	kubectl wait --for=condition=Established crd/infisicalsecrets.secrets.infisical.com --timeout=120s; \
+	kubectl rollout status deployment/infisical-operator-controller-manager \
+		-n infisical-operator-system --timeout=300s
+
+aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approved AKS only.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS Secret mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) secrets-sync --confirm-aks
+
+aks-deploy: ## Deploy an immutable image and operator-backed secret references to approved AKS.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
+	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
+	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
+	$(K8S_DEMO) deploy --platform aks --confirm-aks \
+		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
+		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
+		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
+
+aks-smoke: ## Run probe smoke tests against the approved AKS workload.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) smoke --platform aks --confirm-aks
+
+aks-hpa-demo: ## Capture next-release AKS HPA evidence after an approved deployment.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS load mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) hpa-demo --platform aks --confirm-aks
+
+aks-stop: ## Stop an approved AKS cluster to suspend node compute charges.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS stop: pass CONFIRM=yes"; exit 2; }
+	az aks stop --resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-start: ## Start an existing AKS cluster after explicit cost approval.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS start: pass CONFIRM=yes"; exit 2; }
+	az aks start --resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-down: ## Destroy the approved AKS cluster and all Terraform-managed support resources.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS destroy: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(AKS_DIR) destroy -input=false -no-color -auto-approve \
+		-var-file=$(AKS_TFVARS)
+
+aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget remains.
+	@set -euo pipefail; \
+	failed=0; \
+	for group in fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg; do \
+		if [ "$$(az group exists --name "$$group")" != "false" ]; then echo "residue: resource group $$group exists"; failed=1; fi; \
+	done; \
+	count="$$(az resource list --query "length([?starts_with(name, 'fraudlens-aks-demo') || tags.environment == 'aks-demo'])" -o tsv)"; \
+	if [ "$$count" != "0" ]; then echo "residue: $$count AKS resources remain"; failed=1; fi; \
+	if az consumption budget show --budget-name fraudlens-aks-demo-budget --only-show-errors --output none >/dev/null 2>&1; then \
+		echo "residue: subscription budget fraudlens-aks-demo-budget exists"; failed=1; \
+	fi; \
+	test "$$failed" = "0" || exit 1; \
+	echo "aks-verify-clean OK: no scoped AKS resources remain"
 
 iac-scan: ## Scan Terraform for security and configuration defects (read-only).
 	$(UVX) checkov --config-file .checkov.yaml

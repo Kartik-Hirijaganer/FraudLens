@@ -5,7 +5,7 @@
  * Drivers → Citations → SAR draft → Approval. No-alert runs use a compact Risk → Drivers →
  * Outcome path and never imply that a SAR exists.
  * confirming each before moving on. The auto-run populates the evidence in the background
- * (a status pill reads starting / in progress / complete / failed); a step's "continue"
+ * (a status pill reads pending / running / retrying / complete / failed / drafting blocked); a step's "continue"
  * CTA stays disabled until that step's evidence has streamed in (`caseStepReady`). The
  * stream replays persisted events from the start (revisiting a finished run reconstructs
  * it) and is closed on the terminal event; a mid-run connection error falls back to the
@@ -129,16 +129,19 @@ export function Investigation({
     };
   }, [client, runId, createStream]);
 
-  const terminal = state.status === "completed" || state.status === "failed";
-  const showColdStart = state.status === "starting" && state.completedSteps.length === 0;
-  const streaming = state.sarStarted && state.status === "running";
+  const terminal =
+    state.status === "completed" ||
+    state.status === "failed" ||
+    state.status === "drafting-blocked";
+  const showColdStart = state.status === "pending" && state.completedSteps.length === 0;
+  const streaming = state.sarStarted && (state.status === "running" || state.status === "retrying");
   // The gauge shows whichever value has landed, and is captioned to match it. `riskScore` is the
   // BLENDED policy score on the band scale; `fraudProbability` is the model's calibrated
   // probability. With a rare-event model the two differ by orders of magnitude, so a single
   // "fraud risk" caption misreported one of them as the other.
   const gaugeValue = state.riskScore ?? state.fraudProbability;
   const gaugeLabel = state.riskScore !== undefined ? "risk score" : "fraud probability";
-  const pill = statusPill(state.status);
+  const pill = statusPill(state);
   const isNoAlertOutcome = state.status === "completed" && state.alertId === undefined;
   const chips = evidenceChips(state, !isNoAlertOutcome);
   const caseSteps = isNoAlertOutcome ? NO_ALERT_CASE_STEPS : CASE_STEPS;
@@ -222,8 +225,8 @@ export function Investigation({
       <header className="gap-lg flex flex-col lg:flex-row lg:items-start lg:justify-between">
         <div className="gap-sm flex flex-col">
           <nav aria-label="Breadcrumb" className="gap-xs text-body-sm flex items-center">
-            <span className="text-mute font-semibold">{formatInvestigationRef(runId)}</span>
-            <span aria-hidden="true" className="text-mute">
+            <span className="text-body font-semibold">{formatInvestigationRef(runId)}</span>
+            <span aria-hidden="true" className="text-body">
               /
             </span>
             <span className="text-ink font-semibold">Investigation</span>
@@ -260,6 +263,15 @@ export function Investigation({
         />
       ) : null}
 
+      {state.status === "drafting-blocked" ? (
+        <Card>
+          <p className="text-body-sm text-warning-deep" role="status">
+            {state.draftingBlockReason ?? "SAR drafting is blocked."} The completed risk score,
+            rules, and model drivers remain available for manual review.
+          </p>
+        </Card>
+      ) : null}
+
       <div className="gap-xl grid grid-cols-1 lg:grid-cols-3">
         <Card className="gap-xl flex flex-col lg:col-span-2">
           <CaseStepper steps={caseSteps} currentStep={activeStep} />
@@ -281,7 +293,7 @@ export function Investigation({
               <h2 className="text-display-xs text-ink">
                 Step {activeStep + 1} · {copy.heading}
               </h2>
-              <p className="text-body-md text-mute">{copy.subtitle}</p>
+              <p className="text-body-md text-body">{copy.subtitle}</p>
             </div>
 
             <InvestigationStepBody
@@ -332,7 +344,7 @@ export function Investigation({
                 </Button>
               </div>
               {!canAdvance ? (
-                <p className="text-body-sm text-mute">The auto-run hasn't reached this step yet.</p>
+                <p className="text-body-sm text-body">The auto-run hasn't reached this step yet.</p>
               ) : null}
             </div>
           </div>
@@ -347,7 +359,7 @@ export function Investigation({
             ) : (
               <span />
             )}
-            <span className="text-mute">
+            <span className="text-body">
               Step {activeStep + 1} of {caseSteps.length}
             </span>
           </div>

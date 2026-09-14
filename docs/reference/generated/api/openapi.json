@@ -2438,6 +2438,19 @@
             "title": "Modelid",
             "type": "string"
           },
+          "modelInput": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact synthetic-only, allowlisted fields sent to the drafting model.",
+            "title": "Modelinput"
+          },
           "promptHash": {
             "description": "Hash of the exact prompt template used.",
             "title": "Prompthash",

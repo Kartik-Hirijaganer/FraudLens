@@ -1,0 +1,207 @@
+{
+  "cluster": {
+    "architectures": ["arm64"],
+    "context": "kind-fraudlens-demo",
+    "kubernetes_version": "v1.32.8",
+    "name": "fraudlens-demo",
+    "node_count": 2
+  },
+  "commit": "ad2dd247d8992873b6db1fc6db782fddd92c7f63",
+  "config_sha256": "805587926c5e03bf06a86b72e476c66546335faf28c17281e6464ea642b2a542",
+  "disclosures": [
+    "kind uses kindnet, which does not enforce NetworkPolicy; enforcement is structural here and runs through Cilium on AKS.",
+    "The durability pass uses synthetic transactions and the keyless mock SAR provider; it measures recovery, not production model latency.",
+    "This is a zero-cost local execution. No Azure or RunPod resources were created."
+  ],
+  "durability": {
+    "max_run_attempts": 2,
+    "runs_completed": 100,
+    "runs_completed_after_worker_kill": 100,
+    "runs_failed": 0,
+    "runs_submitted": 100,
+    "worker_pod_deleted": true
+  },
+  "generated_at": "2026-09-14T14:15:51.246132Z",
+  "hpa": {
+    "cpu_target_percent": 60,
+    "max_replicas": 5,
+    "min_replicas": 1,
+    "scale_down_stabilization_seconds": 60,
+    "target": "Deployment/fraudlens-api"
+  },
+  "load": {
+    "duration_seconds": 240.145,
+    "failed": 0,
+    "latency_p50_ms": 3.696,
+    "latency_p95_ms": 21.693,
+    "max_run_attempts": 0,
+    "mode": "healthz",
+    "requests": 1306235,
+    "runs_completed": 0,
+    "runs_failed": 0,
+    "runs_submitted": 0,
+    "succeeded": 1306235
+  },
+  "platform": "kind",
+  "samples": [
+    {
+      "cpu_percent": null,
+      "desired_replicas": 0,
+      "elapsed_seconds": 0,
+      "replicas": 1
+    },
+    {
+      "cpu_percent": null,
+      "desired_replicas": 0,
+      "elapsed_seconds": 15,
+      "replicas": 1
+    },
+    {
+      "cpu_percent": 671,
+      "desired_replicas": 3,
+      "elapsed_seconds": 31,
+      "replicas": 1
+    },
+    {
+      "cpu_percent": 998,
+      "desired_replicas": 3,
+      "elapsed_seconds": 46,
+      "replicas": 3
+    },
+    {
+      "cpu_percent": 965,
+      "desired_replicas": 5,
+      "elapsed_seconds": 61,
+      "replicas": 3
+    },
+    {
+      "cpu_percent": 480,
+      "desired_replicas": 5,
+      "elapsed_seconds": 76,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 435,
+      "desired_replicas": 5,
+      "elapsed_seconds": 92,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 316,
+      "desired_replicas": 5,
+      "elapsed_seconds": 107,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 316,
+      "desired_replicas": 5,
+      "elapsed_seconds": 122,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 298,
+      "desired_replicas": 5,
+      "elapsed_seconds": 137,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 328,
+      "desired_replicas": 5,
+      "elapsed_seconds": 153,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 296,
+      "desired_replicas": 5,
+      "elapsed_seconds": 168,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 313,
+      "desired_replicas": 5,
+      "elapsed_seconds": 183,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 316,
+      "desired_replicas": 5,
+      "elapsed_seconds": 198,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 311,
+      "desired_replicas": 5,
+      "elapsed_seconds": 214,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 303,
+      "desired_replicas": 5,
+      "elapsed_seconds": 229,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 316,
+      "desired_replicas": 5,
+      "elapsed_seconds": 244,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 265,
+      "desired_replicas": 5,
+      "elapsed_seconds": 259,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 28,
+      "desired_replicas": 5,
+      "elapsed_seconds": 275,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 4,
+      "desired_replicas": 5,
+      "elapsed_seconds": 290,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 6,
+      "desired_replicas": 5,
+      "elapsed_seconds": 305,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 3,
+      "desired_replicas": 3,
+      "elapsed_seconds": 320,
+      "replicas": 5
+    },
+    {
+      "cpu_percent": 7,
+      "desired_replicas": 1,
+      "elapsed_seconds": 336,
+      "replicas": 3
+    },
+    {
+      "cpu_percent": 3,
+      "desired_replicas": 1,
+      "elapsed_seconds": 351,
+      "replicas": 1
+    }
+  ],
+  "schema_version": "1.0",
+  "summary": {
+    "replicas_max_observed": 5,
+    "replicas_min_observed": 1,
+    "seconds_to_first_scale_up": 46,
+    "seconds_to_max_replicas": 76,
+    "seconds_to_scale_back_to_min": 91
+  },
+  "workload": {
+    "cpu_limit": "1",
+    "cpu_request": "100m",
+    "image": "fraudlens-backend:local",
+    "memory_limit": "1536Mi",
+    "memory_request": "512Mi"
+  }
+}

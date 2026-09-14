@@ -188,7 +188,9 @@ function withStep(steps: string[], key: string): string[] {
 
 export function initialInvestigationState(): InvestigationState {
   return {
-    status: "starting",
+    status: "pending",
+    attempt: 0,
+    maxAttempts: 1,
     completedSteps: [],
     ruleHits: [],
     erroredRules: [],
@@ -216,7 +218,13 @@ export function reduceInvestigation(
   };
   switch (message.type) {
     case "run.started":
-      return { ...base, status: "running", transactionId: stringOf(data.transactionId) };
+      return {
+        ...base,
+        status: "running",
+        transactionId: stringOf(data.transactionId),
+        attempt: numberOf(data.attempt) ?? state.attempt,
+        maxAttempts: numberOf(data.maxAttempts) ?? state.maxAttempts,
+      };
     case "step.rules.completed":
       return {
         ...base,
@@ -281,12 +289,14 @@ export function reduceInvestigation(
     case "run.completed":
       return {
         ...base,
-        status: "completed",
+        status: stringOf(data.sarStatus) === "failed" ? "drafting-blocked" : "completed",
         riskScore: numberOf(data.riskScore),
         riskBand: stringOf(data.riskBand),
         modelVersion: stringOf(data.modelVersion) ?? state.modelVersion,
         sarDraftId: stringOf(data.sarDraftId),
         sarStatus: stringOf(data.sarStatus),
+        draftingBlockReason:
+          stringOf(data.sarStatus) === "failed" ? "SAR drafting failed" : undefined,
         alertId: stringOf(data.alertId),
         completedSteps: withStep(state.completedSteps, "sar"),
       };
@@ -319,19 +329,30 @@ export function investigationStateFromSnapshot(
   }
   const status: InvestigationStatus =
     snapshot.status === "completed"
-      ? "completed"
+      ? snapshot.sarStatus === "failed"
+        ? "drafting-blocked"
+        : "completed"
       : snapshot.status === "failed"
         ? "failed"
-        : "running";
+        : snapshot.status === "retrying"
+          ? "retrying"
+          : snapshot.status === "pending"
+            ? "pending"
+            : "running";
   const agentRuns = snapshot.agentExecutions.reduce(
     (runs, execution) => upsertAgentRun(runs, execution),
     current.agentRuns,
   );
   const completedSteps = snapshotSteps.reduce(withStep, current.completedSteps);
-  const terminalAlreadyObserved = current.status === "completed" || current.status === "failed";
+  const terminalAlreadyObserved =
+    current.status === "completed" ||
+    current.status === "failed" ||
+    current.status === "drafting-blocked";
   return {
     ...current,
     status: terminalAlreadyObserved ? current.status : status,
+    attempt: snapshot.attempt,
+    maxAttempts: snapshot.maxAttempts,
     completedSteps,
     transactionId: snapshot.transactionId,
     ruleHits: current.ruleHits.length > 0 ? current.ruleHits : snapshot.ruleHits,
@@ -355,5 +376,9 @@ export function investigationStateFromSnapshot(
     agentRuns,
     recorded: current.recorded || agentRuns.some((run) => run.modelId === "mock"),
     errorCode: snapshot.errorCode ?? undefined,
+    draftingBlockReason:
+      status === "drafting-blocked"
+        ? "SAR drafting failed; manual drafting is required"
+        : undefined,
   };
 }

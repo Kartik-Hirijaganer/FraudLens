@@ -80,6 +80,11 @@ class DurableRunWorker:
             await session.commit()
         if claim is None:
             return False
+        get_logger(APP_LOGGER_NAME).info(
+            "investigation.worker_claimed",
+            run_id=str(claim.run_id),
+            attempt=claim.attempt,
+        )
         try:
             await self._execute_with_heartbeat(claim)
         except asyncio.CancelledError:

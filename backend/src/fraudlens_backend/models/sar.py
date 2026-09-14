@@ -52,6 +52,10 @@ class SarDraftView(CamelModel):
         default=SarQualityStatus.EVALUATED,
         description="Quality evaluation state for this exact narrative version.",
     )
+    model_input: dict[str, Any] | None = Field(
+        default=None,
+        description="Exact synthetic-only, allowlisted fields sent to the drafting model.",
+    )
     content: str = Field(..., description="The PHI-masked, human-readable SAR narrative.")
     structured: dict[str, Any] = Field(
         default_factory=dict, description="The structured SAR body (camelCase, PHI-free)."

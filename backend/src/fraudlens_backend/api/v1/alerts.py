@@ -55,6 +55,7 @@ from fraudlens_backend.db.repositories import (
     AlertRepository,
     AnalysisRunRepository,
     SarDraftRepository,
+    TransactionRepository,
 )
 from fraudlens_backend.db.repositories.alerts import AlertSummaryRow
 from fraudlens_backend.models.agent_executions import agent_execution_to_view
@@ -76,7 +77,7 @@ from fraudlens_backend.services.alert_workflow import (
     AlertWorkflowService,
     SarReviewCommand,
 )
-from fraudlens_backend.services.sar_regeneration import sar_draft_to_view
+from fraudlens_backend.services.sar_regeneration import sar_draft_to_view, sar_model_input_for_view
 
 router = APIRouter(tags=["alerts"])
 
@@ -180,13 +181,24 @@ async def get_alert(
     draft = await _sar_repo(tenant, session).get_for_run(row.alert.run_id)
     actions = await repo.list_actions(alert_id)
     agency_id = uuid.UUID(tenant.agency_id)
-    run = await AnalysisRunRepository(session, agency_id).get(row.alert.run_id)
+    run_repo = AnalysisRunRepository(session, agency_id)
+    run = await run_repo.get(row.alert.run_id)
     if run is None:  # defensive: the alert FK should make this impossible
         raise AppError("investigation_not_found")
     executions = await AgentExecutionRepository(session, agency_id).list_for_run(row.alert.run_id)
+    result = await run_repo.get_result(row.alert.run_id)
+    retrieval = await run_repo.get_retrieval(row.alert.run_id)
+    transaction = await TransactionRepository(session, agency_id).get(row.alert.transaction_id)
+    model_input = sar_model_input_for_view(
+        agency_id=agency_id,
+        run=run,
+        result=result,
+        transaction=transaction,
+        retrieval=retrieval,
+    )
     return AlertDetailResponse(
         alert=_to_alert_view(row),
-        sar_draft=_to_sar_view(draft) if draft is not None else None,
+        sar_draft=_to_sar_view(draft, model_input=model_input) if draft is not None else None,
         actions=[_to_action_view(action) for action in actions],
         agent_executions=[agent_execution_to_view(item) for item in executions],
         workflow_mode=run.workflow_mode,

@@ -94,7 +94,7 @@ def test_typed_hpa_deployment_and_worker_parsers() -> None:
     config = load_config()
     restart_reads = 0
 
-    def respond(argv: list[str]) -> CommandResult:
+    def respond(argv: list[str]) -> CommandResult:  # noqa: PLR0911 - command fake dispatch.
         nonlocal restart_reads
         joined = " ".join(argv)
         if "current-context" in joined:
@@ -124,6 +124,8 @@ def test_typed_hpa_deployment_and_worker_parsers() -> None:
                 '{"metadata":{"name":"worker-a","deletionTimestamp":"2026-09-14T12:00:00Z"},'
                 '"status":{"phase":"Running"}}]}'
             )
+        if "logs pod/worker-b" in joined:
+            return _result('{"event":"investigation.worker_claimed"}\n')
         return _result()
 
     runner = FakeRunner(respond)
@@ -134,6 +136,7 @@ def test_typed_hpa_deployment_and_worker_parsers() -> None:
     assert deployment.image == "app:sha"
     assert deployment.memory_request == "512Mi"
     kubectl.kill_worker_process("worker-b")
+    assert kubectl.wait_for_worker_claim(platform="kind", confirmed=False) == "worker-b"
     assert kubectl.delete_worker_pod("worker-b") == "worker-b"
     assert any(any("fraudlens-worker.pid" in part for part in call) for call in runner.calls)
     assert any("--grace-period=0" in call for call in runner.calls)

@@ -96,17 +96,21 @@ def _atomic_write(path: Path, content: str) -> None:
 
 
 def publish_evidence(report: HpaEvidenceReport, *, root: Path) -> list[Path]:
-    """Validate and write canonical JSON, Markdown, and the frontend JSON projection."""
+    """Validate and write canonical JSON/Markdown plus the local frontend projection."""
     validate_evidence(report)
     json_content = json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
     markdown = render_markdown(report)
     scan_forbidden(json_content, artifact="Kubernetes evidence JSON")
     scan_forbidden(markdown, artifact="Kubernetes evidence Markdown")
+    stem = "k8s-hpa-scaling" if report.platform == "kind" else "aks-hpa-scaling"
     paths = [
-        root / "docs/reference/benchmarks/k8s-hpa-scaling.json",
-        root / "docs/reference/benchmarks/k8s-hpa-scaling.md",
-        root / "frontend/src/data/k8s-hpa-scaling.json",
+        root / f"docs/reference/benchmarks/{stem}.json",
+        root / f"docs/reference/benchmarks/{stem}.md",
     ]
-    for path, content in zip(paths, (json_content, markdown, json_content), strict=True):
+    contents = [json_content, markdown]
+    if report.platform == "kind":
+        paths.append(root / "frontend/src/data/k8s-hpa-scaling.json")
+        contents.append(json_content)
+    for path, content in zip(paths, contents, strict=True):
         _atomic_write(path, content)
     return paths

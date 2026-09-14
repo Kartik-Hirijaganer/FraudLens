@@ -63,6 +63,20 @@ export function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
     alertId: "alert-1",
     version: 1,
     status: "draft",
+    qualityStatus: "evaluated",
+    modelInput: {
+      caseAlias: "case",
+      subjectAlias: "subject",
+      counterpartyAlias: "counterparty",
+      transaction: { amount: "12500.00", currency: "USD", country: "US" },
+      aggregates: [],
+      riskBand: "critical",
+      fraudProbability: 0.91,
+      ruleHits: [],
+      shapDrivers: [],
+      regulations: [{ citationId: "31 CFR 1020.320" }],
+      unknowns: [],
+    },
     content: "Suspicious structuring activity observed.",
     structured: {},
     citations: [
@@ -140,6 +154,7 @@ export function snapshot(overrides: Partial<InvestigationSnapshot> = {}): Invest
     citations: [
       { citation: "31 CFR 1020.320", title: "SAR filing", source: "FinCEN", snippet: "..." },
     ],
+    retrievedRegulations: [],
     sarStatus: "draft",
     sarDraftId: "sar-1",
     sarContent: "Suspicious structuring activity observed.",

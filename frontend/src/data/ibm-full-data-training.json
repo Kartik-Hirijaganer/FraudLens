@@ -1,0 +1,44 @@
+{
+  "applicationCandidate": "hi-medium",
+  "candidates": [
+    {
+      "baselinePrAuc": 0.13873810286961627,
+      "candidate": "hi-small",
+      "evaluationRows": 1010853,
+      "gatesPassed": false,
+      "prAuc": 0.26321904951332303,
+      "recallAtBudget": 0.7221603563474388,
+      "source": "ibm-aml",
+      "sourceRows": 5078345,
+      "trainingRows": 3032849,
+      "usableRows": 5054380
+    },
+    {
+      "baselinePrAuc": 0.06368211193660558,
+      "candidate": "hi-medium",
+      "evaluationRows": 6358506,
+      "gatesPassed": true,
+      "prAuc": 0.31959880877247315,
+      "recallAtBudget": 0.7789691497366441,
+      "source": "ibm-aml-hi-medium",
+      "sourceRows": 31898238,
+      "trainingRows": 19078362,
+      "usableRows": 31796234
+    },
+    {
+      "baselinePrAuc": 0.0015099815982804478,
+      "candidate": "li-medium",
+      "evaluationRows": 6231386,
+      "gatesPassed": false,
+      "prAuc": 0.08391154365349436,
+      "recallAtBudget": 0.5670457550912457,
+      "source": "ibm-aml-li-medium",
+      "sourceRows": 31251483,
+      "trainingRows": 18695899,
+      "usableRows": 31157276
+    }
+  ],
+  "provenance": "measured",
+  "reportSha256": "214f1fefdbbf71e1c5566328db1ddfe7d40737f8e322f509e7be81b429b70960",
+  "runId": "fulldata-b55c4ae63ed8bbae"
+}

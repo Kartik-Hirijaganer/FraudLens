@@ -1,0 +1,12 @@
+# Remote state for the next-release AKS apply. Copy to backend.tf only for an explicitly approved
+# plan/apply/destroy; free validation always initializes with -backend=false.
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "fraudlens-tfstate-rg"
+    storage_account_name = "fraudlenstfstate"
+    container_name       = "tfstate"
+    key                  = "aks-demo.terraform.tfstate"
+    use_azuread_auth     = true
+  }
+}

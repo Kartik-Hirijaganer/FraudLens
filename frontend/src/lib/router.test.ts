@@ -20,6 +20,9 @@ describe("parseHash", () => {
       name: "researchGraphTypologies",
     });
     expect(parseHash("#/research/multi-agent-sar")).toEqual({ name: "researchMultiAgentSar" });
+    expect(parseHash("#/research/inference-benchmark")).toEqual({
+      name: "researchInferenceBenchmark",
+    });
   });
 
   it("routes anything unrecognized to notFound", () => {
@@ -35,6 +38,7 @@ describe("paths", () => {
     expect(paths.alertDetail("a1")).toBe("#/alerts/a1");
     expect(paths.investigation("r1")).toBe("#/investigations/r1");
     expect(paths.researchMultiAgentSar).toBe("#/research/multi-agent-sar");
+    expect(paths.researchInferenceBenchmark).toBe("#/research/inference-benchmark");
   });
 });
 

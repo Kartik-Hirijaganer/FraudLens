@@ -68,8 +68,12 @@ class GatewayRuntimeFields(BaseModel):
         description="Relaxed CSP for the interactive docs UI; empty keeps the strict policy.",
     )
     docs_ui_paths: list[str] = Field(
-        default_factory=lambda: ["/docs", "/redoc"],
+        default_factory=lambda: ["/docs", "/redoc", "/scalar"],
         description="Interactive documentation paths that receive the relaxed CSP.",
+    )
+    scalar_js_url: str = Field(
+        default="",
+        description="Configured browser asset URL for the Scalar API reference runtime.",
     )
     gateway_routes_file: str | None = Field(
         default=None,

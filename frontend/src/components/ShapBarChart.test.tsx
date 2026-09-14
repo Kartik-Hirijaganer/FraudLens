@@ -18,7 +18,7 @@ describe("ShapBarChart", () => {
         ]}
       />,
     );
-    expect(screen.getByText("amount")).toBeInTheDocument();
+    expect(screen.getByText("Amount")).toBeInTheDocument();
     expect(screen.getByText("+0.300")).toBeInTheDocument();
     expect(screen.getByText("-0.100")).toBeInTheDocument();
     expect(container.querySelectorAll(".bg-negative")).toHaveLength(1);

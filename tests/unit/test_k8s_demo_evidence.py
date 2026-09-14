@@ -107,6 +107,20 @@ def test_valid_evidence_hashes_renders_and_publishes(tmp_path: Path) -> None:
     assert load_evidence(docs_json) == report
 
 
+def test_valid_aks_evidence_uses_non_kind_context_and_docs_only(tmp_path: Path) -> None:
+    cluster = ClusterFacts(
+        name="fraudlens-aks-demo-aks",
+        context="fraudlens-aks-demo-aks",
+        kubernetes_version="v1.32.8",
+        node_count=2,
+        architectures=["amd64"],
+    )
+    report = _report(platform="aks", cluster=cluster)
+    validate_evidence(report)
+    paths = publish_evidence(report, root=tmp_path)
+    assert [path.name for path in paths] == ["aks-hpa-scaling.json", "aks-hpa-scaling.md"]
+
+
 @pytest.mark.parametrize(
     "update",
     [

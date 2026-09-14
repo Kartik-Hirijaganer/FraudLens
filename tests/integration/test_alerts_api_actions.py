@@ -28,15 +28,20 @@ from fraudlens_backend.db.models import (
     AlertAction,
     AlertOrigin,
     AlertStatus,
+    AnalysisResult,
     AnalysisRun,
     AuditLog,
+    RagRetrieval,
     SarStatus,
     TrainingLabel,
+    Transaction,
+    TransactionSource,
     UserRole,
 )
 from fraudlens_backend.db.models.enums import AgentExecutionStatus, AgentRole
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.settings import AppSettings
+from fraudlens_core import RiskBand
 
 
 async def test_list_alerts_scoped_and_status_filter(
@@ -79,8 +84,33 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     )
     async with db_sessionmaker() as session:
         run = await session.get(AnalysisRun, ids["run_id"])
+        transaction = await session.get(Transaction, ids["transaction_id"])
+        transaction.source = TransactionSource.PORTFOLIO_DEMO
         run.workflow_mode = "multi_agent"
         run.graph_version = "agents-v1"
+        session.add(
+            AnalysisResult(
+                agency_id=DEMO_AGENCY_ID,
+                run_id=ids["run_id"],
+                fraud_probability=0.91,
+                shap_values={"amount_log": 0.4},
+                top_features=[{"feature": "amount_log", "value": 9.2, "shapValue": 0.4}],
+                rule_hits=[],
+                combined_score=0.82,
+                risk_band=RiskBand.HIGH,
+                model_version="v-test",
+            )
+        )
+        session.add(
+            RagRetrieval(
+                agency_id=DEMO_AGENCY_ID,
+                run_id=ids["run_id"],
+                query="synthetic case",
+                top_k=1,
+                chunks=[],
+                rag_version="rag-test",
+            )
+        )
         session.add(
             AgentExecution(
                 agency_id=DEMO_AGENCY_ID,
@@ -116,6 +146,10 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
     assert body["alert"]["assignedTo"] == str(_REVIEWER_ID)
     assert body["alert"]["assignedToName"] == "Demo Reviewer"
     assert body["sarDraft"]["citations"][0]["citation"] == "31 CFR 1010.314"
+    assert body["sarDraft"]["modelInput"]["caseAlias"] == "case-under-review"
+    assert body["sarDraft"]["modelInput"]["subjectAlias"] == "subject-account"
+    assert body["sarDraft"]["modelInput"]["fraudProbability"] == 0.91
+    assert str(ids["transaction_id"]) not in str(body["sarDraft"]["modelInput"])
     assert body["workflowMode"] == "multi_agent"
     assert body["graphVersion"] == "agents-v1"
     assert body["revisionCount"] == 0

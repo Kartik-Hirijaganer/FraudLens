@@ -177,9 +177,17 @@ class Kubectl:
         self.assert_mutation_allowed(platform=platform, confirmed=confirmed)
         self.run(["apply", "-f", "-"], input_text=manifest)
 
-    def wait_for(self, resource: str, condition: str, timeout_seconds: int) -> None:
-        """Wait for one namespaced resource condition on the guarded kind context."""
-        self.assert_mutation_allowed(platform="kind")
+    def wait_for(
+        self,
+        resource: str,
+        condition: str,
+        timeout_seconds: int,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> None:
+        """Wait for one namespaced resource condition on the guarded target context."""
+        self.assert_mutation_allowed(platform=platform, confirmed=confirmed)
         self.run(
             [
                 "-n",
@@ -228,9 +236,15 @@ class Kubectl:
             memory_limit=resources["limits"]["memory"],
         )
 
-    def delete_worker_pod(self, pod_name: str | None = None) -> str:
+    def delete_worker_pod(
+        self,
+        pod_name: str | None = None,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> str:
         """Delete the requested active worker pod and return its safe name."""
-        self.assert_mutation_allowed(platform="kind")
+        self.assert_mutation_allowed(platform=platform, confirmed=confirmed)
         pods = json.loads(
             self.run(
                 [
@@ -269,9 +283,15 @@ class Kubectl:
         )
         return str(names[0])
 
-    def kill_worker_process(self, pod_name: str) -> None:
+    def kill_worker_process(
+        self,
+        pod_name: str,
+        *,
+        platform: str = "kind",
+        confirmed: bool = False,
+    ) -> None:
         """SIGKILL the lease-owning worker and prove its container restarted."""
-        self.assert_mutation_allowed(platform="kind")
+        self.assert_mutation_allowed(platform=platform, confirmed=confirmed)
         restart_count = self._worker_restart_count(pod_name)
         self.run(
             [
@@ -293,6 +313,42 @@ class Kubectl:
                 return
             time.sleep(self.config.worker_claim_poll_seconds)
         raise CommandError("worker container did not restart after the durability SIGKILL")
+
+    def wait_for_worker_claim(self, *, platform: str, confirmed: bool) -> str:
+        """Return a live worker pod after its safe structured claim marker appears."""
+        self.assert_mutation_allowed(platform=platform, confirmed=confirmed)
+        deadline = time.monotonic() + self.config.worker_claim_timeout_seconds
+        while time.monotonic() < deadline:
+            result = self.run(
+                [
+                    "-n",
+                    self.config.namespace,
+                    "get",
+                    "pods",
+                    "-l",
+                    "app.kubernetes.io/component=worker",
+                    "-o",
+                    "json",
+                ],
+                check=False,
+            )
+            if result.returncode == 0:
+                document = json.loads(result.stdout)
+                names: list[str] = sorted(
+                    str(item["metadata"]["name"])
+                    for item in document.get("items", [])
+                    if not item["metadata"].get("deletionTimestamp")
+                    and item.get("status", {}).get("phase") == "Running"
+                )
+                for name in names:
+                    logs = self.run(
+                        ["-n", self.config.namespace, "logs", f"pod/{name}", "-c", "worker"],
+                        check=False,
+                    )
+                    if logs.returncode == 0 and "investigation.worker_claimed" in logs.stdout:
+                        return name
+            time.sleep(self.config.worker_claim_poll_seconds)
+        raise CommandError("worker did not emit a claim marker before the durability timeout")
 
     def _worker_restart_count(self, pod_name: str) -> int:
         """Read the worker container restart count from one exact pod."""

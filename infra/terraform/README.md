@@ -27,6 +27,7 @@ infra/terraform/
 │   ├── jobs/            # Container Apps Job (retrain cron + on-demand batch-score)
 │   ├── batch_vm/        # isolated CPU/GPU experiment VM + shutdown watchdogs
 │   ├── experiment_storage/ # OAuth-only private Blob + lifecycle + scoped RBAC
+│   ├── aks/             # Entra/OIDC AKS + Free control plane + bounded Spot user pool
 │   └── budget/          # RG-filtered subscription budget alerts
 ├── environments/{dev,prod}/                                # application roots
     ├── providers.tf            # azurerm ~> 4, use_oidc = true (no client secret)
@@ -36,9 +37,13 @@ infra/terraform/
     ├── <env>.tfvars            # NON-SECRET knobs (committed)
     ├── backend.tf.template     # remote-state config (rename to backend.tf when ready)
     └── .terraform.lock.hcl     # provider lock (committed for reproducibility)
-└── environments/data-batch/                             # ephemeral full-data CPU experiment
+├── environments/data-batch/                             # ephemeral full-data CPU experiment
     ├── data-batch.tfvars       # West US 3, E16ads v5 PAYG, $15/8-hour bounds
     ├── backend.tf.template     # isolated data-batch state key
+    └── providers/main/variables/outputs.tf
+└── environments/aks-demo/                               # validate-only in release 0.3
+    ├── aks-demo.tfvars       # Free/B2s + Spot D2as_v5 1–2; $15 bound
+    ├── backend.tf.template   # isolated next-release AKS state key
     └── providers/main/variables/outputs.tf
 ```
 
@@ -48,8 +53,8 @@ deploy flow) lives in [`docs/runbooks/azure-deploy.md`](../../docs/runbooks/azur
 ## CI validation (what runs today)
 
 ```
-make tf-validate # discovers dev, prod, and data-batch roots
-make iac-scan   # Checkov, with narrow documented exceptions
+make tf-validate # discovers dev, prod, data-batch, and aks-demo roots
+make iac-scan    # Checkov on both release experiment roots, with documented exceptions
 ```
 
 `-backend=false` skips backend init, so validation needs no Azure account or state storage.
@@ -62,6 +67,15 @@ identity, a resource-group-filtered $15 budget, and two independent eight-hour s
 `make data-batch-plan` is read-only; every create, upload, restart, and destroy target requires an
 explicit `CONFIRM=yes`. See the [data-batch runbook](../../docs/runbooks/data-batch.md) for the
 approval, pilot-admission, artifact, and clean-teardown sequence.
+
+## Ephemeral AKS demonstration
+
+`environments/aks-demo` composes an isolated VNet/subnet/NSG, the hardened AKS module, and an
+RG-filtered budget. `make aks-plan` is the release 0.3 boundary: it prints the compute-only hourly
+estimate and plans without refresh or apply. The actual cluster creation and measured AKS evidence
+are deferred to a separately approved next release. See the
+[AKS runbook](../../docs/runbooks/aks-deploy.md) and
+[ADR-021](../../docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md).
 
 ## State backend bootstrap (out-of-band, one time) — ✅ DONE 2026-09-13
 

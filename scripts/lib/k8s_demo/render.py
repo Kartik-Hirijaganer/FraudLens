@@ -14,6 +14,7 @@ Notes:
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -26,6 +27,7 @@ from lib.k8s_demo.config import REPO_ROOT, K8sDemoConfig, LoadConfig
 from lib.k8s_demo.kubectl import CommandRunner, Kubectl, run_command
 
 Platform = Literal["kind", "aks"]
+_IDENTITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class RenderedManifest(BaseModel):
@@ -80,11 +82,13 @@ def _render_tree(
     return result.stdout
 
 
-def render_overlay(
+def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command boundary injectable.
     config: K8sDemoConfig,
     platform: Platform,
     *,
     image: str | None = None,
+    infisical_identity_id: str | None = None,
+    azure_managed_identity_client_id: str | None = None,
     runner: CommandRunner = run_command,
     kubectl_binary: str | None = None,
 ) -> RenderedManifest:
@@ -97,6 +101,17 @@ def render_overlay(
         runner=runner,
         kubectl_binary=kubectl.binary,
     )
+    identities = (infisical_identity_id, azure_managed_identity_client_id)
+    if any(identities):
+        if platform != "aks" or not all(identities):
+            raise ValueError("AKS operator rendering requires both managed-identity values")
+        if not all(_IDENTITY_PATTERN.fullmatch(value or "") for value in identities):
+            raise ValueError("AKS operator identity values contain unsupported characters")
+        rendered = rendered.replace("replace-infisical-identity-id", infisical_identity_id or "")
+        rendered = rendered.replace(
+            "replace-azure-managed-identity-client-id",
+            azure_managed_identity_client_id or "",
+        )
     return RenderedManifest(platform=platform, image=selected_image, yaml_text=rendered)
 
 
@@ -134,18 +149,26 @@ def render_load_job(
     return result.stdout
 
 
-def deploy(
+def deploy(  # noqa: PLR0913 - explicit deploy inputs keep cloud identity replacement auditable.
     config: K8sDemoConfig,
     platform: Platform,
     *,
     image: str | None = None,
+    infisical_identity_id: str | None = None,
+    azure_managed_identity_client_id: str | None = None,
     confirmed: bool = False,
     runner: CommandRunner = run_command,
 ) -> None:
     """Apply an overlay; kind additionally waits for DB bootstrap, API, and worker readiness."""
     kubectl = Kubectl(config, runner=runner)
     manifest = render_overlay(
-        config, platform, image=image, runner=runner, kubectl_binary=kubectl.binary
+        config,
+        platform,
+        image=image,
+        infisical_identity_id=infisical_identity_id,
+        azure_managed_identity_client_id=azure_managed_identity_client_id,
+        runner=runner,
+        kubectl_binary=kubectl.binary,
     )
     if platform == "kind":
         kubectl.assert_mutation_allowed(platform="kind")
@@ -166,3 +189,16 @@ def deploy(
         kubectl.wait_for("job/fraudlens-bootstrap", "Complete", timeout)
         kubectl.wait_for("deployment/fraudlens-api", "Available", timeout)
         kubectl.wait_for("deployment/fraudlens-worker", "Available", timeout)
+    else:
+        for deployment_name in ("fraudlens-api", "fraudlens-worker"):
+            kubectl.run(
+                [
+                    "-n",
+                    config.namespace,
+                    "rollout",
+                    "status",
+                    f"deployment/{deployment_name}",
+                    f"--timeout={config.startup_timeout_seconds}s",
+                ],
+                timeout=config.startup_timeout_seconds + 10,
+            )

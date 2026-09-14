@@ -71,6 +71,11 @@ request:
   max_attempts: 2
   allowed_plain_http_hosts: [127.0.0.1, localhost, 10.0.0.4]
 
+application_pass:
+  base_url: http://127.0.0.1:18000
+  base_url_env: FRAUDLENS_E2E_BASE_URL
+  auth_token_env: FRAUDLENS_E2E_AUTH_TOKEN
+
 load:
   concurrency_levels: [1, 8, 32]
   warmup_requests: 10

@@ -36,6 +36,8 @@ Automatable (gate the exit code):
 - **Dependency-update gate** runs the same CI on `renovate/*` PR branches.
 - **Makefile** defines the umbrella gate targets (`ci`, `docs-check`, `tf-validate`,
   `docker-build`, `local-demo-smoke`, `local-release-check`).
+- **Release 0.3 research gates** validate full-data, vLLM, RunPod, Kubernetes manifests/evidence,
+  experiment budgets, attribution, IaC, and deterministic docs through the same Makefile.
 
 Human-owned (verified out of band — never auto-passed):
 
@@ -43,6 +45,8 @@ Human-owned (verified out of band — never auto-passed):
 - `make local-demo` boots the stack and prints the URL for browser UAT.
 - Full **browser UAT**, including model **retrain → promote → rollback**.
 - A human **approves the `v<version>` tag/push**.
+- Paid-experiment evidence is published only after the provider session is reconciled and teardown
+  is verified; STOP 3 approval is not implied by a green code gate.
 
 `make local-release-check` runs the automatable local release/UAT checks in one command:
 `make ci`, `make tf-validate`, `make docker-build`, `make local-demo-smoke`, then

@@ -5,6 +5,8 @@ current-plan row before admission, an allocation from
 [`config/experiments/budget.yaml`](../../../config/experiments/budget.yaml), and `yes` in
 **Teardown verified** after its ephemeral resources stop. Historical rows exist only so every
 published study run remains traceable; they do not consume the new plan's $75 ceiling.
+When a resource session produces an aggregate with a distinct logical run ID, **Evidence run IDs**
+binds that report to the session without recording or charging the same spend twice.
 
 Validate the resource sessions and published-report coverage with:
 
@@ -37,13 +39,18 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 
 ## Resource sessions
 
-| Date | Provider | SKU | Purchase option | Start (UTC) | Stop (UTC) | Hours | Quoted rate USD/hour | Projected cost USD | Actual cost USD | Run ID | Budget scope | Allocation | Teardown verified |
-| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
-| 2026-07-14 | local | developer workstation | owned | — | — | 0 | 0 | 0 | 0 | gfp-c41b1fbb266f44d4 | historical | historical | not-applicable |
-| 2026-08-17 | OpenRouter | multi-model SAR evaluation | metered API | — | — | 0 | 0 | 7.600000 | 5.486233 | sar-eval-e5c9a36b5f8a33f3 | historical | historical | not-applicable |
-| 2026-09-14 | Azure | Standard_E16ads_v5 | pay-as-you-go | 2026-09-14T01:49:31Z | — | 0 | 1.048000 | 3.235985 | — | data-batch-20260914-pilot1 | current-plan | azure_cpu_batch | no |
+| Date | Provider | SKU | Purchase option | Start (UTC) | Stop (UTC) | Hours | Quoted rate USD/hour | Projected cost USD | Actual cost USD | Run ID | Evidence run IDs | Budget scope | Allocation | Teardown verified |
+| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
+| 2026-07-14 | local | developer workstation | owned | — | — | 0 | 0 | 0 | 0 | gfp-c41b1fbb266f44d4 | — | historical | historical | not-applicable |
+| 2026-08-17 | OpenRouter | multi-model SAR evaluation | metered API | — | — | 0 | 0 | 7.600000 | 5.486233 | sar-eval-e5c9a36b5f8a33f3 | — | historical | historical | not-applicable |
+| 2026-09-14 | Azure | Standard_E16ads_v5 | pay-as-you-go | 2026-09-14T01:49:31Z | 2026-09-14T17:35:34Z | 9.955459 | 1.048000 | 3.235985 | — | data-batch-20260914-pilot1 | fulldata-b55c4ae63ed8bbae | current-plan | azure_cpu_batch | yes |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
 and stop timestamps use ISO 8601 UTC. A stopped current-plan resource without teardown verification
 fails the ledger gate.
+
+The Azure session's hours are the sum of two observed VM activity-log windows
+(01:50:06–09:57:27 and 15:45:35–17:35:34 UTC); the intervening deallocated period is excluded.
+At the quoted rate those windows estimate $10.43 of VM compute before Azure billing settles. The
+projected-cost field retains the pilot admission projection rather than substituting that estimate.

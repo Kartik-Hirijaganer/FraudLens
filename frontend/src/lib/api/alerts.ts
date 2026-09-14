@@ -22,6 +22,7 @@
  * - AlertListResponse:
  * - AlertActionView:
  * - SarDraftView:
+ * - SarModelInputView:
  * - AlertDetailResponse:
  * - AlertActionRequest:
  * - SarReviewRequest:
@@ -253,6 +254,8 @@ export interface SarDraftView {
   alertId: string | null;
   version: number;
   status: SarStatus;
+  qualityStatus: "evaluated" | "unevaluated";
+  modelInput: SarModelInputView | null;
   content: string;
   structured: Record<string, unknown>;
   citations: RegulationCitation[];
@@ -264,6 +267,20 @@ export interface SarDraftView {
   tokenUsage: Record<string, unknown>;
   costUsd: string;
   createdAt: string;
+}
+
+export interface SarModelInputView {
+  caseAlias: string;
+  subjectAlias: string;
+  counterpartyAlias: string;
+  transaction: Record<string, unknown>;
+  aggregates: Array<Record<string, unknown>>;
+  riskBand: string;
+  fraudProbability: number;
+  ruleHits: Array<Record<string, unknown>>;
+  shapDrivers: Array<Record<string, unknown>>;
+  regulations: Array<{ citationId?: string } & Record<string, unknown>>;
+  unknowns: string[];
 }
 
 export interface AlertDetailResponse {

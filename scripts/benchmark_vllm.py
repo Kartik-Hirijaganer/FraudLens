@@ -4,7 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
-- main: build cases, manage a local server, run/resume arms, report, publish, or validate.
+- main: build cases, manage a server, run/resume arms, prove the app path, report, or publish.
 
 Notes:
 - IBM full-profile case generation fails closed until Phase 6 application artifacts exist.
@@ -22,7 +22,10 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
+
+import httpx
 
 from lib.study import atomic_write_model, canonical_json, derive_run_id, sha256_hex
 from lib.vllm_bench.cases_fixture import build_fixture_cases
@@ -35,6 +38,7 @@ from lib.vllm_bench.config import (
     load_config,
     resolve_profile,
 )
+from lib.vllm_bench.e2e import run_e2e
 from lib.vllm_bench.load import run_arm
 from lib.vllm_bench.publish import publish_report, validate_published_artifacts
 from lib.vllm_bench.report import build_report, load_report, write_report
@@ -92,6 +96,12 @@ def _parser() -> argparse.ArgumentParser:
                 "--purchase-option", choices=("spot", "pay_as_you_go"), required=True
             )
     commands.add_parser("stop")
+
+    e2e = commands.add_parser("e2e")
+    e2e.add_argument("--cases", type=int, default=100)
+    e2e.add_argument("--concurrency", type=int, default=4)
+    e2e.add_argument("--run")
+    e2e.add_argument("--model-override")
 
     report = commands.add_parser("report")
     report.add_argument("--run", required=True)
@@ -253,6 +263,42 @@ def _report(config: VllmBenchConfig, run_id: str, case_path: Path) -> None:
     print(f"vllm-bench report OK: {run_dir / 'report.json'}")
 
 
+def _e2e(args: argparse.Namespace, config: VllmBenchConfig) -> None:
+    """Run the functional application pass against the configured local gateway."""
+    from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config  # noqa: PLC0415
+    from lib.study.urls import validate_origin_url  # noqa: PLC0415
+
+    sar_eval = load_sar_eval_config(DEFAULT_SAR_EVAL_CONFIG)
+    base_url = validate_origin_url(
+        os.environ.get(config.application_pass.base_url_env, config.application_pass.base_url),
+        allow_http_hosts=sar_eval.api.loopback_http_hosts,
+    )
+    token = os.environ.get(config.application_pass.auth_token_env, "").strip()
+    headers = {"Authorization": f"Bearer {token}"} if token else None
+    started = datetime.now(UTC)
+    run_id = args.run or derive_run_id(
+        "vllm-e2e", f"{started.isoformat()}:{args.cases}:{args.concurrency}"
+    )
+    output_path = REPO_ROOT / config.paths.output_dir / run_id / "e2e.json"
+    with httpx.Client(base_url=base_url, headers=headers, timeout=sar_eval.api.timeout_s) as client:
+        result = run_e2e(
+            client=client,
+            config=sar_eval,
+            config_bytes=DEFAULT_SAR_EVAL_CONFIG.read_bytes(),
+            run_id=run_id,
+            cases=args.cases,
+            concurrency=args.concurrency,
+            output_path=output_path,
+            model_override=args.model_override,
+        )
+    print(
+        f"vllm-bench e2e: {result.runs_completed}/{result.requested_cases} completed "
+        f"through {result.llm_provider}; functional-only evidence -> {output_path}"
+    )
+    if result.runs_failed:
+        raise RuntimeError("vLLM application pass retained failed-case evidence")
+
+
 def _validate(config: VllmBenchConfig) -> None:
     """Regenerate smoke fixtures and verify protocol, fairness, and optional publications."""
     first = build_fixture_cases(config, profile="smoke", repo_root=REPO_ROOT)
@@ -309,6 +355,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         stop(config, repo_root=REPO_ROOT)
     elif args.command == "run":
         asyncio.run(_run(args, config))
+    elif args.command == "e2e":
+        _e2e(args, config)
     elif args.command == "report":
         _report(config, args.run, args.cases)
     elif args.command == "publish":

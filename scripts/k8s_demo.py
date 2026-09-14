@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 import time
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
@@ -34,28 +34,26 @@ from lib.k8s_demo.config import (
     load_config_from_env,
 )
 from lib.k8s_demo.evidence import (
-    ClusterFacts,
     DurabilityEvidence,
     HpaEvidenceReport,
-    HpaSpecSnapshot,
     ScalingSample,
-    ScalingSummary,
-    WorkloadSnapshot,
-    config_sha256,
     load_evidence,
     validate_evidence,
 )
 from lib.k8s_demo.fault import hold_transaction_reads
 from lib.k8s_demo.kind import KindOperator
 from lib.k8s_demo.kubectl import CommandError, Kubectl, resolve_tool, run_command
+from lib.k8s_demo.live_report import build_live_report
 from lib.k8s_demo.load import SUBMITTED_PREFIX, LoadSummary, run_load, summary_from_logs
-from lib.k8s_demo.render import deploy, render_load_job, render_overlay
+from lib.k8s_demo.render import Platform, deploy, render_load_job, render_overlay
 from lib.k8s_demo.report import publish_evidence, render_markdown
 from lib.k8s_demo.secrets import sync_secrets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_PATH = REPO_ROOT / "docs/reference/benchmarks/k8s-hpa-scaling.json"
 _HTTP_OK = 200
+
+__all__ = ["build_parser", "main"]
 
 
 def _tools_check(config: K8sDemoConfig) -> None:
@@ -77,10 +75,10 @@ def _tools_check(config: K8sDemoConfig) -> None:
         raise CommandError("kubeconform version does not match config/k8s-demo.yaml")
 
 
-def _smoke(config: K8sDemoConfig) -> None:
-    """Port-forward the guarded kind Service and require both operational probes to return 200."""
+def _smoke(config: K8sDemoConfig, *, platform: str = "kind", confirmed: bool = False) -> None:
+    """Port-forward a guarded Service and require both operational probes to return 200."""
     kubectl = Kubectl(config)
-    kubectl.assert_mutation_allowed(platform="kind")
+    kubectl.assert_mutation_allowed(platform=platform, confirmed=confirmed)
     base_url = f"{str(config.smoke_base_url).rstrip('/')}:{config.local_port}"
     process = subprocess.Popen(
         [
@@ -109,7 +107,7 @@ def _smoke(config: K8sDemoConfig) -> None:
             if pending:
                 time.sleep(1)
         if pending:
-            raise CommandError("kind smoke probes did not become ready")
+            raise CommandError(f"{platform} smoke probes did not become ready")
         environment = os.environ.copy()
         environment["SMOKE_BASE_URL"] = base_url
         completed = subprocess.run(
@@ -145,9 +143,15 @@ def _job_logs(kubectl: Kubectl, *, check: bool = True) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
-def _start_load_job(kubectl: Kubectl, manifest: str) -> None:
+def _start_load_job(
+    kubectl: Kubectl,
+    manifest: str,
+    *,
+    platform: Platform = "kind",
+    confirmed: bool = False,
+) -> None:
     """Replace the prior load Job and apply one freshly rendered in-memory manifest."""
-    kubectl.assert_mutation_allowed(platform="kind")
+    kubectl.assert_mutation_allowed(platform=platform, confirmed=confirmed)
     kubectl.run(
         [
             "-n",
@@ -158,7 +162,7 @@ def _start_load_job(kubectl: Kubectl, manifest: str) -> None:
             "--ignore-not-found=true",
         ]
     )
-    kubectl.apply(manifest, platform="kind")
+    kubectl.apply(manifest, platform=platform, confirmed=confirmed)
 
 
 def _sample(kubectl: Kubectl, started: float) -> ScalingSample:
@@ -173,7 +177,11 @@ def _sample(kubectl: Kubectl, started: float) -> ScalingSample:
 
 
 def _run_scaling(
-    config: K8sDemoConfig, kubectl: Kubectl
+    config: K8sDemoConfig,
+    kubectl: Kubectl,
+    *,
+    platform: Platform = "kind",
+    confirmed: bool = False,
 ) -> tuple[list[ScalingSample], LoadSummary, int]:
     """Run health load while sampling through full scale-out and back to minimum."""
     hpa = json.loads(kubectl.get_json("hpa/fraudlens-api"))["spec"]
@@ -185,7 +193,7 @@ def _run_scaling(
     samples = [_sample(kubectl, started)]
     if samples[0].replicas != minimum:
         raise CommandError("HPA proof must begin at its configured minimum replicas")
-    _start_load_job(kubectl, manifest)
+    _start_load_job(kubectl, manifest, platform=platform, confirmed=confirmed)
     reached_max = False
     load_finished_at: float | None = None
     while True:
@@ -209,8 +217,15 @@ def _run_scaling(
     return samples, summary, round(load_finished_at - started)
 
 
-def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEvidence:
+def _run_durability(
+    config: K8sDemoConfig,
+    kubectl: Kubectl,
+    *,
+    platform: Platform = "kind",
+    confirmed: bool = False,
+) -> DurabilityEvidence:
     """Queue work with zero workers, start one, force-delete it, and require full recovery."""
+    kubectl.assert_mutation_allowed(platform=platform, confirmed=confirmed)
     kubectl.run(["-n", config.namespace, "scale", "deployment/fraudlens-worker", "--replicas=0"])
     kubectl.run(
         [
@@ -229,7 +244,12 @@ def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEviden
             "duration_seconds": config.durability_timeout_seconds,
         }
     )
-    _start_load_job(kubectl, render_load_job(config, durable_load))
+    _start_load_job(
+        kubectl,
+        render_load_job(config, durable_load),
+        platform=platform,
+        confirmed=confirmed,
+    )
     deadline = time.monotonic() + config.startup_timeout_seconds
     submitted = 0
     while time.monotonic() < deadline:
@@ -241,13 +261,26 @@ def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEviden
         time.sleep(1)
     if submitted != durable_load.cases:
         raise CommandError("durability Job did not submit every configured run")
-    with hold_transaction_reads(config, kubectl):
+    barrier = hold_transaction_reads(config, kubectl) if platform == "kind" else nullcontext()
+    with barrier:
         kubectl.run(
             ["-n", config.namespace, "scale", "deployment/fraudlens-worker", "--replicas=1"]
         )
-        claimed_worker = _wait_for_active_claim(config, kubectl)
-        kubectl.kill_worker_process(claimed_worker)
-        deleted_pod = kubectl.delete_worker_pod(claimed_worker)
+        if platform == "kind":
+            claimed_worker = _wait_for_active_claim(config, kubectl)
+        else:
+            kubectl.wait_for(
+                "deployment/fraudlens-worker",
+                "Available",
+                config.startup_timeout_seconds,
+                platform=platform,
+                confirmed=confirmed,
+            )
+            claimed_worker = kubectl.wait_for_worker_claim(platform=platform, confirmed=confirmed)
+        kubectl.kill_worker_process(claimed_worker, platform=platform, confirmed=confirmed)
+        deleted_pod = kubectl.delete_worker_pod(
+            claimed_worker, platform=platform, confirmed=confirmed
+        )
         kubectl.run(
             [
                 "-n",
@@ -259,8 +292,20 @@ def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEviden
             ],
             check=False,
         )
-    kubectl.wait_for("deployment/fraudlens-worker", "Available", config.startup_timeout_seconds)
-    kubectl.wait_for("job/fraudlens-load", "Complete", config.durability_timeout_seconds)
+    kubectl.wait_for(
+        "deployment/fraudlens-worker",
+        "Available",
+        config.startup_timeout_seconds,
+        platform=platform,
+        confirmed=confirmed,
+    )
+    kubectl.wait_for(
+        "job/fraudlens-load",
+        "Complete",
+        config.durability_timeout_seconds,
+        platform=platform,
+        confirmed=confirmed,
+    )
     summary = summary_from_logs(_job_logs(kubectl))
     return DurabilityEvidence(
         worker_pod_deleted=True,
@@ -306,90 +351,44 @@ def _wait_for_active_claim(config: K8sDemoConfig, kubectl: Kubectl) -> str:
     raise CommandError("worker did not acquire a running lease before the durability timeout")
 
 
-def _live_report(
+def _live_report(  # noqa: PLR0913 - the report binds every measured proof component explicitly.
     config: K8sDemoConfig,
     samples: list[ScalingSample],
     load: LoadSummary,
     load_finished_seconds: int,
     durability: DurabilityEvidence,
+    *,
+    platform: Platform = "kind",
 ) -> HpaEvidenceReport:
     """Read live cluster/HPA/workload facts and assemble the immutable evidence envelope."""
-    kubectl = Kubectl(config)
-    version = json.loads(kubectl.run(["version", "-o", "json"]).stdout)
-    nodes = json.loads(kubectl.run(["get", "nodes", "-o", "json"]).stdout)
-    hpa_document = json.loads(kubectl.get_json("hpa/fraudlens-api"))
-    spec = hpa_document["spec"]
-    cpu_metric = next(item for item in spec["metrics"] if item["resource"]["name"] == "cpu")
-    workload = kubectl.deployment_observation()
-    minimum = spec["minReplicas"]
-    maximum = spec["maxReplicas"]
-    first_up = next(
-        (sample.elapsed_seconds for sample in samples if sample.replicas > minimum), None
-    )
-    first_max = next(
-        (sample.elapsed_seconds for sample in samples if sample.replicas >= maximum), None
-    )
-    scale_back = next(
-        (
-            sample.elapsed_seconds - load_finished_seconds
-            for sample in samples
-            if sample.elapsed_seconds >= load_finished_seconds and sample.replicas <= minimum
-        ),
-        None,
-    )
-    commit = run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
-    return HpaEvidenceReport(
-        schema_version="1.0",
+    return build_live_report(
+        config,
+        samples,
+        load,
+        load_finished_seconds,
+        durability,
+        platform=platform,
         generated_at=datetime.now(UTC),
-        platform="kind",
-        commit=commit,
-        config_sha256=config_sha256(DEFAULT_CONFIG_PATH.read_bytes()),
-        cluster=ClusterFacts(
-            name=config.cluster_name,
-            context=kubectl.current_context(),
-            kubernetes_version=version["serverVersion"]["gitVersion"],
-            node_count=len(nodes["items"]),
-            architectures=sorted(
-                {item["status"]["nodeInfo"]["architecture"] for item in nodes["items"]}
-            ),
-        ),
-        hpa=HpaSpecSnapshot(
-            target=f"{spec['scaleTargetRef']['kind']}/{spec['scaleTargetRef']['name']}",
-            min_replicas=minimum,
-            max_replicas=maximum,
-            cpu_target_percent=cpu_metric["resource"]["target"]["averageUtilization"],
-            scale_down_stabilization_seconds=spec["behavior"]["scaleDown"][
-                "stabilizationWindowSeconds"
-            ],
-        ),
-        workload=WorkloadSnapshot(**workload.model_dump()),
-        load=load,
-        samples=samples,
-        summary=ScalingSummary(
-            replicas_min_observed=min(sample.replicas for sample in samples),
-            replicas_max_observed=max(sample.replicas for sample in samples),
-            seconds_to_first_scale_up=first_up,
-            seconds_to_max_replicas=first_max,
-            seconds_to_scale_back_to_min=scale_back,
-        ),
-        durability=durability,
-        disclosures=[
-            "kind uses kindnet, which does not enforce NetworkPolicy; enforcement is structural "
-            "here and runs through Cilium on AKS.",
-            "The durability pass uses synthetic transactions and the keyless mock SAR provider; "
-            "it measures recovery, not production model latency.",
-            "This is a zero-cost local execution. No Azure or RunPod resources were created.",
-        ],
+        config_path=DEFAULT_CONFIG_PATH,
+        kubectl_factory=Kubectl,
+        command_runner=run_command,
     )
 
 
-def _hpa_demo(config: K8sDemoConfig) -> HpaEvidenceReport:
+def _hpa_demo(
+    config: K8sDemoConfig,
+    *,
+    platform: Platform = "kind",
+    confirmed: bool = False,
+) -> HpaEvidenceReport:
     """Execute scaling and worker-kill proofs, publish evidence, and return the report."""
     kubectl = Kubectl(config)
-    kubectl.assert_mutation_allowed(platform="kind")
-    samples, load, load_finished = _run_scaling(config, kubectl)
-    durability = _run_durability(config, kubectl)
-    report = _live_report(config, samples, load, load_finished, durability)
+    kubectl.assert_mutation_allowed(platform=platform, confirmed=confirmed)
+    samples, load, load_finished = _run_scaling(
+        config, kubectl, platform=platform, confirmed=confirmed
+    )
+    durability = _run_durability(config, kubectl, platform=platform, confirmed=confirmed)
+    report = _live_report(config, samples, load, load_finished, durability, platform=platform)
     publish_evidence(report, root=REPO_ROOT)
     return report
 
@@ -404,11 +403,15 @@ def build_parser() -> argparse.ArgumentParser:
         "kind-up",
         "kind-down",
         "kind-load",
-        "smoke",
         "verify-clean",
-        "hpa-demo",
     ):
         subparsers.add_parser(command)
+    smoke_parser = subparsers.add_parser("smoke")
+    smoke_parser.add_argument("--platform", choices=("kind", "aks"), default="kind")
+    smoke_parser.add_argument("--confirm-aks", action="store_true")
+    hpa_parser = subparsers.add_parser("hpa-demo")
+    hpa_parser.add_argument("--platform", choices=("kind", "aks"), default="kind")
+    hpa_parser.add_argument("--confirm-aks", action="store_true")
     render_parser = subparsers.add_parser("render")
     render_parser.add_argument("--platform", choices=("kind", "aks"), required=True)
     render_parser.add_argument("--image")
@@ -417,6 +420,8 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_parser.add_argument("--platform", choices=("kind", "aks"), required=True)
     deploy_parser.add_argument("--image")
     deploy_parser.add_argument("--confirm-aks", action="store_true")
+    deploy_parser.add_argument("--infisical-identity-id")
+    deploy_parser.add_argument("--azure-managed-identity-client-id")
     subparsers.add_parser("load-in-cluster")
     validate_parser = subparsers.add_parser("evidence-validate")
     validate_parser.add_argument("--path", type=Path, default=EVIDENCE_PATH)
@@ -450,15 +455,17 @@ def _dispatch(args: argparse.Namespace, config: K8sDemoConfig) -> None:
             config,
             args.platform,
             image=args.image,
+            infisical_identity_id=args.infisical_identity_id,
+            azure_managed_identity_client_id=args.azure_managed_identity_client_id,
             confirmed=args.confirm_aks,
         )
     elif args.command == "smoke":
-        _smoke(config)
+        _smoke(config, platform=args.platform, confirmed=args.confirm_aks)
     elif args.command == "load-in-cluster":
         summary = run_load(load_config_from_env())
         print(f"K8S_DEMO_SUMMARY={summary.model_dump_json()}", flush=True)
     elif args.command == "hpa-demo":
-        report = _hpa_demo(config)
+        report = _hpa_demo(config, platform=args.platform, confirmed=args.confirm_aks)
         print(render_markdown(report))
     elif args.command == "evidence-validate":
         report = load_evidence(args.path.read_text(encoding="utf-8"))

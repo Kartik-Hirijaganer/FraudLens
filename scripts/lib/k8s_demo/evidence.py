@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -126,7 +127,7 @@ class HpaEvidenceReport(BaseModel):
 
     schema_version: str = Field(..., description="Evidence schema revision.")
     generated_at: datetime = Field(..., description="UTC evidence generation timestamp.")
-    platform: str = Field(..., description="Execution platform; expected to be kind.")
+    platform: Literal["kind", "aks"] = Field(..., description="Measured Kubernetes platform.")
     commit: str = Field(..., pattern=r"^[0-9a-f]{40}$", description="Measured git commit.")
     config_sha256: str = Field(
         ..., pattern=r"^[0-9a-f]{64}$", description="Hash of config/k8s-demo.yaml."
@@ -155,10 +156,12 @@ def config_sha256(content: bytes) -> str:
 def validate_evidence(report: HpaEvidenceReport) -> None:
     """Fail unless the report proves full HPA scale-out/convergence and zero lost runs."""
     failures: list[str] = []
-    if report.platform != "kind":
-        failures.append("platform is not kind")
-    if report.cluster.context != f"kind-{report.cluster.name}":
+    if report.platform == "kind" and report.cluster.context != f"kind-{report.cluster.name}":
         failures.append("cluster context does not match its kind name")
+    if report.platform == "aks" and (
+        not report.cluster.context or report.cluster.context.startswith("kind-")
+    ):
+        failures.append("AKS evidence does not identify a non-kind context")
     if report.summary.replicas_min_observed != report.hpa.min_replicas:
         failures.append("minimum replicas were not observed")
     if report.summary.replicas_max_observed < report.hpa.max_replicas:

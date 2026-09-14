@@ -1,5 +1,6 @@
 directory:
   - infra/terraform/environments/data-batch
+  - infra/terraform/environments/aks-demo
 framework:
   - terraform
 # These Kubernetes policies are verified through narrower rendered-manifest tests or are deliberate
@@ -11,6 +12,28 @@ skip-check:
   - CKV_K8S_35
   - CKV_K8S_38
   - CKV_K8S_43
+  # The AKS root declares an optional ACR with count=0 and deploys SHA images from GHCR. Checkov
+  # expands the disabled module and reports Premium-only ACR controls against its Basic defaults.
+  - CKV_AZURE_139
+  - CKV_AZURE_163
+  - CKV_AZURE_164
+  - CKV_AZURE_165
+  - CKV_AZURE_166
+  - CKV_AZURE_167
+  - CKV_AZURE_233
+  - CKV_AZURE_237
+  # This short-lived, synthetic-data demonstration deliberately uses the Free control plane, a
+  # CIDR-restricted public API, platform-managed encryption, and Infisical rather than CSI secrets.
+  - CKV_AZURE_115
+  - CKV_AZURE_117
+  - CKV_AZURE_170
+  - CKV_AZURE_172
+  - CKV_AZURE_226
+  - CKV_AZURE_227
+  # The API ranges are operator-supplied and fail closed through a Terraform precondition; static
+  # analysis cannot resolve TF_VAR_authorized_ip_ranges. The disabled apps subnet is also expanded.
+  - CKV_AZURE_6
+  - CKV2_AZURE_31
 compact: true
 quiet: true
 download-external-modules: false

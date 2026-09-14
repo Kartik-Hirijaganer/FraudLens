@@ -89,7 +89,7 @@ describe("Investigation wizard", () => {
     expect(screen.getByText("Auto-run complete")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /continue to drivers/i }));
-    expect(screen.getByText("amount_zscore")).toBeInTheDocument();
+    expect(screen.getByText("Amount zscore")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /continue to citations/i }));
     expect(screen.getByText("SAR filing")).toBeInTheDocument();

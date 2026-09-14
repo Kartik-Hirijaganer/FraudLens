@@ -44,8 +44,8 @@ Use these paths:
 | `/ci/supabase` | `prod` | Future Supabase automation | Add only when a workflow consumes it |
 | `/mcp/context7` | `prod` | Local agent/CLI workflows that need Context7 docs access | `CONTEXT7_API_KEY` |
 | `/mcp/statsig` | `prod` | Local agent/CLI workflows that need Statsig credentials | Add only if a local Statsig API key is required outside the installed connector |
-| `/llm` | `prod` | LLM provider credentials | `OPENROUTER_API_KEY` |
-| `/ml` | `prod` | Offline real-dataset fetch and training | `KAGGLE_API_TOKEN` |
+| `/llm` | `prod` | Application LLM provider credentials | `OPENROUTER_API_KEY` |
+| `/ml` | `prod` | Offline data and approved GPU experiments | `KAGGLE_API_TOKEN`, restricted `RUNPOD_API_KEY`, ephemeral `VLLM_API_KEY` |
 
 Do not store frontend runtime secrets. Any `VITE_*` value bundled into the SPA is public.
 
@@ -92,9 +92,15 @@ value only in Infisical `prod` at `/llm`:
 | Key | Used by provider |
 | --- | --- |
 | `OPENROUTER_API_KEY` | `openrouter` |
+| `VLLM_API_KEY` | Approved temporary self-hosted vLLM session only |
 
 Run LLM commands through `infisical run --env=prod --path=/llm -- <command>`. Do not copy
 provider keys into `.env`, YAML, fixtures, test output, logs, or GitHub Secrets.
+
+The RunPod operator consumes both `RUNPOD_API_KEY` and the random per-session `VLLM_API_KEY` from
+`prod` → `/ml`. Grant the RunPod token only the Pod/volume permissions needed by the operator,
+disable automatic top-ups, rotate it after the experiment, and remove the ephemeral vLLM token
+after verified teardown. The ledger records that setup was verified, never either secret value.
 
 ## Supabase Runtime Secrets
 
@@ -159,6 +165,15 @@ When the backend needs real runtime secrets:
 Do not pass application secrets as Terraform variables. Terraform may receive only
 non-secret identifiers such as subscription id, tenant id, client id, project slug, and
 identity id.
+
+### AKS workload identity
+
+For the separately approved AKS demonstration, create an Infisical identity named
+`azure-aks-demo` and configure Azure Auth for the AKS kubelet managed identity. Set only its
+non-secret identity identifier as `INFISICAL_AKS_IDENTITY_ID`; grant read-only access to `prod`
+paths `/backend` and `/llm`. The namespaced `InfisicalSecret` resources explicitly project only the
+backend database/auth names and `OPENROUTER_API_KEY` into Kubernetes Secrets. They never copy
+`RUNPOD_API_KEY`, `VLLM_API_KEY`, or all recursive values into the workload.
 
 ## Readiness verifies the injection
 

@@ -15,7 +15,9 @@ from __future__ import annotations
 import argparse
 import gzip
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from vllm_bench_fakes import HASH, benchmark_case, complete_benchmark, server
@@ -25,7 +27,7 @@ from lib.vllm_bench.config import load_config
 from lib.vllm_bench.state import CaseArtifact, write_case_bundle, write_run
 
 
-def test_main_dispatches_validate_cases_serve_stop_and_report(monkeypatch) -> None:
+def test_main_dispatches_validate_cases_serve_stop_e2e_and_report(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(benchmark_vllm, "load_config", lambda _path: load_config())
     monkeypatch.setattr(benchmark_vllm, "_validate", lambda _config: calls.append("validate"))
@@ -49,10 +51,16 @@ def test_main_dispatches_validate_cases_serve_stop_and_report(monkeypatch) -> No
         "_report",
         lambda _config, run_id, path: calls.append((run_id, path.name)),
     )
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "_e2e",
+        lambda args, _config: calls.append(("e2e", args.cases, args.concurrency)),
+    )
     assert benchmark_vllm.main(["validate"]) == 0
     assert benchmark_vllm.main(["cases", "--profile", "smoke", "--source", "sar-eval"]) == 0
     assert benchmark_vllm.main(["serve", "--arm", "bf16"]) == 0
     assert benchmark_vllm.main(["stop"]) == 0
+    assert benchmark_vllm.main(["e2e", "--cases", "100", "--concurrency", "4"]) == 0
     assert (
         benchmark_vllm.main(
             ["report", "--run", "vllm-bench-0123456789abcdef", "--cases", "cases.json"]
@@ -61,7 +69,53 @@ def test_main_dispatches_validate_cases_serve_stop_and_report(monkeypatch) -> No
     )
     assert calls[0] == "validate"
     assert ("smoke", "sar-eval") in calls
+    assert ("e2e", 100, 4) in calls
     assert "bf16" in calls and "stop" in calls
+
+
+def test_e2e_uses_configured_environment_indirection(sandbox, monkeypatch) -> None:
+    config = load_config()
+    client = object()
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
+    monkeypatch.setenv(config.application_pass.base_url_env, "https://fraudlens.invalid")
+    monkeypatch.setenv(config.application_pass.auth_token_env, "synthetic-token")
+    monkeypatch.setattr(
+        benchmark_vllm.httpx,
+        "Client",
+        lambda **kwargs: calls.update(http=kwargs) or nullcontext(client),
+    )
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "run_e2e",
+        lambda **kwargs: (
+            calls.update(e2e=kwargs)
+            or SimpleNamespace(
+                runs_completed=1,
+                requested_cases=1,
+                llm_provider="vllm",
+                runs_failed=0,
+            )
+        ),
+    )
+
+    benchmark_vllm._e2e(
+        argparse.Namespace(
+            run="vllm-e2e-0123456789abcdef",
+            cases=1,
+            concurrency=1,
+            model_override=None,
+        ),
+        config,
+    )
+
+    assert config.application_pass.base_url == "http://127.0.0.1:18000"
+    assert calls["http"] == {
+        "base_url": "https://fraudlens.invalid",
+        "headers": {"Authorization": "Bearer synthetic-token"},
+        "timeout": 30.0,
+    }
+    assert calls["e2e"]["client"] is client  # type: ignore[index]
 
 
 @pytest.mark.asyncio

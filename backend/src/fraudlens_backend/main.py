@@ -31,9 +31,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.responses import HTMLResponse
 
 from fraudlens_backend import __version__
 from fraudlens_backend.api import ops
+from fraudlens_backend.api.docs import scalar_api_reference
 from fraudlens_backend.api.errors import register_exception_handlers
 from fraudlens_backend.api.v1.router import api_router
 from fraudlens_backend.db.session import (
@@ -107,6 +109,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     register_exception_handlers(app)
     install_gateway(app, resolved)
+
+    @app.get("/scalar", include_in_schema=False)
+    async def scalar_docs() -> HTMLResponse:
+        """Serve the configured Scalar API reference without telemetry or persisted auth."""
+        return scalar_api_reference(app, resolved)
+
     app.include_router(ops.router)
     app.include_router(api_router, prefix=resolved.api_v1_prefix)
     return app
