@@ -25,12 +25,15 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | Azure quota | westus3 | Total regional low-priority/Spot vCPUs | 2026-09-14 read | — | current limit 3; insufficient for E16ads v5 |
 | Azure quota | westus3 | Standard NCADS_A100_v4 Family vCPUs = 24 | 2026-09-14 read | — | current limit 0; request pending |
 | Azure quota | westus3 | Standard NVADSA10v5 Family vCPUs = 36 | 2026-09-14 read | — | current limit 0; request pending |
+| Azure quota | westus3 | Standard NCads H100 v5 Family vCPUs = 40 | 2026-09-14 assessment | — | request was 24; insufficient even if approved; capacity pending |
+| Azure quota | westus3 | Standard NVads V710 v5 Family | 2026-09-14 assessment | — | unsupported in region and AMD GPU is incompatible with frozen `awq_marlin` protocol; abandon |
 | CPU purchase path | westus3 | Standard_E16ads_v5 pay-as-you-go | 2026-09-14 | — | selected; does not depend on Spot quota |
+| GPU provider gate | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 on-demand | 2026-09-14 | user decision | selected as Phase 11 default; Azure A100/A10 opportunistic only |
+| RunPod account control | prod /ml | Restricted `RUNPOD_API_KEY`; auto top-ups disabled | — | — | pending owner setup; secret value is never recorded here |
 | Infisical secret creation | prod /ml | VLLM_API_KEY (random 32-byte value; never record it here) | 2026-09-13 read | — | not verified; suppressed CLI lookup returned non-zero |
 | Dataset checksum | local `.local/aml_data` | HI-Small_Trans.csv | 2026-09-13 | `b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040` | verified; copy into `config/fulldata.yaml` in Phase 5 |
 | Dataset checksum | local `.local/aml_data` | HI-Medium_Trans.csv | 2026-09-13 | `3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5` | verified; copy into `config/fulldata.yaml` in Phase 5 |
 | Dataset checksum | local `.local/aml_data` | LI-Medium_Trans.csv | 2026-09-13 | `0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910` | verified; copy into `config/fulldata.yaml` in Phase 5 |
-| GPU fallback account | RunPod | Create only if the fallback gate is triggered | — | — | not triggered |
 
 ## Resource sessions
 

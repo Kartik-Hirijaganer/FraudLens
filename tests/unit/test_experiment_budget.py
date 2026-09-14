@@ -32,13 +32,17 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     assert config.admission_margin == Decimal("0.30")
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "azure_gpu_benchmark": Decimal("25.00"),
+        "gpu_benchmark": Decimal("25.00"),
         "e2e_application_pass": Decimal("5.00"),
         "supporting_resources": Decimal("5.00"),
         "reserve": Decimal("25.00"),
     }
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
     assert config.rates["azure_nc24ads_a100_v4_spot"].hourly_rate_usd == Decimal("0.678770")
+    runpod_quote = config.rates["runpod_rtx4090_secure_payg"]
+    assert runpod_quote.provider == "runpod"
+    assert runpod_quote.region == "secure-cloud"
+    assert runpod_quote.hourly_rate_usd == Decimal("0.740000")
     cpu_quotes = {
         "azure_e16ads_v5_payg",
         "azure_e16ads_v5_spot",
@@ -47,13 +51,16 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     }
     assert config.rates["azure_e16ads_v5_payg"].hourly_rate_usd == Decimal("1.048000")
     assert config.rates["azure_e16ads_v5_spot"].hourly_rate_usd == Decimal("0.193670")
-    for quote in config.rates.values():
-        assert quote.provider == "azure"
-        assert str(quote.price_source_url).startswith("https://prices.azure.com/")
+    for key, quote in config.rates.items():
+        if key == "runpod_rtx4090_secure_payg":
+            assert str(quote.price_source_url) == "https://www.runpod.io/pricing"
+        else:
+            assert quote.provider == "azure"
+            assert str(quote.price_source_url).startswith("https://prices.azure.com/")
     for key in cpu_quotes:
         assert config.rates[key].region == "westus3"
         assert config.rates[key].price_verified_at == date(2026, 9, 14)
-    for key in set(config.rates) - cpu_quotes:
+    for key in set(config.rates) - cpu_quotes - {"runpod_rtx4090_secure_payg"}:
         assert config.rates[key].region == "eastus"
         assert config.rates[key].price_verified_at == date(2026, 9, 13)
 

@@ -34,8 +34,7 @@ def test_complete_matrix_produces_accepted_mechanical_report(sandbox) -> None:
     assert report.abstention_cases == 1
     assert report.token_cost_comparison is not None
     assert set(report.arms[0].levels[0].cost_per_1000_drafts_usd_by_purchase_option) == {
-        "spot",
-        "pay_as_you_go",
+        "pay_as_you_go"
     }
     assert "Acceptance NOT met" not in report.headline
 

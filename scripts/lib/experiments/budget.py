@@ -42,7 +42,7 @@ DEFAULT_REPORTS = Path("docs/reference/benchmarks")
 DEFAULT_ADMISSION_MARGIN = Decimal("0.30")
 REQUIRED_ALLOCATIONS = {
     "azure_cpu_batch",
-    "azure_gpu_benchmark",
+    "gpu_benchmark",
     "e2e_application_pass",
     "supporting_resources",
     "reserve",

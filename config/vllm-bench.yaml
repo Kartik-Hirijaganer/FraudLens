@@ -83,7 +83,7 @@ telemetry:
   prometheus_url: http://127.0.0.1:8000/metrics
 
 cost:
-  default_host: azure-nc24ads-a100
+  default_host: runpod-rtx4090
   hosts:
     azure-nc24ads-a100:
       provider: azure
@@ -105,20 +105,12 @@ cost:
       price_verified_at: 2026-09-13
     runpod-rtx4090:
       provider: runpod
-      sku: RTX 4090 Pod
-      region: community-cloud
+      sku: NVIDIA GeForce RTX 4090
+      region: secure-cloud
       prices:
         pay_as_you_go: "0.740000"
       price_source_url: https://www.runpod.io/pricing
-      price_verified_at: 2026-09-13
-    aws-g5-xlarge:
-      provider: aws
-      sku: g5.xlarge
-      region: us-east-1
-      prices:
-        pay_as_you_go: "1.006000"
-      price_source_url: https://aws.amazon.com/ec2/pricing/on-demand/
-      price_verified_at: 2026-09-13
+      price_verified_at: 2026-09-14
   comparison_model:
     model: openrouter/openai/gpt-5-mini
     input_per_million_usd: "0.25"

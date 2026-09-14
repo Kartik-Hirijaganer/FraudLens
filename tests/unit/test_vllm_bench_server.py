@@ -166,7 +166,7 @@ def test_provenance_binds_host_gpu_price_and_startup_evidence() -> None:
         server_provenance(
             config,
             arm="bf16",
-            host_key="aws-g5-xlarge",
+            host_key="runpod-rtx4090",
             purchase_option="spot",
             startup_logs=_LOGS,
             digest=digest,

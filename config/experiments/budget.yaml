@@ -3,16 +3,25 @@ ceiling_usd: "75.00"
 admission_margin: "0.30"
 allocations:
   azure_cpu_batch: "15.00"
-  azure_gpu_benchmark: "25.00"
+  gpu_benchmark: "25.00"
   e2e_application_pass: "5.00"
   supporting_resources: "5.00"
   reserve: "25.00"
 watchdog_hours:
   azure_cpu_batch: "8.00"
-  azure_gpu_benchmark: "8.00"
+  gpu_benchmark: "8.00"
   e2e_application_pass: "2.00"
   supporting_resources: "8.00"
 rates:
+  runpod_rtx4090_secure_payg:
+    provider: runpod
+    sku: NVIDIA GeForce RTX 4090
+    region: secure-cloud
+    purchase_option: pay_as_you_go
+    hourly_rate_usd: "0.740000"
+    price_source_url: https://www.runpod.io/pricing
+    price_verified_at: 2026-09-14
+    effective_from: 2026-09-14
   azure_e16ads_v5_payg:
     provider: azure
     sku: Standard_E16ads_v5

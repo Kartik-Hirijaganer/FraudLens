@@ -1,7 +1,10 @@
 # vLLM + AWQ SAR-inference benchmark (1,000 cases), full-scale IBM training on Azure, Kubernetes (AKS) with HPA, durable execution, and quality/privacy gates — release 0.3.0
 
-> **Status:** approved 2026-09-13 (plan mode). Implementation has **not** started; every phase below
-> is audited with `drift-check plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md phase=<N>`.
+> **Status:** approved 2026-09-13; implementation in progress. Provider amendment approved
+> 2026-09-14: RunPod Secure Cloud RTX 4090 is the Phase 11 default because the required Azure GPU
+> quota is unavailable. Azure A100/A10 remains an opportunistic alternative only if quota lands
+> before the provider gate. Every phase below is audited with
+> `drift-check plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md phase=<N>`.
 
 ## 0. Executive summary (plain language)
 
@@ -9,7 +12,7 @@
 
 | # | Statement (target wording) | True today? | What this plan adds |
 |---|---|---|---|
-| 1 | *Optimized SAR inference with vLLM and 4-bit AWQ, reducing model-weight memory >50% versus BF16; benchmarked GPU utilization, p95 latency, throughput, and cost on **1,000 synthetic cases** across 3 concurrency levels.* | **No.** Nothing in the repo mentions vLLM, AWQ, GPU telemetry, percentiles or load generation. | A hosting-agnostic benchmark harness, a vLLM provider the app can really route SAR drafting to, 1,000 cases derived from the IBM synthetic dataset through the production pipeline steps, and one measured run on a throwaway Azure spot GPU VM whose results are published as hash-bound artefacts (docs + UI). |
+| 1 | *Optimized SAR inference with vLLM and 4-bit AWQ, reducing model-weight memory >50% versus BF16; benchmarked GPU utilization, p95 latency, throughput, and cost on **1,000 synthetic cases** across 3 concurrency levels.* | **Partly.** The provider-neutral harness and application route are implemented; measured GPU evidence is not yet published. | Complete the IBM-derived case corpus and run the frozen protocol on a throwaway RunPod Secure Cloud RTX 4090 pod, then publish the hash-bound results (docs + UI). |
 | 2 | *Built a Python AML pipeline using LangGraph, XGBoost/SHAP, and ChromaDB for citation-grounded SAR drafts; deployed on **Azure AKS** with Terraform/HPA and added citation-quality and hallucination tests.* | **Partly.** LangGraph, XGBoost/SHAP, ChromaDB, citation grounding and an LLM-judge study already exist. Nothing is Kubernetes, nothing has an HPA, investigations die with their API process, and the quality checks are not framed as CI gates. | Kubernetes manifests with a real HorizontalPodAutoscaler proven on a local `kind` cluster at $0 (API + worker + Postgres), durable investigation execution that survives pod replacement, an AKS Terraform module validated in CI (applied next release via the existing GitHub→Azure OIDC), and deterministic citation-quality, hallucination and model-egress test suites in `make ci`. |
 | 3 (new, optional) | *Processed all 68.2 million IBM AML transactions on ephemeral Azure compute with a memory-bounded DuckDB→XGBoost pipeline (temporal evaluation, calibration-derived thresholds); trained and evaluated one candidate per dataset.* | **No.** Training today runs on samples; thresholds are derived from the test fold. | A resumable, checkpointed full-data pipeline, a pilot-first Azure CPU run, three candidate models with a pre-registered application candidate, and published reconciliation + evaluation reports. |
 
@@ -52,17 +55,17 @@ Fifteen phases, each drift-checkable with `drift-check plans/<file>.md phase=<N>
 | 8 | Durable investigation execution: leases, worker process, resume, idempotency, replay | $0 |
 | 9 | Kubernetes manifests (API + worker + Postgres) and HPA + durability proven on kind, evidence published | $0 |
 | 10 | Azure Terraform: shared batch-VM module, experiment storage, AKS module, budgets, inert OIDC workflow, IaC scanning | $0 (validate only) |
-| 11 | Execute the GPU benchmark on an Azure spot VM, end-to-end application pass, publish, tear down | ≤ $30 |
+| 11 | Execute the GPU benchmark on RunPod Secure Cloud, end-to-end application pass, publish, tear down | ≤ $30 |
 | 12 | Frontend: benchmark page (inference / autoscaling / training-at-scale), durable run states, risk drivers on case review, "what the model saw" panel | $0 |
 | 13 | Docs: 9 ADRs, architecture, Scalar + OpenAPI YAML, runbooks, claim register, interview guide, README | $0 |
 | 14 | Release 0.3.0 readiness and next-release handoff (AKS apply) | $0 |
 
 ### What only you can do
 
-1. **File quota requests on day one** (Phase 0): `Standard NCADS_A100_v4 Family vCPUs` (24) and `Standard NVADSA10v5 Family vCPUs` (36) for the GPU, `Standard EADSv5 Family vCPUs` (16–32) for the CPU batch VM, and the separate regional **Spot vCPU** bucket (≥ 36), all in `eastus` (secondary `eastus2`). Personal pay-as-you-go subscriptions start at zero; approval takes hours to weeks.
+1. **Keep the viable Azure quota requests open.** A100 (24 vCPUs) and A10 (36 vCPUs) may remain pending as opportunistic alternatives. H100 requires 40 vCPUs, so a 24-vCPU request is insufficient. V710 is AMD and cannot run the frozen NVIDIA CUDA + `awq_marlin` protocol.
 2. **Approve every billable action** (`terraform apply` for each VM, Blob uploads, later AKS) and each pilot→full-run admission decision. The plan never applies without an explicit go-ahead (new Golden Rule 7).
 3. **Approve commits and pushes** (Golden Rule 1). Commit boundaries are proposed per phase; nothing is committed autonomously.
-4. **Decide the fallbacks** if a quota is still pending when Phase 6 or 11 is reached (RunPod GPU or AWS scratch compute, see the fallback gates).
+4. **Maintain the RunPod account controls** for Phase 11: restricted API key in Infisical `prod` `/ml`, auto top-ups disabled, and explicit approval before pod create/start/delete or data upload.
 5. **Review 20 drafts blind** (10 per arm, model identity hidden) for the manual quality sample in Phase 11 — optional but recommended.
 
 ---
@@ -97,9 +100,9 @@ Repository findings that shape the plan:
 
 | Decision | Choice | Consequence |
 |---|---|---|
-| Cloud | **Azure only**; nothing is deployed to AWS | Bullet 2 reads "Azure AKS"; AWS stays local/scratch and is only a documented last-resort fallback for the benchmark GPU |
+| Deployment cloud | **Azure only**; nothing is deployed to AWS or RunPod | Bullet 2 reads "Azure AKS"; RunPod is temporary benchmark compute only and does not change the deployment architecture |
 | Kubernetes runtime | **AKS with a Kubernetes HPA** | New Terraform `aks` module; ADR-021 positions AKS against ADR-007; Container Apps remains the documented deploy target and switch path |
-| GPU for the benchmark | **Azure spot GPU VM** (A100 80 GB default, A10 24 GB alternative), Terraform-provisioned, destroyed after the run | GPU quota is a Day-1 action; **RunPod (RTX 4090)** is the sanctioned fallback with the same Docker recipe if quota is not approved in time |
+| GPU for the benchmark | **RunPod Secure Cloud RTX 4090 on-demand** (24 GB) as the default; Azure A100/A10 only if usable quota lands before the gate | Provider-neutral harness; restricted API key via Infisical; SSH-only pod; encrypted pod volume; 8-hour self-stop; pod and storage deleted after export |
 | Budget | **$75 one-time ceiling** for all paid experiments, with allocations, a ledger, pilot-first admission and watchdogs | Section "Cost, budget, risks"; expected actual spend $8–14 (spot) |
 | Data scale | **All 68,228,066 downloaded IBM rows** are processed offline (DuckDB → Parquet → XGBoost) on a temporary Azure CPU VM; HI-Small runs end-to-end on the laptop first | New Phases 5–6; the application database receives curated cases and model artefacts only, never 68M rows |
 | Benchmark cases | **1,000 cases** derived from the IBM final-test activity through the production pipeline steps (500 HI-Small / 250 HI-Medium / 250 LI-Medium), plus a small `sar_eval`-derived fixture for CI | Phase 7; concurrency levels **1, 8, 32**; `max_tokens` 1,024 |
@@ -111,7 +114,7 @@ Ideas adopted from the teammate's plan: full-data processing with pilot-first ad
 
 Deliberately **not** adopted, with reasons:
 
-- **RunPod as the primary GPU** — you chose Azure; Azure keeps the Terraform story coherent. RunPod becomes the fallback with the identical Docker recipe.
+- **Azure as a mandatory benchmark host** — quota/capacity is unavailable and would delay the release. Azure remains the deployment and AKS platform; using RunPod for temporary NVIDIA compute does not change that architecture.
 - **Concurrency 1/4/8** — kept **1/8/32**: 32 exercises the 24 GB KV-cache ceiling where quantization pays off; the levels are configuration.
 - **Equal explicit KV-cache allocation as the primary protocol** — the primary comparison uses equal `gpu_memory_utilization` (how quantization is actually deployed: freed weight memory becomes KV cache) and reports KV-cache capacity per arm; an equal-KV ablation is a config flag if budget remains.
 - **Presidio/spaCy as a required detector** — ADR-006 already makes Presidio optional; the primary protection is the allowlisted projection and provenance gate, with deterministic masking and transport tests. Presidio stays an optional dependency group.
@@ -120,24 +123,24 @@ Deliberately **not** adopted, with reasons:
 - **Running all 1,000 cases through the full application on the GPU** — an end-to-end application pass on a 100-case subset proves integration; the harness proves scale.
 - **Extending Golden Rule 1** — a separate Golden Rule 7 is clearer; local kind is exempt.
 
-Assumptions (say so if wrong): Alembic migrations and generated files are exempt from the 500-line cap; the benchmark model pair defaults to `Qwen/Qwen2.5-7B-Instruct` vs `Qwen/Qwen2.5-7B-Instruct-AWQ` (official, Apache-2.0, ungated; the Qwen3 pair is a configured alternative); the E-series CPU VM runs spot-first with a pay-as-you-go toggle; the 1,000-case file (≈ 5–8 MB) is published as a GitHub Release asset under CDLA-Sharing-1.0 while the repo commits only its manifest and SHA (keeps the repo small and respects the 1 MB pre-commit guard); "UI should be user friendly, intuitive, minimal and professional" is met by following `DESIGN.md` and the existing page patterns for the new pages plus targeted fixes, not a redesign.
+Assumptions (say so if wrong): Alembic migrations and generated files are exempt from the 500-line cap; the benchmark model pair defaults to `Qwen/Qwen2.5-7B-Instruct` vs `Qwen/Qwen2.5-7B-Instruct-AWQ` (official, Apache-2.0, ungated; the Qwen3 pair is a configured alternative); the Azure E-series CPU VM uses pay-as-you-go because the Spot bucket is insufficient; the RunPod pod uses Secure Cloud on-demand at the provider-reported $0.74/hour rate; the 1,000-case file (≈ 5–8 MB) is published as a GitHub Release asset under CDLA-Sharing-1.0 while the repo commits only its manifest and SHA (keeps the repo small and respects the 1 MB pre-commit guard); "UI should be user friendly, intuitive, minimal and professional" is met by following `DESIGN.md` and the existing page patterns for the new pages plus targeted fixes, not a redesign.
 
 ## 3. Target architecture
 
-### 3.1 Inference benchmark topology (Phases 7, 10, 11)
+### 3.1 Inference benchmark topology (Phases 7 and 11)
 
 ```mermaid
 flowchart LR
   subgraph Laptop["Operator laptop (make targets)"]
-    TF["terraform apply<br/>infra/terraform/environments/gpu-bench"]
+    OP["scripts/runpod_gpu.py<br/>plan · up · sync · export · down · verify-clean"]
     CLI["scripts/benchmark_vllm.py<br/>cases · report · publish"]
     APP["make run-live-vllm<br/>(100-case end-to-end pass via SSH tunnel)"]
   end
-  subgraph Azure["Azure spot GPU VM (destroyed after the run)"]
-    VM["Ubuntu 22.04 · NVIDIA driver · Docker"]
-    RUN["harness `run` (on host, tmux)"]
-    V1["vllm/vllm-openai<br/>arm bf16 (--dtype bfloat16)"]
-    V2["vllm/vllm-openai<br/>arm awq (--quantization awq_marlin)"]
+  subgraph RunPod["RunPod Secure Cloud pod (terminated after the run)"]
+    POD["RTX 4090 · pinned vLLM image digest<br/>SSH only · encrypted pod volume · 8 h self-stop"]
+    RUN["harness `run` (on pod, tmux)"]
+    V1["vLLM process<br/>arm bf16 (--dtype bfloat16)"]
+    V2["vLLM process<br/>arm awq (--quantization awq_marlin)"]
     NS["nvidia-smi sampler (1 s)"]
     MET["/metrics (Prometheus text)"]
   end
@@ -146,11 +149,11 @@ flowchart LR
     FE["frontend/src/data/<br/>vllm-awq-sar-inference.json"]
     REL["GitHub Release asset<br/>vllm-cases-ibm-<sha>.jsonl.gz (CDLA-Sharing-1.0)"]
   end
-  TF --> VM --> V1 & V2 & NS
+  OP --> POD --> V1 & V2 & NS
   V1 & V2 --> MET
   RUN -- "1,000 cases × [1,8,32] × 2 arms" --> V1 & V2
   NS & MET --> RUN
-  RUN -- "scp run dir" --> CLI -- "hash-bound publish" --> DOCS & FE
+  RUN -- "export run dir" --> CLI -- "hash-bound publish" --> DOCS & FE
   CLI --> REL
   APP -- "SSH tunnel :8000" --> V2
 ```
@@ -215,12 +218,13 @@ flowchart TB
 | `config/llm/egress.yml` | Model-egress allowlist: allowed data classes and transaction sources, allowed field set, forbidden patterns, regulation-snippet digest verification, detector list (`deterministic`; `presidio` optional) | new |
 | `config/experiments/budget.yaml` | $75 ceiling, per-allocation ceilings, quoted hourly rates with `price_source_url`/`price_verified_at`, admission margin (0.30), watchdog deadlines | new |
 | `config/fulldata.yaml` | Dataset files + SHA-256 + expected rows, usable-row rules, account namespacing, fold fractions (exact rationals), calibration split, feature spec pins, XGBoost settings (max trees 1,200, early stopping, `scale_pos_weight`), `application_candidate: hi-medium`, gates, pilot row targets, paths under `.local/`, budget hook | new |
-| `config/vllm-bench.yaml` | Benchmark protocol: model pair, server flags, workload (`case_count: 1000`, `concurrency_levels: [1, 8, 32]`, `max_tokens: 1024`), fairness controls (`enable_prefix_caching: false`, no speculative decoding, SDK retries 0), telemetry, cost hosts (Azure A100/A10, RunPod 4090 fallback, AWS g5 last resort) with price provenance, acceptance thresholds, `profiles.smoke/full`, case sources (`ibm-final-test` quotas 500/250/250, `sar-eval` fixture) | new |
+| `config/vllm-bench.yaml` | Benchmark protocol: model pair, server flags, workload (`case_count: 1000`, `concurrency_levels: [1, 8, 32]`, `max_tokens: 1024`), fairness controls (`enable_prefix_caching: false`, no speculative decoding, SDK retries 0), telemetry, RunPod 4090 default plus Azure A100/A10 alternatives with price provenance, acceptance thresholds, `profiles.smoke/full`, case sources (`ibm-final-test` quotas 500/250/250, `sar-eval` fixture) | new |
+| `config/runpod-gpu.yaml` | Secure Cloud pod contract: exact RTX 4090 GPU id, pinned vLLM amd64 digest, encrypted pod volume, SSH-only ports, minimum host resources, API-key env name, local state path, readiness timeout and 8-hour watchdog | new |
 | `config/llm/providers.yml`, `config/llm/catalog.yml`, `config/llm/sar-vllm.yml` | `vllm` provider (`base_url_env`, `allow_plain_http`), two self-hosted model cards, SAR routing profile for vLLM | changed / new |
 | `config/default.yaml` (+ overlays) | `sar_config_file`, `run_execution_mode: inline|worker`, lease/heartbeat/attempt/deadline settings, `egress_policy_file` | changed |
 | `config/k8s-demo.yaml` | Kubernetes demo protocol: namespace, image, Kubernetes/kind node-image pin, HPA sampling and evidence settings, load modes (`healthz`, `investigations`), secret key lists, Infisical operator chart pin | new |
 | `deploy/k8s/base/backend.env`, overlay `.env` files, `deploy/k8s/load/load.env` | Non-secret `FRAUDLENS_*` overrides for kind (mock LLM, local backends, worker mode) and AKS (live); load-generator knobs | new |
-| `infra/terraform/environments/{aks-demo,gpu-bench,data-batch}/*.tfvars` | Non-secret sizing: VM SKUs, spot settings, node counts, k8s version, CIDRs, budget amounts, auto-shutdown | new |
+| `infra/terraform/environments/{aks-demo,data-batch}/*.tfvars` | Non-secret sizing: CPU VM SKU, node counts, k8s version, CIDRs, budget amounts, auto-shutdown | new |
 | `.checkov.yaml`, kubeconform settings in `config/k8s-demo.yaml` | IaC scanner configuration with justified skips | new |
 | `.claude/settings.json` | `ask` for billable/mutating cloud commands; read-only `allow` list | changed |
 
@@ -245,14 +249,14 @@ Proposed commit boundaries (Conventional Commits, for your approval): `chore(qua
    - New **Golden Rule 7 — no billable or mutating cloud action without explicit human permission**: `terraform apply|destroy`, `az` create/update/delete/start verbs, Blob uploads to experiment storage, `kubectl apply|delete` against non-kind contexts, `helm install|upgrade|uninstall`, `docker push`, `gh workflow run`, `gh variable set`. Every ephemeral resource has a paired teardown target and a "nothing left behind" verification. Local `kind` clusters are exempt ($0).
    - New **code convention 12 — ≤ 500 physical lines per source file**, enforced by `make file-length-check`; only Alembic migrations and generated files are exempt; no baseline after Phase 2; facades use explicit `__all__`.
    - New **experiment governance** paragraph: every paid experiment has a budget allocation in `config/experiments/budget.yaml`, a ledger row in `docs/reference/experiments/ledger.md`, a pilot with a projection, and a teardown verification; no recurring paid jobs.
-   - Skills section rewritten for the single-source model (Phase 1); repository-layout table gains `deploy/`, `infra/terraform/modules/{aks,budget,batch_vm,experiment_storage}`, `infra/terraform/environments/{aks-demo,gpu-bench,data-batch}`, `.agents/`, `scripts/lib/{vllm_bench,fulldata,k8s_demo,study,quality}`, `tests/quality/`, `config/{quality,fulldata,k8s-demo}.yaml`, `config/experiments/`, `docs/reference/{experiments,claims.md,interview-guide.md}`.
+   - Skills section rewritten for the single-source model (Phase 1); repository-layout table gains `deploy/`, `infra/terraform/modules/{aks,budget,batch_vm,experiment_storage}`, `infra/terraform/environments/{aks-demo,data-batch}`, `.agents/`, `scripts/lib/{vllm_bench,runpod_gpu,fulldata,k8s_demo,study,quality}`, `tests/quality/`, `config/{quality,fulldata,k8s-demo,runpod-gpu}.yaml`, `config/experiments/`, `docs/reference/{experiments,claims.md,interview-guide.md}`.
    - Fix the broken `plans/README.md` link and the link to the deleted tech-stack plan.
-2. **Permissions.** `.claude/settings.json`: `ask` entries for the Golden-Rule-7 commands (`terraform apply|destroy|import|state rm|state mv`, `az aks create|delete|start|stop|update|upgrade|nodepool`, `az group create|delete`, `az vm`, `az storage blob upload*`, `az acr build`, `az role assignment create|delete`, `kubectl apply|delete|create|patch|scale|set|rollout restart`, `helm install|upgrade|uninstall`, `docker push`, `gh workflow run`, `gh variable set`) and for the billable make targets (`make gpu-bench-up|down|start`, `make data-batch-up|down|start|upload`, `make aks-up|deploy|down|stop|start|operator-install|secrets-*|hpa-demo`, `make k8s-secrets-sync`); read-only or laptop-local `allow` entries (`terraform plan|validate|fmt|output|show|state list|init -backend=false`, `kubectl get|describe|logs|top|kustomize|diff|config|version`, `kubectl --context kind-fraudlens-demo`, `kind …`, `kubeconform`, `az account show`, `az aks show|list|get-versions|get-credentials`, `az group show|list`, `az resource list`, `az disk list`, `az network public-ip list`, `az network lb list`, `az consumption`, `az vm list-skus|list-usage`, `az quota`, `make kind-*`, `make k8s-validate|k8s-demo-test|tf-validate|iac-scan|aks-plan|aks-verify-clean|gpu-bench-plan|gpu-bench-verify-clean|data-batch-plan|data-batch-verify-clean|file-length-check|fulldata-*` (local stages)). Mirror the intent in `.codex/config.toml` comments.
+2. **Permissions.** `.claude/settings.json`: `ask` entries for the Golden-Rule-7 commands (`terraform apply|destroy|import|state rm|state mv`, `az aks create|delete|start|stop|update|upgrade|nodepool`, `az group create|delete`, `az vm`, `az storage blob upload*`, `az acr build`, `az role assignment create|delete`, `kubectl apply|delete|create|patch|scale|set|rollout restart`, `helm install|upgrade|uninstall`, `docker push`, `gh workflow run`, `gh variable set`) and for the billable make targets (`make runpod-gpu-up|sync|start|down`, `make data-batch-up|down|start|upload`, `make aks-up|deploy|down|stop|start|operator-install|secrets-*|hpa-demo`, `make k8s-secrets-sync`); read-only or laptop-local `allow` entries (`terraform plan|validate|fmt|output|show|state list|init -backend=false`, `kubectl get|describe|logs|top|kustomize|diff|config|version`, `kubectl --context kind-fraudlens-demo`, `kind …`, `kubeconform`, `az account show`, `az aks show|list|get-versions|get-credentials`, `az group show|list`, `az resource list`, `az disk list`, `az network public-ip list`, `az network lb list`, `az consumption`, `az vm list-skus|list-usage`, `az quota`, `make kind-*`, `make k8s-validate|k8s-demo-test|tf-validate|iac-scan|aks-plan|aks-verify-clean|runpod-gpu-plan|runpod-gpu-status|runpod-gpu-export|runpod-gpu-verify-clean|data-batch-plan|data-batch-verify-clean|file-length-check|fulldata-*` (local stages)). Mirror the intent in `.codex/config.toml` comments.
 3. **File-length gate.** `config/quality.yaml` (`file_length:` — `max_lines: 500`, `roots`, `extensions`, `exclude_globs` incl. `alembic/versions/*.py`, optional `baseline_file`) + engine `scripts/lib/file_length.py` (discovery mirroring `scripts/lib/headers.py::iter_source_files`, physical-line count equal to `wc -l`, baseline ratchet: a listed file may only shrink and must be delisted once compliant) + CLI `scripts/check_file_length.py`. Temporary `config/quality/file-length-baseline.yaml` records today's 33 offenders; **Phase 2 deletes it**. Wire `file-length-check` into `make ci` and the CI `quality` job.
-4. **Budget ledger and admission tool.** `config/experiments/budget.yaml` (ceiling 75; allocations: `azure_cpu_batch` 15, `azure_gpu_benchmark` 25, `e2e_application_pass` 5, `supporting_resources` 5, `reserve` 25; rates per SKU with price provenance; `admission_margin: 0.30`; `watchdog_hours` per experiment) validated by `scripts/lib/experiments/budget.py` (`BudgetConfig`, `project_cost(pilot_measurements) -> Projection`, `admit(projection, allocation) -> Decision`); CLI `scripts/experiment_budget.py estimate|admit|ledger-check`. `docs/reference/experiments/ledger.md` (one row per resource session: date, provider, SKU, purchase option, start/stop, hours, quoted rate, projected cost, actual cost when billing lands, run id) — `ledger-check` verifies totals ≤ ceiling and that every experiment run id in published reports has a ledger row.
+4. **Budget ledger and admission tool.** `config/experiments/budget.yaml` (ceiling 75; allocations: `azure_cpu_batch` 15, provider-neutral `gpu_benchmark` 25, `e2e_application_pass` 5, `supporting_resources` 5, `reserve` 25; rates per SKU with price provenance; `admission_margin: 0.30`; `watchdog_hours` per experiment) validated by `scripts/lib/experiments/budget.py` (`BudgetConfig`, `project_cost(pilot_measurements) -> Projection`, `admit(projection, allocation) -> Decision`); CLI `scripts/experiment_budget.py estimate|admit|ledger-check`. `docs/reference/experiments/ledger.md` (one row per resource session: date, provider, SKU, purchase option, start/stop, hours, quoted rate, projected cost, actual cost when billing lands, run id) — `ledger-check` verifies totals ≤ ceiling and that every experiment run id in published reports has a ledger row.
 5. **Claim register.** `docs/reference/claims.md`: every resume/README claim → status (`implemented` / `tested` / `demonstrated` / `planned`) → evidence link. `scripts/check_docs_links.py` validates every relative link in `README.md`, `AGENTS.md`, `docs/**/*.md`, `plans/*.md` (fixes the dead-link problem globally); `make docs-links-check` in `make ci`.
 6. **Hygiene.** Create `plans/README.md` (conventions, active-plan index, retired-plan list with the removing commit). Fix ADR-017/018/019 links to retired plans. Replace `tests/integration/test_api_v1.py:34`'s literal with `fraudlens_backend.__version__`. Should-do: replace `plan §N` references in ~20 docstrings/Makefile comments with ADR or doc references (tracked in `plans/README.md` backlog if deferred).
-7. **Day-1 human actions (not code).** (a) File Azure quota requests: `Standard NCADS_A100_v4 Family vCPUs` = 24, `Standard NVADSA10v5 Family vCPUs` = 36, `Standard EADSv5 Family vCPUs` = 32 (E16 needs 16), regional `Low-priority/Spot vCPUs` ≥ 36, in `eastus` and `eastus2`. (b) Confirm the subscription is pay-as-you-go (Spot is unavailable on free-trial offers). (c) Create Infisical secret `VLLM_API_KEY` (random 32-byte token) under `prod` `/ml`. (d) Record SHA-256 checksums of the three CSVs into `config/fulldata.yaml` (`make fulldata-verify` computes and compares). (e) Create a RunPod account only if the GPU fallback is triggered later.
+7. **Day-1 human actions (not code).** (a) File Azure quota requests for the viable A100/A10 families and EADSv5 CPU family; record the actual target region and status. (b) Confirm the Azure subscription and RunPod account billing controls; disable RunPod auto top-ups. (c) Create restricted `RUNPOD_API_KEY` and random `VLLM_API_KEY` secrets under Infisical `prod` `/ml`. (d) Record SHA-256 checksums of the three CSVs into `config/fulldata.yaml` (`make fulldata-verify` computes and compares). (e) Register the operator's SSH public key with RunPod before pod creation.
 
 ### Why
 
@@ -282,7 +286,7 @@ Governance docs first (`make docs-check` confirms nothing machine-owned changed)
 1. **Single source.** `.claude/skills/<name>/{SKILL.md, agents/openai.yaml}` is canonical; `scripts/sync_skills.py` mirrors it byte-for-byte into `.agents/skills/<name>/` (Codex's repo-scoped directory) — writer mode inside `make docs`, `--check` inside `make docs-check`/`make ci`. Delete `.agents/skills/source-command-*`. Validate frontmatter (`name` = folder, `description` ≤ 1,024 chars, body ≤ 500 lines, `agents/openai.yaml` with `interface.display_name` and a `default_prompt` that references `plans/`, not `.agents/plans/`).
 2. **Convert the three commands to skills.** `.claude/commands/{pre-pr,docs,deadcode}.md` → skills; remove `.claude/commands/`; update AGENTS.md/CLAUDE.md.
 3. **New project skills** (each: When to use · Rules · Steps · Verification · Never-do):
-   - `benchmark-vllm` — drives `make vllm-bench-*` and `make gpu-bench-*`; smoke profile first; permission before `gpu-bench-up`; checkpoint/resume; `vllm-bench-validate` before publish; teardown + verify-clean; **evidence checklist** (provenance, comparable arms, metric definitions, spend reconciled, claims defensible).
+   - `benchmark-vllm` — drives `make vllm-bench-*` and provider-specific GPU lifecycle targets; smoke profile first; permission before RunPod create/start/sync/delete; checkpoint/resume; `vllm-bench-validate` before publish; teardown + verify-clean; **evidence checklist** (provenance, comparable arms, metric definitions, spend reconciled, claims defensible).
    - `azure-experiment` — the paid-experiment protocol for the data-batch VM: budget admission (`experiment_budget.py`), pilot → projection → `CONFIRM=yes`, watchdog, artefact export, teardown, ledger row.
    - `k8s-deploy` — kind flow and AKS flow with Golden-Rule-7 gates and evidence capture.
    - `adr` — house-format ADR + index row + plan pointer.
@@ -617,11 +621,11 @@ New `_ci-reusable.yml` job `k8s-validate` (pinned `kubeconform`). `.checkov.yaml
 
 ---
 
-## Phase 10 — Azure Terraform: batch VMs, experiment storage, AKS, budgets, inert deploy workflow, IaC scanning
+## Phase 10 — Azure Terraform: data-batch VM, experiment storage, AKS, budgets, inert deploy workflow, IaC scanning
 
 ### What
 
-Validated-in-CI Terraform for three ephemeral roots — the CPU data-batch VM (Phase 6), the GPU benchmark VM (Phase 11) and the Kubernetes demonstration cluster (applied next release) — plus the inert `deploy-aks.yml`, IaC scanning, runbooks and ADR-021. House style: one `main.tf` per module with a leading `#` comment citing the ADR, inline `variable`/`resource`/`output`, `locals.tags = {project, environment, managed_by}`, names `"${var.name_prefix}-<suffix>"`, account ids via `TF_VAR_*`, committed non-secret tfvars and lock files, `backend.tf` generated from `backend.tf.template` (gitignored) so CI validates with `-backend=false`.
+Validated-in-CI Terraform for two Azure ephemeral roots — the CPU data-batch VM (Phase 6) and the Kubernetes demonstration cluster (applied next release) — plus the inert `deploy-aks.yml`, IaC scanning, runbooks and ADR-021. The shared `batch_vm` module retains its GPU mode so an approved Azure A100/A10 can still be used opportunistically, but a `gpu-bench` Azure root is not required for this release. House style: one `main.tf` per module with a leading `#` comment citing the ADR, inline `variable`/`resource`/`output`, `locals.tags = {project, environment, managed_by}`, names `"${var.name_prefix}-<suffix>"`, account ids via `TF_VAR_*`, committed non-secret tfvars and lock files, `backend.tf` generated from `backend.tf.template` (gitignored) so CI validates with `-backend=false`.
 
 ```
 infra/terraform/
@@ -634,7 +638,7 @@ infra/terraform/
 │   └── observability/ acr/ identity/ blob/ gateway_app/ service_app/ jobs/   # unchanged
 └── environments/
     ├── dev/ prod/           # unchanged (plans stay byte-identical)
-    ├── aks-demo/ gpu-bench/ data-batch/   # NEW roots
+    ├── aks-demo/ data-batch/              # NEW roots
 ```
 
 **`modules/batch_vm/main.tf` (~280) + cloud-init.** VNet + subnet, Standard static public IP, NSG with one inbound rule (TCP 22 from `var.operator_cidr`; nothing else exposed), NIC, `azurerm_linux_virtual_machine` (`size` validated against an allowlist — GPU: `Standard_NC24ads_A100_v4`, `Standard_NV36ads_A10_v5`, `Standard_NC4as_T4_v3`; CPU: `Standard_E16ads_v5`, `Standard_E32ads_v5`; `priority = Spot` when `spot_enabled`, `eviction_policy` default `Deallocate`, `max_bid_price`, Ubuntu 22.04 Gen2, OS disk size/type variables, SSH key only, system-assigned identity, cloud-init: Docker CE, git, tmux, uv, `azcopy`; GPU extras (NVIDIA container toolkit, pre-pull of the pinned vLLM image) and the `NvidiaGpuDriverLinux` extension (`Microsoft.HpcCompute`) only when `gpu_enabled`), `azurerm_dev_test_global_vm_shutdown_schedule` (cost backstop), optional role assignment `Virtual Machine Contributor` scoped to the VM for the self-deallocate timer. Outputs `public_ip`, `ssh_command`, `vm_size`, `spot`, `identity_principal_id`. Notes: fractional `NV6/12/18ads` slices cannot hold the 15.2 GiB BF16 weights; `NC4as_T4_v3` is AWQ-smoke-only.
@@ -645,11 +649,11 @@ infra/terraform/
 
 **`modules/budget/main.tf` (~70).** Monthly subscription budget filtered by resource-group names (demo RG + node RG; experiment RGs), notifications 50/80/100% actual + 100% forecast, `contact_emails` via `TF_VAR_budget_contact_emails`.
 
-**Roots.** `aks-demo` (composes RG, networking aks subnet, optional observability/ACR, `aks`, `budget`; `use_oidc = var.use_oidc`; backend key `aks-demo.terraform.tfstate`, `use_azuread_auth = true`; committed tfvars: `sku_tier Free`, `Standard_B2s`, spot user pool 1–2, `acr_enabled false`, `monitoring_enabled false`, `budget_amount_usd 15`), `gpu-bench` (`batch_vm` with `gpu_enabled true`, `Standard_NC24ads_A100_v4`, spot, `Deallocate`, 128 GiB Premium OS disk, `driver_install extension`, auto-shutdown `0200 UTC`, budget 30), `data-batch` (`batch_vm` with `gpu_enabled false`, `Standard_E16ads_v5`, spot, `Deallocate`, 128 GiB Premium OS disk, `experiment_storage` granting the VM identity, auto-shutdown 8 h after start, budget 15). `operator_cidr`, `ssh_public_key`, `budget_contact_emails`, account ids arrive as `TF_VAR_*`.
+**Roots.** `aks-demo` (composes RG, networking aks subnet, optional observability/ACR, `aks`, `budget`; `use_oidc = var.use_oidc`; backend key `aks-demo.terraform.tfstate`, `use_azuread_auth = true`; committed tfvars: `sku_tier Free`, `Standard_B2s`, spot user pool 1–2, `acr_enabled false`, `monitoring_enabled false`, `budget_amount_usd 15`) and `data-batch` (`batch_vm` with `gpu_enabled false`, `Standard_E16ads_v5`, pay-as-you-go, `Deallocate`, 128 GiB Premium OS disk, `experiment_storage` granting the VM identity, auto-shutdown 8 h after start, budget 15). `operator_cidr`, `ssh_public_key`, `budget_contact_emails`, account ids arrive as `TF_VAR_*`.
 
 **`make tf-validate`** discovers roots (`TF_ROOTS ?= $(patsubst %/main.tf,%,$(wildcard infra/terraform/environments/*/main.tf))`); `make iac-scan` = `uvx checkov --config-file .checkov.yaml`.
 
-**Make targets.** AKS (next release; `CONFIRM=yes`, prints the hourly estimate): `aks-init|plan|up|credentials|operator-install|secrets-operator|secrets-sync|deploy IMAGE_TAG=|smoke|hpa-demo|stop|start|down|verify-clean`. GPU host: `gpu-bench-plan|up|ssh|start|down|verify-clean`. CPU host: `data-batch-plan|up|upload|download|ssh|start|down|verify-clean|watchdog`.
+**Make targets.** AKS (next release; `CONFIRM=yes`, prints the hourly estimate): `aks-init|plan|up|credentials|operator-install|secrets-operator|secrets-sync|deploy IMAGE_TAG=|smoke|hpa-demo|stop|start|down|verify-clean`. CPU host: `data-batch-plan|up|upload|download|ssh|start|down|verify-clean|watchdog`. The RunPod GPU operator is implemented in Phase 11 rather than Terraform.
 
 **Secrets on AKS.** Infisical Kubernetes Operator with `azureAuth` (kubelet identity; identity `aks-demo-infisical-operator`, allowed SP id = `terraform output kubelet_identity_object_id`, read-only on `/backend` + `/llm`; **+1 identity → 3 of 5**); two `InfisicalSecret` CRs with templated derived keys (`FRAUDLENS_AUTH_JWKS_URL`, `FRAUDLENS_AUTH_JWT_ISSUER`); fallbacks Universal Auth or `make aks-secrets-sync`; IMDS blocked for app pods by NetworkPolicy, allowed for the operator namespace.
 
@@ -659,35 +663,35 @@ infra/terraform/
 
 ### Acceptance
 
-- `make tf-validate` validates `dev`, `prod`, `aks-demo`, `gpu-bench`, `data-batch`; lock files committed; `make iac-scan` passes with justified skips only; `dev`/`prod` plans unchanged.
+- `make tf-validate` validates `dev`, `prod`, `aks-demo`, `data-batch`; lock files committed; `make iac-scan` passes with justified skips only; `dev`/`prod` plans unchanged.
 - `pytest -k deploy` passes; `deploy-aks.yml` inert; **zero Azure resources created in this phase**.
 - Runbooks, ADR-021 and ADR-028 written and indexed.
 
 ---
 
-## Phase 11 — Execute the GPU benchmark on Azure, end-to-end application pass, publish, tear down
+## Phase 11 — Execute the GPU benchmark on RunPod Secure Cloud, end-to-end application pass, publish, tear down
 
 ### Preconditions
 
-GPU quota approved for the configured SKU (`az vm list-usage --location eastus` shows the family limit and the Spot bucket); Phase 6 artefacts present (application candidate + folds) so `make vllm-bench-cases SOURCE=ibm-final-test` produced the 1,000 + 40 + 10 + 20 cases with recorded SHA; `VLLM_API_KEY` in Infisical `/ml`; `make vllm-bench-test` green; **your go-ahead** for `make gpu-bench-up` (Golden Rule 7). Allocation **≤ $25** for the benchmark + **≤ $5** for the end-to-end pass; the VM has an auto-shutdown backstop.
+Phase 6 artefacts present (application candidate + folds) so `make vllm-bench-cases SOURCE=ibm-final-test PROFILE=full` produced the 1,000 + 40 + 10 + 20 cases with recorded SHA; restricted `RUNPOD_API_KEY` and random `VLLM_API_KEY` in Infisical `prod` `/ml`; auto top-ups disabled; `make vllm-bench-test runpod-gpu-test` green; **your go-ahead** for `make runpod-gpu-up` (Golden Rule 7). Allocation **≤ $25** for the benchmark + **≤ $5** for the end-to-end pass; the pod has an independent 8-hour self-stop backstop.
 
 ### How
 
-1. `make gpu-bench-plan` → review → `make gpu-bench-up` (**permission**) → `make gpu-bench-ssh` verifies `nvidia-smi`, Docker and the pre-pulled image; ledger row opened.
-2. **Smoke profile** (`PROFILE=smoke`, AWQ arm, 8 cases × [1, 2]) → inspect the report; fix anything before spending more. The **development set** (40 cases) runs on both arms to project the full matrix duration; `experiment_budget.py admit --allocation azure_gpu_benchmark` must pass (projection × 1.30 within $25) — otherwise stop and report.
-3. **Full protocol on the host in tmux** (never through a laptop tunnel): `vllm-bench-serve ARM=bf16` → `vllm-bench-run ARM=bf16` (prints run id) → `vllm-bench-stop` → `vllm-bench-serve ARM=awq` → `vllm-bench-run ARM=awq RUN=<id>` → `vllm-bench-stop`. Checkpoints per (arm, level); spot eviction resumes after `make gpu-bench-start`.
+1. `make runpod-gpu-plan RUN=<id>` validates the restricted request, Secure Cloud RTX 4090 availability, live price against the $0.74/hour pin, and worst-case budget → review → `make runpod-gpu-up CONFIRM=yes RUN=<id>` (**permission**) → `make runpod-gpu-sync CONFIRM=yes RUN=<id>` copies the committed tree, hash-bound cases, and the vLLM token without exposing secrets; `make runpod-gpu-ssh` verifies `nvidia-smi`, the pinned image and the 8-hour watchdog; ledger row opened.
+2. **Smoke profile** (`PROFILE=smoke`, AWQ arm, 8 cases × [1, 2]) → inspect the report; fix anything before spending more. The **development set** (40 cases) runs on both arms to project the full matrix duration; `experiment_budget.py admit --allocation gpu_benchmark` must pass (projection × 1.30 within $25) — otherwise stop and report.
+3. **Full protocol on the pod in tmux** (never through a laptop tunnel): process-runtime `vllm-bench-serve ARM=bf16` → `vllm-bench-run ARM=bf16 HOST=runpod-rtx4090` (prints run id) → `vllm-bench-stop` → `vllm-bench-serve ARM=awq` → `vllm-bench-run ARM=awq RUN=<id> HOST=runpod-rtx4090` → `vllm-bench-stop`. Checkpoints are per (arm, level); a stopped pod resumes after `make runpod-gpu-start CONFIRM=yes RUN=<id>` and re-syncing the ephemeral container tree while retaining the encrypted `/workspace` volume.
 4. **End-to-end application pass (100 cases).** With the AWQ server still up: SSH tunnel `:8000` → laptop `make run-live-vllm` → `scripts/benchmark_vllm.py e2e --cases 100 --concurrency 4` submits investigations through the real API/worker path (`LiveSarDrafter` → vLLM) and records completion, quality metrics and `/readyz` `llmProvider=vllm`; flagged **functional, not a latency measurement**.
-5. `scp` the run directory → `make vllm-bench-report RUN=<id>` → review acceptance table → `make vllm-bench-publish RUN=<id>` (docs + frontend, hash-bound, redaction scan) → `make vllm-bench-cases-release RUN=<id>` (**permission**; Release asset under CDLA-Sharing-1.0 with attribution).
+5. `make runpod-gpu-export RUN=<id>` downloads the run directory → `make vllm-bench-report RUN=<id>` → review acceptance table → `make vllm-bench-publish RUN=<id>` (docs + frontend, hash-bound, redaction scan) → `make vllm-bench-cases-release RUN=<id>` (**permission**; Release asset under CDLA-Sharing-1.0 with attribution).
 6. **Blind manual sample (optional, recommended):** `scripts/benchmark_vllm.py review-sample --cases 20` writes 20 drafts (10 per arm, model hidden, interleaved) to `.local/`; you score factual support / citation support / unsupported allegations; `review-record` stores the scores + unblinding in `docs/reference/benchmarks/vllm-awq-manual-review.md`.
-7. `make gpu-bench-down` (**permission**) → `make gpu-bench-verify-clean` → ledger row completed (hours, observed spot price, projected cost; actual cost when billing lands).
+7. `make runpod-gpu-down CONFIRM=yes RUN=<id>` (**permission**) terminates the pod and its encrypted pod volume → `make runpod-gpu-verify-clean` confirms no prefixed pod or network volume remains → ledger row completed (hours, observed price, projected cost; actual cost when billing lands).
 
-### Fallback gate (yours, if quota is still pending)
+### Provider gate
 
 | Option | What changes | Cost |
 |---|---|---|
-| Wait for Azure quota | Phases 12–14 proceed with the smoke/sample artefact flagged `provenance: sample` | $0 |
-| **RunPod RTX 4090** (sanctioned fallback) | Manual pod with the same pinned Docker image and `make vllm-bench-*` targets; `cost.hosts.runpod-rtx4090`; API key in Infisical `/ml`; disable auto top-ups; delete the pod **and its volume** after export | ≈ $2–4 |
-| AWS `g5.xlarge` spot (last resort, scratch compute) | Same Docker recipe via the personal profile; not a deployment | ≈ $1–3 |
+| **RunPod Secure Cloud RTX 4090 (default)** | Governed REST operator, pinned vLLM image digest, encrypted pod volume, SSH only, on-demand, 8-hour self-stop, explicit termination and absence proof | ≈ $3–6 |
+| Azure A100/A10 (opportunistic) | Use only if the required family quota has actually landed and a current price/pilot fits the same `gpu_benchmark` allocation | provider-dependent |
+| Wait | Phases 12–14 proceed with the smoke/sample artefact flagged `provenance: sample`; no measured headline is claimed | $0 |
 
 The published artefact records the actual provider/SKU; headlines never claim Azure if the run happened elsewhere.
 
@@ -695,7 +699,7 @@ The published artefact records the actual provider/SKU; headlines never claim Az
 
 - Both arms × [1, 8, 32] × 1,000 cases complete (6,000 measured requests, warm-up excluded) with p50/p95/p99, TTFT p95, req/s, output tok/s, useful throughput, GPU utilisation mean/p95, memory max, KV-cache usage, queue max, cost per level and per 1,000 drafts (spot and PAYG), quality metrics per arm and AWQ-vs-BF16 deltas.
 - Weight-memory reduction ≥ 50% asserted from the parsed load lines (expected ≈ 60–65%); provenance complete (run id, config/cases SHA, GPU/driver, vLLM version + image digest, model revisions, SKU/region/purchase option, prices with dates, timestamps).
-- End-to-end pass: 100/100 investigations completed through the application with vLLM as the SAR provider; `make gpu-bench-verify-clean` passes; ledger reconciled; spend within allocation.
+- End-to-end pass: 100/100 investigations completed through the application with vLLM as the SAR provider; `make runpod-gpu-verify-clean` passes; ledger reconciled; spend within allocation.
 
 ---
 
@@ -762,7 +766,7 @@ The published artefact records the actual provider/SKU; headlines never claim Az
 | Kubernetes | `make k8s-validate`; `make kind-hpa-demo` → replicas 1 → ≥ 3 → 1 and 0 lost runs after a worker kill | 9 |
 | Terraform | `make tf-validate` over all roots; `make iac-scan` | 10 |
 | Deploy workflow | `pytest tests/integration/test_deploy_flow.py` covers `deploy-aks.yml` | 10 |
-| Benchmark run | Artefacts published; end-to-end pass 100/100; `gpu-bench-verify-clean` empty; ledger reconciled | 11 |
+| Benchmark run | Artefacts published; end-to-end pass 100/100; `runpod-gpu-verify-clean` empty; ledger reconciled | 11 |
 | UI | `make frontend-ci`; screenshots at desktop and 400 px | 12 |
 | Docs | `make docs && make docs-check && make docs-links-check`; README AUTOGEN tables equal JSON + Makefile; `/scalar` renders | 13 |
 | Budget | `scripts/experiment_budget.py ledger-check` ≤ $75 | 6, 11, 14 |
@@ -776,10 +780,10 @@ The published artefact records the actual provider/SKU; headlines never claim Az
 | Allocation | Ceiling | Expected (spot) | Notes |
 |---|---:|---:|---|
 | Azure CPU data batch — `Standard_E16ads_v5` (≈ $1.05/h PAYG, ≈ $0.25–0.40/h spot), pilot + full run ≈ 3–5 h | $15 | $2–4 | PAYG worst case ≈ $5; `E32ads_v5` (≈ $2.10/h) only if the pilot shows memory pressure |
-| Azure GPU benchmark — `Standard_NC24ads_A100_v4` (≈ $3.67/h PAYG, ≈ $0.7–1.5/h spot); 1,000 cases × [1, 8, 32] × 2 arms with `max_tokens` 1,024 ≈ 4.5–6 h incl. setup | $25 | $4–8 | PAYG ≈ $18–22 (still inside allocation + reserve); A10 alternative ≈ 9–11 h |
+| GPU benchmark — RunPod Secure Cloud `NVIDIA GeForce RTX 4090` on-demand ($0.74/hour); 1,000 cases × [1, 8, 32] × 2 arms with `max_tokens` 1,024, pilot-projected before admission | $25 | $3–6 | Azure A100/A10 may replace it only if quota lands and the measured projection fits |
 | End-to-end application pass (100 cases) + reruns | $5 | < $1 | Shares the GPU host |
 | Supporting resources — Blob 6 GB, OS disks, public IPs, egress | $5 | ≈ $1 | Lifecycle delete on Blob |
-| Reserve — spot unavailability, RunPod fallback (RTX 4090 ≈ $0.34–0.69/h ≈ 5–6 h), retries | $25 | $0 | Not a default allowance |
+| Reserve — provider unavailability, retries, or a materially slower pilot | $25 | $0 | Not a default allowance |
 | **Total** | **$75** | **≈ $8–14** | PAYG everywhere ≈ $25–30 |
 | AKS (next release, reference) | — | ≈ $0.45 per 4-hour session; ≈ $77/month running, ≈ $32/month stopped, $0 destroyed | Budget alert $15/month |
 
@@ -789,8 +793,8 @@ Admission rule: a pilot projection (measured stage throughput × remaining work,
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Azure quotas (GPU family, EADSv5 family, regional Spot bucket) take days/weeks or are denied | Phases 6/11 blocked | Day-1 requests for all families in two regions; Phases 12–14 proceed with sample artefacts; fallback gates (RunPod; PAYG toggle; AWS scratch last resort) need one decision from you |
-| Spot eviction mid-run (≈ 30 s notice) | Lost time | `Deallocate` keeps disks/caches; harness checkpoints per (arm, level); full-data pipeline checkpoints per partition and every 100 trees; `make *-start` + same command resumes |
+| RunPod Secure Cloud RTX 4090 capacity is temporarily unavailable | Phase 11 delayed | Live availability check immediately before creation; wait without changing the frozen GPU type or use Azure A100/A10 only if quota is actually usable |
+| Pod stops or host is interrupted mid-run | Lost time | Encrypted pod volume retains model cache and per-arm/per-level checkpoints; re-sync the committed tree and resume with the same run id |
 | Feature parity between DuckDB SQL and `extract_features` drifts | Wrong training data | `CASE` tables generated from the Python lookups; mandatory parity stage on fixture (CI) and real data (pilot) |
 | 63M-row feature build exceeds VM memory | Pilot fails | DuckDB spills to the local NVMe; partition by source and month; pilot at 1M and 5M rows measures peak RSS before admission |
 | Threshold/protocol change alters existing model behaviour | Regressions | `threshold_source` recorded per artefact; existing gates unchanged; ADR-025 documents the change |
