@@ -100,7 +100,7 @@ endef
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
         vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate \
         docker-build docker-build-base docker-build-base-if-changed \
-        pr-title-check ci pre-pr pr-check upgrade dev
+        pr-title-check ci pre-pr pr-check worker upgrade dev
 
 help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
@@ -300,6 +300,8 @@ run-live-vllm: ## Boot the backend against self-hosted vLLM over a local SSH tun
 	infisical run --env=prod --path=/ml -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run uvicorn fraudlens_backend.main:app --reload --host 127.0.0.1 --port $${BACKEND_PORT:-18000}
 run-live-demo: ## Boot live dev AND bootstrap the exact portfolio demo story (mutating; prints the URL).
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live-demo
+worker: ## Run the durable investigation worker against the configured database.
+	$(UV) run python -m fraudlens_backend.worker
 local-demo-down: ## Stop the local demo stack and remove its containers.
 	$(UV) run python scripts/local_demo.py down
 local-demo-reset: ## Tear down the local demo and delete its volumes + local state.

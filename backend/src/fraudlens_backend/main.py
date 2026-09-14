@@ -44,6 +44,7 @@ from fraudlens_backend.db.session import (
 from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
 from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_components
+from fraudlens_backend.runs.reaper import reap_stale_runs
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_backend.telemetry import init_telemetry
 
@@ -61,9 +62,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     init_telemetry(resolved)
     engine = create_engine_from_settings(resolved)
 
+    sessionmaker = build_sessionmaker(engine) if engine is not None else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Dispose the DB engine's connection pool on application shutdown."""
+        """Recover stale worker claims at startup and dispose the DB pool at shutdown."""
+        if sessionmaker is not None and resolved.run_execution_mode == "worker":
+            async with sessionmaker() as session:
+                await reap_stale_runs(session, resolved)
+                await session.commit()
         try:
             yield
         finally:
@@ -80,7 +87,6 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     app.state.db_engine = engine
-    sessionmaker = build_sessionmaker(engine) if engine is not None else None
     app.state.db_sessionmaker = sessionmaker
     app.state.rag_index_dir = _resolve_index_dir(resolved)
     # Per-scope counters for the per-route rate-limit dependency (api/deps.rate_limit); kept on

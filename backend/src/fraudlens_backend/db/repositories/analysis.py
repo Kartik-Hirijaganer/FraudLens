@@ -160,7 +160,9 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             .where(
                 AnalysisRun.id == run_id,
                 AnalysisRun.agency_id == self._agency_id,
-                AnalysisRun.status == RunStatus.RUNNING,
+                AnalysisRun.status.in_(
+                    (RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.FAILED)
+                ),
                 AnalysisRun.lease_owner == lease_owner,
                 AnalysisRun.fencing_token == fencing_token,
             )
@@ -168,6 +170,17 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         )
         if (await self._session.execute(statement)).scalar_one_or_none() is None:
             raise LeaseLostError("run lease ownership was lost")
+
+    async def release_lease(self, *, run_id: uuid.UUID) -> None:
+        """Clear worker ownership after its terminal event is staged in the same transaction."""
+        run = await self.get(run_id)
+        if run is None:
+            return
+        run.lease_owner = None
+        run.lease_expires_at = None
+        run.heartbeat_at = None
+        run.next_attempt_at = None
+        await self._session.flush()
 
     async def get_result(self, run_id: uuid.UUID) -> AnalysisResult | None:
         """Return the immutable `analysis_results` snapshot for the run, or None (agency-scoped)."""
@@ -334,10 +347,6 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         run.rules_version = rules_version
         run.rag_version = rag_version
         run.prompt_version = prompt_version
-        run.lease_owner = None
-        run.lease_expires_at = None
-        run.heartbeat_at = None
-        run.next_attempt_at = None
         # The transaction id comes from the agency-scoped run, so it belongs to this tenant.
         transaction = await self._session.get(Transaction, run.transaction_id)
         if transaction is not None:
@@ -361,10 +370,6 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         run.error_code = error_code
         run.model_version = model_version
         run.rules_version = rules_version
-        run.lease_owner = None
-        run.lease_expires_at = None
-        run.heartbeat_at = None
-        run.next_attempt_at = None
         await self._session.flush()
 
     async def _next_seq(self, run_id: uuid.UUID) -> int:

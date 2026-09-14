@@ -95,6 +95,8 @@ class PipelineRunStore:
             event_type=AnalysisRunEventType(event_type.value),
             payload=payload,
         )
+        if event_type in {PipelineEventType.RUN_COMPLETED, PipelineEventType.RUN_FAILED}:
+            await self._analysis.release_lease(run_id=self._run_id)
         await self._session.commit()
         return seq
 
@@ -217,7 +219,8 @@ class PipelineRunStore:
             rag_version=provenance.rag_version,
             prompt_version=provenance.prompt_version,
         )
-        await self._session.commit()
+        if self._lease_owner is None:
+            await self._session.commit()
 
     async def fail_run(self, *, error_code: str, provenance: RunProvenance) -> None:
         """Mark the run failed with the stable error code (+ known partial provenance) + commit."""
@@ -229,7 +232,8 @@ class PipelineRunStore:
             model_version=provenance.model_version,
             rules_version=provenance.rules_version,
         )
-        await self._session.commit()
+        if self._lease_owner is None:
+            await self._session.commit()
 
 
 @dataclass

@@ -2,12 +2,14 @@
 
 Key classes:
 - LeaseClaim: immutable tenant-carrying ownership token returned to one worker.
+- ReapedFailure: tenant-carrying terminal transition produced by recovery.
 - ReapResult: counts of retry and terminal transitions made by one recovery pass.
 - LeaseLostError: stable internal signal that a stale worker no longer owns a run.
 
 Key functions:
 - claim_next_run: atomically claim one eligible run with row locking on PostgreSQL.
 - heartbeat_lease: extend an exact agency/run/owner/fencing-token lease.
+- abandon_claim: expire an exact claim after a known worker-side failure.
 - reap_expired_runs: retry or fail expired leases under configured attempt/deadline bounds.
 
 Notes:
@@ -51,6 +53,16 @@ class LeaseClaim(BaseModel):
     deadline_at: datetime = Field(..., description="Absolute run deadline in UTC.")
 
 
+class ReapedFailure(BaseModel):
+    """Tenant-carrying terminal transition produced while the run row remains locked."""
+
+    model_config = _MODEL_CONFIG
+
+    run_id: uuid.UUID = Field(..., description="Run transitioned to terminal failure.")
+    agency_id: uuid.UUID = Field(..., description="Tenant scope owning the failed run.")
+    error_code: str = Field(..., min_length=1, description="Stable terminal failure code.")
+
+
 class ReapResult(BaseModel):
     """Summary of one stale-lease recovery pass."""
 
@@ -58,6 +70,9 @@ class ReapResult(BaseModel):
 
     retried: int = Field(..., ge=0, description="Expired runs scheduled for another attempt.")
     failed: int = Field(..., ge=0, description="Expired runs failed at their attempt/deadline cap.")
+    failed_runs: tuple[ReapedFailure, ...] = Field(
+        default=(), description="Tenant-scoped runs requiring terminal events."
+    )
 
 
 def _utc(value: datetime) -> datetime:
@@ -141,6 +156,23 @@ async def heartbeat_lease(
     return result.scalar_one_or_none() is not None
 
 
+async def abandon_claim(session: AsyncSession, claim: LeaseClaim, *, now: datetime) -> bool:
+    """Expire an exact live claim so the next reaper pass can retry it immediately."""
+    statement = (
+        update(AnalysisRun)
+        .where(
+            AnalysisRun.id == claim.run_id,
+            AnalysisRun.agency_id == claim.agency_id,
+            AnalysisRun.status == RunStatus.RUNNING,
+            AnalysisRun.lease_owner == claim.lease_owner,
+            AnalysisRun.fencing_token == claim.fencing_token,
+        )
+        .values(lease_expires_at=now)
+    )
+    result = await session.execute(statement.returning(AnalysisRun.id))
+    return result.scalar_one_or_none() is not None
+
+
 async def reap_expired_runs(
     session: AsyncSession,
     *,
@@ -162,12 +194,20 @@ async def reap_expired_runs(
     rows = (await session.execute(statement)).scalars().all()
     retried = 0
     failed = 0
+    failed_runs: list[ReapedFailure] = []
     for run in rows:
         deadline_reached = run.deadline_at is None or _utc(run.deadline_at) <= _utc(now)
         if run.attempt >= max_attempts or deadline_reached:
             run.status = RunStatus.FAILED
             run.error_code = "run_attempts_exhausted" if not deadline_reached else "run_deadline"
             failed += 1
+            failed_runs.append(
+                ReapedFailure(
+                    run_id=run.id,
+                    agency_id=run.agency_id,
+                    error_code=run.error_code,
+                )
+            )
         else:
             run.status = RunStatus.RETRYING
             run.next_attempt_at = now + timedelta(seconds=retry_backoff_seconds * run.attempt)
@@ -176,4 +216,8 @@ async def reap_expired_runs(
         run.lease_expires_at = None
         run.heartbeat_at = None
     await session.flush()
-    return ReapResult(retried=retried, failed=failed)
+    return ReapResult(
+        retried=retried,
+        failed=failed,
+        failed_runs=tuple(failed_runs),
+    )

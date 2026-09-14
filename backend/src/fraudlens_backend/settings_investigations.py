@@ -59,6 +59,11 @@ class InvestigationRuntimeFields(BaseModel):
         gt=0,
         description="Idle delay between durable worker claim attempts.",
     )
+    run_worker_heartbeat_file: str = Field(
+        default=".local/worker/heartbeat",
+        min_length=1,
+        description="Worker liveness file updated while its scheduler loop is healthy.",
+    )
     run_event_poll_ms: int = Field(
         default=250,
         gt=0,

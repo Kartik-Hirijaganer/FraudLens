@@ -65,6 +65,7 @@ run_deadline_seconds: 300
 run_claim_batch: 1
 run_retry_backoff_seconds: 5
 run_worker_poll_seconds: 1.0
+run_worker_heartbeat_file: .local/worker/heartbeat
 run_event_poll_ms: 250
 run_event_poll_max_ms: 2000
 run_event_heartbeat_seconds: 15

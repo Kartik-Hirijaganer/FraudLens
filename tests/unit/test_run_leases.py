@@ -17,9 +17,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fraudlens_backend.db.models import Agency, RunStatus, Transaction
+from fraudlens_backend.db.models import Agency, AnalysisRunEvent, RunStatus, Transaction
 from fraudlens_backend.db.repositories.analysis import AnalysisRunRepository
 from fraudlens_backend.runs import (
     LeaseLostError,
@@ -27,6 +28,8 @@ from fraudlens_backend.runs import (
     heartbeat_lease,
     reap_expired_runs,
 )
+from fraudlens_backend.runs.reaper import reap_stale_runs
+from fraudlens_backend.settings import AppSettings
 
 _AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 
@@ -172,3 +175,32 @@ async def test_claim_skips_runs_past_deadline(db_sessionmaker) -> None:
             )
             is None
         )
+
+
+async def test_terminal_reaper_transition_appends_failure_event(db_sessionmaker) -> None:
+    now = datetime(2026, 9, 14, tzinfo=UTC)
+    run_id = await _queued_run(db_sessionmaker, now=now)
+    async with db_sessionmaker() as session:
+        claim = await claim_next_run(
+            session, lease_owner="worker-a", now=now, lease_seconds=1
+        )
+        assert claim is not None
+        await session.commit()
+    async with db_sessionmaker() as session:
+        result = await reap_stale_runs(
+            session,
+            AppSettings(run_max_attempts=1),
+            now=now + timedelta(seconds=2),
+        )
+        await session.commit()
+        events = (
+            await session.execute(
+                select(AnalysisRunEvent).where(
+                    AnalysisRunEvent.agency_id == _AGENCY_ID,
+                    AnalysisRunEvent.run_id == run_id,
+                )
+            )
+        ).scalars().all()
+    assert result.failed == 1
+    assert [event.event_type.value for event in events] == ["run.failed"]
+    assert events[0].payload == {"code": "run_attempts_exhausted"}
