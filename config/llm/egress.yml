@@ -75,7 +75,7 @@ forbidden_patterns:
   - name: social-security-number
     pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
   - name: account-number
-    pattern: "\\b\\d{12,19}\\b"
+    pattern: "(?<![A-Za-z0-9.])\\d{12,19}(?![A-Za-z0-9.])"
   - name: jwt
     pattern: "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b"
   - name: bearer-token

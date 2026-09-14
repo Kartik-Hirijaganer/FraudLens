@@ -20,6 +20,11 @@ AML_SAMPLE_ROWS ?= 50000
 FULLDATA_CANDIDATE ?= hi-small
 FULLDATA_PILOT_ROWS ?= 1000000
 FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
+VLLM_BENCH := $(UV) run --group fulldata python scripts/benchmark_vllm.py
+PROFILE ?= smoke
+SOURCE ?= sar-eval
+HOST ?= azure-nc24ads-a100
+PURCHASE ?= pay_as_you_go
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -32,6 +37,7 @@ FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
         run rebuild run-live run-live-vllm run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
+        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate \
         docker-build docker-build-base docker-build-base-if-changed \
         pr-title-check ci pre-pr pr-check upgrade dev
 
@@ -310,6 +316,44 @@ fulldata-validate: ## Revalidate the committed full-data report/frontend hash bi
 	$(FULLDATA) validate
 fulldata-pilot: ## Run the approved bounded pilot (candidate + row target configurable).
 	$(FULLDATA) pilot --candidate $(FULLDATA_CANDIDATE) --rows $(FULLDATA_PILOT_ROWS)
+
+# ---------------------------------------------------------------------------
+# vLLM BF16-versus-AWQ benchmark. Case validation and tests are provider-free;
+# serve/run require an operator-selected GPU host. The full IBM corpus remains
+# fail-closed until the Phase-6 application-candidate artifacts are available.
+# ---------------------------------------------------------------------------
+VLLM_CASES ?= .local/vllm-bench/cases-$(SOURCE)-$(PROFILE).json
+VLLM_BENCH_TESTS := $(wildcard tests/unit/test_vllm_bench_*.py)
+
+vllm-bench-cases: ## Build a deterministic case corpus (PROFILE + SOURCE).
+	$(VLLM_BENCH) cases --profile "$(PROFILE)" --source "$(SOURCE)"
+vllm-bench-cases-release: ## Attach full IBM cases to the RUN release (mutating; permission required).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	@test "$(RELEASE_UPLOAD_APPROVED)" = "1" || { echo "RELEASE_UPLOAD_APPROVED=1 is required"; exit 2; }
+	$(VLLM_BENCH) cases-release --run "$(RUN)" --confirm-upload
+vllm-bench-serve: ## Start one pinned local vLLM arm (ARM=bf16|awq; GPU required).
+	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
+	$(VLLM_BENCH) serve --arm "$(ARM)"
+vllm-bench-stop: ## Stop the configured local vLLM container.
+	$(VLLM_BENCH) stop
+vllm-bench-run: ## Run/resume one arm (RUN + ARM; server must already be ready).
+	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
+	$(VLLM_BENCH) run $(if $(RUN),--run "$(RUN)",) --arm "$(ARM)" \
+		--profile "$(PROFILE)" --source "$(SOURCE)" \
+		--host "$(HOST)" --purchase-option "$(PURCHASE)"
+vllm-bench-report: ## Build the local report (RUN; VLLM_CASES may override the case path).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) report --run "$(RUN)" --cases "$(VLLM_CASES)"
+vllm-bench-publish: ## Publish an accepted full run (RUN; optional ALLOW_UNMET=1).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) publish --run "$(RUN)" \
+		$(if $(filter 1 true yes,$(ALLOW_UNMET)),--allow-unmet-acceptance,)
+vllm-bench-test: ## Portable fake-server suite with >=90% benchmark-harness branch coverage.
+	$(UV) run --group fulldata pytest $(VLLM_BENCH_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/vllm_bench --cov=benchmark_vllm --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+vllm-bench-validate: ## Rebuild deterministic smoke cases and verify protocol/publication bindings.
+	$(VLLM_BENCH) validate
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
 batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).
@@ -441,7 +485,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

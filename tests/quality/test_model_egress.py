@@ -28,6 +28,7 @@ from fraudlens_backend.sar.drafter_live import LiveSarDrafter
 from fraudlens_backend.sar.egress import (
     EgressBlockedError,
     SarModelInput,
+    _matches_forbidden,
     load_egress_policy,
     project_agent_tool_result,
     project_for_model,
@@ -277,6 +278,25 @@ def test_agent_tool_results_are_allowlisted_aliased_and_remasked() -> None:
     assert "internalId" not in hit
     assert "debug" not in projected
     assert "analyst@example.com" not in str(remasked)
+
+
+def test_account_detector_blocks_standalone_numbers_without_matching_hashes_or_decimals() -> None:
+    policy = load_egress_policy()
+    digest = "123456789012abcdef123456789012abcdef123456789012abcdef123456789012"
+    sanitized = sanitize_model_payload(
+        {
+            "standalone": "1234567890123456",
+            "digest": digest,
+            "decimal": "0.1234567890123456",
+        },
+        policy,
+    )
+
+    assert sanitized["standalone"] != "1234567890123456"
+    assert "REDACTED" in sanitized["standalone"]
+    assert _matches_forbidden("1234567890123456", policy)
+    assert not _matches_forbidden(digest, policy)
+    assert not _matches_forbidden("0.1234567890123456", policy)
 
 
 def test_project_for_model_raises_stable_source_code(make_sar_input: Callable[..., object]) -> None:

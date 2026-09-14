@@ -11,6 +11,7 @@ Key functions:
 - canonical_run_id: derive the only valid run id for a config hash and seed.
 - generate_scenarios: build the exact 8 x 4 scenario matrix.
 - validate_alert_preflight: prove every case reaches the pinned model's normal alert path locally.
+- scenario_rule_context: reproduce the production account-relative analytical context.
 - write_scenarios: serialize the matrix atomically into one run directory.
 - load_scenarios: strictly parse a completed scenario artifact.
 - validate_scenario_binding: enforce run/config/seed lineage for later stages.
@@ -387,6 +388,11 @@ def _preflight_context(scenario: SarEvalScenario, config: SarEvalConfig) -> Rule
             _rule_transaction(item, account=subject.dest_account) for item in counterparty_rows
         ),
     )
+
+
+def scenario_rule_context(scenario: SarEvalScenario, config: SarEvalConfig) -> RuleContext:
+    """Return the account-relative rule/scoring context shared by portable study harnesses."""
+    return _preflight_context(scenario, config)
 
 
 def validate_alert_preflight(
