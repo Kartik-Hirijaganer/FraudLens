@@ -33,17 +33,13 @@ Notes:
 
 from __future__ import annotations
 
-import json
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
 
-from anyio import CancelScope
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
@@ -56,6 +52,12 @@ from fraudlens_backend.api.deps import (
     optional_actor,
     require_permission,
 )
+from fraudlens_backend.api.v1.investigation_stream import SSE_HEADERS as _SSE_HEADERS
+from fraudlens_backend.api.v1.investigation_stream import event_stream as _event_stream
+from fraudlens_backend.api.v1.investigation_stream import (
+    parse_last_event_id as _parse_last_event_id,
+)
+from fraudlens_backend.api.v1.investigation_stream import stream_session as _stream_session
 from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, RagRetrieval, SarDraft
 from fraudlens_backend.db.repositories import (
     AgentExecutionRepository,
@@ -91,9 +93,6 @@ InvestigationWriteDep = Annotated[
 ]
 
 _IDEMPOTENCY_HEADER = "Idempotency-Key"
-_LAST_EVENT_ID_HEADER = "Last-Event-ID"
-_TERMINAL_EVENTS = frozenset({"run.completed", "run.failed"})
-_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 _SECONDS_PER_DAY = 86_400
 
 
@@ -340,112 +339,6 @@ async def regenerate_investigation_sar(
     )
     await session.commit()
     return sar_draft_to_view(draft)
-
-
-def _parse_last_event_id(request: Request) -> int:
-    """Parse the SSE `Last-Event-ID` (header or `lastEventId` query) as a seq; 0 when absent/bad."""
-    raw = request.headers.get(_LAST_EVENT_ID_HEADER) or request.query_params.get("lastEventId")
-    try:
-        return max(0, int(raw)) if raw is not None else 0
-    except (TypeError, ValueError):
-        return 0
-
-
-def _sse_frame(seq: int | None, event_type: str, data: dict[str, Any]) -> str:
-    """Format one Server-Sent Event frame (id only for persisted events with a seq)."""
-    lines = []
-    if seq is not None:
-        lines.append(f"id: {seq}")
-    lines.append(f"event: {event_type}")
-    lines.append(f"data: {json.dumps(data, separators=(',', ':'))}")
-    return "\n".join(lines) + "\n\n"
-
-
-@asynccontextmanager
-async def _stream_session(
-    sessionmaker: async_sessionmaker[AsyncSession],
-) -> AsyncIterator[AsyncSession]:
-    """Yield an SSE-owned session and finish closing it even when the request is cancelled."""
-    session = sessionmaker()
-    with CancelScope(shield=True):
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
-async def _event_stream(
-    *,
-    manager: RunManager,
-    sessionmaker: async_sessionmaker[AsyncSession],
-    agency_id: uuid.UUID,
-    run_id: uuid.UUID,
-    after_seq: int,
-) -> AsyncIterator[str]:
-    """Replay persisted events from `after_seq`, then tail the live broadcast until terminal."""
-    queue = manager.attach(str(run_id))
-    try:
-        max_seq = after_seq
-        async with _stream_session(sessionmaker) as session:
-            events = await AnalysisRunRepository(session, agency_id).events_after(
-                run_id=run_id, after_seq=after_seq
-            )
-        for event in events:
-            payload = await _terminal_snapshot_payload(
-                sessionmaker=sessionmaker,
-                agency_id=agency_id,
-                run_id=run_id,
-                event_type=event.event_type.value,
-                payload=dict(event.payload),
-            )
-            yield _sse_frame(event.seq, event.event_type.value, payload)
-            max_seq = event.seq
-            if event.event_type.value in _TERMINAL_EVENTS:
-                return
-        if queue is None:  # run is terminal/evicted — the persisted replay is the whole stream
-            return
-        while True:
-            message = await queue.get()
-            if message is None:  # the run finished (done sentinel)
-                return
-            if message.seq is not None and message.seq <= max_seq:
-                continue  # already replayed from the persisted log
-            payload = await _terminal_snapshot_payload(
-                sessionmaker=sessionmaker,
-                agency_id=agency_id,
-                run_id=run_id,
-                event_type=message.event_type,
-                payload=message.data,
-            )
-            yield _sse_frame(message.seq, message.event_type, payload)
-            if message.seq is not None:
-                max_seq = message.seq
-            if message.event_type in _TERMINAL_EVENTS:
-                return
-    finally:
-        if queue is not None:
-            manager.detach(str(run_id), queue)
-
-
-async def _terminal_snapshot_payload(
-    *,
-    sessionmaker: async_sessionmaker[AsyncSession],
-    agency_id: uuid.UUID,
-    run_id: uuid.UUID,
-    event_type: str,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Add the run's nullable alert id and SAR status to the terminal SSE snapshot."""
-    if event_type != "run.completed":
-        return payload
-    async with _stream_session(sessionmaker) as session:
-        alert = await AlertRepository(session, agency_id).get_for_run(run_id)
-        sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
-    return {
-        **payload,
-        "alertId": str(alert.id) if alert is not None else None,
-        "sarStatus": sar.status.value if sar is not None else None,
-    }
 
 
 @router.get("/investigations/{runId}/stream")
