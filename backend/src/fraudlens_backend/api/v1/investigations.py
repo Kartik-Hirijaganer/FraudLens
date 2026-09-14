@@ -1,13 +1,10 @@
 """Summary: The investigation API (plan §5.4, §10.2, §16 Phase 8; endpoints 6-8). `POST
-/investigations` STARTS and OWNS the run (ADR-016): it validates the transaction is the agency's,
-creates the `analysis_runs(running)` row, launches the `Runner` as an in-process background task
-    via the `RunManager`, and returns **202 `{runId}`** — an optional `Idempotency-Key` is hashed
-    into the tenant-scoped run row and dedupes across restarts/replicas. `GET
-    /investigations/{runId}` is the authoritative snapshot the
-SSE observer reconciles against. `GET /investigations/{runId}/stream` is a PURE OBSERVER: it
-replays the persisted `analysis_run_events` from `Last-Event-ID`, then tails the live broadcast
-(the ephemeral `sar.token`s) until `run.completed`/`run.failed` — it never starts the run, so a
-never-connected, dropped, or doubly-reconnected stream never strands or duplicates a run. Every
+/investigations` validates the tenant transaction, persists a running inline run or pending durable
+worker run, and returns **202 `{runId}`**. An optional hashed `Idempotency-Key` dedupes across
+restarts/replicas. Live multi-agent runs reserve their worst-case attempt spend transactionally.
+`GET /investigations/{runId}` is the authoritative snapshot. `GET
+/investigations/{runId}/stream` is a pure observer: it replays persisted events from
+`Last-Event-ID`, then uses an inline live tail or worker-mode database polling until terminal. Every
 route is scoped to the verified `agency_id` claim (a cross-tenant runId → 404, no existence leak).
 
 Key classes:
@@ -20,8 +17,8 @@ Key functions:
 - stream_investigation: GET /investigations/{runId}/stream — SSE replay-from-Last-Event-ID + tail.
 
 Notes:
-- The SSE generator opens its OWN short-lived session for the persisted-event replay and then tails
-  the in-memory broadcast queue, so a long-lived stream does not pin the request DB session.
+- The SSE generator opens its own short-lived sessions for persisted-event reads, so a long-lived
+  stream does not pin the request DB session.
 - Stream-owned session cleanup runs in a shielded task so a client disconnect cannot interrupt
   SQLAlchemy while it returns an asyncpg connection to the pool.
 - Replaying persisted events (with a `seq`) then de-duping any live event whose `seq` was already
@@ -86,6 +83,7 @@ from fraudlens_backend.pipeline_wiring import (
     build_pipeline_input,
     resolve_workflow_mode,
 )
+from fraudlens_backend.runs.admission import reserve_agent_spend
 from fraudlens_backend.services.sar_regeneration import regenerate_sar_for_run, sar_draft_to_view
 from fraudlens_backend.settings import AppSettings
 
@@ -169,25 +167,24 @@ async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the tra
         requested=workflow_mode,
     )
     evaluation_mode = workflow_mode is not None
-    if resolved_workflow == "multi_agent" and settings.llm_mode == "live":
-        if not evaluation_mode:
-            client_host = request.client.host if request.client else "unknown"
-            quotas = manager.agent_quotas
-            enforce_rate_limit(
-                request,
-                scope="live_multi_agent_per_ip_daily",
-                limit=quotas.live_runs_per_ip_per_day,
-                window_seconds=_SECONDS_PER_DAY,
-                key=client_host,
-            )
-            enforce_rate_limit(
-                request,
-                scope="live_multi_agent_total_daily",
-                limit=quotas.live_runs_total_per_day,
-                window_seconds=_SECONDS_PER_DAY,
-                key="all",
-            )
-        await manager.ensure_agent_budget(session, agency_id=agency_id)
+    reserve_live_agent_spend = resolved_workflow == "multi_agent" and settings.llm_mode == "live"
+    if reserve_live_agent_spend and not evaluation_mode:
+        client_host = request.client.host if request.client else "unknown"
+        quotas = manager.agent_quotas
+        enforce_rate_limit(
+            request,
+            scope="live_multi_agent_per_ip_daily",
+            limit=quotas.live_runs_per_ip_per_day,
+            window_seconds=_SECONDS_PER_DAY,
+            key=client_host,
+        )
+        enforce_rate_limit(
+            request,
+            scope="live_multi_agent_total_daily",
+            limit=quotas.live_runs_total_per_day,
+            window_seconds=_SECONDS_PER_DAY,
+            key="all",
+        )
     try:
         graph_version = (
             getattr(manager, "agent_graph_version", None)
@@ -223,6 +220,14 @@ async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the tra
                     raise AppError("idempotency_key_conflict") from None
                 return str(existing.id)
         raise
+    if reserve_live_agent_spend:
+        attempt_count = settings.run_max_attempts if settings.run_execution_mode == "worker" else 1
+        await reserve_agent_spend(
+            session,
+            run=run,
+            agency_id=agency_id,
+            maximum_attempt_cost_usd=manager.agent_max_cost_usd * attempt_count,
+        )
     await audit_writer(tenant, session, request).record(
         actor_id=optional_actor(tenant),
         action="investigation.start",

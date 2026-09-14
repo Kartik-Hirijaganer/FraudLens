@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import os
 import stat
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 import benchmark_vllm
@@ -22,6 +23,21 @@ from lib.runpod_gpu.config import DEFAULT_CONFIG as DEFAULT_RUNPOD_CONFIG
 from lib.runpod_gpu.config import load_config as load_runpod_config
 from lib.vllm_bench.config import DEFAULT_VLLM_BENCH_CONFIG
 from lib.vllm_bench.config import load_config as load_vllm_config
+
+
+@contextmanager
+def _runtime_environment(values: Mapping[str, str]) -> Iterator[None]:
+    """Apply runtime values for one dispatch and restore the caller's environment."""
+    previous = {key: os.environ.get(key) for key in values}
+    try:
+        os.environ.update(values)
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -34,10 +50,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = token_path.read_text(encoding="utf-8")
     if not token.strip():
         raise ValueError("vLLM API key file is empty")
-    os.environ[vllm.server.api_key_env] = token
-    os.environ[vllm.server.image_digest_env] = runpod.pod.image_digest
-    os.environ["VLLM_BENCH_RUNTIME"] = "process"
-    return benchmark_vllm.main(argv)
+    with _runtime_environment(
+        {
+            vllm.server.api_key_env: token,
+            vllm.server.image_digest_env: runpod.pod.image_digest,
+            "VLLM_BENCH_RUNTIME": "process",
+        }
+    ):
+        return benchmark_vllm.main(argv)
 
 
 if __name__ == "__main__":

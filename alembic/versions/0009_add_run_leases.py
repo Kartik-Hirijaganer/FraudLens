@@ -25,11 +25,11 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("request_fingerprint", sa.String(length=64), nullable=True))
         batch_op.add_column(sa.Column("model_override", sa.String(length=128), nullable=True))
         batch_op.add_column(sa.Column("lease_owner", sa.String(length=128), nullable=True))
-        batch_op.add_column(sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True))
-        batch_op.add_column(sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(
-            sa.Column("attempt", sa.Integer(), server_default="0", nullable=False)
+            sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True)
         )
+        batch_op.add_column(sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True))
+        batch_op.add_column(sa.Column("attempt", sa.Integer(), server_default="0", nullable=False))
         batch_op.add_column(sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(sa.Column("deadline_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(

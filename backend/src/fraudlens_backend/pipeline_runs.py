@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -24,10 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from fraudlens_backend.db.models.enums import AnalysisRunEventType, SarStatus, Severity
 from fraudlens_backend.db.repositories import (
     AnalysisRunRepository,
-    DashboardRepository,
     ModelRegistryRepository,
     SarDraftRepository,
-    load_llm_daily_budget_usd,
 )
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
@@ -61,6 +59,7 @@ _RESTART_SINGLETON_EVENTS = frozenset(
         PipelineEventType.SAR_STARTED,
     }
 )
+_DEFERRED_EVENT_COMMITS = frozenset({PipelineEventType.STEP_SHAP_COMPLETED})
 
 
 class PipelineRunStore:
@@ -116,7 +115,8 @@ class PipelineRunStore:
         )
         if event_type in {PipelineEventType.RUN_COMPLETED, PipelineEventType.RUN_FAILED}:
             await self._analysis.release_lease(run_id=self._run_id)
-        await self._session.commit()
+        if self._lease_owner is None or event_type not in _DEFERRED_EVENT_COMMITS:
+            await self._session.commit()
         return seq
 
     async def save_result(self, record: ResultRecord) -> None:
@@ -147,7 +147,8 @@ class PipelineRunStore:
             fraud_probability=record.fraud_probability,
             feature_hash=record.feature_hash,
         )
-        await self._session.commit()
+        if self._lease_owner is None:
+            await self._session.commit()
 
     async def save_rag(self, record: RagRecord) -> None:
         """Persist the `rag_retrievals` row for the run + commit."""
@@ -159,7 +160,8 @@ class PipelineRunStore:
             chunks=record.chunks,
             rag_version=record.rag_version,
         )
-        await self._session.commit()
+        if self._lease_owner is None:
+            await self._session.commit()
 
     async def save_sar(self, result: SarDraftResult) -> str:
         """Persist the SAR draft (draft or failed) for the run + commit; return its id.
@@ -297,18 +299,10 @@ class RunManager:
         """Return the validated graph version persisted on multi-agent runs."""
         return str(self._components.agent_config.graph_version)
 
-    async def ensure_agent_budget(self, session: AsyncSession, *, agency_id: uuid.UUID) -> None:
-        """Reject a live graph whose worst-case charge would cross the tenant daily budget."""
-        if self._settings.llm_mode != "live":
-            return
-        limit = await load_llm_daily_budget_usd(session, agency_id=agency_id)
-        spent = await DashboardRepository(session, agency_id).sar_cost_today(
-            as_of=datetime.now(UTC)
-        )
-        if spent + self._components.agent_max_cost_usd > limit:
-            from fraudlens_backend.models.errors import AppError  # noqa: PLC0415
-
-            raise AppError("llm_budget_exceeded")
+    @property
+    def agent_max_cost_usd(self) -> Decimal:
+        """Return the validated worst-case cost for one multi-agent attempt."""
+        return self._components.agent_max_cost_usd
 
     def start(  # noqa: PLR0913 - explicit persisted run identity and selected workflow.
         self,

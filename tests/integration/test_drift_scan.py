@@ -22,6 +22,7 @@ from fraudlens_backend.db.models import (
     JobType,
     ModelDeployment,
     ModelInferenceLog,
+    RunStatus,
     Severity,
 )
 from seed import seed
@@ -45,15 +46,21 @@ def test_severity_for_psi_bands() -> None:
     assert severity_for_psi(0.90) is Severity.CRITICAL
 
 
-async def _active_version_and_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
-    """Return the active model-version id + one explicit fixture-run id for FK references."""
+async def _active_version_and_transaction(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
+    """Return the active model-version id + one fixture transaction id for new runs."""
     deployment = (await session.execute(select(ModelDeployment).limit(1))).scalar_one()
-    run_id = (await session.execute(select(AnalysisRun.id).limit(1))).scalar_one()
-    return deployment.active_version_id, run_id
+    transaction_id = (
+        await session.execute(select(AnalysisRun.transaction_id).limit(1))
+    ).scalar_one()
+    return deployment.active_version_id, transaction_id
 
 
 async def _add_inferences(
-    session: AsyncSession, *, version_id: uuid.UUID, run_id: uuid.UUID, probabilities: list[float]
+    session: AsyncSession,
+    *,
+    version_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    probabilities: list[float],
 ) -> None:
     """Insert hash-only inference logs for a version with increasing timestamps (drift reads order).
 
@@ -62,10 +69,17 @@ async def _add_inferences(
     """
     base = datetime(2026, 1, 1, tzinfo=UTC)
     for index, probability in enumerate(probabilities):
+        run = AnalysisRun(
+            agency_id=DEMO_AGENCY_ID,
+            transaction_id=transaction_id,
+            status=RunStatus.COMPLETED,
+        )
+        session.add(run)
+        await session.flush()
         session.add(
             ModelInferenceLog(
                 agency_id=DEMO_AGENCY_ID,
-                run_id=run_id,
+                run_id=run.id,
                 model_version_id=version_id,
                 was_canary=False,
                 fraud_probability=probability,
@@ -79,8 +93,13 @@ async def _add_inferences(
 async def test_scan_records_insufficient_data_advisory(db_session: AsyncSession) -> None:
     await seed(db_session)
     await add_matured_training_labels(db_session, count=1)
-    version_id, run_id = await _active_version_and_run(db_session)
-    await _add_inferences(db_session, version_id=version_id, run_id=run_id, probabilities=[0.3] * 5)
+    version_id, transaction_id = await _active_version_and_transaction(db_session)
+    await _add_inferences(
+        db_session,
+        version_id=version_id,
+        transaction_id=transaction_id,
+        probabilities=[0.3] * 5,
+    )
     report = await scan_active_model(db_session)
     assert report is not None
     assert report.advisory is True
@@ -91,11 +110,14 @@ async def test_scan_records_insufficient_data_advisory(db_session: AsyncSession)
 async def test_scan_detects_score_shift_and_records_job(db_session: AsyncSession) -> None:
     await seed(db_session)
     await add_matured_training_labels(db_session, count=1)
-    version_id, run_id = await _active_version_and_run(db_session)
+    version_id, transaction_id = await _active_version_and_transaction(db_session)
     # First half low scores, second half high scores → a clear distribution shift.
     probabilities = [0.1] * 30 + [0.9] * 30
     await _add_inferences(
-        db_session, version_id=version_id, run_id=run_id, probabilities=probabilities
+        db_session,
+        version_id=version_id,
+        transaction_id=transaction_id,
+        probabilities=probabilities,
     )
     report = await scan_active_model(db_session)
     assert report is not None

@@ -31,7 +31,7 @@ from fraudlens_backend.runs import (
 from fraudlens_backend.runs.reaper import reap_stale_runs
 from fraudlens_backend.settings import AppSettings
 
-_AGENCY_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
+_AGENCY_ID = uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 
 
 async def _queued_run(
@@ -107,9 +107,7 @@ async def test_expired_lease_retries_then_rejects_stale_heartbeat(db_sessionmake
     now = datetime(2026, 9, 14, tzinfo=UTC)
     run_id = await _queued_run(db_sessionmaker, now=now)
     async with db_sessionmaker() as session:
-        first = await claim_next_run(
-            session, lease_owner="worker-a", now=now, lease_seconds=10
-        )
+        first = await claim_next_run(session, lease_owner="worker-a", now=now, lease_seconds=10)
         assert first is not None
         await session.commit()
     async with db_sessionmaker() as session:
@@ -143,9 +141,7 @@ async def test_attempt_and_deadline_bounds_fail_expired_runs(db_sessionmaker) ->
     now = datetime(2026, 9, 14, tzinfo=UTC)
     run_id = await _queued_run(db_sessionmaker, now=now)
     async with db_sessionmaker() as session:
-        claim = await claim_next_run(
-            session, lease_owner="worker-a", now=now, lease_seconds=1
-        )
+        claim = await claim_next_run(session, lease_owner="worker-a", now=now, lease_seconds=1)
         assert claim is not None
         await session.commit()
     async with db_sessionmaker() as session:
@@ -164,7 +160,7 @@ async def test_attempt_and_deadline_bounds_fail_expired_runs(db_sessionmaker) ->
 
 async def test_claim_skips_runs_past_deadline(db_sessionmaker) -> None:
     now = datetime(2026, 9, 14, tzinfo=UTC)
-    await _queued_run(db_sessionmaker, now=now)
+    run_id = await _queued_run(db_sessionmaker, now=now)
     async with db_sessionmaker() as session:
         assert (
             await claim_next_run(
@@ -176,14 +172,24 @@ async def test_claim_skips_runs_past_deadline(db_sessionmaker) -> None:
             is None
         )
 
+    async with db_sessionmaker() as session:
+        result = await reap_expired_runs(
+            session,
+            now=now + timedelta(minutes=6),
+            max_attempts=3,
+            retry_backoff_seconds=5,
+        )
+        await session.commit()
+        run = await AnalysisRunRepository(session, _AGENCY_ID).get(run_id)
+    assert result.failed == 1 and run is not None
+    assert run.status is RunStatus.FAILED and run.error_code == "run_deadline"
+
 
 async def test_terminal_reaper_transition_appends_failure_event(db_sessionmaker) -> None:
     now = datetime(2026, 9, 14, tzinfo=UTC)
     run_id = await _queued_run(db_sessionmaker, now=now)
     async with db_sessionmaker() as session:
-        claim = await claim_next_run(
-            session, lease_owner="worker-a", now=now, lease_seconds=1
-        )
+        claim = await claim_next_run(session, lease_owner="worker-a", now=now, lease_seconds=1)
         assert claim is not None
         await session.commit()
     async with db_sessionmaker() as session:
@@ -194,13 +200,17 @@ async def test_terminal_reaper_transition_appends_failure_event(db_sessionmaker)
         )
         await session.commit()
         events = (
-            await session.execute(
-                select(AnalysisRunEvent).where(
-                    AnalysisRunEvent.agency_id == _AGENCY_ID,
-                    AnalysisRunEvent.run_id == run_id,
+            (
+                await session.execute(
+                    select(AnalysisRunEvent).where(
+                        AnalysisRunEvent.agency_id == _AGENCY_ID,
+                        AnalysisRunEvent.run_id == run_id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert result.failed == 1
     assert [event.event_type.value for event in events] == ["run.failed"]
     assert events[0].payload == {"code": "run_attempts_exhausted"}

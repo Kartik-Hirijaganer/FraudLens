@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable
+from decimal import Decimal
 from typing import cast
 
 from anyio import CancelScope, create_task_group
@@ -341,15 +342,6 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
         multi_agent_sar_enabled=True,
     )
     app.state.run_manager.start = lambda **_kwargs: None
-    budget_calls = 0
-    ensure_budget = app.state.run_manager.ensure_agent_budget
-
-    async def tracked_budget(session: AsyncSession, *, agency_id: uuid.UUID) -> None:
-        nonlocal budget_calls
-        budget_calls += 1
-        await ensure_budget(session, agency_id=agency_id)
-
-    app.state.run_manager.ensure_agent_budget = tracked_budget
     async with _client(app) as client:
         responses = [
             await client.post(
@@ -363,8 +355,8 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
         ]
 
     assert {response.status_code for response in responses} == {202}
-    assert budget_calls == len(responses)
     async with db_sessionmaker() as session:
+        reservations = (await session.execute(select(AnalysisRun.llm_reserved_usd))).scalars().all()
         metadata = (
             (
                 await session.execute(
@@ -374,6 +366,8 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
             .scalars()
             .all()
         )
+    assert reservations == [app.state.run_manager.agent_max_cost_usd] * len(responses)
+    assert all(value > Decimal("0") for value in reservations)
     assert len(metadata) == len(responses)
     assert all(
         item["evaluationMode"] == "true" and item["evaluationQuotaBypass"] == "true"

@@ -161,11 +161,27 @@ def test_remote_wrapper_injects_process_runtime_from_mode_0600_file(sandbox, mon
         lambda _path: runpod_config.model_copy(update={"remote": remote}),
     )
     monkeypatch.setattr(runpod_bench, "load_vllm_config", lambda _path: vllm_config)
-    monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", lambda args: len(args or ()))
+    runtime_values = []
+
+    def dispatch(args) -> int:
+        runtime_values.append(
+            (
+                os.environ[vllm_config.server.api_key_env],
+                os.environ[vllm_config.server.image_digest_env],
+                os.environ["VLLM_BENCH_RUNTIME"],
+            )
+        )
+        return len(args or ())
+
+    monkeypatch.delenv(vllm_config.server.api_key_env, raising=False)
+    monkeypatch.delenv(vllm_config.server.image_digest_env, raising=False)
+    monkeypatch.delenv("VLLM_BENCH_RUNTIME", raising=False)
+    monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", dispatch)
     assert runpod_bench.main(["validate"]) == 1
-    assert os.environ[vllm_config.server.api_key_env] == "synthetic-vllm-token"
-    assert os.environ[vllm_config.server.image_digest_env] == runpod_config.pod.image_digest
-    assert os.environ["VLLM_BENCH_RUNTIME"] == "process"
+    assert runtime_values == [("synthetic-vllm-token", runpod_config.pod.image_digest, "process")]
+    assert vllm_config.server.api_key_env not in os.environ
+    assert vllm_config.server.image_digest_env not in os.environ
+    assert "VLLM_BENCH_RUNTIME" not in os.environ
     token_path.chmod(0o644)
     with pytest.raises(ValueError, match="mode 0600"):
         runpod_bench.main(["validate"])

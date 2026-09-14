@@ -191,7 +191,18 @@ async def reap_expired_runs(
         .order_by(AnalysisRun.lease_expires_at.asc())
         .with_for_update(skip_locked=True)
     )
-    rows = (await session.execute(statement)).scalars().all()
+    rows = list((await session.execute(statement)).scalars().all())
+    waiting_statement = (
+        select(AnalysisRun)
+        .where(
+            AnalysisRun.status.in_((RunStatus.PENDING, RunStatus.RETRYING)),
+            AnalysisRun.deadline_at.is_not(None),
+            AnalysisRun.deadline_at <= now,
+        )
+        .order_by(AnalysisRun.deadline_at.asc())
+        .with_for_update(skip_locked=True)
+    )
+    expired_waiting = (await session.execute(waiting_statement)).scalars().all()
     retried = 0
     failed = 0
     failed_runs: list[ReapedFailure] = []
@@ -215,6 +226,18 @@ async def reap_expired_runs(
         run.lease_owner = None
         run.lease_expires_at = None
         run.heartbeat_at = None
+    for run in expired_waiting:
+        run.status = RunStatus.FAILED
+        run.error_code = "run_deadline"
+        run.next_attempt_at = None
+        failed += 1
+        failed_runs.append(
+            ReapedFailure(
+                run_id=run.id,
+                agency_id=run.agency_id,
+                error_code=run.error_code,
+            )
+        )
     await session.flush()
     return ReapResult(
         retried=retried,
