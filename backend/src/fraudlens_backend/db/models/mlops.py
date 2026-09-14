@@ -42,6 +42,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -180,7 +181,10 @@ class ModelInferenceLog(AgencyScopedMixin, CreatedAtMixin, Base):
     """A tenant-scoped, hash-only inference record — never PHI (plan §9.2)."""
 
     __tablename__ = "model_inference_logs"
-    __table_args__ = (Index("ix_model_inference_logs_agency_id", "agency_id"),)
+    __table_args__ = (
+        Index("ix_model_inference_logs_agency_id", "agency_id"),
+        UniqueConstraint("run_id", name="uq_model_inference_logs_run_id"),
+    )
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
     model_version_id: Mapped[uuid.UUID] = mapped_column(

@@ -33,6 +33,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -63,6 +64,7 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_alerts_agency_id_status", "agency_id", "status"),
         Index("ix_alerts_agency_id_assigned_to", "agency_id", "assigned_to"),
+        UniqueConstraint("run_id", name="uq_alerts_run_id"),
     )
 
     transaction_id: Mapped[uuid.UUID] = mapped_column(
@@ -103,7 +105,10 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     """A draft Suspicious Activity Report — masked content, citations, review status."""
 
     __tablename__ = "sar_drafts"
-    __table_args__ = (Index("ix_sar_drafts_agency_id_run_id", "agency_id", "run_id"),)
+    __table_args__ = (
+        Index("ix_sar_drafts_agency_id_run_id", "agency_id", "run_id"),
+        UniqueConstraint("run_id", "version", name="uq_sar_drafts_run_id_version"),
+    )
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
     alert_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("alerts.id"), nullable=True)

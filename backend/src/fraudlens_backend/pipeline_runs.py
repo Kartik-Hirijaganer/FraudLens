@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fraudlens_backend.db.models.enums import AnalysisRunEventType, Severity
+from fraudlens_backend.db.models.enums import AnalysisRunEventType, SarStatus, Severity
 from fraudlens_backend.db.repositories import (
     AnalysisRunRepository,
     DashboardRepository,
@@ -50,6 +50,17 @@ from fraudlens_ml.sar import SarDraftResult
 
 if TYPE_CHECKING:
     from fraudlens_backend.pipeline_wiring import PipelineComponents
+
+_RESTART_SINGLETON_EVENTS = frozenset(
+    {
+        PipelineEventType.RUN_STARTED,
+        PipelineEventType.STEP_RULES_COMPLETED,
+        PipelineEventType.STEP_SCORING_COMPLETED,
+        PipelineEventType.STEP_SHAP_COMPLETED,
+        PipelineEventType.STEP_RAG_COMPLETED,
+        PipelineEventType.SAR_STARTED,
+    }
+)
 
 
 class PipelineRunStore:
@@ -90,9 +101,17 @@ class PipelineRunStore:
     async def append_event(self, event_type: PipelineEventType, payload: dict[str, Any]) -> int:
         """Persist the next ordered run event (mapping the pipeline type by value) + commit."""
         await self._require_fence()
+        persisted_type = AnalysisRunEventType(event_type.value)
+        if self._lease_owner is not None and event_type in _RESTART_SINGLETON_EVENTS:
+            existing = await self._analysis.event_by_type(
+                run_id=self._run_id,
+                event_type=persisted_type,
+            )
+            if existing is not None:
+                return existing.seq
         seq = await self._analysis.append_event(
             run_id=self._run_id,
-            event_type=AnalysisRunEventType(event_type.value),
+            event_type=persisted_type,
             payload=payload,
         )
         if event_type in {PipelineEventType.RUN_COMPLETED, PipelineEventType.RUN_FAILED}:
@@ -151,6 +170,13 @@ class PipelineRunStore:
         identifiers are passed explicitly because request contextvars are unavailable.
         """
         await self._require_fence()
+        existing = await self._sar.get_for_run(self._run_id)
+        if (
+            self._lease_owner is not None
+            and existing is not None
+            and existing.status is SarStatus.DRAFT
+        ):
+            return str(existing.id)
         draft = await self._sar.create_from_result(run_id=self._run_id, result=result)
         analysis_result = await self._analysis.get_result(self._run_id)
         if analysis_result is not None:

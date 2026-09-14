@@ -23,15 +23,19 @@ from pipeline_fakes import (
     FakeSarDrafter,
     FakeScorerPort,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import fraudlens_backend.runs.worker as worker_module
 from fraudlens_backend.db.models import (
     Agency,
+    Alert,
+    AnalysisResult,
     AnalysisRun,
     AnalysisRunEvent,
+    RagRetrieval,
     RunStatus,
+    SarDraft,
     Transaction,
 )
 from fraudlens_backend.db.repositories import (
@@ -49,9 +53,7 @@ from fraudlens_ml.pipeline import PipelineDeps
 _AGENCY_ID = uuid.UUID("88888888-8888-4888-8888-888888888888")
 
 
-async def _queue_run(
-    sessionmaker: async_sessionmaker[AsyncSession], *, now: datetime
-) -> uuid.UUID:
+async def _queue_run(sessionmaker: async_sessionmaker[AsyncSession], *, now: datetime) -> uuid.UUID:
     """Seed one tenant transaction and queued run."""
     async with sessionmaker() as session:
         session.add(Agency(id=_AGENCY_ID, name="Worker Test", slug="worker-test"))
@@ -156,15 +158,19 @@ async def test_worker_completes_with_terminal_event_and_releases_lease(
     async with db_sessionmaker() as session:
         run = await AnalysisRunRepository(session, _AGENCY_ID).get(run_id)
         events = (
-            await session.execute(
-                select(AnalysisRunEvent)
-                .where(
-                    AnalysisRunEvent.agency_id == _AGENCY_ID,
-                    AnalysisRunEvent.run_id == run_id,
+            (
+                await session.execute(
+                    select(AnalysisRunEvent)
+                    .where(
+                        AnalysisRunEvent.agency_id == _AGENCY_ID,
+                        AnalysisRunEvent.run_id == run_id,
+                    )
+                    .order_by(AnalysisRunEvent.seq)
                 )
-                .order_by(AnalysisRunEvent.seq)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert run is not None and run.status is RunStatus.COMPLETED
     assert run.attempt == 1 and run.fencing_token == 1
     assert run.lease_owner is None and run.lease_expires_at is None
@@ -181,17 +187,19 @@ async def test_cancelled_worker_is_recovered_by_second_worker(
     current = datetime(2026, 9, 14, tzinfo=UTC)
     run_id = await _queue_run(db_sessionmaker, now=current)
     entered = asyncio.Event()
-    calls = 0
+    completion_calls = 0
+    complete_run = PipelineRunStore.complete_run
 
-    async def block_first(**kwargs: Any) -> PipelineDeps:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+    async def block_first_completion(self: PipelineRunStore, **kwargs: Any) -> None:
+        nonlocal completion_calls
+        completion_calls += 1
+        if completion_calls == 1:
             entered.set()
             await asyncio.Event().wait()
-        return await _fake_deps(**kwargs)
+        await complete_run(self, **kwargs)
 
-    monkeypatch.setattr(worker_module, "build_pipeline_deps", block_first)
+    monkeypatch.setattr(worker_module, "build_pipeline_deps", _fake_deps)
+    monkeypatch.setattr(PipelineRunStore, "complete_run", block_first_completion)
 
     def clock() -> datetime:
         return current
@@ -223,5 +231,27 @@ async def test_cancelled_worker_is_recovered_by_second_worker(
 
     async with db_sessionmaker() as session:
         run = await session.get(AnalysisRun, run_id)
+        stage_counts = {
+            model.__tablename__: (
+                await session.execute(
+                    select(func.count()).select_from(model).where(model.run_id == run_id)
+                )
+            ).scalar_one()
+            for model in (AnalysisResult, RagRetrieval, Alert, SarDraft)
+        }
+        event_types = (
+            (
+                await session.execute(
+                    select(AnalysisRunEvent.event_type).where(
+                        AnalysisRunEvent.agency_id == _AGENCY_ID,
+                        AnalysisRunEvent.run_id == run_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert run is not None and run.status is RunStatus.COMPLETED
     assert run.attempt == 2 and run.fencing_token == 2
+    assert set(stage_counts.values()) == {1}
+    assert len(event_types) == len(set(event_types))

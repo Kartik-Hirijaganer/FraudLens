@@ -57,6 +57,26 @@ def test_upgrade_columns_match_models(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_durable_stage_uniqueness_matches_restart_contract(tmp_path: Path) -> None:
+    db_path = tmp_path / "run-stage-uniqueness.db"
+    command.upgrade(_config(f"sqlite+aiosqlite:///{db_path}"), "head")
+    engine = create_engine(f"sqlite:///{db_path}")
+    expected = {
+        "alerts": frozenset({"run_id"}),
+        "model_inference_logs": frozenset({"run_id"}),
+        "sar_drafts": frozenset({"run_id", "version"}),
+    }
+    try:
+        inspector = inspect(engine)
+        for table, columns in expected.items():
+            assert columns in {
+                frozenset(constraint["column_names"])
+                for constraint in inspector.get_unique_constraints(table)
+            }
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_drops_every_model_table(tmp_path: Path) -> None:
     db_path = tmp_path / "downgrade.db"
     cfg = _config(f"sqlite+aiosqlite:///{db_path}")

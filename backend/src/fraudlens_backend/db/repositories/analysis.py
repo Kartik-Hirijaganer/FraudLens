@@ -143,6 +143,22 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         await self._session.flush()
         return seq
 
+    async def event_by_type(
+        self, *, run_id: uuid.UUID, event_type: AnalysisRunEventType
+    ) -> AnalysisRunEvent | None:
+        """Return the first matching singleton stage event for restart-safe replay."""
+        statement = (
+            select(AnalysisRunEvent)
+            .where(
+                AnalysisRunEvent.agency_id == self._agency_id,
+                AnalysisRunEvent.run_id == run_id,
+                AnalysisRunEvent.event_type == event_type,
+            )
+            .order_by(AnalysisRunEvent.seq.asc())
+            .limit(1)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
     async def require_fence(
         self,
         *,
@@ -160,9 +176,7 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             .where(
                 AnalysisRun.id == run_id,
                 AnalysisRun.agency_id == self._agency_id,
-                AnalysisRun.status.in_(
-                    (RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.FAILED)
-                ),
+                AnalysisRun.status.in_((RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.FAILED)),
                 AnalysisRun.lease_owner == lease_owner,
                 AnalysisRun.fencing_token == fencing_token,
             )
@@ -224,6 +238,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         model_version: str,
     ) -> None:
         """Persist the immutable `analysis_results` snapshot for the run (one per run)."""
+        if await self.get_result(run_id) is not None:
+            return
         self._session.add(
             AnalysisResult(
                 agency_id=self._agency_id,
@@ -249,6 +265,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         rag_version: str,
     ) -> None:
         """Persist the `rag_retrievals` row (the citations retrieved for the run)."""
+        if await self.get_retrieval(run_id) is not None:
+            return
         self._session.add(
             RagRetrieval(
                 agency_id=self._agency_id,
@@ -271,6 +289,14 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         feature_hash: str,
     ) -> None:
         """Persist the hash-only `model_inference_logs` row for the scoring step (no PHI)."""
+        existing = await self._session.execute(
+            select(ModelInferenceLog.id).where(
+                ModelInferenceLog.agency_id == self._agency_id,
+                ModelInferenceLog.run_id == run_id,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return
         self._session.add(
             ModelInferenceLog(
                 agency_id=self._agency_id,
@@ -296,6 +322,23 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         `review_flags` are the PHI-free force-review reasons computed at investigation time
         (critical band / low model confidence / SAR unavailable, plan §8.5, Phase 9).
         """
+        existing = (
+            await self._session.execute(
+                select(Alert).where(
+                    Alert.agency_id == self._agency_id,
+                    Alert.run_id == run_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.severity = severity
+            existing.review_flags = review_flags or []
+            if existing.status in {AlertStatus.OPEN, AlertStatus.PENDING_REVIEW}:
+                existing.status = (
+                    AlertStatus.PENDING_REVIEW if existing.review_flags else AlertStatus.OPEN
+                )
+            await self._session.flush()
+            return existing
         flags = review_flags or []
         alert = Alert(
             agency_id=self._agency_id,

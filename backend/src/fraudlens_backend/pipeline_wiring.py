@@ -50,6 +50,7 @@ from fraudlens_backend.pipeline_runs import PipelineRunStore, RunManager, _RunSt
 from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
 from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
+from fraudlens_backend.sar.drafter_replay import PersistedSarDrafter, resume_drafter
 from fraudlens_backend.sar.factory import AgentDrafterFactory, build_agent_drafter_factory
 from fraudlens_backend.settings import AppSettings, _config_anchored
 from fraudlens_backend.telemetry import log_llm_call
@@ -187,8 +188,9 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
         lease_owner=lease_owner,
         fencing_token=fencing_token,
     )
-    drafter = components.drafter
-    if workflow_mode == "multi_agent":
+    persisted_draft = await SarDraftRepository(session, agency_id).get_for_run(run_id)
+    drafter = resume_drafter(components.drafter, persisted_draft)
+    if workflow_mode == "multi_agent" and not isinstance(drafter, PersistedSarDrafter):
         if sessionmaker is None:
             raise RuntimeError("Multi-agent workflow requires a session factory")
 
