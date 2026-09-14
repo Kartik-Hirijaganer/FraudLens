@@ -65,7 +65,9 @@ async def _make_candidate(
     return version
 
 
-async def _new_run_id(session: AsyncSession, *, transaction_id: uuid.UUID) -> uuid.UUID:
+async def _create_inference_run_id(
+    session: AsyncSession, *, transaction_id: uuid.UUID
+) -> uuid.UUID:
     """Create one analysis run for a single inference log and return its id."""
     run = AnalysisRun(
         agency_id=DEMO_AGENCY_ID,
@@ -199,7 +201,7 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
 
     base = datetime(2026, 1, 1, tzinfo=UTC)
     for index in range(4):
-        active_run_id = await _new_run_id(db_session, transaction_id=transaction_id)
+        active_run_id = await _create_inference_run_id(db_session, transaction_id=transaction_id)
         db_session.add(
             ModelInferenceLog(
                 agency_id=DEMO_AGENCY_ID,
@@ -211,7 +213,7 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
                 created_at=base + timedelta(seconds=index),
             )
         )
-        canary_run_id = await _new_run_id(db_session, transaction_id=transaction_id)
+        canary_run_id = await _create_inference_run_id(db_session, transaction_id=transaction_id)
         db_session.add(
             ModelInferenceLog(
                 agency_id=DEMO_AGENCY_ID,

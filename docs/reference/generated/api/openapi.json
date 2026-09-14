@@ -1318,6 +1318,12 @@
             "description": "Alert raised by this run, or None when the run did not alert.",
             "title": "Alertid"
           },
+          "attempt": {
+            "description": "Number of fenced execution attempts claimed.",
+            "minimum": 0.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
           "citations": {
             "description": "Grounded regulatory citations the SAR relied on.",
             "items": {
@@ -1368,6 +1374,12 @@
             ],
             "description": "Agent graph version, or null for single-writer runs.",
             "title": "Graphversion"
+          },
+          "maxAttempts": {
+            "description": "Configured terminal attempt limit.",
+            "exclusiveMinimum": 0.0,
+            "title": "Maxattempts",
+            "type": "integer"
           },
           "modelVersion": {
             "anyOf": [
@@ -1507,7 +1519,7 @@
             "title": "Sarstatus"
           },
           "status": {
-            "description": "Run status: pending | running | completed | failed.",
+            "description": "Run status: pending | running | retrying | completed | failed.",
             "title": "Status",
             "type": "string"
           },
@@ -1541,6 +1553,8 @@
           "runId",
           "transactionId",
           "status",
+          "attempt",
+          "maxAttempts",
           "workflowMode",
           "createdAt",
           "updatedAt"

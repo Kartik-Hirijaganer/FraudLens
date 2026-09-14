@@ -564,7 +564,7 @@ Unit: lease claim/expiry/fencing semantics (SQLite), reaper transitions, idempot
 
 ### Files
 
-`backend/src/fraudlens_backend/{worker.py, runs/leases.py, runs/reaper.py}`, `db/models/analysis.py`, `db/repositories/analysis.py`, `pipeline_runs.py`, `api/v1/investigations.py`, `alembic/versions/0009_add_run_leases.py`, `config/default.yaml`, `Makefile` (`make worker`), `.github/workflows/_ci-reusable.yml` (postgres job), tests as named, **ADR-027 — Durable investigation execution (leases, fencing, bounded retries)**.
+`backend/src/fraudlens_backend/{worker.py, runs/leases.py, runs/reaper.py}`, `db/models/analysis.py`, `db/repositories/analysis.py`, `pipeline_runs.py`, `api/v1/investigations.py`, `alembic/versions/0009_add_run_leases.py`, `config/default.yaml`, `Makefile` (`make worker`), `.github/workflows/_ci-reusable.yml` (postgres job), tests as named, **[ADR-027 — Durable investigation execution (leases, fencing, bounded retries)](../docs/architecture/adr/ADR-027-durable-investigation-execution.md)**.
 
 ### Acceptance
 

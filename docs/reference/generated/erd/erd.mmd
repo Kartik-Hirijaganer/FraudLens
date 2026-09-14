@@ -92,13 +92,23 @@ erDiagram
     analysis_runs {
         uuid id PK
         uuid agency_id FK
+        integer attempt
         datetime created_at
+        datetime deadline_at
         string error_code
+        integer fencing_token
         string graph_version
+        datetime heartbeat_at
         string idempotency_key
+        datetime lease_expires_at
+        string lease_owner
+        numeric llm_reserved_usd
+        string model_override
         string model_version
+        datetime next_attempt_at
         string prompt_version
         string rag_version
+        string request_fingerprint
         enum risk_band
         float risk_score
         string rules_version

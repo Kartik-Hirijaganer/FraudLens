@@ -351,6 +351,25 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
 | `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry exporter; disabled by default. |
 | `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled. |
+| `run_execution_mode` | `Literal` | `'inline'` | Run investigations in-process or enqueue them for a durable worker. |
+| `run_lease_seconds` | `int` | `60` | Worker lease lifetime before an abandoned run becomes recoverable. |
+| `run_heartbeat_seconds` | `int` | `10` | Interval at which a worker extends its active run lease. |
+| `run_max_attempts` | `int` | `3` | Maximum fenced worker claims before a run fails permanently. |
+| `run_deadline_seconds` | `int` | `300` | Wall-clock deadline applied when a queued investigation is accepted. |
+| `run_claim_batch` | `int` | `1` | Maximum runs a worker claims per scheduling pass. |
+| `run_retry_backoff_seconds` | `int` | `5` | Base delay before an expired run is eligible for another attempt. |
+| `run_worker_poll_seconds` | `float` | `1.0` | Idle delay between durable worker claim attempts. |
+| `run_worker_heartbeat_file` | `str` | `'.local/worker/heartbeat'` | Worker liveness file updated while its scheduler loop is healthy. |
+| `run_event_poll_ms` | `int` | `250` | Worker-mode SSE polling interval for persisted run events. |
+| `run_event_poll_max_ms` | `int` | `2000` | Maximum worker-mode SSE polling backoff interval. |
+| `run_event_heartbeat_seconds` | `int` | `15` | Maximum quiet interval before worker-mode SSE emits a keepalive comment. |
+| `investigation_history_window_hours` | `int` | `168` | Same-account history lookback covering the widest built-in rule window. |
+| `investigation_history_max` | `int` | `100` | Maximum same-account history rows loaded per investigation. |
+| `investigation_rag_top_k` | `int` | `4` | Number of FinCEN/BSA chunks retrieved for investigation citations. |
+| `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
+| `batch_score_limit` | `int` | `2000` | Maximum un-investigated transactions processed by one batch-score sweep. |
+| `review_low_confidence_margin` | `float` | `0.1` | Decision-boundary half-width that forces analyst review. |
+| `sar_pdf_max_attempts` | `int` | `3` | Maximum best-effort SAR PDF generation attempts. |
 | `app_name` | `str` | `'FraudLens'` | Human-readable service name. |
 | `environment` | `Literal` | `'dev'` | Active deployment environment; gates the auth dev-bypass. |
 | `log_level` | `str` | `'INFO'` | Python logging level name. |
@@ -400,13 +419,6 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
 | `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
 | `client_error_rate_limit_requests` | `int` | `60` | Per-client request budget for the telemetry client-error sink within the rate-limit window — a stricter per-route limit layered on the global gateway limiter as defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13). |
-| `investigation_history_window_hours` | `int` | `168` | Same-account history lookback fed to the rules engine + features (covers the widest built-in rule window, structuring at 7 days). |
-| `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
-| `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
-| `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
-| `batch_score_limit` | `int` | `2000` | Max un-investigated transactions one batch-score sweep investigates (covers the whole demo case pack; a cloud Job can raise it per run). |
-| `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
-| `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
 | `retrain_min_labels_total` | `int` | `10` | Min matured reviewed labels (any class) before a retrain is eligible; below it the trigger returns insufficient_matured_labels (plan §9.4). Dev-friendly default. |
 | `retrain_min_labels_per_class` | `int` | `2` | Min matured labels required for EACH of the fraud/benign classes before a retrain is eligible (guards a one-sided training set, plan §9.4). |
 | `retrain_tenant_slices` | `int` | `2` | Deterministic holdout partitions used as per-tenant evaluation slices when computing the §9.4 per-tenant slice gate (synthetic-data MLOps stand-in for agencies). |
@@ -511,13 +523,23 @@ erDiagram
     analysis_runs {
         uuid id PK
         uuid agency_id FK
+        integer attempt
         datetime created_at
+        datetime deadline_at
         string error_code
+        integer fencing_token
         string graph_version
+        datetime heartbeat_at
         string idempotency_key
+        datetime lease_expires_at
+        string lease_owner
+        numeric llm_reserved_usd
+        string model_override
         string model_version
+        datetime next_attempt_at
         string prompt_version
         string rag_version
+        string request_fingerprint
         enum risk_band
         float risk_score
         string rules_version

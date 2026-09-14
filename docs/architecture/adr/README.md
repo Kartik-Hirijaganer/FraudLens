@@ -36,3 +36,4 @@ canonical record.
 | ADR-024 | Agent skills: one canonical source with a generated Codex mirror | Accepted (2026-09-13) | [ADR-024-agent-skills-single-source.md](ADR-024-agent-skills-single-source.md) |
 | ADR-025 | Temporal evaluation and calibration-derived risk thresholds | Accepted (2026-09-13) | [ADR-025-temporal-evaluation-and-calibration-thresholds.md](ADR-025-temporal-evaluation-and-calibration-thresholds.md) |
 | ADR-026 | Model egress is synthetic-only and derived from persisted provenance | Accepted (2026-09-13) | [ADR-026-synthetic-only-model-egress.md](ADR-026-synthetic-only-model-egress.md) |
+| ADR-027 | Durable investigation execution uses leases, fencing, and bounded replay | Accepted (2026-09-14) | [ADR-027-durable-investigation-execution.md](ADR-027-durable-investigation-execution.md) |
