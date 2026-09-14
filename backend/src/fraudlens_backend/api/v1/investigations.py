@@ -33,7 +33,10 @@ Notes:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Path, Request
@@ -53,6 +56,7 @@ from fraudlens_backend.api.deps import (
     require_permission,
 )
 from fraudlens_backend.api.v1.investigation_stream import SSE_HEADERS as _SSE_HEADERS
+from fraudlens_backend.api.v1.investigation_stream import EventPolling
 from fraudlens_backend.api.v1.investigation_stream import event_stream as _event_stream
 from fraudlens_backend.api.v1.investigation_stream import (
     parse_last_event_id as _parse_last_event_id,
@@ -104,7 +108,26 @@ def _manager(request: Request) -> RunManager:
     return cast(RunManager, manager)
 
 
-async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + correlation + the optional override (keyword-only).
+def _request_fingerprint(
+    *,
+    transaction_id: uuid.UUID,
+    model_override: str | None,
+    workflow_mode: str | None,
+) -> str:
+    """Hash the behavior-bearing request fields bound to an Idempotency-Key."""
+    payload = json.dumps(
+        {
+            "modelOverride": model_override,
+            "transactionId": str(transaction_id),
+            "workflowMode": workflow_mode,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the transaction boundary.
     *,
     manager: RunManager,
     session: AsyncSession,
@@ -116,12 +139,19 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
     idempotency_key: str | None = None,
     workflow_mode: str | None = None,
 ) -> str:
-    """Create the running run, build its input, launch the background Runner; return the runId."""
+    """Persist an inline or queued run before returning its durable run id."""
     agency_id = uuid.UUID(tenant.agency_id)
     run_repo = AnalysisRunRepository(session, agency_id)
+    fingerprint = _request_fingerprint(
+        transaction_id=transaction_id,
+        model_override=model_override,
+        workflow_mode=workflow_mode,
+    )
     if idempotency_key is not None:
         existing = await run_repo.get_by_idempotency_key(idempotency_key)
         if existing is not None:
+            if existing.request_fingerprint != fingerprint:
+                raise AppError("idempotency_key_conflict")
             return str(existing.id)
     repo = TransactionRepository(session, agency_id)
     transaction = await repo.get(transaction_id)
@@ -159,22 +189,38 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
             )
         await manager.ensure_agent_budget(session, agency_id=agency_id)
     try:
-        run = await run_repo.create_running(
-            transaction_id=transaction.id,
-            idempotency_key=idempotency_key,
-            workflow_mode=resolved_workflow,
-            graph_version=(
-                getattr(manager, "agent_graph_version", None)
-                if resolved_workflow == "multi_agent"
-                else None
-            ),
+        graph_version = (
+            getattr(manager, "agent_graph_version", None)
+            if resolved_workflow == "multi_agent"
+            else None
         )
+        if settings.run_execution_mode == "worker":
+            run = await run_repo.create_pending(
+                transaction_id=transaction.id,
+                idempotency_key=idempotency_key,
+                workflow_mode=resolved_workflow,
+                graph_version=graph_version,
+                request_fingerprint=fingerprint,
+                model_override=model_override,
+                deadline_at=datetime.now(UTC) + timedelta(seconds=settings.run_deadline_seconds),
+            )
+        else:
+            run = await run_repo.create_running(
+                transaction_id=transaction.id,
+                idempotency_key=idempotency_key,
+                workflow_mode=resolved_workflow,
+                graph_version=graph_version,
+                request_fingerprint=fingerprint,
+                model_override=model_override,
+            )
     except IntegrityError:
         # A second replica may win the tenant/key UNIQUE race after our initial lookup.
         await session.rollback()
         if idempotency_key is not None:
             existing = await run_repo.get_by_idempotency_key(idempotency_key)
             if existing is not None:
+                if existing.request_fingerprint != fingerprint:
+                    raise AppError("idempotency_key_conflict") from None
                 return str(existing.id)
         raise
     await audit_writer(tenant, session, request).record(
@@ -194,21 +240,22 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
         },
     )
     await session.commit()
-    pipeline_input = await build_pipeline_input(
-        repo=repo,
-        transaction=transaction,
-        run_id=run.id,
-        agency_id=agency_id,
-        settings=settings,
-    )
-    manager.start(
-        agency_id=agency_id,
-        run_id=run.id,
-        transaction_id=transaction.id,
-        pipeline_input=pipeline_input,
-        model_override=model_override,
-        workflow_mode=resolved_workflow,
-    )
+    if settings.run_execution_mode == "inline":
+        pipeline_input = await build_pipeline_input(
+            repo=repo,
+            transaction=transaction,
+            run_id=run.id,
+            agency_id=agency_id,
+            settings=settings,
+        )
+        manager.start(
+            agency_id=agency_id,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            pipeline_input=pipeline_input,
+            model_override=model_override,
+            workflow_mode=resolved_workflow,
+        )
     return str(run.id)
 
 
@@ -246,12 +293,15 @@ def _snapshot(  # noqa: PLR0913, PLR0917 -- projection joins the run's tenant-sc
     sar: SarDraft | None,
     alert_id: uuid.UUID | None,
     agent_executions: list[Any] | None = None,
+    max_attempts: int = 1,
 ) -> InvestigationSnapshotResponse:
     """Project the run + (optional) result + (optional) SAR draft onto the snapshot response."""
     return InvestigationSnapshotResponse(
         run_id=str(run.id),
         transaction_id=str(run.transaction_id),
         status=run.status.value,
+        attempt=run.attempt,
+        max_attempts=max_attempts,
         risk_score=run.risk_score,
         risk_band=run.risk_band.value if run.risk_band is not None else None,
         fraud_probability=result.fraud_probability if result is not None else None,
@@ -286,6 +336,7 @@ async def get_investigation(
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     tenant: TenantDep,
     session: DbSessionDep,
+    settings: SettingsDep,
 ) -> InvestigationSnapshotResponse:
     """Return the authoritative run snapshot; 404 when missing or owned by another agency."""
     agency_id = uuid.UUID(tenant.agency_id)
@@ -305,6 +356,7 @@ async def get_investigation(
         sar,
         alert.id if alert is not None else None,
         list(executions),
+        settings.run_max_attempts,
     )
 
 
@@ -346,6 +398,7 @@ async def stream_investigation(
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     request: Request,
     tenant: TenantDep,
+    settings: SettingsDep,
 ) -> StreamingResponse:
     """Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens."""
     manager = _manager(request)
@@ -363,5 +416,14 @@ async def stream_investigation(
         agency_id=agency_id,
         run_id=run_id,
         after_seq=_parse_last_event_id(request),
+        polling=(
+            EventPolling(
+                initial_seconds=settings.run_event_poll_ms / 1000,
+                maximum_seconds=settings.run_event_poll_max_ms / 1000,
+                heartbeat_seconds=settings.run_event_heartbeat_seconds,
+            )
+            if settings.run_execution_mode == "worker"
+            else None
+        ),
     )
     return StreamingResponse(generator, media_type="text/event-stream", headers=_SSE_HEADERS)

@@ -203,6 +203,72 @@ async def test_post_dedupes_hashed_idempotency_key_across_manager_restart(
     assert persisted_key != "k1" and len(persisted_key) == 64
 
 
+async def test_worker_mode_queues_without_starting_process_local_task(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A worker-mode 202 means durable acceptance, not an API-process background task."""
+    transaction_id = await _seed_demo_transaction(db_sessionmaker, external_id="queued")
+    app = _demo_app(
+        make_settings,
+        db_engine,
+        db_sessionmaker,
+        run_execution_mode="worker",
+    )
+    start_calls: list[object] = []
+    app.state.run_manager.start = lambda **kwargs: start_calls.append(kwargs)
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/investigations",
+            json={"transactionId": str(transaction_id)},
+            headers={"Idempotency-Key": "queued-key"},
+        )
+
+    assert response.status_code == 202
+    assert start_calls == []
+    async with db_sessionmaker() as session:
+        run = await session.get(AnalysisRun, uuid.UUID(response.json()["runId"]))
+    assert run is not None
+    assert run.status.value == "pending"
+    assert run.deadline_at is not None
+    assert run.request_fingerprint is not None and len(run.request_fingerprint) == 64
+
+
+async def test_idempotency_key_rejects_changed_investigation_request(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A key cannot silently alias two behaviorally different investigation requests."""
+    first_id = await _seed_demo_transaction(db_sessionmaker, external_id="key-first")
+    second_id = await _seed_demo_transaction(db_sessionmaker, external_id="key-second")
+    app = _demo_app(
+        make_settings,
+        db_engine,
+        db_sessionmaker,
+        run_execution_mode="worker",
+    )
+
+    async with _client(app) as client:
+        first = await client.post(
+            "/api/v1/investigations",
+            json={"transactionId": str(first_id)},
+            headers={"Idempotency-Key": "bound-key"},
+        )
+        conflict = await client.post(
+            "/api/v1/investigations",
+            json={"transactionId": str(second_id)},
+            headers={"Idempotency-Key": "bound-key"},
+        )
+
+    assert first.status_code == 202
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "idempotency_key_conflict"
+    assert set(conflict.json()) == {"code", "message", "details", "requestId"}
+
+
 async def test_live_multi_agent_quota_uses_existing_rate_limited_envelope(
     make_settings: Callable[..., AppSettings],
     db_engine: AsyncEngine,

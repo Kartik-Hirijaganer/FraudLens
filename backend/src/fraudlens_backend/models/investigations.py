@@ -81,7 +81,11 @@ class InvestigationSnapshotResponse(CamelModel):
 
     run_id: str = Field(..., description="The run's unique id (UUID).")
     transaction_id: str = Field(..., description="The investigated transaction's id.")
-    status: str = Field(..., description="Run status: pending | running | completed | failed.")
+    status: str = Field(
+        ..., description="Run status: pending | running | retrying | completed | failed."
+    )
+    attempt: int = Field(..., ge=0, description="Number of fenced execution attempts claimed.")
+    max_attempts: int = Field(..., gt=0, description="Configured terminal attempt limit.")
     risk_score: float | None = Field(default=None, description="Blended risk score (once scored).")
     risk_band: str | None = Field(default=None, description="Resolved risk band (once scored).")
     fraud_probability: float | None = Field(

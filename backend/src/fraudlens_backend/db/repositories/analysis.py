@@ -62,7 +62,7 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         """Bind the session + agency scope to the `analysis_runs` table."""
         super().__init__(session, AnalysisRun, agency_id)
 
-    async def create_running(
+    async def create_running(  # noqa: PLR0913 - explicit persisted run provenance is intentional.
         self,
         *,
         transaction_id: uuid.UUID,
@@ -70,6 +70,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         idempotency_key: str | None = None,
         workflow_mode: str = "single_writer",
         graph_version: str | None = None,
+        request_fingerprint: str | None = None,
+        model_override: str | None = None,
     ) -> AnalysisRun:
         """Insert a running run with resolved workflow provenance and a hashed idempotency key."""
         run = AnalysisRun(
@@ -80,6 +82,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             idempotency_key=_idempotency_digest(idempotency_key),
             workflow_mode=workflow_mode,
             graph_version=graph_version,
+            request_fingerprint=request_fingerprint,
+            model_override=model_override,
         )
         self._session.add(run)
         await self._session.flush()

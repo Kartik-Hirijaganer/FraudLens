@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tenancy import new_agency_id
 
 import fraudlens_backend.pipeline_wiring as wiring
+from fraudlens_backend.api.v1.investigation_stream import EventPolling
 from fraudlens_backend.api.v1.investigations import _event_stream
 from fraudlens_backend.db.models import Agency, AnalysisRun, AnalysisRunEvent, RunStatus
 from fraudlens_backend.db.models.enums import AnalysisRunEventType
@@ -245,3 +246,45 @@ async def test_event_stream_replays_then_tails_live_with_dedup(
     assert _event_name(await gen.__anext__()) == "run.completed"
     with pytest.raises(StopAsyncIteration):
         await gen.__anext__()
+
+
+async def test_event_stream_polls_persisted_events_without_live_manager_state(
+    make_settings: Callable[..., AppSettings],
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A separate API process observes worker events through the durable log and terminates."""
+    async with db_sessionmaker() as session:
+        run_id = await _seed_run(session, status=RunStatus.RUNNING, event_types=[])
+    manager = _manager(make_settings, db_sessionmaker)
+    generator = _event_stream(
+        manager=manager,
+        sessionmaker=db_sessionmaker,
+        agency_id=_AGENCY_ID,
+        run_id=run_id,
+        after_seq=0,
+        polling=EventPolling(
+            initial_seconds=0.001,
+            maximum_seconds=0.002,
+            heartbeat_seconds=0.001,
+        ),
+    )
+
+    assert await generator.__anext__() == ": keepalive\n\n"
+    async with db_sessionmaker() as session:
+        run = await session.get(AnalysisRun, run_id)
+        assert run is not None
+        run.status = RunStatus.COMPLETED
+        session.add(
+            AnalysisRunEvent(
+                agency_id=_AGENCY_ID,
+                run_id=run_id,
+                seq=1,
+                event_type=AnalysisRunEventType.RUN_COMPLETED,
+                payload={},
+            )
+        )
+        await session.commit()
+
+    assert _event_name(await generator.__anext__()) == "run.completed"
+    with pytest.raises(StopAsyncIteration):
+        await generator.__anext__()

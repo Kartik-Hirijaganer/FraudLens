@@ -123,6 +123,8 @@ export function snapshot(overrides: Partial<InvestigationSnapshot> = {}): Invest
     runId: "run-1",
     transactionId: "tx-1",
     status: "completed",
+    attempt: 1,
+    maxAttempts: 3,
     riskScore: 0.82,
     riskBand: "critical",
     fraudProbability: 0.91,

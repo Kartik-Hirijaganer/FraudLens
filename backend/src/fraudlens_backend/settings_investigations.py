@@ -10,7 +10,9 @@ Notes:
 - Durable worker lease settings join this responsibility-owned model in Phase 8.
 """
 
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, model_validator
 
 from fraudlens_backend.settings_defaults import RunExecutionMode
 
@@ -62,6 +64,16 @@ class InvestigationRuntimeFields(BaseModel):
         gt=0,
         description="Worker-mode SSE polling interval for persisted run events.",
     )
+    run_event_poll_max_ms: int = Field(
+        default=2000,
+        gt=0,
+        description="Maximum worker-mode SSE polling backoff interval.",
+    )
+    run_event_heartbeat_seconds: int = Field(
+        default=15,
+        gt=0,
+        description="Maximum quiet interval before worker-mode SSE emits a keepalive comment.",
+    )
     investigation_history_window_hours: int = Field(
         default=168,
         gt=0,
@@ -99,3 +111,12 @@ class InvestigationRuntimeFields(BaseModel):
         gt=0,
         description="Maximum best-effort SAR PDF generation attempts.",
     )
+
+    @model_validator(mode="after")
+    def _valid_run_intervals(self) -> InvestigationRuntimeFields:
+        """Keep heartbeats inside leases and polling backoff ordered."""
+        if self.run_heartbeat_seconds >= self.run_lease_seconds:
+            raise ValueError("run heartbeat interval must be shorter than the lease")
+        if self.run_event_poll_max_ms < self.run_event_poll_ms:
+            raise ValueError("run event poll maximum must not be below its initial interval")
+        return self

@@ -135,6 +135,8 @@ export interface InvestigationState {
 export interface InvestigationSnapshotData {
   transactionId: string;
   status: string;
+  attempt: number;
+  maxAttempts: number;
   fraudProbability: number | null;
   modelVersion: string | null;
   rulesVersion: string | null;

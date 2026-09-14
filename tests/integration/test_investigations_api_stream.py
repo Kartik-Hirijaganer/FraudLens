@@ -67,6 +67,8 @@ async def test_snapshot_projects_run_result_and_sar(
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "completed"
+    assert body["attempt"] == 0
+    assert body["maxAttempts"] == 3
     assert body["riskBand"] == "high"
     assert body["fraudProbability"] == 0.9
     assert body["sarStatus"] == "draft"

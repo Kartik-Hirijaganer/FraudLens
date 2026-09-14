@@ -79,6 +79,13 @@ def test_dev_bypass_is_inert_in_prod() -> None:
     assert AppSettings(environment="dev", auth_dev_bypass=False).is_dev_bypass_enabled is False
 
 
+def test_durable_run_intervals_fail_closed() -> None:
+    with pytest.raises(ValidationError, match="shorter than the lease"):
+        AppSettings(run_lease_seconds=10, run_heartbeat_seconds=10)
+    with pytest.raises(ValidationError, match="poll maximum"):
+        AppSettings(run_event_poll_ms=500, run_event_poll_max_ms=499)
+
+
 def test_candidate_scoring_fallback_is_inert_in_prod() -> None:
     assert (
         AppSettings(
