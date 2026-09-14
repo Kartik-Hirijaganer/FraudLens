@@ -89,6 +89,7 @@ endef
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
+        postgres-run-test \
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
@@ -127,6 +128,10 @@ backend-fmt:
 	$(UV) run ruff check --fix .
 	$(UV) run ruff format .
 backend-ci: backend-lint backend-format-check backend-typecheck backend-coverage ## Backend CI gate.
+
+postgres-run-test: ## Prove durable claim/fencing behavior against PostgreSQL.
+	@test -n "$${POSTGRES_TEST_DATABASE_URL:-}" || { echo "POSTGRES_TEST_DATABASE_URL is required"; exit 1; }
+	$(UV) run pytest tests/integration/test_run_leases_postgres.py -q -o addopts='' -m postgres
 
 # ---------------------------------------------------------------------------
 # Frontend (TypeScript) sub-targets

@@ -79,6 +79,37 @@ jobs:
       - name: Cross-cutting quality and governance checks
         run: make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test
 
+  durable-postgres:
+    name: durable-postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fraudlens
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: fraudlens
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fraudlens -d fraudlens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
+      POSTGRES_TEST_DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --all-packages
+      - name: Apply migrations and run durable PostgreSQL gate
+        run: make db-migrate postgres-run-test
+
   docker-build:
     name: docker-build
     runs-on: ubuntu-latest
