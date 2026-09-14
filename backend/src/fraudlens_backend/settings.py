@@ -57,6 +57,7 @@ from fraudlens_backend.settings_defaults import (
     StorageBackend,
 )
 from fraudlens_backend.settings_gateway import GatewayRuntimeFields
+from fraudlens_backend.settings_investigations import InvestigationRuntimeFields
 
 __all__ = ["AppSettings", "_config_anchored", "find_config_dir", "get_settings"]
 
@@ -91,7 +92,12 @@ def _active_environment() -> str:
     return os.environ.get("FRAUDLENS_ENVIRONMENT", "dev")
 
 
-class AppSettings(GatewayRuntimeFields, AzureRuntimeFields, BaseSettings):
+class AppSettings(
+    InvestigationRuntimeFields,
+    GatewayRuntimeFields,
+    AzureRuntimeFields,
+    BaseSettings,
+):
     """Validated, immutable application settings loaded from YAML + env."""
 
     model_config = SettingsConfigDict(
@@ -362,51 +368,6 @@ class AppSettings(GatewayRuntimeFields, AzureRuntimeFields, BaseSettings):
         description="Per-client request budget for the telemetry client-error sink within the "
         "rate-limit window — a stricter per-route limit layered on the global gateway limiter as "
         "defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13).",
-    )
-
-    # --- Investigation pipeline (plan §16 Phase 8; config-driven, never hardcoded) ---
-    investigation_history_window_hours: int = Field(
-        default=168,
-        gt=0,
-        description="Same-account history lookback fed to the rules engine + features (covers the "
-        "widest built-in rule window, structuring at 7 days).",
-    )
-    investigation_history_max: int = Field(
-        default=100,
-        gt=0,
-        description="Cap on same-account history rows loaded per investigation (bounds the query).",
-    )
-    investigation_rag_top_k: int = Field(
-        default=4,
-        gt=0,
-        description="How many FinCEN/BSA chunks the investigation retrieves for citations.",
-    )
-    investigation_rag_min_similarity: float = Field(
-        default=0.2,
-        ge=0.0,
-        le=1.0,
-        description="Minimum cosine similarity required to surface a vector RAG citation.",
-    )
-    batch_score_limit: int = Field(
-        default=2000,
-        gt=0,
-        description="Max un-investigated transactions one batch-score sweep investigates "
-        "(covers the whole demo case pack; a cloud Job can raise it per run).",
-    )
-
-    # --- Alerts & review workflow (plan §16 Phase 9; config-driven, never hardcoded) ---
-    review_low_confidence_margin: float = Field(
-        default=0.1,
-        gt=0,
-        le=0.5,
-        description="Half-width around the 0.5 decision boundary inside which a run's model "
-        "probability force-flags the alert as low-confidence for review (plan §8.5).",
-    )
-    sar_pdf_max_attempts: int = Field(
-        default=3,
-        gt=0,
-        description="Max attempts the deferred SAR-PDF task makes before giving up; PDF "
-        "generation is best-effort and never blocks SAR approval (plan §16 Phase 9).",
     )
 
     # --- Model lifecycle / MLOps (plan §16 Phase 10, §9.4, §10.5.1; config-driven) ---
