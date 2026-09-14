@@ -28,8 +28,10 @@ Notes:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -61,6 +63,7 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_analysis_runs_agency_id_status", "agency_id", "status"),
         Index("ix_analysis_runs_agency_id_created_at", "agency_id", "created_at"),
+        Index("ix_analysis_runs_status_next_attempt_at", "status", "next_attempt_at"),
         UniqueConstraint(
             "agency_id",
             "idempotency_key",
@@ -85,6 +88,19 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
     )
     graph_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_override: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fencing_token: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )

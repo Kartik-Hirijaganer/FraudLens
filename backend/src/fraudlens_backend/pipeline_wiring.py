@@ -163,6 +163,8 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
     model_override: str | None = None,
     sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     workflow_mode: str = "single_writer",
+    lease_owner: str | None = None,
+    fencing_token: int | None = None,
 ) -> PipelineDeps:
     """Resolve the routed pointer/rule-set/policy and assemble the per-run PipelineDeps."""
     registry = ModelRegistryRepository(session)
@@ -182,6 +184,8 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
         registry=registry,
         sar=SarDraftRepository(session, agency_id),
         review_low_confidence_margin=settings.review_low_confidence_margin,
+        lease_owner=lease_owner,
+        fencing_token=fencing_token,
     )
     drafter = components.drafter
     if workflow_mode == "multi_agent":

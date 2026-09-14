@@ -274,3 +274,58 @@ def test_exactly_one_alembic_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite+aiosqlite:///unused.db"))
     assert len(script.get_heads()) == 1
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
+
+
+def test_run_lease_migration_backfills_counters_and_downgrades(tmp_path: Path) -> None:
+    """Existing inline runs receive zeroed counters while nullable queue state stays empty."""
+    db_path = tmp_path / "run-leases.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "0008_transaction_source")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO agencies (name, slug, id) VALUES ('A', 'a', :agency)"),
+                {"agency": "1" * 32},
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO transactions
+                    (external_id, amount, currency, occurred_at, origin_account, dest_account,
+                     channel, country, features, feature_hash, source, agency_id, id)
+                    VALUES ('T', 1, 'USD', CURRENT_TIMESTAMP, 'masked-a', 'masked-b', 'wire',
+                            'US', '{}', :hash, 'unknown', :agency, :transaction)"""
+                ),
+                {"hash": "a" * 64, "agency": "1" * 32, "transaction": "2" * 32},
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO analysis_runs
+                    (transaction_id, status, workflow_mode, agency_id, id)
+                    VALUES (:transaction, 'running', 'single_writer', :agency, :run)"""
+                ),
+                {"transaction": "2" * 32, "agency": "1" * 32, "run": "3" * 32},
+            )
+        command.upgrade(cfg, "head")
+        columns = {item["name"] for item in inspect(engine).get_columns("analysis_runs")}
+        assert {
+            "request_fingerprint",
+            "model_override",
+            "lease_owner",
+            "lease_expires_at",
+            "heartbeat_at",
+            "attempt",
+            "next_attempt_at",
+            "deadline_at",
+            "fencing_token",
+        }.issubset(columns)
+        with engine.connect() as connection:
+            counters = connection.execute(
+                text("SELECT attempt, fencing_token FROM analysis_runs")
+            ).one()
+        assert counters == (0, 0)
+        command.downgrade(cfg, "0008_transaction_source")
+        downgraded = {item["name"] for item in inspect(engine).get_columns("analysis_runs")}
+        assert "lease_owner" not in downgraded and "fencing_token" not in downgraded
+    finally:
+        engine.dispose()

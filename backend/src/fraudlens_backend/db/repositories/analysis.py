@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -50,6 +51,7 @@ from fraudlens_backend.db.models import (
     Transaction,
 )
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
+from fraudlens_backend.runs.leases import LeaseLostError
 from fraudlens_core import RiskBand
 
 
@@ -83,6 +85,35 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         await self._session.flush()
         return run
 
+    async def create_pending(  # noqa: PLR0913 - explicit persisted queue identity is intentional.
+        self,
+        *,
+        transaction_id: uuid.UUID,
+        deadline_at: datetime,
+        request_fingerprint: str,
+        triggered_by: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        workflow_mode: str = "single_writer",
+        graph_version: str | None = None,
+        model_override: str | None = None,
+    ) -> AnalysisRun:
+        """Persist a queued run before returning 202 to a worker-mode caller."""
+        run = AnalysisRun(
+            agency_id=self._agency_id,
+            transaction_id=transaction_id,
+            status=RunStatus.PENDING,
+            triggered_by=triggered_by,
+            idempotency_key=_idempotency_digest(idempotency_key),
+            request_fingerprint=request_fingerprint,
+            workflow_mode=workflow_mode,
+            graph_version=graph_version,
+            model_override=model_override,
+            deadline_at=deadline_at,
+        )
+        self._session.add(run)
+        await self._session.flush()
+        return run
+
     async def get_by_idempotency_key(self, idempotency_key: str) -> AnalysisRun | None:
         """Return this agency's run for a raw Idempotency-Key, without storing the raw value."""
         stmt = select(AnalysisRun).where(
@@ -107,6 +138,32 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         )
         await self._session.flush()
         return seq
+
+    async def require_fence(
+        self,
+        *,
+        run_id: uuid.UUID,
+        lease_owner: str | None,
+        fencing_token: int | None,
+    ) -> None:
+        """Lock and validate worker ownership; inline callers pass two None values."""
+        if lease_owner is None and fencing_token is None:
+            return
+        if lease_owner is None or fencing_token is None:
+            raise LeaseLostError("incomplete run lease identity")
+        statement = (
+            select(AnalysisRun.id)
+            .where(
+                AnalysisRun.id == run_id,
+                AnalysisRun.agency_id == self._agency_id,
+                AnalysisRun.status == RunStatus.RUNNING,
+                AnalysisRun.lease_owner == lease_owner,
+                AnalysisRun.fencing_token == fencing_token,
+            )
+            .with_for_update()
+        )
+        if (await self._session.execute(statement)).scalar_one_or_none() is None:
+            raise LeaseLostError("run lease ownership was lost")
 
     async def get_result(self, run_id: uuid.UUID) -> AnalysisResult | None:
         """Return the immutable `analysis_results` snapshot for the run, or None (agency-scoped)."""
@@ -273,6 +330,10 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         run.rules_version = rules_version
         run.rag_version = rag_version
         run.prompt_version = prompt_version
+        run.lease_owner = None
+        run.lease_expires_at = None
+        run.heartbeat_at = None
+        run.next_attempt_at = None
         # The transaction id comes from the agency-scoped run, so it belongs to this tenant.
         transaction = await self._session.get(Transaction, run.transaction_id)
         if transaction is not None:
@@ -296,6 +357,10 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         run.error_code = error_code
         run.model_version = model_version
         run.rules_version = rules_version
+        run.lease_owner = None
+        run.lease_expires_at = None
+        run.heartbeat_at = None
+        run.next_attempt_at = None
         await self._session.flush()
 
     async def _next_seq(self, run_id: uuid.UUID) -> int:

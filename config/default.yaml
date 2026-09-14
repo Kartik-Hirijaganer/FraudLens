@@ -57,3 +57,12 @@ multi_agent_sar_enabled: false
 multi_agent_config_file: llm/agents.yml
 rag_embedding_mode: offline
 investigation_rag_min_similarity: 0.2
+run_execution_mode: inline
+run_lease_seconds: 60
+run_heartbeat_seconds: 10
+run_max_attempts: 3
+run_deadline_seconds: 300
+run_claim_batch: 1
+run_retry_backoff_seconds: 5
+run_worker_poll_seconds: 1.0
+run_event_poll_ms: 250

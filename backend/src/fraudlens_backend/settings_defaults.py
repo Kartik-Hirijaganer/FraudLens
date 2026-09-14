@@ -16,6 +16,7 @@ Environment = Literal["dev", "prod", "staging"]
 StorageBackend = Literal["local", "azure_blob"]
 QueueBackend = Literal["local", "container_apps_jobs"]
 LlmMode = Literal["mock", "live"]
+RunExecutionMode = Literal["inline", "worker"]
 RagEmbeddingMode = Literal["offline", "live"]
 SecretsDelivery = Literal["unconfigured", "externally_injected"]
 

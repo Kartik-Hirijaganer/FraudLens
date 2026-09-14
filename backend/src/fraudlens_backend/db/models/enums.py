@@ -82,6 +82,7 @@ class RunStatus(StrEnum):
 
     PENDING = "pending"
     RUNNING = "running"
+    RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
 

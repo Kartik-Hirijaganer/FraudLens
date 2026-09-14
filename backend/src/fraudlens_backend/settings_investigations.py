@@ -12,10 +12,56 @@ Notes:
 
 from pydantic import BaseModel, Field
 
+from fraudlens_backend.settings_defaults import RunExecutionMode
+
 
 class InvestigationRuntimeFields(BaseModel):
     """Typed investigation and review settings shared by AppSettings."""
 
+    run_execution_mode: RunExecutionMode = Field(
+        default="inline",
+        description="Run investigations in-process or enqueue them for a durable worker.",
+    )
+    run_lease_seconds: int = Field(
+        default=60,
+        gt=0,
+        description="Worker lease lifetime before an abandoned run becomes recoverable.",
+    )
+    run_heartbeat_seconds: int = Field(
+        default=10,
+        gt=0,
+        description="Interval at which a worker extends its active run lease.",
+    )
+    run_max_attempts: int = Field(
+        default=3,
+        gt=0,
+        description="Maximum fenced worker claims before a run fails permanently.",
+    )
+    run_deadline_seconds: int = Field(
+        default=300,
+        gt=0,
+        description="Wall-clock deadline applied when a queued investigation is accepted.",
+    )
+    run_claim_batch: int = Field(
+        default=1,
+        gt=0,
+        description="Maximum runs a worker claims per scheduling pass.",
+    )
+    run_retry_backoff_seconds: int = Field(
+        default=5,
+        gt=0,
+        description="Base delay before an expired run is eligible for another attempt.",
+    )
+    run_worker_poll_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        description="Idle delay between durable worker claim attempts.",
+    )
+    run_event_poll_ms: int = Field(
+        default=250,
+        gt=0,
+        description="Worker-mode SSE polling interval for persisted run events.",
+    )
     investigation_history_window_hours: int = Field(
         default=168,
         gt=0,

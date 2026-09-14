@@ -65,6 +65,8 @@ class PipelineRunStore:
         registry: ModelRegistryRepository,
         sar: SarDraftRepository,
         review_low_confidence_margin: float = 0.1,
+        lease_owner: str | None = None,
+        fencing_token: int | None = None,
     ) -> None:
         """Bind the run-scoped session + repositories the pipeline persists through."""
         self._session = session
@@ -74,9 +76,20 @@ class PipelineRunStore:
         self._registry = registry
         self._sar = sar
         self._review_low_confidence_margin = review_low_confidence_margin
+        self._lease_owner = lease_owner
+        self._fencing_token = fencing_token
+
+    async def _require_fence(self) -> None:
+        """Reject a stale worker before it mutates any run-owned record."""
+        await self._analysis.require_fence(
+            run_id=self._run_id,
+            lease_owner=self._lease_owner,
+            fencing_token=self._fencing_token,
+        )
 
     async def append_event(self, event_type: PipelineEventType, payload: dict[str, Any]) -> int:
         """Persist the next ordered run event (mapping the pipeline type by value) + commit."""
+        await self._require_fence()
         seq = await self._analysis.append_event(
             run_id=self._run_id,
             event_type=AnalysisRunEventType(event_type.value),
@@ -87,6 +100,7 @@ class PipelineRunStore:
 
     async def save_result(self, record: ResultRecord) -> None:
         """Persist the immutable deterministic-core `analysis_results` snapshot + commit."""
+        await self._require_fence()
         await self._analysis.save_result(
             run_id=self._run_id,
             fraud_probability=record.fraud_probability,
@@ -101,6 +115,7 @@ class PipelineRunStore:
 
     async def log_inference(self, record: InferenceRecord) -> None:
         """Resolve the scored label to its registry id and persist the hash-only inference log."""
+        await self._require_fence()
         version = await self._registry.get_version_by_label(record.model_version_label)
         if version is None:  # an unregistered label cannot be hash-logged; skip (best-effort)
             return
@@ -115,6 +130,7 @@ class PipelineRunStore:
 
     async def save_rag(self, record: RagRecord) -> None:
         """Persist the `rag_retrievals` row for the run + commit."""
+        await self._require_fence()
         await self._analysis.save_retrieval(
             run_id=self._run_id,
             query=record.query,
@@ -132,6 +148,7 @@ class PipelineRunStore:
         avoiding duplicate telemetry. No event contains prompt content, and background run/tenant
         identifiers are passed explicitly because request contextvars are unavailable.
         """
+        await self._require_fence()
         draft = await self._sar.create_from_result(run_id=self._run_id, result=result)
         analysis_result = await self._analysis.get_result(self._run_id)
         if analysis_result is not None:
@@ -169,6 +186,7 @@ class PipelineRunStore:
         resumed run). `save_sar` refreshes them after enrichment so a failed SAR adds the existing
         manual-review flag without delaying alert creation behind an LLM call.
         """
+        await self._require_fence()
         result = await self._analysis.get_result(self._run_id)
         sar = await self._sar.get_for_run(self._run_id)
         review_flags = compute_review_flags(
@@ -189,6 +207,7 @@ class PipelineRunStore:
         self, *, combined_score: float, risk_band: RiskBand, provenance: RunProvenance
     ) -> None:
         """Mark the run completed, stamp provenance + the transaction's latest run + commit."""
+        await self._require_fence()
         await self._analysis.complete(
             run_id=self._run_id,
             combined_score=combined_score,
@@ -203,6 +222,7 @@ class PipelineRunStore:
     async def fail_run(self, *, error_code: str, provenance: RunProvenance) -> None:
         """Mark the run failed with the stable error code (+ known partial provenance) + commit."""
         await self._session.rollback()
+        await self._require_fence()
         await self._analysis.fail(
             run_id=self._run_id,
             error_code=error_code,
