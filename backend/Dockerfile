@@ -64,17 +64,23 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     FRAUDLENS_ENVIRONMENT=prod \
     FRAUDLENS_CONFIG_DIR=/app/config \
-    FRAUDLENS_RAG_INDEX_DIR=/app/.local/chroma
+    FRAUDLENS_RAG_INDEX_DIR=/app/rag-index
 WORKDIR /app
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app config /app/config
-# Baked RAG index (prod resolves FRAUDLENS_RAG_INDEX_DIR here; rag_index_required=true is satisfied).
-COPY --from=rag-index --chown=app:app /app/rag-index /app/.local/chroma
+# Keep the immutable seed outside /app/.local. Kubernetes mounts a writable emptyDir there and
+# copies this seed into it from an init container; non-Kubernetes runtimes read the seed directly.
+COPY --from=rag-index --chown=app:app /app/rag-index /app/rag-index
 # Committed fixture model + corpus (prod overrides the model dir from Blob) and the thin job
 # entrypoints the Container Apps Jobs run (retrain.py, drift_scan.py, ...) — see infra/terraform/modules/jobs.
 COPY --chown=app:app data /app/data
 COPY --chown=app:app scripts /app/scripts
+# The kind bootstrap Job applies the same migration history used everywhere else before it runs
+# the idempotent development seed. No credentials are baked into either layer.
+COPY --chown=app:app alembic /app/alembic
+COPY --chown=app:app alembic.ini /app/alembic.ini
 USER app
 EXPOSE 8000
 # `python -m uvicorn` (rather than the bare console script) is robust to PATH details.

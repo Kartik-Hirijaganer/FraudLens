@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraudlens-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fraudlens
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
