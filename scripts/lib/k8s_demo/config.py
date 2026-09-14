@@ -54,6 +54,7 @@ class K8sDemoConfig(BaseModel):
 
     cluster_name: str = Field(..., min_length=1, description="kind cluster name.")
     kubernetes_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$", description="Schema pin.")
+    kubectl_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$", description="kubectl CLI pin.")
     kind_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$", description="kind CLI pin.")
     kind_node_image: str = Field(
         ..., pattern=r"^kindest/node:v[^@]+@sha256:[0-9a-f]{64}$", description="Pinned node image."
@@ -74,12 +75,20 @@ class K8sDemoConfig(BaseModel):
     sample_interval_seconds: int = Field(..., ge=5, description="HPA evidence sample interval.")
     scale_up_timeout_seconds: int = Field(..., ge=60, description="Maximum scale-up wait.")
     scale_down_timeout_seconds: int = Field(..., ge=120, description="Maximum scale-down wait.")
-    worker_kill_delay_seconds: int = Field(
-        ..., ge=1, le=30, description="Delay after worker startup before forced deletion."
+    worker_claim_timeout_seconds: int = Field(
+        ..., ge=5, le=300, description="Maximum wait for an active lease before worker deletion."
+    )
+    worker_claim_poll_seconds: float = Field(
+        ..., ge=0.05, le=1, description="Active-lease observation interval."
+    )
+    worker_fault_lock_seconds: int = Field(
+        ..., ge=60, le=300, description="Safety timeout for the disposable database barrier."
     )
     durability_timeout_seconds: int = Field(
         ..., ge=300, description="Maximum wait for every durable run to become terminal."
     )
+    postgres_user: str = Field(..., min_length=1, description="Local proof database role.")
+    postgres_database: str = Field(..., min_length=1, description="Local proof database name.")
     load: LoadConfig = Field(..., description="Default in-cluster load parameters.")
 
     @property

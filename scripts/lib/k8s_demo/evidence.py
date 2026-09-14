@@ -30,6 +30,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib.k8s_demo.load import LoadSummary
 
+_MIN_RECOVERY_ATTEMPTS = 2
+
 
 class EvidenceError(RuntimeError):
     """Raised when observed evidence does not meet the frozen Phase 9 acceptance contract."""
@@ -157,7 +159,7 @@ def validate_evidence(report: HpaEvidenceReport) -> None:
         failures.append("platform is not kind")
     if report.cluster.context != f"kind-{report.cluster.name}":
         failures.append("cluster context does not match its kind name")
-    if report.summary.replicas_min_observed > report.hpa.min_replicas:
+    if report.summary.replicas_min_observed != report.hpa.min_replicas:
         failures.append("minimum replicas were not observed")
     if report.summary.replicas_max_observed < report.hpa.max_replicas:
         failures.append("configured maximum replicas were not observed")
@@ -174,6 +176,8 @@ def validate_evidence(report: HpaEvidenceReport) -> None:
         failures.append("one or more durable runs were lost")
     if durability.runs_failed:
         failures.append("one or more durable runs failed")
+    if durability.max_run_attempts < _MIN_RECOVERY_ATTEMPTS:
+        failures.append("no in-flight run was recovered under a new fence")
     if failures:
         raise EvidenceError("; ".join(failures))
 

@@ -55,9 +55,10 @@ spec:
           command: ["sh", "-c"]
           args:
             - python -m alembic upgrade head && python scripts/seed.py
+          env:
+            - name: FRAUDLENS_ENVIRONMENT
+              value: dev
           envFrom:
-            - configMapRef:
-                name: fraudlens-backend-config
             - secretRef:
                 name: fraudlens-backend-secrets
           securityContext:

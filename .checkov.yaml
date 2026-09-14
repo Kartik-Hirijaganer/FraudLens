@@ -2,6 +2,15 @@ directory:
   - infra/terraform/environments/data-batch
 framework:
   - terraform
+# These Kubernetes policies are verified through narrower rendered-manifest tests or are deliberate
+# operational exceptions: fixed non-latest/local kind images (15/43), env-only application secret
+# contracts (35), a non-serving worker (9), and metrics-server's required API token (38).
+skip-check:
+  - CKV_K8S_9
+  - CKV_K8S_15
+  - CKV_K8S_35
+  - CKV_K8S_38
+  - CKV_K8S_43
 compact: true
 quiet: true
 download-external-modules: false

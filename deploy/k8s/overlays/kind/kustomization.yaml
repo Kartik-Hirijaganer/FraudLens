@@ -1,5 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: fraudlens
 resources:
   - ../../base
   - postgres.yaml
@@ -11,10 +12,14 @@ configMapGenerator:
       - kind.env
 secretGenerator:
   - name: fraudlens-backend-secrets
+    options:
+      disableNameSuffixHash: true
     literals:
       # Synthetic, kind-only credential. It is intentionally allowlisted by .gitleaks.toml.
       - DATABASE_URL=postgresql+asyncpg://fraudlens:changeme@postgres:5432/fraudlens
   - name: fraudlens-kind-postgres
+    options:
+      disableNameSuffixHash: true
     literals:
       - POSTGRES_PASSWORD=changeme
 images:

@@ -110,6 +110,35 @@ jobs:
       - name: Apply migrations and run durable PostgreSQL gate
         run: make db-migrate postgres-run-test
 
+  k8s-validate:
+    name: k8s-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up pinned kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.8
+      - name: Install pinned kubeconform
+        run: |
+          set -euo pipefail
+          archive="$(mktemp)"
+          curl -sSfL \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            -o "$archive"
+          echo "c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3  $archive" \
+            | sha256sum --check
+          sudo tar -xzf "$archive" -C /usr/local/bin kubeconform
+          kubeconform -v
+      - name: Install Python dependencies
+        run: uv sync --all-packages
+      - name: Validate Kubernetes manifests and harness
+        run: make k8s-validate k8s-demo-test
+
   docker-build:
     name: docker-build
     runs-on: ubuntu-latest

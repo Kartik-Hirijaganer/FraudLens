@@ -1,6 +1,6 @@
 # Upstream metrics-server v0.9.0 components.yaml (release asset SHA-256
 # 1cec29a5267809306a2c6ec74a3e449abbb705b4a8beed0c8a1963910f72c79b), with the one
-# kind-specific kubelet TLS flag required by the local demonstration.
+# kind-specific kubelet TLS flag and bounded container resources required by the local proof.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -119,6 +119,11 @@ spec:
       labels:
         k8s-app: metrics-server
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - args:
             - --cert-dir=/tmp
@@ -150,6 +155,9 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
           resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
             requests:
               cpu: 100m
               memory: 200Mi
@@ -159,7 +167,7 @@ spec:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1000
+            runAsUser: 10001
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:

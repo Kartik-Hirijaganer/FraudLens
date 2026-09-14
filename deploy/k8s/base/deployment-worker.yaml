@@ -67,7 +67,19 @@ spec:
         - name: worker
           image: fraudlens-backend:local
           imagePullPolicy: Always
-          command: ["python", "-m", "fraudlens_backend.worker"]
+          command: ["sh", "-c"]
+          args:
+            - |
+              worker_pid=""
+              terminate() {
+                test -z "$worker_pid" || kill -TERM "$worker_pid" 2>/dev/null || true
+                test -z "$worker_pid" || wait "$worker_pid" || true
+              }
+              trap terminate TERM INT
+              python -m fraudlens_backend.worker &
+              worker_pid=$!
+              printf '%s\n' "$worker_pid" > /tmp/fraudlens-worker.pid
+              wait "$worker_pid"
           envFrom:
             - configMapRef:
                 name: fraudlens-backend-config

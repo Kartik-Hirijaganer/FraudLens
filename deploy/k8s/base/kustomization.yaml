@@ -18,4 +18,5 @@ labels:
   - pairs:
       app.kubernetes.io/name: fraudlens
       app.kubernetes.io/part-of: fraudlens
-    includeSelectors: true
+    includeSelectors: false
+    includeTemplates: true

@@ -10,7 +10,7 @@ Key classes:
 
 Key functions:
 - run_command: execute a bounded local command without a shell.
-- resolve_tool: prefer PATH, then the gitignored .local/tools cache.
+- resolve_tool: prefer the pinned gitignored .local/tools cache, then PATH.
 
 Notes:
 - All mutating local operations assert the exact kind context. Non-kind mutation additionally
@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
@@ -83,13 +84,13 @@ class DeploymentObservation(BaseModel):
 
 
 def resolve_tool(name: str) -> str:
-    """Resolve a CLI from PATH or the repo-local, gitignored tool cache."""
-    discovered = shutil.which(name)
-    if discovered:
-        return discovered
+    """Resolve a CLI from the repo-local pinned cache before an ambient PATH version."""
     cached = REPO_ROOT / ".local" / "tools" / name
     if cached.is_file():
         return str(cached)
+    discovered = shutil.which(name)
+    if discovered:
+        return discovered
     raise CommandError(f"required tool is unavailable: {name}")
 
 
@@ -227,8 +228,8 @@ class Kubectl:
             memory_limit=resources["limits"]["memory"],
         )
 
-    def delete_worker_pod(self) -> str:
-        """Delete one worker pod for the local durability proof and return its safe name."""
+    def delete_worker_pod(self, pod_name: str | None = None) -> str:
+        """Delete the requested active worker pod and return its safe name."""
         self.assert_mutation_allowed(platform="kind")
         pods = json.loads(
             self.run(
@@ -244,9 +245,16 @@ class Kubectl:
                 ]
             ).stdout
         )
-        names = sorted(item["metadata"]["name"] for item in pods.get("items", []))
+        names = sorted(
+            item["metadata"]["name"]
+            for item in pods.get("items", [])
+            if not item["metadata"].get("deletionTimestamp")
+            and item.get("status", {}).get("phase") == "Running"
+        )
+        if pod_name is not None:
+            names = [name for name in names if name == pod_name]
         if not names:
-            raise CommandError("durability proof found no worker pod to delete")
+            raise CommandError("durability proof found no matching active worker pod to delete")
         self.run(
             [
                 "-n",
@@ -260,3 +268,41 @@ class Kubectl:
             ]
         )
         return str(names[0])
+
+    def kill_worker_process(self, pod_name: str) -> None:
+        """SIGKILL the lease-owning worker and prove its container restarted."""
+        self.assert_mutation_allowed(platform="kind")
+        restart_count = self._worker_restart_count(pod_name)
+        self.run(
+            [
+                "-n",
+                self.config.namespace,
+                "exec",
+                f"pod/{pod_name}",
+                "--",
+                "sh",
+                "-c",
+                'kill -KILL "$(cat /tmp/fraudlens-worker.pid)"',
+            ],
+            check=False,
+        )
+        deadline = time.monotonic() + self.config.worker_claim_timeout_seconds
+        while time.monotonic() < deadline:
+            observed = self._worker_restart_count(pod_name)
+            if observed > restart_count:
+                return
+            time.sleep(self.config.worker_claim_poll_seconds)
+        raise CommandError("worker container did not restart after the durability SIGKILL")
+
+    def _worker_restart_count(self, pod_name: str) -> int:
+        """Read the worker container restart count from one exact pod."""
+        result = self.run(
+            ["-n", self.config.namespace, "get", f"pod/{pod_name}", "-o", "json"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return 0
+        document = json.loads(result.stdout)
+        statuses = document.get("status", {}).get("containerStatuses", [])
+        worker = next((item for item in statuses if item.get("name") == "worker"), None)
+        return int(worker.get("restartCount", 0)) if worker else 0

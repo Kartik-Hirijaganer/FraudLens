@@ -1,6 +1,7 @@
 # FraudLens local Kubernetes proof configuration (non-secret).
 cluster_name: fraudlens-demo
 kubernetes_version: "1.32.8"
+kubectl_version: "1.32.8"
 kind_version: "0.31.0"
 kind_node_image: kindest/node:v1.32.8@sha256:abd489f042d2b644e2d033f5c2d900bc707798d075e8186cb65e3f1367a9d5a1
 kubeconform_version: "0.7.0"
@@ -15,8 +16,12 @@ metrics_timeout_seconds: 240
 sample_interval_seconds: 15
 scale_up_timeout_seconds: 300
 scale_down_timeout_seconds: 900
-worker_kill_delay_seconds: 2
+worker_claim_timeout_seconds: 60
+worker_claim_poll_seconds: 0.1
+worker_fault_lock_seconds: 120
 durability_timeout_seconds: 900
+postgres_user: fraudlens
+postgres_database: fraudlens
 load:
   target_url: http://fraudlens-api:8000/healthz
   mode: healthz

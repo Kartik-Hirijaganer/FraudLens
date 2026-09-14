@@ -24,6 +24,10 @@ FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
 VLLM_BENCH := $(UV) run --group fulldata python scripts/benchmark_vllm.py
 RUNPOD_GPU := $(UV) run python scripts/runpod_gpu.py
 K8S_DEMO := $(UV) run python scripts/k8s_demo.py
+KUBECTL ?= $(if $(wildcard .local/tools/kubectl),.local/tools/kubectl,kubectl)
+KUBECONFORM ?= $(if $(wildcard .local/tools/kubeconform),.local/tools/kubeconform,kubeconform)
+K8S_VERSION ?= $(shell PYTHONPATH=scripts $(UV) run python -c 'from lib.k8s_demo.config import load_config; print(load_config().kubernetes_version)')
+K8S_DEMO_TESTS := tests/unit/test_k8s_demo_*.py tests/integration/test_k8s_manifests.py
 PROFILE ?= smoke
 SOURCE ?= sar-eval
 HOST ?= runpod-rtx4090
@@ -88,8 +92,9 @@ endef
 	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
 	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
 
-.PHONY: k8s-tools-check kind-image kind-up kind-load kind-deploy kind-smoke \
-	kind-hpa-demo kind-down kind-demo k8s-secrets-sync hpa-evidence-validate
+.PHONY: k8s-tools-check k8s-validate k8s-demo-test kind-image kind-up kind-load \
+	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
+	hpa-evidence-validate
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -482,6 +487,26 @@ runpod-gpu-test: ## Provider-free RunPod operator tests with >=90% branch covera
 k8s-tools-check: ## Verify pinned local Kubernetes demonstration tools.
 	$(K8S_DEMO) tools-check
 
+k8s-validate: ## Render and statically validate every Kubernetes platform surface.
+	@set -eu; \
+	manifest_dir="$$(mktemp -d)"; \
+	cleanup() { rm -rf "$$manifest_dir"; }; \
+	trap cleanup EXIT INT TERM; \
+	$(K8S_DEMO) render --platform kind > "$$manifest_dir/kind.yaml"; \
+	$(K8S_DEMO) render --platform aks > "$$manifest_dir/aks.yaml"; \
+	$(KUBECTL) kustomize deploy/k8s/load > "$$manifest_dir/load.yaml"; \
+	cp deploy/k8s/addons/metrics-server-kind/components.yaml "$$manifest_dir/metrics.yaml"; \
+	$(KUBECONFORM) -strict -kubernetes-version "$(K8S_VERSION)" \
+		-skip InfisicalSecret -summary "$$manifest_dir"/*.yaml; \
+	$(UVX) checkov --config-file .checkov.yaml --framework kubernetes \
+		--directory "$$manifest_dir"
+	$(UV) run pytest tests/integration/test_k8s_manifests.py -q -o addopts='' --no-cov
+
+k8s-demo-test: ## Run the Kubernetes harness contract suite with branch coverage.
+	$(UV) run pytest $(K8S_DEMO_TESTS) -q -o addopts='' \
+		--cov=lib.k8s_demo --cov=k8s_demo --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+
 kind-image: ## Build the backend image for the current host architecture (no push).
 	@set -eu; \
 	arch="$$(uname -m)"; \
@@ -757,7 +782,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

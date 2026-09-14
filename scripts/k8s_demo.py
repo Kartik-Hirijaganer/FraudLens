@@ -45,6 +45,7 @@ from lib.k8s_demo.evidence import (
     load_evidence,
     validate_evidence,
 )
+from lib.k8s_demo.fault import hold_transaction_reads
 from lib.k8s_demo.kind import KindOperator
 from lib.k8s_demo.kubectl import CommandError, Kubectl, resolve_tool, run_command
 from lib.k8s_demo.load import SUBMITTED_PREFIX, LoadSummary, run_load, summary_from_logs
@@ -61,6 +62,13 @@ def _tools_check(config: K8sDemoConfig) -> None:
     """Resolve required CLIs and assert their configured versions where output is stable."""
     for name in ("docker", "kubectl", "kind", "kubeconform"):
         resolve_tool(name)
+    kubectl_result = run_command([resolve_tool("kubectl"), "version", "--client", "-o", "json"])
+    try:
+        kubectl_version = json.loads(kubectl_result.stdout)["clientVersion"]["gitVersion"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise CommandError("kubectl CLI version output is invalid") from exc
+    if kubectl_version != f"v{config.kubectl_version}":
+        raise CommandError("kubectl CLI version does not match config/k8s-demo.yaml")
     kind_result = run_command([resolve_tool("kind"), "version"])
     if f"v{config.kind_version}" not in kind_result.stdout:
         raise CommandError("kind CLI version does not match config/k8s-demo.yaml")
@@ -233,21 +241,24 @@ def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEviden
         time.sleep(1)
     if submitted != durable_load.cases:
         raise CommandError("durability Job did not submit every configured run")
-    kubectl.run(["-n", config.namespace, "scale", "deployment/fraudlens-worker", "--replicas=1"])
-    kubectl.wait_for("deployment/fraudlens-worker", "Available", config.startup_timeout_seconds)
-    time.sleep(config.worker_kill_delay_seconds)
-    deleted_pod = kubectl.delete_worker_pod()
-    kubectl.run(
-        [
-            "-n",
-            config.namespace,
-            "wait",
-            f"pod/{deleted_pod}",
-            "--for=delete",
-            f"--timeout={config.startup_timeout_seconds}s",
-        ],
-        check=False,
-    )
+    with hold_transaction_reads(config, kubectl):
+        kubectl.run(
+            ["-n", config.namespace, "scale", "deployment/fraudlens-worker", "--replicas=1"]
+        )
+        claimed_worker = _wait_for_active_claim(config, kubectl)
+        kubectl.kill_worker_process(claimed_worker)
+        deleted_pod = kubectl.delete_worker_pod(claimed_worker)
+        kubectl.run(
+            [
+                "-n",
+                config.namespace,
+                "wait",
+                f"pod/{deleted_pod}",
+                "--for=delete",
+                f"--timeout={config.startup_timeout_seconds}s",
+            ],
+            check=False,
+        )
     kubectl.wait_for("deployment/fraudlens-worker", "Available", config.startup_timeout_seconds)
     kubectl.wait_for("job/fraudlens-load", "Complete", config.durability_timeout_seconds)
     summary = summary_from_logs(_job_logs(kubectl))
@@ -259,6 +270,40 @@ def _run_durability(config: K8sDemoConfig, kubectl: Kubectl) -> DurabilityEviden
         runs_failed=summary.runs_failed,
         max_run_attempts=summary.max_run_attempts,
     )
+
+
+def _wait_for_active_claim(config: K8sDemoConfig, kubectl: Kubectl) -> str:
+    """Return the pod name from a live PostgreSQL-backed worker lease."""
+    deadline = time.monotonic() + config.worker_claim_timeout_seconds
+    query = "SELECT lease_owner FROM analysis_runs"
+    query += " WHERE status = 'running' AND lease_expires_at > now()"
+    query += " ORDER BY heartbeat_at DESC NULLS LAST LIMIT 1"
+    while time.monotonic() < deadline:
+        result = kubectl.run(
+            [
+                "-n",
+                config.namespace,
+                "exec",
+                "deployment/postgres",
+                "-c",
+                "postgres",
+                "--",
+                "psql",
+                "-U",
+                config.postgres_user,
+                "-d",
+                config.postgres_database,
+                "-tAc",
+                query,
+            ],
+            check=False,
+        )
+        owner = result.stdout.strip()
+        pod_name, separator, process_id = owner.rpartition("-")
+        if result.returncode == 0 and separator and pod_name and process_id.isdigit():
+            return pod_name
+        time.sleep(config.worker_claim_poll_seconds)
+    raise CommandError("worker did not acquire a running lease before the durability timeout")
 
 
 def _live_report(
