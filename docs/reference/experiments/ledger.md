@@ -20,15 +20,12 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 
 | Action | Region/path | Target | Requested/verified at | Request/evidence ID | Status |
 | --- | --- | --- | --- | --- | --- |
-| Azure quota | eastus | Standard NCADS_A100_v4 Family vCPUs = 24 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus2 | Standard NCADS_A100_v4 Family vCPUs = 24 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus | Standard NVADSA10v5 Family vCPUs = 36 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus2 | Standard NVADSA10v5 Family vCPUs = 36 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus | Standard EADSv5 Family vCPUs = 32 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus2 | Standard EADSv5 Family vCPUs = 32 | 2026-09-13 read | — | current limit 0; request pending |
-| Azure quota | eastus | Low-priority/Spot vCPUs >= 36 | 2026-09-13 read | — | current limit 3; request pending |
-| Azure quota | eastus2 | Low-priority/Spot vCPUs >= 36 | 2026-09-13 read | — | current limit 3; request pending |
-| Subscription offer verification | Azure subscription | Pay-as-you-go supports Spot | — | — | pending |
+| Azure quota | westus3 | Total regional standard vCPUs | 2026-09-14 read | — | current limit 72; verified |
+| Azure quota | westus3 | Standard EADSv5 Family vCPUs | 2026-09-14 read | — | current limit 32; verified |
+| Azure quota | westus3 | Total regional low-priority/Spot vCPUs | 2026-09-14 read | — | current limit 3; insufficient for E16ads v5 |
+| Azure quota | westus3 | Standard NCADS_A100_v4 Family vCPUs = 24 | 2026-09-14 read | — | current limit 0; request pending |
+| Azure quota | westus3 | Standard NVADSA10v5 Family vCPUs = 36 | 2026-09-14 read | — | current limit 0; request pending |
+| CPU purchase path | westus3 | Standard_E16ads_v5 pay-as-you-go | 2026-09-14 | — | selected; does not depend on Spot quota |
 | Infisical secret creation | prod /ml | VLLM_API_KEY (random 32-byte value; never record it here) | 2026-09-13 read | — | not verified; suppressed CLI lookup returned non-zero |
 | Dataset checksum | local `.local/aml_data` | HI-Small_Trans.csv | 2026-09-13 | `b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040` | verified; copy into `config/fulldata.yaml` in Phase 5 |
 | Dataset checksum | local `.local/aml_data` | HI-Medium_Trans.csv | 2026-09-13 | `3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5` | verified; copy into `config/fulldata.yaml` in Phase 5 |
@@ -41,6 +38,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
 | 2026-07-14 | local | developer workstation | owned | — | — | 0 | 0 | 0 | 0 | gfp-c41b1fbb266f44d4 | historical | historical | not-applicable |
 | 2026-08-17 | OpenRouter | multi-model SAR evaluation | metered API | — | — | 0 | 0 | 7.600000 | 5.486233 | sar-eval-e5c9a36b5f8a33f3 | historical | historical | not-applicable |
+| 2026-09-14 | Azure | Standard_E16ads_v5 | pay-as-you-go | 2026-09-14T01:49:31Z | — | 0 | 1.048000 | 3.235985 | — | data-batch-20260914-pilot1 | current-plan | azure_cpu_batch | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start

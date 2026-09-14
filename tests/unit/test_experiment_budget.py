@@ -39,11 +39,23 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     }
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
     assert config.rates["azure_nc24ads_a100_v4_spot"].hourly_rate_usd == Decimal("0.678770")
+    cpu_quotes = {
+        "azure_e16ads_v5_payg",
+        "azure_e16ads_v5_spot",
+        "azure_e32ads_v5_payg",
+        "azure_e32ads_v5_spot",
+    }
+    assert config.rates["azure_e16ads_v5_payg"].hourly_rate_usd == Decimal("1.048000")
+    assert config.rates["azure_e16ads_v5_spot"].hourly_rate_usd == Decimal("0.193670")
     for quote in config.rates.values():
         assert quote.provider == "azure"
-        assert quote.region == "eastus"
-        assert quote.price_verified_at == date(2026, 9, 13)
         assert str(quote.price_source_url).startswith("https://prices.azure.com/")
+    for key in cpu_quotes:
+        assert config.rates[key].region == "westus3"
+        assert config.rates[key].price_verified_at == date(2026, 9, 14)
+    for key in set(config.rates) - cpu_quotes:
+        assert config.rates[key].region == "eastus"
+        assert config.rates[key].price_verified_at == date(2026, 9, 13)
 
 
 def test_projection_scales_pilot_work_and_admission_applies_margin() -> None:
@@ -94,10 +106,11 @@ def test_budget_rejects_allocation_drift() -> None:
         BudgetConfig.model_validate(payload)
 
 
-def test_committed_empty_current_plan_ledger_covers_all_published_reports() -> None:
+def test_committed_ledger_covers_all_published_reports() -> None:
     config = load_budget_config(REPO_ROOT)
     entries = load_ledger(REPO_ROOT / "docs" / "reference" / "experiments" / "ledger.md")
     assert {entry.run_id for entry in entries} == {
+        "data-batch-20260914-pilot1",
         "gfp-c41b1fbb266f44d4",
         "sar-eval-e5c9a36b5f8a33f3",
     }

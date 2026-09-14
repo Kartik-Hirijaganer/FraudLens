@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     pass
 
 from lib.aml_fraud.frames import (
+    _AMOUNT_QUANTUM,
     _DEFAULT_HISTORY_MAX,
     _NO_PRIOR_SENTINEL_SECONDS,
     _REAL_SOURCES,
@@ -54,7 +55,12 @@ def build_feature_matrix(
     per window — so offline features equal what the live extractor is actually fed.
     """
     amounts_decimal, countries, channels, labels = _source_values(frame, source)
-    amounts = np.array([float(value) for value in amounts_decimal])
+    amount_cents = np.fromiter(
+        (int(value / _AMOUNT_QUANTUM) for value in amounts_decimal),
+        dtype=np.int64,
+        count=len(amounts_decimal),
+    )
+    amounts = amount_cents.astype(np.float64) * float(_AMOUNT_QUANTUM)
     is_round = np.array(
         [1.0 if value % _ROUND_AMOUNT_MODULUS == 0 else 0.0 for value in amounts_decimal]
     )
@@ -82,7 +88,7 @@ def build_feature_matrix(
         event_account = np.concatenate([origin_codes, dest_codes[inbound_mask]])
         event_times = np.concatenate([seconds, seconds[inbound_mask]])
         event_rows = np.concatenate([row_ids, row_ids[inbound_mask]])
-        event_amounts = np.concatenate([amounts, amounts[inbound_mask]])
+        event_amount_cents = np.concatenate([amount_cents, amount_cents[inbound_mask]])
         event_inbound = np.concatenate([np.zeros(n), np.ones(int(inbound_mask.sum()))])
         event_round = np.concatenate([is_round, is_round[inbound_mask]])
         event_country = np.concatenate([country_codes, country_codes[inbound_mask]])
@@ -91,7 +97,7 @@ def build_feature_matrix(
         event_account = origin_codes
         event_times = seconds
         event_rows = row_ids
-        event_amounts = amounts
+        event_amount_cents = amount_cents
         event_inbound = np.zeros(n)
         event_round = is_round
         event_country = country_codes
@@ -100,7 +106,7 @@ def build_feature_matrix(
         account_codes=event_account,
         times=event_times,
         row_ids=event_rows,
-        amounts=event_amounts,
+        amount_cents=event_amount_cents,
         inbound=event_inbound,
         is_round=event_round,
         country_codes=event_country,
@@ -128,10 +134,14 @@ def build_feature_matrix(
         lo, hi = _window_bounds(stream, code, seconds[rows], history_max)
         counts = (hi - lo).astype(float)
         velocity[rows] = counts
-        window_amounts = stream.prefix_amount[hi] - stream.prefix_amount[lo]
+        window_amounts = (stream.prefix_amount[hi] - stream.prefix_amount[lo]).astype(
+            np.float64
+        ) * float(_AMOUNT_QUANTUM)
         amount_sum_log[rows] = np.log1p(amounts[rows] + window_amounts)
         inbound_velocity[rows] = stream.prefix_inbound[hi] - stream.prefix_inbound[lo]
-        inbound_amounts = stream.prefix_inbound_amount[hi] - stream.prefix_inbound_amount[lo]
+        inbound_amounts = (
+            stream.prefix_inbound_amount[hi] - stream.prefix_inbound_amount[lo]
+        ).astype(np.float64) * float(_AMOUNT_QUANTUM)
         # Prefix subtraction can leave sub-microcent noise for an empty directional slice.
         # The live scorer sums an empty tuple to exact zero, so pin the same semantic result.
         inbound_amounts = np.where(inbound_velocity[rows] == 0, 0.0, inbound_amounts)
@@ -159,10 +169,12 @@ def build_feature_matrix(
             lo, hi = _window_bounds(stream, code, seconds[rows], history_max)
             window_counts = (hi - lo).astype(float)
             window_inbound = stream.prefix_inbound[hi] - stream.prefix_inbound[lo]
-            window_amounts = stream.prefix_amount[hi] - stream.prefix_amount[lo]
+            window_amounts = (stream.prefix_amount[hi] - stream.prefix_amount[lo]).astype(
+                np.float64
+            ) * float(_AMOUNT_QUANTUM)
             window_inbound_amounts = (
                 stream.prefix_inbound_amount[hi] - stream.prefix_inbound_amount[lo]
-            )
+            ).astype(np.float64) * float(_AMOUNT_QUANTUM)
             dest_fan_in[rows] = window_inbound
             dest_inbound_amount[rows] = amounts[rows] + window_inbound_amounts
             dest_outbound_velocity[rows] = window_counts - window_inbound

@@ -99,8 +99,12 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-      - name: Terraform fmt -check + validate (dev + prod)
+      - name: Set up uv for Checkov
+        uses: astral-sh/setup-uv@v5
+      - name: Terraform fmt-check + validate (all roots)
         run: make tf-validate
+      - name: Scan ephemeral experiment IaC
+        run: make iac-scan
 
   deps-audit:
     # Dependency vulnerability gate (plan §16 Phase 13): pip-audit over the resolved Python

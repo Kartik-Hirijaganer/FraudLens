@@ -24,8 +24,11 @@ infra/terraform/
 │   ├── gateway_app/     # the v1 single EXTERNAL Container App (allowInsecure=false, tuned probes,
 │   │                    #   Multiple revision mode for 0%-staged deploys); owns the shared env
 │   ├── service_app/     # INTERNAL-ingress app — scaffolded + validated, NOT applied in v1
-│   └── jobs/            # Container Apps Job (retrain cron + on-demand batch-score)
-└── environments/{dev,prod}/                                # one root module per env
+│   ├── jobs/            # Container Apps Job (retrain cron + on-demand batch-score)
+│   ├── batch_vm/        # isolated CPU/GPU experiment VM + shutdown watchdogs
+│   ├── experiment_storage/ # OAuth-only private Blob + lifecycle + scoped RBAC
+│   └── budget/          # RG-filtered subscription budget alerts
+├── environments/{dev,prod}/                                # application roots
     ├── providers.tf            # azurerm ~> 4, use_oidc = true (no client secret)
     ├── variables.tf            # inputs (account ids via TF_VAR_*; acr/split/retention knobs)
     ├── main.tf                 # resource group + module wiring
@@ -33,6 +36,10 @@ infra/terraform/
     ├── <env>.tfvars            # NON-SECRET knobs (committed)
     ├── backend.tf.template     # remote-state config (rename to backend.tf when ready)
     └── .terraform.lock.hcl     # provider lock (committed for reproducibility)
+└── environments/data-batch/                             # ephemeral full-data CPU experiment
+    ├── data-batch.tfvars       # West US 3, E16ads v5 PAYG, $15/8-hour bounds
+    ├── backend.tf.template     # isolated data-batch state key
+    └── providers/main/variables/outputs.tf
 ```
 
 The full deploy procedure (state bootstrap, OIDC, enabling gates, switch paths, fast/reliable
@@ -41,13 +48,20 @@ deploy flow) lives in [`docs/runbooks/azure-deploy.md`](../../docs/runbooks/azur
 ## CI validation (what runs today)
 
 ```
-terraform -chdir=environments/dev  fmt -check -recursive
-terraform -chdir=environments/dev  init -backend=false
-terraform -chdir=environments/dev  validate
-# …and the same for environments/prod
+make tf-validate # discovers dev, prod, and data-batch roots
+make iac-scan   # Checkov, with narrow documented exceptions
 ```
 
 `-backend=false` skips backend init, so validation needs no Azure account or state storage.
+
+## Ephemeral data-batch host
+
+The Phase 6 prerequisite is implemented in `environments/data-batch`: one West US 3
+`Standard_E16ads_v5` PAYG VM, isolated SSH-only network, OAuth-only experiment storage, managed
+identity, a resource-group-filtered $15 budget, and two independent eight-hour shutdown controls.
+`make data-batch-plan` is read-only; every create, upload, restart, and destroy target requires an
+explicit `CONFIRM=yes`. See the [data-batch runbook](../../docs/runbooks/data-batch.md) for the
+approval, pilot-admission, artifact, and clean-teardown sequence.
 
 ## State backend bootstrap (out-of-band, one time) — ✅ DONE 2026-09-13
 

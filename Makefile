@@ -8,6 +8,7 @@
 SHELL := bash
 
 UV ?= uv
+UVX ?= uvx
 NPM ?= npm
 DOCKER_PLATFORM ?= linux/amd64
 FRONTEND := frontend
@@ -25,6 +26,63 @@ PROFILE ?= smoke
 SOURCE ?= sar-eval
 HOST ?= azure-nc24ads-a100
 PURCHASE ?= pay_as_you_go
+TF_ROOTS ?= $(patsubst %/main.tf,%,$(wildcard infra/terraform/environments/*/main.tf))
+DATA_BATCH_DIR := infra/terraform/environments/data-batch
+DATA_BATCH_TFVARS := data-batch.tfvars
+DATA_BATCH_PILOT_HOURS ?= 2
+FULLDATA_DATA_DIR ?= .local/aml_data
+FULLDATA_DOWNLOAD_DIR ?= .local/fulldata/downloads
+
+define DATA_BATCH_ENV
+subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+operator_cidr="$${TF_VAR_operator_cidr:-}"; \
+if [ -z "$$operator_cidr" ]; then \
+	operator_cidr="$$(curl -4 --fail --silent --show-error --max-time 10 https://api.ipify.org)/32"; \
+fi; \
+operator_principal_id="$${TF_VAR_operator_principal_id:-}"; \
+operator_principal_type="$${TF_VAR_operator_principal_type:-}"; \
+account_type="$$(az account show --query user.type -o tsv)"; \
+if [ -z "$$operator_principal_type" ]; then \
+	if [ "$$account_type" = "user" ]; then operator_principal_type="User"; else operator_principal_type="ServicePrincipal"; fi; \
+fi; \
+if [ -z "$$operator_principal_id" ]; then \
+	if [ "$$account_type" = "user" ]; then \
+		operator_principal_id="$$(az ad signed-in-user show --query id -o tsv)"; \
+	else \
+		account_client="$$(az account show --query user.name -o tsv)"; \
+		operator_principal_id="$$(az ad sp show --id "$$account_client" --query id -o tsv)"; \
+	fi; \
+fi; \
+ssh_key="$${TF_VAR_ssh_public_key:-}"; \
+if [ -z "$$ssh_key" ]; then \
+	ssh_key_file="$${TF_VAR_ssh_public_key_file:-$$HOME/.ssh/id_ed25519.pub}"; \
+	test -f "$$ssh_key_file" || { echo "SSH public key not found: $$ssh_key_file"; exit 2; }; \
+	ssh_key="$$(< "$$ssh_key_file")"; \
+fi; \
+budget_contacts="$${TF_VAR_budget_contact_emails:-}"; \
+if [ -z "$$budget_contacts" ]; then \
+	account_contact="$$(az account show --query user.name -o tsv)"; \
+	budget_contacts="[\"$$account_contact\"]"; \
+fi; \
+shutdown_time="$${TF_VAR_auto_shutdown_time:-$$(python3 -c 'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%H%M"))')}"; \
+budget_start="$${TF_VAR_budget_start_date:-$$(date -u +%Y-%m-01T00:00:00Z)}"; \
+export TF_VAR_subscription_id="$$subscription_id" \
+	TF_VAR_tenant_id="$$tenant_id" \
+	TF_VAR_operator_cidr="$$operator_cidr" \
+	TF_VAR_operator_principal_id="$$operator_principal_id" \
+	TF_VAR_operator_principal_type="$$operator_principal_type" \
+	TF_VAR_ssh_public_key="$$ssh_key" \
+	TF_VAR_budget_contact_emails="$$budget_contacts" \
+	TF_VAR_auto_shutdown_time="$$shutdown_time" \
+	TF_VAR_budget_start_date="$$budget_start" \
+	TF_VAR_use_oidc="$${TF_VAR_use_oidc:-false}" \
+	TF_VAR_run_id="$${TF_VAR_run_id:-$(if $(RUN),$(RUN),data-batch-pending)}"
+endef
+
+.PHONY: iac-scan data-batch-quota data-batch-plan data-batch-up data-batch-upload \
+	data-batch-download data-batch-ssh data-batch-start data-batch-down \
+	data-batch-verify-clean data-batch-watchdog
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
@@ -471,12 +529,112 @@ fulldata-test: ## Portable DuckDB full-data suite with >=90% harness branch cove
 		--cov=scripts/lib/fulldata --cov=fulldata --cov-branch \
 		--cov-report=term-missing --cov-fail-under=90
 
-tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
+data-batch-quota: ## Show the non-sensitive West US 3 quota decision inputs (read-only).
+	@az vm list-usage --location westus3 \
+		--query "[?localName=='Total Regional vCPUs' || localName=='Total Regional Low-priority vCPUs' || localName=='Standard EADSv5 Family vCPUs'].{quota:localName,current:currentValue,limit:limit}" \
+		-o table
+
+data-batch-plan: experiment-budget-check data-batch-quota ## Plan the PAYG CPU experiment without creating resources.
+	@echo ">> projected two-pilot scheduling envelope ($(DATA_BATCH_PILOT_HOURS) PAYG hours)"
+	@$(UV) run python scripts/experiment_budget.py estimate \
+		--rate azure_e16ads_v5_payg --pilot-hours "$(DATA_BATCH_PILOT_HOURS)" \
+		--pilot-units 1 --target-units 1
+	@$(UV) run python scripts/experiment_budget.py admit --allocation azure_cpu_batch \
+		--rate azure_e16ads_v5_payg --pilot-hours "$(DATA_BATCH_PILOT_HOURS)" \
+		--pilot-units 1 --target-units 1
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	terraform -chdir=$(DATA_BATCH_DIR) init -backend=false -input=false -no-color >/dev/null; \
+	terraform -chdir=$(DATA_BATCH_DIR) plan -input=false -lock=false -no-color \
+		-var-file=$(DATA_BATCH_TFVARS)
+
+data-batch-up: ## Create the approved data-batch session (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud mutation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	cp $(DATA_BATCH_DIR)/backend.tf.template $(DATA_BATCH_DIR)/backend.tf; \
+	terraform -chdir=$(DATA_BATCH_DIR) init -reconfigure -input=false -no-color; \
+	trap 'rm -f $(DATA_BATCH_DIR)/data-batch.tfplan' EXIT; \
+	terraform -chdir=$(DATA_BATCH_DIR) plan -input=false -no-color \
+		-var-file=$(DATA_BATCH_TFVARS) -out=data-batch.tfplan; \
+	terraform -chdir=$(DATA_BATCH_DIR) apply -input=false -no-color data-batch.tfplan
+
+data-batch-upload: ## Upload Medium CSVs after separate approval (CONFIRM=yes, RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing Blob upload: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@test -f "$(FULLDATA_DATA_DIR)/HI-Medium_Trans.csv"
+	@test -f "$(FULLDATA_DATA_DIR)/LI-Medium_Trans.csv"
+	@set -euo pipefail; \
+	account="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_account_name)"; \
+	container="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_container_name)"; \
+	az storage blob upload-batch --auth-mode login --account-name "$$account" \
+		--destination "$$container/input/$(RUN)" --source "$(FULLDATA_DATA_DIR)" \
+		--pattern '*-Medium_Trans.csv' --overwrite false
+
+data-batch-download: ## Download exported artifacts for RUN (read-only cloud operation).
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@mkdir -p "$(FULLDATA_DOWNLOAD_DIR)/$(RUN)"
+	@set -euo pipefail; \
+	account="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_account_name)"; \
+	container="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_container_name)"; \
+	az storage blob download-batch --auth-mode login --account-name "$$account" \
+		--source "$$container" --destination "$(FULLDATA_DOWNLOAD_DIR)/$(RUN)" \
+		--pattern "artifacts/$(RUN)/*" --overwrite false
+
+data-batch-ssh: ## Connect to the existing data-batch VM.
+	@ssh "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw ssh_command | sed 's/^ssh //')"
+
+data-batch-start: ## Restart a deallocated data-batch VM (requires CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud mutation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@az vm start \
+		--resource-group "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw vm_name)"
+
+data-batch-watchdog: ## Inspect both shutdown safeguards on the existing VM.
+	@echo ">> platform auto-shutdown: $$(terraform -chdir=$(DATA_BATCH_DIR) output -raw auto_shutdown_time) UTC"
+	@ssh "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw ssh_command | sed 's/^ssh //')" \
+		'sudo systemctl status fraudlens-watchdog.timer --no-pager; sudo systemctl list-timers fraudlens-watchdog.timer --no-pager'
+
+data-batch-down: ## Destroy the approved data-batch session (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud teardown: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	cp $(DATA_BATCH_DIR)/backend.tf.template $(DATA_BATCH_DIR)/backend.tf; \
+	terraform -chdir=$(DATA_BATCH_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(DATA_BATCH_DIR) destroy -input=false -no-color -auto-approve \
+		-var-file=$(DATA_BATCH_TFVARS)
+
+data-batch-verify-clean: ## Prove no tagged data-batch resource, RG, or budget remains (read-only).
+	@set -euo pipefail; \
+	failed=0; \
+	if [ "$$(az group exists --name fraudlens-data-batch-rg)" != "false" ]; then \
+		echo "residue: resource group fraudlens-data-batch-rg exists"; failed=1; \
+	fi; \
+	resource_count="$$(az resource list \
+		--query "length([?starts_with(name, 'fraudlens-data-batch') || tags.environment == 'data-batch'])" -o tsv)"; \
+	if [ "$$resource_count" != "0" ]; then \
+		echo "residue: $$resource_count tagged/prefixed Azure resources"; \
+		az resource list --query "[?starts_with(name, 'fraudlens-data-batch') || tags.environment == 'data-batch'].{name:name,type:type,resourceGroup:resourceGroup}" -o table; \
+		failed=1; \
+	fi; \
+	if az consumption budget show --budget-name fraudlens-data-batch-budget \
+		--only-show-errors --output none >/dev/null 2>&1; then \
+		echo "residue: subscription budget fraudlens-data-batch-budget exists"; failed=1; \
+	fi; \
+	test "$$failed" = "0" || exit 1; \
+	echo "data-batch-verify-clean OK: no resource group, tagged resource, or budget remains"
+
+iac-scan: ## Scan Terraform for security and configuration defects (read-only).
+	$(UVX) checkov --config-file .checkov.yaml
+
+tf-validate: ## Terraform fmt + validate (no backend) per discovered environment root.
 	terraform fmt -recursive -check infra/terraform
-	@for env in dev prod; do \
-		echo ">> terraform validate ($$env)"; \
-		terraform -chdir=infra/terraform/environments/$$env init -backend=false -input=false -no-color >/dev/null; \
-		terraform -chdir=infra/terraform/environments/$$env validate -no-color; \
+	@for root in $(TF_ROOTS); do \
+		echo ">> terraform validate ($$(basename $$root))"; \
+		terraform -chdir=$$root init -backend=false -input=false -no-color >/dev/null; \
+		terraform -chdir=$$root validate -no-color; \
 	done
 
 # ---------------------------------------------------------------------------
@@ -495,6 +653,7 @@ pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR check
 	$(MAKE) ci-changed BASE_REF="$(BASE_REF)"
 	$(MAKE) docker-build
 	$(MAKE) tf-validate
+	$(MAKE) iac-scan
 	$(MAKE) deps-audit
 	$(MAKE) docker-build-base-if-changed BASE_REF="$(BASE_REF)"
 	@echo ">> PR preflight passed"

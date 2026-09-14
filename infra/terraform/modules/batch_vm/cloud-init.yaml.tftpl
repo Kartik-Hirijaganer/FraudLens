@@ -1,0 +1,67 @@
+#cloud-config
+# Ephemeral batch-host bootstrap (ADR-028). No application secret is written to the VM.
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - git
+  - jq
+  - tmux
+  - unzip
+
+write_files:
+  - path: /usr/local/sbin/fraudlens-deallocate
+    owner: root:root
+    permissions: "0750"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      resource_id="$$(curl --fail --silent --show-error \
+        --header Metadata:true \
+        'http://169.254.169.254/metadata/instance/compute/resourceId?api-version=2021-02-01&format=text')"
+      az login --identity --output none
+      az vm deallocate --ids "$${resource_id}" --no-wait --output none
+  - path: /etc/systemd/system/fraudlens-watchdog.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Deallocate the FraudLens experiment VM at its hard deadline
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/fraudlens-deallocate
+  - path: /etc/systemd/system/fraudlens-watchdog.timer
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Eight-hour FraudLens experiment cost watchdog
+
+      [Timer]
+      OnBootSec=${watchdog_hours}h
+      AccuracySec=1min
+      Persistent=true
+      Unit=fraudlens-watchdog.service
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - install -d -m 0770 -o root -g ${admin_username} /mnt/fraudlens
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  - curl -LsSf https://astral.sh/uv/0.8.15/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+  - curl -L --fail --silent --show-error https://aka.ms/downloadazcopy-v10-linux -o /tmp/azcopy.tar.gz
+  - tar -xzf /tmp/azcopy.tar.gz -C /tmp
+  - install -m 0755 /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/azcopy
+  - systemctl daemon-reload
+  - systemctl enable --now fraudlens-watchdog.timer
+%{ if gpu_enabled ~}
+  - docker pull ${vllm_image}
+%{ endif ~}
+
+final_message: "FraudLens batch host ready; watchdog is active."

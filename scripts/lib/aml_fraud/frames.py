@@ -239,9 +239,9 @@ class _EventStream:
     account: np.ndarray  # int codes, sorted primary key
     times: np.ndarray  # float seconds, sorted within account
     starts: dict[int, tuple[int, int]]  # account code -> [start, end) segment
-    prefix_amount: np.ndarray  # cumsum with leading 0 (range sums via prefix[hi]-prefix[lo])
+    prefix_amount: np.ndarray  # exact cent cumsum with leading 0
     prefix_inbound: np.ndarray
-    prefix_inbound_amount: np.ndarray
+    prefix_inbound_amount: np.ndarray  # exact inbound-cent cumsum with leading 0
     prefix_round: np.ndarray
     country: np.ndarray  # int token codes, sorted like times
     channel: np.ndarray
@@ -252,7 +252,7 @@ def _build_stream(  # noqa: PLR0913 - eight parallel event columns, assembled on
     account_codes: np.ndarray,
     times: np.ndarray,
     row_ids: np.ndarray,
-    amounts: np.ndarray,
+    amount_cents: np.ndarray,
     inbound: np.ndarray,
     is_round: np.ndarray,
     country_codes: np.ndarray,
@@ -267,7 +267,7 @@ def _build_stream(  # noqa: PLR0913 - eight parallel event columns, assembled on
     order = np.lexsort((row_ids, times, account_codes))
     account_sorted = account_codes[order]
     times_sorted = times[order]
-    amounts_sorted = amounts[order]
+    amount_cents_sorted = amount_cents[order]
     inbound_sorted = inbound[order]
     round_sorted = is_round[order]
     unique_accounts, first_index = np.unique(account_sorted, return_index=True)
@@ -280,13 +280,21 @@ def _build_stream(  # noqa: PLR0913 - eight parallel event columns, assembled on
     def _prefix(values: np.ndarray) -> np.ndarray:
         return np.concatenate(([0.0], np.cumsum(values)))
 
+    if np.any(amount_cents_sorted < 0):
+        raise ValueError("event amount cents must be non-negative")
+    if np.sum(amount_cents_sorted, dtype=np.longdouble) > np.iinfo(np.int64).max:
+        raise OverflowError("event amount cents exceed the exact int64 prefix-sum range")
+
+    def _cent_prefix(values: np.ndarray) -> np.ndarray:
+        return np.concatenate((np.zeros(1, dtype=np.int64), np.cumsum(values, dtype=np.int64)))
+
     return _EventStream(
         account=account_sorted,
         times=times_sorted,
         starts=starts,
-        prefix_amount=_prefix(amounts_sorted),
+        prefix_amount=_cent_prefix(amount_cents_sorted),
         prefix_inbound=_prefix(inbound_sorted),
-        prefix_inbound_amount=_prefix(amounts_sorted * inbound_sorted),
+        prefix_inbound_amount=_cent_prefix(amount_cents_sorted * inbound_sorted.astype(np.int64)),
         prefix_round=_prefix(round_sorted),
         country=country_codes[order],
         channel=channel_codes[order],

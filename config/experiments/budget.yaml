@@ -16,39 +16,39 @@ rates:
   azure_e16ads_v5_payg:
     provider: azure
     sku: Standard_E16ads_v5
-    region: eastus
+    region: westus3
     purchase_option: pay_as_you_go
     hourly_rate_usd: "1.048000"
     price_source_url: https://prices.azure.com/api/retail/prices
-    price_verified_at: 2026-09-13
-    effective_from: 2021-12-01
+    price_verified_at: 2026-09-14
+    effective_from: 2022-08-01
   azure_e16ads_v5_spot:
     provider: azure
     sku: Standard_E16ads_v5
-    region: eastus
+    region: westus3
     purchase_option: spot
-    hourly_rate_usd: "0.220709"
+    hourly_rate_usd: "0.193670"
     price_source_url: https://prices.azure.com/api/retail/prices
-    price_verified_at: 2026-09-13
-    effective_from: 2026-07-01
+    price_verified_at: 2026-09-14
+    effective_from: 2026-08-01
   azure_e32ads_v5_payg:
     provider: azure
     sku: Standard_E32ads_v5
-    region: eastus
+    region: westus3
     purchase_option: pay_as_you_go
     hourly_rate_usd: "2.096000"
     price_source_url: https://prices.azure.com/api/retail/prices
-    price_verified_at: 2026-09-13
-    effective_from: 2021-12-01
+    price_verified_at: 2026-09-14
+    effective_from: 2022-08-01
   azure_e32ads_v5_spot:
     provider: azure
     sku: Standard_E32ads_v5
-    region: eastus
+    region: westus3
     purchase_option: spot
-    hourly_rate_usd: "0.441418"
+    hourly_rate_usd: "0.387341"
     price_source_url: https://prices.azure.com/api/retail/prices
-    price_verified_at: 2026-09-13
-    effective_from: 2026-07-01
+    price_verified_at: 2026-09-14
+    effective_from: 2026-08-01
   azure_nc24ads_a100_v4_payg:
     provider: azure
     sku: Standard_NC24ads_A100_v4
