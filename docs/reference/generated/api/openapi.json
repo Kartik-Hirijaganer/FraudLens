@@ -3648,6 +3648,55 @@
         ]
       }
     },
+    "/api/v1/dev/transactions/{transactionId}/synthetic-provenance": {
+      "post": {
+        "description": "Mark one generated local transaction synthetic for the governed vLLM E2E pass.",
+        "operationId": "mark_synthetic_provenance_api_v1_dev_transactions__transactionId__synthetic_provenance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transactionId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transactionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevUtilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mark Synthetic Provenance",
+        "tags": [
+          "dev"
+        ]
+      }
+    },
     "/api/v1/drift-reports": {
       "get": {
         "description": "Return advisory drift reports (newest first); these only signal, never gate serving.",

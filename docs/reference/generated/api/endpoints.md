@@ -14,6 +14,7 @@
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
 | POST | `/api/v1/dev/reset` | `dev_reset` |
 | POST | `/api/v1/dev/seed` | `dev_seed` |
+| POST | `/api/v1/dev/transactions/{transactionId}/synthetic-provenance` | `mark_synthetic_provenance` |
 | GET | `/api/v1/drift-reports` | `list_drift_reports` |
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |
