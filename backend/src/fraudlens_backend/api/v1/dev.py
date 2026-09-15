@@ -1,8 +1,6 @@
-"""Summary: Non-production developer utility routes. `POST /dev/seed` and `POST /dev/reset`
-provide API-visible hooks for local/demo workflows while remaining admin-gated, tenant-scoped,
-audited, and hard-disabled when `environment == "prod"`. The first production-grade seed/reset
-implementation still lives in scripts; these routes give the frontend/API contract a governed
-entrypoint without performing destructive work.
+"""Summary: Non-production developer utility routes for governed local/demo workflows.
+`POST /dev/seed`, `POST /dev/reset`, and the trusted synthetic-provenance marker remain
+admin-gated, tenant-scoped, audited, and hard-disabled when `environment == "prod"`.
 
 Key classes:
 - (none)
@@ -10,6 +8,7 @@ Key classes:
 Key functions:
 - dev_seed: POST /dev/seed — acknowledge a non-production seed request and audit it.
 - dev_reset: POST /dev/reset — acknowledge a non-production reset request and audit it.
+- mark_synthetic_provenance: authorize one locally generated transaction for model egress.
 
 Notes:
 - Reset is deliberately non-destructive in v1. Future plans can wire a bounded reset job behind
@@ -18,9 +17,10 @@ Notes:
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -30,6 +30,8 @@ from fraudlens_backend.api.deps import (
     get_admin_tenant,
     require_actor,
 )
+from fraudlens_backend.db.models import TransactionSource
+from fraudlens_backend.db.repositories.transactions import TransactionRepository
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.dev import DevUtilityResponse
 from fraudlens_backend.models.errors import AppError
@@ -85,4 +87,39 @@ async def dev_reset(
     """Acknowledge and audit a non-production reset request."""
     return await _record_dev_action(
         action="reset", request=request, tenant=tenant, session=session, settings=settings
+    )
+
+
+@router.post(
+    "/dev/transactions/{transactionId}/synthetic-provenance",
+    response_model=DevUtilityResponse,
+)
+async def mark_synthetic_provenance(
+    transaction_id: Annotated[uuid.UUID, Path(alias="transactionId")],
+    request: Request,
+    tenant: AdminDep,
+    session: DbSessionDep,
+    settings: SettingsDep,
+) -> DevUtilityResponse:
+    """Mark one generated local transaction synthetic for the governed vLLM E2E pass."""
+    _ensure_non_prod(settings)
+    actor_id = require_actor(tenant)
+    transaction = await TransactionRepository(session, uuid.UUID(tenant.agency_id)).get(
+        transaction_id
+    )
+    if transaction is None:
+        raise AppError("transaction_not_found")
+    transaction.source = TransactionSource.SYNTHETIC_GENERATOR
+    await audit_writer(tenant, session, request).record(
+        actor_id=actor_id,
+        action="dev.synthetic_provenance",
+        resource_type="transaction",
+        resource_id=str(transaction.id),
+        metadata={"source": TransactionSource.SYNTHETIC_GENERATOR.value},
+    )
+    await session.commit()
+    return DevUtilityResponse(
+        action="synthetic-provenance",
+        status="accepted",
+        agency_id=tenant.agency_id,
     )

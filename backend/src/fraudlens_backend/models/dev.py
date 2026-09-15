@@ -1,9 +1,9 @@
-"""Summary: Response models for non-production developer utility endpoints. The surface is
-small by design: a route reports which utility was accepted, its status, and the audited tenant
-scope. The routes are disabled in production and remain admin-gated even in development.
+"""Summary: Response models for non-production developer utility endpoints. The surface reports
+which utility was accepted, its status, and the audited tenant scope. Every route is disabled in
+production and remains admin-gated even in development.
 
 Key classes:
-- DevUtilityResponse: standard response for POST /dev/seed and POST /dev/reset.
+- DevUtilityResponse: standard response for governed non-production utility mutations.
 
 Key functions:
 - (none)
