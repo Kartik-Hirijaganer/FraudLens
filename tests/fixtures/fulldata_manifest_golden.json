@@ -22,72 +22,72 @@
     {
       "candidate": "hi-small",
       "evaluation": {
-        "baselinePrAuc": 0.05060962104095935,
+        "baselinePrAuc": "<BASELINE_PR_AUC>",
         "calibrationMethod": "platt",
         "candidate": "hi-small",
         "completedTrees": 8,
         "featureSpecVersion": 2,
         "gates": {
           "active_pr_auc": null,
-          "baseline_pr_auc": 0.05060962104095935,
+          "baseline_pr_auc": "<BASELINE_PR_AUC>",
           "checks": [
             {
               "name": "pr_auc_floor",
               "passed": false,
               "threshold": 0.45,
-              "value": 0.03148024345202525
+              "value": "<VALUE>"
             },
             {
               "name": "beats_baseline",
               "passed": false,
               "threshold": 0.02,
-              "value": -0.0191293775889341
+              "value": "<VALUE>"
             },
             {
               "name": "recall_at_budget",
               "passed": false,
               "threshold": 0.6,
-              "value": 0.0
+              "value": "<VALUE>"
             },
             {
               "name": "precision_at_top_pct",
               "passed": false,
               "threshold": 0.2,
-              "value": 0.0
+              "value": "<VALUE>"
             },
             {
               "name": "calibration_ece",
               "passed": true,
               "threshold": 0.05,
-              "value": 0.0021495301276445375
+              "value": "<VALUE>"
             }
           ],
           "metrics": {
-            "brier": 0.0244035292416811,
-            "ece": 0.0021495301276445375,
-            "holdout_base_rate": 0.025,
-            "pr_auc": 0.03148024345202525,
-            "precision_at_budget": 0.0,
-            "precision_at_top_pct": 0.0,
-            "recall_at_budget": 0.0
+            "brier": "<METRIC>",
+            "ece": "<METRIC>",
+            "holdout_base_rate": "<METRIC>",
+            "pr_auc": "<METRIC>",
+            "precision_at_budget": "<METRIC>",
+            "precision_at_top_pct": "<METRIC>",
+            "recall_at_budget": "<METRIC>"
           },
           "passed": false
         },
         "metrics": {
-          "brier": 0.0244035292416811,
-          "ece": 0.0021495301276445375,
-          "holdout_base_rate": 0.025,
-          "pr_auc": 0.03148024345202525,
-          "precision_at_budget": 0.0,
-          "precision_at_top_pct": 0.0,
-          "recall_at_budget": 0.0
+          "brier": "<METRIC>",
+          "ece": "<METRIC>",
+          "holdout_base_rate": "<METRIC>",
+          "pr_auc": "<METRIC>",
+          "precision_at_budget": "<METRIC>",
+          "precision_at_top_pct": "<METRIC>",
+          "recall_at_budget": "<METRIC>"
         },
         "modelBundle": "xgb-ibm-aml-ffffffffffff",
         "modelSha256": "<MODEL_SHA>",
         "riskThresholds": {
-          "critical": 0.031579893082380295,
-          "high": 0.028016606345772743,
-          "medium": 0.02605297602713108
+          "critical": "<THRESHOLD>",
+          "high": "<THRESHOLD>",
+          "medium": "<THRESHOLD>"
         },
         "scalePosWeight": 38.93333333333333,
         "source": "ibm-aml",

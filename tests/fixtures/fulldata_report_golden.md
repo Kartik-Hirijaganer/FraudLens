@@ -15,14 +15,14 @@
 
 | Candidate | PR-AUC | Baseline PR-AUC | Recall@budget | Gates | Threshold source |
 |---|---:|---:|---:|---|---|
-| hi-small | 0.031480 | 0.050610 | 0.000000 | fail | calibration |
+| hi-small | <PR_AUC> | <BASELINE_PR_AUC> | <RECALL_AT_BUDGET> | fail | calibration |
 
 ```mermaid
 xychart-beta
     x-axis ["hi-small"]
     y-axis "PR-AUC" 0 --> 1
-    bar [0.031480]
-    line [0.050610]
+    bar [<PR_AUC>]
+    line [<BASELINE_PR_AUC>]
 ```
 
 ## Runtime and cost

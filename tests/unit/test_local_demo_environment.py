@@ -9,7 +9,7 @@ import pytest
 
 import lib.demo_dataset_steps as dataset_steps
 import local_demo
-from lib import demo_processes
+from lib import demo_environment, demo_processes
 
 
 def test_local_database_url_uses_async_driver_and_defaults() -> None:
@@ -108,8 +108,11 @@ def test_base_url_is_built_from_host_and_port() -> None:
 def test_assign_available_default_ports_uses_fallback_when_default_is_blocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("BACKEND_PORT", raising=False)
-    monkeypatch.setattr(local_demo, "_is_port_available", lambda port: port == "18000")
+    # setenv-then-delenv makes monkeypatch record the variable, so the assignment the call
+    # below writes straight into os.environ is undone at teardown.
+    monkeypatch.setenv("BACKEND_PORT", "8000")
+    monkeypatch.delenv("BACKEND_PORT")
+    monkeypatch.setattr(demo_environment, "_is_port_available", lambda port: port == "18000")
     local_demo._assign_available_default_ports(("BACKEND_PORT",))
     assert local_demo._env("BACKEND_PORT") == "18000"
 
@@ -118,7 +121,7 @@ def test_assign_available_default_ports_honors_explicit_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("BACKEND_PORT", "19000")
-    monkeypatch.setattr(local_demo, "_is_port_available", lambda _port: False)
+    monkeypatch.setattr(demo_environment, "_is_port_available", lambda _port: False)
     local_demo._assign_available_default_ports(("BACKEND_PORT",))
     assert local_demo._env("BACKEND_PORT") == "19000"
 

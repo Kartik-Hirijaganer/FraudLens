@@ -37,7 +37,7 @@ _MANIFEST_GOLDEN = Path(__file__).parents[1] / "fixtures" / "fulldata_manifest_g
 
 
 def _normalized_manifest(manifest: object) -> str:
-    """Remove runtime-only values while retaining the complete manifest contract."""
+    """Remove runtime/platform values while retaining the complete manifest contract."""
     payload = manifest.model_dump(mode="json", by_alias=True)  # type: ignore[attr-defined]
     for key in ("runId", "commit", "startedAt", "completedAt"):
         payload[key] = f"<{key.upper()}>"
@@ -50,9 +50,21 @@ def _normalized_manifest(manifest: object) -> str:
     )
     payload["stagePeakRssMib"] = dict.fromkeys(sorted(payload["stagePeakRssMib"]), "<RSS>")
     for source in payload["sources"]:
-        source["evaluation"]["modelSha256"] = "<MODEL_SHA>"
-        source["evaluation"]["trainingSeconds"] = "<SECONDS>"
-        source["evaluation"]["trainingPeakRssMib"] = "<RSS>"
+        evaluation = source["evaluation"]
+        evaluation["modelSha256"] = "<MODEL_SHA>"
+        evaluation["trainingSeconds"] = "<SECONDS>"
+        evaluation["trainingPeakRssMib"] = "<RSS>"
+        evaluation["baselinePrAuc"] = "<BASELINE_PR_AUC>"
+        evaluation["metrics"] = dict.fromkeys(sorted(evaluation["metrics"]), "<METRIC>")
+        evaluation["riskThresholds"] = dict.fromkeys(
+            sorted(evaluation["riskThresholds"]), "<THRESHOLD>"
+        )
+        evaluation["gates"]["baseline_pr_auc"] = "<BASELINE_PR_AUC>"
+        evaluation["gates"]["metrics"] = dict.fromkeys(
+            sorted(evaluation["gates"]["metrics"]), "<METRIC>"
+        )
+        for check in evaluation["gates"]["checks"]:
+            check["value"] = "<VALUE>"
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
@@ -181,6 +193,17 @@ def test_training_report_and_publication_are_hash_bound(tmp_path: Path) -> None:
     assert manifest.peak_rss_mib == max(manifest.stage_peak_rss_mib.values())
     assert manifest.stage_peak_rss_mib["train:ibm-aml"] == result.training_peak_rss_mib
     assert manifest.cost.projected_usd == 3.0
+    evaluation = manifest.sources[0].evaluation
+    assert evaluation is not None
+    assert evaluation.gates.metrics == evaluation.metrics
+    assert evaluation.gates.baseline_pr_auc == evaluation.baseline_pr_auc
+    assert {check.name: check.value for check in evaluation.gates.checks} == {
+        "pr_auc_floor": evaluation.metrics.pr_auc,
+        "beats_baseline": evaluation.metrics.pr_auc - evaluation.baseline_pr_auc,
+        "recall_at_budget": evaluation.metrics.recall_at_budget,
+        "precision_at_top_pct": evaluation.metrics.precision_at_top_pct,
+        "calibration_ece": evaluation.metrics.ece,
+    }
     assert _normalized_manifest(manifest) == _MANIFEST_GOLDEN.read_text(encoding="utf-8")
     report = write_report(config, tmp_path)
     markdown = (run_directory(config, tmp_path, manifest.run_id) / "study.md").read_text()
@@ -206,6 +229,13 @@ def test_training_report_and_publication_are_hash_bound(tmp_path: Path) -> None:
         "Total recorded stage time: <SECONDS> seconds.",
         normalized,
     )
+    normalized = re.sub(
+        r"\| hi-small \| [0-9.]+ \| [0-9.]+ \| [0-9.]+ \|",
+        "| hi-small | <PR_AUC> | <BASELINE_PR_AUC> | <RECALL_AT_BUDGET> |",
+        normalized,
+    )
+    normalized = re.sub(r"    bar \[[0-9.]+\]", "    bar [<PR_AUC>]", normalized)
+    normalized = re.sub(r"    line \[[0-9.]+\]", "    line [<BASELINE_PR_AUC>]", normalized)
     assert normalized == _REPORT_GOLDEN.read_text(encoding="utf-8")
     published = publish_report(report, config, tmp_path)
     validated = validate_published_artifacts(

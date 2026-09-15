@@ -46,6 +46,10 @@ from lib.vllm_bench.state import (
 )
 
 _EVIDENCE_REFS = ("case-evidence-transaction", "case-evidence-rules", "case-evidence-model")
+# The provider-free corpus must be reproducible from a clean checkout, so it scores through the
+# committed fixture bundle rather than config/sar-eval.yaml's calibration model — that one pins a
+# locally trained candidate which .gitignore (correctly) keeps out of the repository.
+_FIXTURE_MODEL_VERSION = "v0-fixture"
 _CHARS_PER_TOKEN = 4
 _SHORT_HISTORY_LIMIT = 10
 _SHORT_PROMPT_LIMIT = 4_000
@@ -179,7 +183,7 @@ def _fixture_input(  # noqa: PLR0913 - injected production collaborators avoid r
     """Run production rules, score, SHAP, risk, RAG, and SarInput builders for one fixture."""
     context = scenario_rule_context(scenario, fixture_config)
     evaluation = RuleRegistry().evaluate(DEFAULT_RULE_DEFINITIONS, context)
-    version = fixture_config.calibration.model_version
+    version = _FIXTURE_MODEL_VERSION
     pointer = DeploymentPointer(active_version_label=version, active_artifact_uri=version)
     score_output = scorer.score(pointer, context)
     score = ScoreResult(
