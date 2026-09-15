@@ -2,6 +2,61 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.3.0] - 2026-09-15
+
+### Documentation
+
+- Make RunPod the default GPU benchmark host
+- Record durable execution decision
+- Regenerate synthetic provenance contract
+- Publish vLLM AWQ benchmark evidence
+- Surface measured inference results
+- Reconcile governed GPU experiment
+- Record measured benchmark outcome
+- Close release 0.3 implementation scope
+
+### Features
+
+- Add vLLM SAR provider route
+- Add full-data temporal training pipeline
+- Add vLLM AWQ benchmark harness
+- Add governed Azure data batch runner
+- Support direct vLLM process runtime
+- Add governed RunPod GPU operator
+- Add durable lease and fencing contract
+- Enqueue durable investigations
+- Execute queued investigations with leases
+- Resume persisted investigation stages
+- Add hardened deployment manifests
+- Add local demonstration harness
+- Complete pre-benchmark evidence gates
+- Authorize synthetic benchmark provenance
+
+### Fixes
+
+- Close durable execution audit gaps
+- Accept sparse lifecycle responses
+- Preserve unique masked E2E accounts
+
+### Miscellaneous
+
+- File-length gate, budget ledger, governance
+- Single-source agent skills
+- Allow benchmark host identifier
+
+### Refactor
+
+- Enforce 500-line module cap
+- Isolate investigation runtime settings
+- Isolate investigation event streaming
+
+### Tests
+
+- Add citation hallucination and egress gates
+- Verify PostgreSQL lease concurrency
+- Prove PostgreSQL worker recovery
+- Enforce manifest and evidence contracts
+
 ## [0.2.0] - 2026-09-13
 
 ### Features
@@ -389,4 +444,3 @@ All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
 - Fix pre-existing dashboard-metrics + sse test failures
 - Update investigation button test to verify button text before click
-

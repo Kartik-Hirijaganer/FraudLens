@@ -134,8 +134,8 @@ experiment jobs.
 `us-east-1`). This profile is for local CLI work; the project deploys to **Azure**, not AWS
 (see [Cloud & Deployment](#cloud--deployment)).
 
-- `AWS_PROFILE=personal-admin` is set in
-  [`.claude/settings.local.json`](.claude/settings.local.json) (gitignored).
+- `AWS_PROFILE=personal-admin` is set in `.claude/settings.local.json` (gitignored and therefore
+  intentionally unavailable in clean CI checkouts).
 - Re-authenticate with `aws sso login --sso-session personal` when the token expires.
 - **Never** use the work profiles (`nightingale-*`, `bootstrap-admin`) for this repo.
 

@@ -149,7 +149,7 @@ help: ## Show this help.
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install all dependencies (uv workspace + frontend npm ci).
-	$(UV) sync --all-packages
+	$(UV) sync --all-packages --group fulldata
 	cd $(FRONTEND) && $(NPM) ci
 
 # ---------------------------------------------------------------------------
@@ -271,14 +271,14 @@ deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs netw
 		--ignore-vuln CVE-2026-45833
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
-	$(UV) run python scripts/update_docs.py --check openapi
+	$(UV) run --group fulldata python scripts/update_docs.py --check openapi
 docs: ## Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES).
 	$(UV) run python scripts/sync_skills.py
-	$(UV) run python scripts/update_docs.py
+	$(UV) run --group fulldata python scripts/update_docs.py
 skills-check: ## Validate project skills and fail if the generated Codex mirror is stale.
 	$(UV) run python scripts/sync_skills.py --check
 docs-check: skills-check ## Fail if any generated skill or documentation artifact is stale.
-	$(UV) run python scripts/update_docs.py --check
+	$(UV) run --group fulldata python scripts/update_docs.py --check
 backend-coverage-diff: ## Backend: ≥90% coverage on CHANGED lines (diff-cover, Cobertura).
 	$(UV) run pytest -q --cov-report=xml --cov-fail-under=0
 	$(UV) run diff-cover coverage.xml --compare-branch=$(BASE_REF) --fail-under=90

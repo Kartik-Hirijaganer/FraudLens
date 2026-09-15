@@ -14,7 +14,7 @@
 
 [project]
 name = "fraudlens"
-version = "0.2.0"
+version = "0.3.0"
 description = "FraudLens — AML fraud investigation system (workspace root)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,7 +63,8 @@ gfp = [
 
 # OFFLINE-ONLY group for the memory-bounded IBM full-data training pipeline (ADR-025).
 # Keep these analytical IO dependencies out of workspace members and serving images.
-# Install explicitly with `uv sync --all-packages --group fulldata`.
+# `make install` includes the group because repo-wide type-checking and coverage collect the
+# offline harness; deployment images still omit it through `uv sync --no-dev`.
 fulldata = [
     "duckdb>=1.4",
     "pyarrow>=18",
