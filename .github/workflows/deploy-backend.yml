@@ -151,6 +151,11 @@ jobs:
           TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           TF_VAR_tenant_id: ${{ vars.AZURE_TENANT_ID }}
           TF_VAR_client_id: ${{ vars.AZURE_CLIENT_ID }}
+          # The prod root carries its own RG-scoped budget, whose recipient and start month are
+          # human-owned and therefore have NO default (Golden Rule 3) -- without them `plan` stops
+          # at "No value for required variable". Same shape deploy-aks.yml already uses.
+          TF_VAR_budget_contact_emails: '["${{ vars.AZURE_BUDGET_CONTACT_EMAIL }}"]'
+          TF_VAR_budget_start_date: ${{ vars.AZURE_BUDGET_START_DATE }}
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }

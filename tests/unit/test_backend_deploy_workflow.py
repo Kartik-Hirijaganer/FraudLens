@@ -12,6 +12,7 @@ and `plan` needs credentials CI does not hold.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -177,6 +178,39 @@ def test_a_later_terraform_apply_cannot_strip_the_injected_secrets() -> None:
     gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
     ignored = gateway.split("ignore_changes = [")[1].split("\n  ]")[0]
     assert "secret," in ignored
+
+
+def test_the_apply_supplies_every_variable_the_prod_root_requires() -> None:
+    """A required variable with no default stops `plan` dead, before anything is created.
+
+    The budget recipient and start month are human-owned (Golden Rule 3), so the prod root
+    declares them without defaults. They reach terraform only through TF_VAR_*, which means the
+    workflow is the single place that can supply them — and the only place this can be missed.
+    """
+    root = REPO_ROOT / "infra" / "terraform" / "environments" / "prod" / "variables.tf"
+    source = root.read_text(encoding="utf-8")
+    required = {
+        name
+        for name in re.findall(r'variable "([a-z_]+)"', source)
+        if "default" not in source.split(f'variable "{name}"')[1].split("\n}")[0]
+    }
+    supplied = set(_step("infra", "Terraform plan")["env"])
+    tfvars = (
+        REPO_ROOT / "infra" / "terraform" / "environments" / "prod" / "prod.tfvars"
+    ).read_text(encoding="utf-8")
+    for name in sorted(required):
+        assigned_in_tfvars = re.search(rf"^\s*{name}\s*=", tfvars, re.MULTILINE) is not None
+        # `container_image` is stamped as a -var on the plan command line, not via TF_VAR_*.
+        assert assigned_in_tfvars or f"TF_VAR_{name}" in supplied or name == "container_image", (
+            f"{name} has no default, is not in prod.tfvars, and is not passed as TF_VAR_{name}"
+        )
+
+
+def test_the_budget_recipient_reaches_terraform_as_a_list_not_a_bare_string() -> None:
+    # `budget_contact_emails` is list(string); a bare address fails type validation at plan time.
+    env = _step("infra", "Terraform plan")["env"]
+    assert env["TF_VAR_budget_contact_emails"] == '["${{ vars.AZURE_BUDGET_CONTACT_EMAIL }}"]'
+    assert env["TF_VAR_budget_start_date"] == "${{ vars.AZURE_BUDGET_START_DATE }}"
 
 
 # --- the authenticated smoke ----------------------------------------------------------------
