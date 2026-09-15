@@ -8,9 +8,14 @@ Key functions:
 
 Notes:
 - Durable worker lease settings join this responsibility-owned model in Phase 8.
+- `llm_daily_budget_usd` is a deployment ceiling, not the tenant's budget: the per-agency value in
+  `system_config` is clamped to it, so a misconfigured tenant row can lower live spend but never
+  raise it above what this deployment admits.
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -115,6 +120,11 @@ class InvestigationRuntimeFields(BaseModel):
         default=3,
         gt=0,
         description="Maximum best-effort SAR PDF generation attempts.",
+    )
+    llm_daily_budget_usd: Decimal = Field(
+        default=Decimal("0.25"),
+        gt=0,
+        description="Deployment ceiling, in USD, on one tenant-day of live LLM spend.",
     )
 
     @model_validator(mode="after")

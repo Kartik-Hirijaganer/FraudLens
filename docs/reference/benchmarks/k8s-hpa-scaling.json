@@ -8,8 +8,8 @@
     "name": "fraudlens-demo",
     "node_count": 2
   },
-  "commit": "ad2dd247d8992873b6db1fc6db782fddd92c7f63",
-  "config_sha256": "805587926c5e03bf06a86b72e476c66546335faf28c17281e6464ea642b2a542",
+  "commit": "67aa7949ab69850fc9e03cbe3143e1ea6f817829",
+  "config_sha256": "86b11e1891623c2fcff4753aad755adaf6eaee46d392bec9d3867d6dbe89da2b",
   "disclosures": [
     "kind uses kindnet, which does not enforce NetworkPolicy; enforcement is structural here and runs through Cilium on AKS.",
     "The durability pass uses synthetic transactions and the keyless mock SAR provider; it measures recovery, not production model latency.",
@@ -23,7 +23,7 @@
     "runs_submitted": 100,
     "worker_pod_deleted": true
   },
-  "generated_at": "2026-09-14T14:15:51.246132Z",
+  "generated_at": "2026-09-15T19:31:06.829028Z",
   "hpa": {
     "cpu_target_percent": 60,
     "max_replicas": 5,
@@ -32,17 +32,17 @@
     "target": "Deployment/fraudlens-api"
   },
   "load": {
-    "duration_seconds": 240.145,
+    "duration_seconds": 240.176,
     "failed": 0,
-    "latency_p50_ms": 3.696,
-    "latency_p95_ms": 21.693,
+    "latency_p50_ms": 3.649,
+    "latency_p95_ms": 21.948,
     "max_run_attempts": 0,
     "mode": "healthz",
-    "requests": 1306235,
+    "requests": 1317568,
     "runs_completed": 0,
     "runs_failed": 0,
     "runs_submitted": 0,
-    "succeeded": 1306235
+    "succeeded": 1317568
   },
   "platform": "kind",
   "samples": [
@@ -59,7 +59,7 @@
       "replicas": 1
     },
     {
-      "cpu_percent": 671,
+      "cpu_percent": 435,
       "desired_replicas": 3,
       "elapsed_seconds": 31,
       "replicas": 1
@@ -71,121 +71,121 @@
       "replicas": 3
     },
     {
-      "cpu_percent": 965,
-      "desired_replicas": 5,
+      "cpu_percent": 992,
+      "desired_replicas": 3,
       "elapsed_seconds": 61,
       "replicas": 3
     },
     {
-      "cpu_percent": 480,
+      "cpu_percent": 484,
       "desired_replicas": 5,
       "elapsed_seconds": 76,
-      "replicas": 5
+      "replicas": 3
     },
     {
-      "cpu_percent": 435,
+      "cpu_percent": 471,
       "desired_replicas": 5,
       "elapsed_seconds": 92,
       "replicas": 5
     },
     {
-      "cpu_percent": 316,
+      "cpu_percent": 427,
       "desired_replicas": 5,
       "elapsed_seconds": 107,
       "replicas": 5
     },
     {
-      "cpu_percent": 316,
+      "cpu_percent": 319,
       "desired_replicas": 5,
       "elapsed_seconds": 122,
       "replicas": 5
     },
     {
-      "cpu_percent": 298,
+      "cpu_percent": 304,
       "desired_replicas": 5,
       "elapsed_seconds": 137,
       "replicas": 5
     },
     {
-      "cpu_percent": 328,
+      "cpu_percent": 308,
       "desired_replicas": 5,
       "elapsed_seconds": 153,
       "replicas": 5
     },
     {
-      "cpu_percent": 296,
+      "cpu_percent": 320,
       "desired_replicas": 5,
       "elapsed_seconds": 168,
       "replicas": 5
     },
     {
-      "cpu_percent": 313,
+      "cpu_percent": 314,
       "desired_replicas": 5,
       "elapsed_seconds": 183,
       "replicas": 5
     },
     {
-      "cpu_percent": 316,
+      "cpu_percent": 307,
       "desired_replicas": 5,
       "elapsed_seconds": 198,
       "replicas": 5
     },
     {
-      "cpu_percent": 311,
+      "cpu_percent": 333,
       "desired_replicas": 5,
       "elapsed_seconds": 214,
       "replicas": 5
     },
     {
-      "cpu_percent": 303,
+      "cpu_percent": 316,
       "desired_replicas": 5,
       "elapsed_seconds": 229,
       "replicas": 5
     },
     {
-      "cpu_percent": 316,
+      "cpu_percent": 326,
       "desired_replicas": 5,
       "elapsed_seconds": 244,
       "replicas": 5
     },
     {
-      "cpu_percent": 265,
+      "cpu_percent": 317,
       "desired_replicas": 5,
       "elapsed_seconds": 259,
       "replicas": 5
     },
     {
-      "cpu_percent": 28,
+      "cpu_percent": 52,
       "desired_replicas": 5,
       "elapsed_seconds": 275,
       "replicas": 5
     },
     {
-      "cpu_percent": 4,
+      "cpu_percent": 6,
       "desired_replicas": 5,
       "elapsed_seconds": 290,
       "replicas": 5
     },
     {
-      "cpu_percent": 6,
+      "cpu_percent": 4,
       "desired_replicas": 5,
       "elapsed_seconds": 305,
       "replicas": 5
     },
     {
-      "cpu_percent": 3,
-      "desired_replicas": 3,
+      "cpu_percent": 5,
+      "desired_replicas": 5,
       "elapsed_seconds": 320,
       "replicas": 5
     },
     {
-      "cpu_percent": 7,
+      "cpu_percent": 6,
       "desired_replicas": 1,
       "elapsed_seconds": 336,
-      "replicas": 3
+      "replicas": 5
     },
     {
-      "cpu_percent": 3,
+      "cpu_percent": 7,
       "desired_replicas": 1,
       "elapsed_seconds": 351,
       "replicas": 1
@@ -196,8 +196,8 @@
     "replicas_max_observed": 5,
     "replicas_min_observed": 1,
     "seconds_to_first_scale_up": 46,
-    "seconds_to_max_replicas": 76,
-    "seconds_to_scale_back_to_min": 91
+    "seconds_to_max_replicas": 92,
+    "seconds_to_scale_back_to_min": 92
   },
   "workload": {
     "cpu_limit": "1",

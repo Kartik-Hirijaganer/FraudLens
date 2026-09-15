@@ -1,0 +1,14 @@
+# AKS-only Service patch (D12b): the base Service is ClusterIP, reachable solely by port-forward,
+# so the demonstration has no external URL. An Azure Standard Load Balancer rule adds ~$0.005/hr
+# for the duration of the session. externalTrafficPolicy Local preserves the client source IP and
+# keeps the hop count at one; the annotation points the LB health probe at liveness rather than
+# the default TCP check. The kind overlay and the base stay ClusterIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraudlens-api
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local

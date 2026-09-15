@@ -68,22 +68,82 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Deploy to Vercel (prod)
+        id: deploy
         working-directory: frontend
         env:
-          # The SPA calls ONLY the gateway base URL, over HTTPS — sourced from config, never
-          # hardcoded. The explicit demo gate exposes public synthetic personas in production;
-          # it never enables the dev bypass, and every login still resolves through Supabase /me.
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          # Pinned: an unpinned `npm i -g vercel` makes every deploy depend on whatever the CLI
+          # published that morning, which is the one moving part a reproducible deploy cannot have.
+          VERCEL_CLI_VERSION: "59.17.0"
+          # The SPA is same-origin: frontend/.env.production pins VITE_API_BASE_URL empty and
+          # vercel.json proxies /api/* to the gateway, so the browser never learns a second
+          # hostname and CORS is not load-bearing. Vercel performs no substitution of its own in
+          # vercel.json, so the origin is resolved here, before `vercel build` reads the file.
+          # The explicit demo gate exposes public synthetic personas in production; it never
+          # enables the dev bypass, and every login still resolves through Supabase /me.
+          AZURE_API_ORIGIN: ${{ vars.AZURE_API_ORIGIN }}
           VITE_DEMO_AUTH_ENABLED: "true"
         run: |
           set -euo pipefail
-          case "$VITE_API_BASE_URL" in
+          case "$AZURE_API_ORIGIN" in
             https://*) ;;
-            *) echo "VITE_API_BASE_URL must be an https:// URL"; exit 1 ;;
+            *) echo "AZURE_API_ORIGIN must be an https:// URL"; exit 1 ;;
           esac
-          npm i -g vercel
+          python3 -c 'import os, pathlib; p = pathlib.Path("vercel.json"); p.write_text(p.read_text(encoding="utf-8").replace("${AZURE_API_ORIGIN}", os.environ["AZURE_API_ORIGIN"].rstrip("/")), encoding="utf-8")'
+          if grep -q 'AZURE_API_ORIGIN' vercel.json; then
+            echo "vercel.json still carries an unresolved origin placeholder"
+            exit 1
+          fi
+          npm i -g "vercel@${VERCEL_CLI_VERSION}"
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          deployment_url="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "deployment_url=${deployment_url}" >> "$GITHUB_OUTPUT"
+      # A production deploy is aliased to the permanent domain; the URL `vercel deploy` prints is
+      # the immutable per-deployment one. Asserting the alias landed is what proves this build is
+      # what FRONTEND_URL now serves — the recruiter-facing link, not an orphaned deployment.
+      - name: Assert the deployment is aliased to FRONTEND_URL
+        working-directory: frontend
+        env:
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          host="${FRONTEND_URL#https://}"; host="${host%/}"
+          # `vercel inspect` renders its report on stderr.
+          if ! vercel inspect "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" 2>&1 | grep -qF "$host"; then
+            echo "::error::${DEPLOYMENT_URL} is not aliased to ${host}; FRONTEND_URL still serves the previous build"
+            exit 1
+          fi
       - name: Smoke-test the deployed site
         run: curl -fsS --retry 5 --retry-delay 10 "${{ vars.FRONTEND_URL }}" > /dev/null
+      # The only place the PROXY itself is exercised. `deploy-backend.yml` runs this same
+      # selection against the gateway directly; running it again through Vercel is what proves
+      # the /api rewrite forwards an Authorization header, tenant-safe refusals, and an
+      # unbuffered SSE stream. The selection is by FILE, not by marker: the ops-probe smoke
+      # tests hit unprefixed paths that the SPA fallback would answer with index.html.
+      - uses: astral-sh/setup-uv@v5
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        with:
+          enable-cache: true
+      - name: Fetch the project URL and synthetic demo credential from Infisical (OIDC)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /
+      - name: Prove authenticated APIs and SSE survive the proxy
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        env:
+          SMOKE_BASE_URL: ${{ vars.FRONTEND_URL }}
+          PORTFOLIO_DEMO_SMOKE_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/smoke_auth_token.py \
+            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
+          uv run pytest tests/smoke/test_production_auth_smoke.py -m smoke --no-cov

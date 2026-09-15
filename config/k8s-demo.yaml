@@ -22,6 +22,13 @@ worker_fault_lock_seconds: 120
 durability_timeout_seconds: 900
 postgres_user: fraudlens
 postgres_database: fraudlens
+# The aks-demo overlay patches the API Service to LoadBalancer, so `make aks-smoke` probes the
+# external address Azure assigns instead of a port-forward. Local kind runs ignore this section.
+aks:
+  external_scheme: http
+  external_port: 8000
+  address_timeout_seconds: 300
+  address_poll_seconds: 5
 load:
   target_url: http://fraudlens-api:8000/healthz
   mode: healthz

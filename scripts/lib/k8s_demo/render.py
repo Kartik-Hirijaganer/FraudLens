@@ -10,6 +10,9 @@ Key functions:
 
 Notes:
 - Image and load overrides are written only inside TemporaryDirectory; source manifests stay clean.
+- AKS substitution is all-or-nothing: a manifest that still carries a `replace-*` placeholder is
+  refused rather than applied, so an unresolved operator identity or project slug cannot reach a
+  cluster. The substituted values are non-secret identifiers, never credentials.
 """
 
 from __future__ import annotations
@@ -28,6 +31,12 @@ from lib.k8s_demo.kubectl import CommandRunner, Kubectl, run_command
 
 Platform = Literal["kind", "aks"]
 _IDENTITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+_PLACEHOLDER_PATTERN = re.compile(r"replace-[A-Za-z0-9_-]+")
+_AKS_SUBSTITUTIONS = (
+    "replace-infisical-identity-id",
+    "replace-azure-managed-identity-client-id",
+    "replace-infisical-project-slug",
+)
 
 
 class RenderedManifest(BaseModel):
@@ -82,6 +91,23 @@ def _render_tree(
     return result.stdout
 
 
+def _substitute_aks_inputs(rendered: str, values: tuple[str | None, ...]) -> str:
+    """Resolve every AKS operator placeholder, refusing partial or unsafe substitution."""
+    if not all(values):
+        raise ValueError("AKS operator rendering requires every managed-identity and scope value")
+    if not all(_IDENTITY_PATTERN.fullmatch(value or "") for value in values):
+        raise ValueError("AKS operator input values contain unsupported characters")
+    for placeholder, value in zip(_AKS_SUBSTITUTIONS, values, strict=True):
+        rendered = rendered.replace(placeholder, value or "")
+    surviving = len(set(_PLACEHOLDER_PATTERN.findall(rendered)))
+    if surviving:
+        # Count only: the manifest names secret scopes, so the unresolved token stays out of logs.
+        raise ValueError(
+            f"rendered AKS manifest still carries {surviving} unresolved placeholder(s)"
+        )
+    return rendered
+
+
 def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command boundary injectable.
     config: K8sDemoConfig,
     platform: Platform,
@@ -89,6 +115,7 @@ def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command b
     image: str | None = None,
     infisical_identity_id: str | None = None,
     azure_managed_identity_client_id: str | None = None,
+    infisical_project_slug: str | None = None,
     runner: CommandRunner = run_command,
     kubectl_binary: str | None = None,
 ) -> RenderedManifest:
@@ -101,17 +128,15 @@ def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command b
         runner=runner,
         kubectl_binary=kubectl.binary,
     )
-    identities = (infisical_identity_id, azure_managed_identity_client_id)
-    if any(identities):
-        if platform != "aks" or not all(identities):
-            raise ValueError("AKS operator rendering requires both managed-identity values")
-        if not all(_IDENTITY_PATTERN.fullmatch(value or "") for value in identities):
-            raise ValueError("AKS operator identity values contain unsupported characters")
-        rendered = rendered.replace("replace-infisical-identity-id", infisical_identity_id or "")
-        rendered = rendered.replace(
-            "replace-azure-managed-identity-client-id",
-            azure_managed_identity_client_id or "",
-        )
+    values = (
+        infisical_identity_id,
+        azure_managed_identity_client_id,
+        infisical_project_slug,
+    )
+    if any(values):
+        if platform != "aks":
+            raise ValueError("AKS operator rendering requires the aks platform")
+        rendered = _substitute_aks_inputs(rendered, values)
     return RenderedManifest(platform=platform, image=selected_image, yaml_text=rendered)
 
 
@@ -156,6 +181,7 @@ def deploy(  # noqa: PLR0913 - explicit deploy inputs keep cloud identity replac
     image: str | None = None,
     infisical_identity_id: str | None = None,
     azure_managed_identity_client_id: str | None = None,
+    infisical_project_slug: str | None = None,
     confirmed: bool = False,
     runner: CommandRunner = run_command,
 ) -> None:
@@ -167,6 +193,7 @@ def deploy(  # noqa: PLR0913 - explicit deploy inputs keep cloud identity replac
         image=image,
         infisical_identity_id=infisical_identity_id,
         azure_managed_identity_client_id=azure_managed_identity_client_id,
+        infisical_project_slug=infisical_project_slug,
         runner=runner,
         kubectl_binary=kubectl.binary,
     )

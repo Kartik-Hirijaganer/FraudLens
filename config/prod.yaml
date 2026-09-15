@@ -16,6 +16,11 @@ queue_backend: container_apps_jobs
 llm_mode: live
 multi_agent_sar_enabled: false
 
+# Hard ceiling on one tenant-day of live LLM spend. A public URL under the standard 120 req/min
+# rate limit otherwise has no dollar bound on OpenRouter; this caps theoretical exposure at
+# $7.50/month. Each tenant's own `system_config` budget is clamped to this value, never above it.
+llm_daily_budget_usd: 0.25
+
 # Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,
 # job names, storage account, managed-identity client id) are injected by Terraform as env vars.
 azure_managed_identity_token_url: "http://169.254.169.254/metadata/identity/oauth2/token"

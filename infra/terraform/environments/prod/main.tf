@@ -3,7 +3,7 @@
 # `gateway_app` (the only external ingress). The internal `service_app` split is SCAFFOLDED but
 # inert (`services_split_enabled = false` => zero instances; validated, not applied — ADR-004).
 # ACR is optional (`acr_enabled = false` => public GHCR, no registry credential). Container Apps
-# Jobs run the retrain cron + the on-demand batch scorer.
+# Jobs run the on-demand retrain + batch scorer; neither is scheduled (no recurring compute).
 
 locals {
   tags = {
@@ -75,7 +75,7 @@ module "gateway_app" {
   name_prefix                    = var.name_prefix
   location                       = var.location
   resource_group_name            = azurerm_resource_group.this.name
-  infrastructure_subnet_id       = module.networking.apps_subnet_id
+  infrastructure_subnet_id       = null # platform-managed network: no Standard LB, no public IP (D1)
   log_analytics_workspace_id     = module.observability.log_analytics_workspace_id
   identity_id                    = module.identity.id
   identity_client_id             = module.identity.client_id
@@ -128,9 +128,10 @@ module "job_retrain" {
   registry_server              = local.registry_server
   container_image              = var.container_image
   command                      = ["python", "scripts/retrain.py"]
-  trigger_type                 = "schedule"
-  cron_expression              = var.retrain_cron
-  tags                         = local.tags
+  # Manual-only: a cron trigger is recurring compute this release's budget does not admit.
+  # Start it on demand with `az containerapp job start` (D12f).
+  trigger_type = "manual"
+  tags         = local.tags
 }
 
 module "job_batch_score" {
@@ -153,4 +154,17 @@ module "job_batch_score" {
   command                      = ["python", "-m", "fraudlens_backend.jobs.runner"]
   trigger_type                 = "manual"
   tags                         = local.tags
+}
+
+# The always-on cost surface gets its own RG-scoped budget, so prod spend is attributable without
+# waiting for the subscription-wide guardrail in environments/cost-guardrails to move. Budgets
+# alert; they do not cap — max_replicas, daily_quota_gb, and llm_daily_budget_usd are the caps.
+module "budget" {
+  source               = "../../modules/budget"
+  name_prefix          = var.name_prefix
+  subscription_id      = var.subscription_id
+  amount_usd           = var.budget_amount_usd
+  resource_group_names = [azurerm_resource_group.this.name]
+  contact_emails       = var.budget_contact_emails
+  start_date           = var.budget_start_date
 }

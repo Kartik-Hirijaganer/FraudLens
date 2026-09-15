@@ -258,7 +258,9 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
         else:
             if components.agent_drafter_factory is None:
                 raise RuntimeError("Live agent drafter factory is unavailable")
-            daily_limit = await load_llm_daily_budget_usd(session, agency_id=agency_id)
+            daily_limit = await load_llm_daily_budget_usd(
+                session, agency_id=agency_id, ceiling_usd=settings.llm_daily_budget_usd
+            )
             daily_spent = await DashboardRepository(session, agency_id).sar_cost_today(
                 as_of=datetime.now(UTC)
             )

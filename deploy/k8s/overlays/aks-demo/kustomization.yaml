@@ -15,6 +15,8 @@ images:
     newName: ghcr.io/kartik-hirijaganer/fraudlens-backend
     newTag: sha-placeholder
 patches:
+  # The user pool runs on regular (on-demand) nodes, so there is no scalesetpriority taint to
+  # tolerate and no Spot label to prefer; keeping either would steer scheduling for nothing (D2).
   - target:
       group: apps
       version: v1
@@ -24,21 +26,24 @@ patches:
         path: /metadata/annotations
         value:
           secrets.infisical.com/auto-reload: "true"
+  - path: service-lb.yaml
+  # The base policy admits only in-cluster sources. externalTrafficPolicy: Local preserves the
+  # client source IP through DNAT, so Internet traffic matches no namespaceSelector and Cilium
+  # drops it — publishing the Service without this rule yields a load balancer that never answers.
+  # Appended rather than replacing the list, so the in-cluster rule stays in force. AKS-only: the
+  # base and the kind overlay keep a ClusterIP Service with no external path to admit.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: api-ingress
+    patch: |-
       - op: add
-        path: /spec/template/spec/tolerations
+        path: /spec/ingress/-
         value:
-          - key: kubernetes.azure.com/scalesetpriority
-            operator: Equal
-            value: spot
-            effect: NoSchedule
-      - op: add
-        path: /spec/template/spec/affinity
-        value:
-          nodeAffinity:
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                preference:
-                  matchExpressions:
-                    - key: kubernetes.azure.com/scalesetpriority
-                      operator: In
-                      values: ["spot"]
+          from:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+          ports:
+            - protocol: TCP
+              port: 8000

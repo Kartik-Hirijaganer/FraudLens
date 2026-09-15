@@ -211,6 +211,8 @@ async def test_tenant_row_lock_prevents_concurrent_spend_overcommit(
                     run=run,
                     agency_id=agency_id,
                     maximum_attempt_cost_usd=Decimal("0.75"),
+                    # Above the seeded tenant budget, so this proves the row lock, not the ceiling.
+                    daily_budget_ceiling_usd=Decimal("10.00"),
                 )
             except AppError as error:
                 assert error.code == "llm_budget_exceeded"

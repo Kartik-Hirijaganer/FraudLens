@@ -42,8 +42,8 @@ variable "vnet_address_space" {
 
 variable "apps_subnet_prefixes" {
   type        = list(string)
-  description = "Container Apps subnet prefixes (>= /23)."
-  default     = ["10.20.0.0/23"]
+  description = "Container Apps subnet prefixes (>= /23); empty creates no VNet or subnet at all."
+  default     = []
 }
 
 variable "acr_enabled" {
@@ -95,8 +95,8 @@ variable "min_replicas" {
 
 variable "max_replicas" {
   type        = number
-  description = "Gateway maximum replicas."
-  default     = 5
+  description = "Gateway maximum replicas (a hard ceiling on concurrent billable instances)."
+  default     = 1
 }
 
 variable "gateway_cors_origins" {
@@ -117,8 +117,19 @@ variable "blob_lifecycle_days" {
   default     = 365
 }
 
-variable "retrain_cron" {
+variable "budget_amount_usd" {
+  type        = number
+  description = "Monthly budget alert amount covering the prod resource group."
+  default     = 25
+}
+
+variable "budget_contact_emails" {
+  type        = list(string)
+  description = "Human-owned budget recipients supplied through TF_VAR_budget_contact_emails."
+  sensitive   = true
+}
+
+variable "budget_start_date" {
   type        = string
-  description = "Cron schedule for the retrain Container Apps Job (UTC)."
-  default     = "0 3 * * 0"
+  description = "First UTC day of the current budget month."
 }

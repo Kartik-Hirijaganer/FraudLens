@@ -367,7 +367,7 @@ deployment. A human-approved, ephemeral AKS session is a release 0.4 step.
 <!-- AUTOGEN:k8s-benchmark -->
 | Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
 | --- | --- | ---: | ---: | ---: | ---: |
-| kind | 1 → 5 → 1 | 46 s | 91 s | 100/100 | 0 |
+| kind | 1 → 5 → 1 | 46 s | 92 s | 100/100 | 0 |
 <!-- /AUTOGEN:k8s-benchmark -->
 
 Evidence: [HPA and durable-worker report](docs/reference/benchmarks/k8s-hpa-scaling.md),

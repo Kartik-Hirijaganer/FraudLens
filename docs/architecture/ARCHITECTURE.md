@@ -490,6 +490,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `batch_score_limit` | `int` | `2000` | Maximum un-investigated transactions processed by one batch-score sweep. |
 | `review_low_confidence_margin` | `float` | `0.1` | Decision-boundary half-width that forces analyst review. |
 | `sar_pdf_max_attempts` | `int` | `3` | Maximum best-effort SAR PDF generation attempts. |
+| `llm_daily_budget_usd` | `Decimal` | `Decimal('0.25')` | Deployment ceiling, in USD, on one tenant-day of live LLM spend. |
 | `app_name` | `str` | `'FraudLens'` | Human-readable service name. |
 | `environment` | `Literal` | `'dev'` | Active deployment environment; gates the auth dev-bypass. |
 | `log_level` | `str` | `'INFO'` | Python logging level name. |

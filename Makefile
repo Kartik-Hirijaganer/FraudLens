@@ -124,6 +124,8 @@ endef
 	aks-secrets-sync aks-deploy aks-smoke aks-hpa-demo aks-stop aks-start aks-down \
 	aks-verify-clean
 
+.PHONY: azure-cost-plan cost-guardrails-plan
+
 .PHONY: k8s-tools-check k8s-validate k8s-demo-test kind-image kind-up kind-load \
 	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
 	hpa-evidence-validate
@@ -698,9 +700,11 @@ SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
 	tests/integration/test_train_model.py tests/integration/test_train_model_cli.py \
 	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
 	tests/unit/test_study_helpers.py tests/unit/test_quality_config.py \
+	tests/unit/test_azure_cost_model.py tests/unit/test_azure_cost_plan.py \
 	$(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
 scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
 	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
+		--cov=lib.azure_cost --cov=azure_cost_plan \
 		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
 		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
 		--cov=lib.model_training --cov=lib.quality --cov=lib.sar_eval --cov=lib.study \
@@ -875,9 +879,11 @@ aks-deploy: ## Deploy an immutable image and operator-backed secret references t
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
 	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
 	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
+	@test -n "$${INFISICAL_PROJECT_SLUG:-}" || { echo "INFISICAL_PROJECT_SLUG is required"; exit 2; }
 	$(K8S_DEMO) deploy --platform aks --confirm-aks \
 		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
 		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
+		--infisical-project-slug "$${INFISICAL_PROJECT_SLUG}" \
 		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
 
 aks-smoke: ## Run probe smoke tests against the approved AKS workload.
@@ -920,6 +926,30 @@ aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget r
 	fi; \
 	test "$$failed" = "0" || exit 1; \
 	echo "aks-verify-clean OK: no scoped AKS resources remain"
+
+# ---------------------------------------------------------------------------
+# Cost projection and guardrails (Phase 2). `azure-cost-plan` is read-only: it
+# queries the PUBLIC, unauthenticated Azure Retail Prices API and creates nothing,
+# so Golden Rule 7 does not gate it. `cost-guardrails-plan` is likewise plan-only.
+# ---------------------------------------------------------------------------
+COST_GUARDRAILS_DIR := infra/terraform/environments/cost-guardrails
+
+azure-cost-plan: ## Project Azure cost from committed shapes + live retail prices (WRITES the doc).
+	$(UV) run python scripts/azure_cost_plan.py $(if $(PRICES),--prices-file "$(PRICES)",)
+
+# Fails closed on the notification recipient and budget month rather than inventing either:
+# TF_VAR_budget_contact_emails is human-owned data (Golden Rule 3) and TF_VAR_budget_start_date
+# must be the first UTC day of the current month, which only the operator can assert.
+cost-guardrails-plan: ## Plan the subscription-wide budget root; never applies.
+	@test -n "$${TF_VAR_budget_contact_emails:-}" || { echo 'TF_VAR_budget_contact_emails=["you@example.com"] is required'; exit 2; }
+	@test -n "$${TF_VAR_budget_start_date:-}" || { echo 'TF_VAR_budget_start_date=YYYY-MM-01T00:00:00Z is required'; exit 2; }
+	@set -euo pipefail; \
+	subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+	tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+	export TF_VAR_subscription_id="$$subscription_id" TF_VAR_tenant_id="$$tenant_id" \
+		TF_VAR_client_id="$${TF_VAR_client_id:-$$subscription_id}"; \
+	terraform -chdir=$(COST_GUARDRAILS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
+	terraform -chdir=$(COST_GUARDRAILS_DIR) plan -refresh=false -input=false -lock=false -no-color
 
 iac-scan: ## Scan Terraform for security and configuration defects (read-only).
 	$(UVX) checkov --config-file .checkov.yaml

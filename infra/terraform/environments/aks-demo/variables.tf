@@ -83,14 +83,14 @@ variable "system_vm_size" {
 
 variable "user_pool_enabled" {
   type        = bool
-  description = "Create the bounded Spot application node pool."
+  description = "Create the bounded application node pool."
   default     = true
 }
 
 variable "user_vm_size" {
   type        = string
-  description = "Application node VM size."
-  default     = "Standard_D2as_v5"
+  description = "Application node VM size; the family must have non-zero regional quota."
+  default     = "Standard_D2as_v4"
 }
 
 variable "user_min_count" {

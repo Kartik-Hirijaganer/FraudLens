@@ -1,6 +1,9 @@
 directory:
   - infra/terraform/environments/data-batch
   - infra/terraform/environments/aks-demo
+  - infra/terraform/environments/dev
+  - infra/terraform/environments/prod
+  - infra/terraform/environments/cost-guardrails
 framework:
   - terraform
 # These Kubernetes policies are verified through narrower rendered-manifest tests or are deliberate

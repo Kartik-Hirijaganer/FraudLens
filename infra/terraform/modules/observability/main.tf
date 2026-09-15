@@ -37,7 +37,10 @@ resource "azurerm_log_analytics_workspace" "this" {
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
   retention_in_days   = var.log_retention_days
-  tags                = var.tags
+  # PerGB2018 bills ingestion at ~$2.30/GB with no ceiling of its own. The workspace stops
+  # ingesting past this cap instead of billing on, bounding worst-case log spend (D5).
+  daily_quota_gb = 0.1
+  tags           = var.tags
 }
 
 resource "azurerm_application_insights" "this" {

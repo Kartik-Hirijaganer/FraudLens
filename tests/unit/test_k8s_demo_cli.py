@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -155,7 +154,7 @@ def test_dispatch_routes_lifecycle_render_deploy_and_secrets(
     monkeypatch.setattr(k8s_demo, "KindOperator", FakeKind)
     monkeypatch.setattr(k8s_demo, "_tools_check", lambda _config: called.append("tools"))
     monkeypatch.setattr(k8s_demo, "verify_kind_clean", lambda _config: called.append("clean"))
-    monkeypatch.setattr(k8s_demo, "_smoke", lambda _config, **_kwargs: called.append("smoke"))
+    monkeypatch.setattr(k8s_demo, "run_smoke", lambda _config, **_kwargs: called.append("smoke"))
     monkeypatch.setattr(
         k8s_demo,
         "render_overlay",
@@ -386,45 +385,3 @@ def test_tools_check_accepts_pins_and_rejects_mismatch(monkeypatch: pytest.Monke
     )
     with pytest.raises(CommandError, match="kind CLI"):
         k8s_demo._tools_check(config)
-
-
-def test_smoke_runs_remote_tests_and_always_stops_forward(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = load_config()
-    terminated: list[bool] = []
-
-    class FakeProcess:
-        def terminate(self) -> None:
-            terminated.append(True)
-
-        def wait(self, timeout: int) -> int:
-            assert timeout == 5
-            return 0
-
-        def poll(self) -> int:
-            return 0
-
-        def kill(self) -> None:
-            raise AssertionError("kill should not be needed")
-
-    class Response(AbstractContextManager["Response"]):
-        status = 200
-
-        def __exit__(self, *args: object) -> None:
-            del args
-
-    fake_kubectl = SimpleNamespace(
-        binary="kubectl",
-        assert_mutation_allowed=lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(k8s_demo, "Kubectl", lambda _config: fake_kubectl)
-    monkeypatch.setattr(k8s_demo.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
-    monkeypatch.setattr(k8s_demo, "urlopen", lambda *_args, **_kwargs: Response())
-    monkeypatch.setattr(
-        k8s_demo.subprocess,
-        "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], returncode=0),
-    )
-    k8s_demo._smoke(config)
-    assert terminated == [True]

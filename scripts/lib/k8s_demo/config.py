@@ -3,6 +3,7 @@
 Key classes:
 - K8sDemoConfigError: safe invalid-configuration failure.
 - LoadConfig: validated request-load parameters shared by host orchestration and the in-cluster Job.
+- AksConfig: external LoadBalancer discovery parameters used only by the approved AKS session.
 - K8sDemoConfig: immutable tool pins, cluster identity, timeouts, workload names, and load defaults.
 
 Key functions:
@@ -45,6 +46,25 @@ class LoadConfig(BaseModel):
         ..., ge=1, description="Requests sent before replacing a persistent HTTP connection."
     )
     cases: int = Field(..., ge=1, le=500, description="Synthetic investigation cases to submit.")
+
+
+class AksConfig(BaseModel):
+    """External-address discovery for the LoadBalancer Service the AKS overlay adds."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    external_scheme: Literal["http", "https"] = Field(
+        ..., description="Scheme used against the Service's external address."
+    )
+    external_port: int = Field(
+        ..., ge=1, le=65535, description="Service port published by the Azure load balancer."
+    )
+    address_timeout_seconds: int = Field(
+        ..., ge=30, le=1800, description="Maximum wait for Azure to assign an external address."
+    )
+    address_poll_seconds: float = Field(
+        ..., ge=0.5, le=30, description="External-address observation interval."
+    )
 
 
 class K8sDemoConfig(BaseModel):
@@ -90,6 +110,7 @@ class K8sDemoConfig(BaseModel):
     postgres_user: str = Field(..., min_length=1, description="Local proof database role.")
     postgres_database: str = Field(..., min_length=1, description="Local proof database name.")
     load: LoadConfig = Field(..., description="Default in-cluster load parameters.")
+    aks: AksConfig = Field(..., description="External-address discovery for the AKS session.")
 
     @property
     def context(self) -> str:
