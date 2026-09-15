@@ -242,6 +242,18 @@ experiment-budget-check: ## Reconcile the $75 experiment ceiling, ledger, and pu
 	$(UV) run python scripts/experiment_budget.py ledger-check
 attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
 	bash scripts/check_no_ai_attribution.sh
+hooks-install: ## Point git at the tracked .githooks (commit-msg blocks AI trailers; Golden Rule 2).
+	git config core.hooksPath .githooks
+	@printf 'core.hooksPath = %s\n' "$$(git config core.hooksPath)"
+hooks-check: ## Assert the commit-msg hook exists and rejects an AI trailer (Golden Rule 2).
+	@test -x .githooks/commit-msg || { echo ".githooks/commit-msg is missing or not executable"; exit 1; }
+	@msg="$$(mktemp)"; printf 'test\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n' >"$$msg"; \
+	  if bash .githooks/commit-msg "$$msg" >/dev/null 2>&1; then \
+	    rm -f "$$msg"; echo "commit-msg hook did NOT reject an AI trailer"; exit 1; \
+	  fi; rm -f "$$msg"; echo "commit-msg hook rejects AI attribution."
+	@# Wiring is per-clone and cannot hold on a fresh CI checkout, so warn, never fail.
+	@test "$$(git config core.hooksPath)" = ".githooks" \
+	  || echo "note: core.hooksPath is not .githooks in this clone -- run 'make hooks-install' to arm it locally."
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
@@ -924,7 +936,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

@@ -51,20 +51,26 @@ if (( $# > 0 )); then
     exit 2
 fi
 
-# History mode. Default to the commits this branch would push; fall back to everything.
+# History mode. Default to EVERY local ref, not just the commits ahead of main: a
+# trailer that once reached main would be invisible to an `origin/main..HEAD` scan
+# forever, which is exactly the blind spot that let one survive to v0.1.0. Backup refs
+# from history rewrites are excluded deliberately -- they exist to hold the pre-rewrite
+# history a cleanup removed, so scanning them would permanently fail the gate.
+# (`mapfile` is bash 4+; macOS ships bash 3.2, so use a plain substitution. Git refnames
+# cannot contain spaces, so word-splitting the list is safe.)
 range="${RANGE:-}"
 if [[ -z "$range" ]]; then
-    if git rev-parse --verify --quiet origin/main >/dev/null; then
-        range="origin/main..HEAD"
-    else
-        range="HEAD"
-    fi
+    range="$(git for-each-ref --format='%(refname)' refs/heads refs/remotes refs/tags 2>/dev/null | tr '\n' ' ')"
+    range="${range%"${range##*[![:space:]]}"}"
+    [[ -z "$range" ]] && range="HEAD"
 fi
+
+# shellcheck disable=SC2086  # $range is an intentional multi-ref word list.
 
 # A literal marker line keeps each offending body line attributable to its commit.
 # (NUL record separators are not portable to the BSD awk shipped with macOS.)
 offenders="$(
-    git log "$range" --format='@@FLCOMMIT@@%H%n%B' \
+    git log $range --format='@@FLCOMMIT@@%H%n%B' \
         | grep -Ei "^@@FLCOMMIT@@|$pattern" \
         | awk '/^@@FLCOMMIT@@/ { sha = substr($0, 13); next } { print sha "  " $0 }' \
         || true
@@ -75,4 +81,4 @@ if [[ -n "$offenders" ]]; then
     fail
 fi
 
-printf 'No AI attribution in %s.\n' "$range"
+printf 'No AI attribution in %s ref(s).\n' "$(wc -w <<< "$range" | tr -d ' ')"

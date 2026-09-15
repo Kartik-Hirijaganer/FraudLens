@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# commit-msg hook — reject AI attribution at commit time (AGENTS.md Golden Rule 2).
+#
+# Why a hook and not just settings: `includeCoAuthoredBy: false` only governs Claude
+# Code. This hook blocks the trailer no matter what produced the message — another
+# agent, an editor integration, or a hand-written paste — so a bad line never reaches
+# a commit object in the first place. GitHub builds its Contributors sidebar from
+# these trailers, so one leaked line is one too many.
+#
+# Install: make hooks-install   (sets core.hooksPath=.githooks)
+# Bypass is possible with `git commit --no-verify`; CI's attribution-check is the backstop.
+
+set -euo pipefail
+
+exec bash "$(git rev-parse --show-toplevel)/scripts/check_no_ai_attribution.sh" --message "$1"
