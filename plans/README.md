@@ -52,9 +52,9 @@ dead Markdown links.
 | `2026-06-12-aml-fraud-detection-system.md` | `ef51c0c` | [Architecture](../docs/architecture/ARCHITECTURE.md), [reference docs](../docs/reference), and ADR-001 through ADR-016 in the [ADR index](../docs/architecture/adr/README.md) |
 | `2026-07-14-gfp-isolation-gap-visual-study.md` | `ef51c0c` | [ADR-017](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md) and [published study](../docs/reference/benchmarks/gfp-tenant-isolation-study.md) |
 | `2026-07-25-portfolio-demo-story.md` | Not present in tracked history; dead reference removed in Phase 0 | [ADR-018](../docs/architecture/adr/ADR-018-portfolio-demo-data-provenance.md) and [portfolio demo runbook](../docs/runbooks/portfolio-demo.md) |
-| `2026-08-17-multi-agent-investigation-and-azure-deployment.md` | `TBD` | [ADR-019](../docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md) |
-| `2026-09-13-local-pr-check-command.md` | `TBD` | `make pr-check` in the [Makefile](../Makefile) and [scripts/check_pr_title.sh](../scripts/check_pr_title.sh) |
-| `2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` | `TBD` | [ADR-020](../docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) through [ADR-028](../docs/architecture/adr/ADR-028-paid-experiment-governance.md) in the [ADR index](../docs/architecture/adr/README.md), plus the published [vLLM/AWQ benchmark](../docs/reference/benchmarks/vllm-awq-sar-benchmark.md), [full-data training](../docs/reference/benchmarks/ibm-full-data-training.md), and [HPA scaling](../docs/reference/benchmarks/k8s-hpa-scaling.md) reports |
+| `2026-08-17-multi-agent-investigation-and-azure-deployment.md` | `9fac245` | [ADR-019](../docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md) |
+| `2026-09-13-local-pr-check-command.md` | `9fac245` | `make pr-check` in the [Makefile](../Makefile) and [scripts/check_pr_title.sh](../scripts/check_pr_title.sh) |
+| `2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` | `9fac245` | [ADR-020](../docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) through [ADR-028](../docs/architecture/adr/ADR-028-paid-experiment-governance.md) in the [ADR index](../docs/architecture/adr/README.md), plus the published [vLLM/AWQ benchmark](../docs/reference/benchmarks/vllm-awq-sar-benchmark.md), [full-data training](../docs/reference/benchmarks/ibm-full-data-training.md), and [HPA scaling](../docs/reference/benchmarks/k8s-hpa-scaling.md) reports |
 
 ## Documentation backlog
 
