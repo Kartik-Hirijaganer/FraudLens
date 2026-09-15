@@ -37,6 +37,7 @@ All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 - Close durable execution audit gaps
 - Accept sparse lifecycle responses
 - Preserve unique masked E2E accounts
+- Make platform-dependent tests reproducible on clean checkouts
 
 ### Miscellaneous
 
