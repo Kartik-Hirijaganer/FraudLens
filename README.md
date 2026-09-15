@@ -325,14 +325,16 @@ before using either live-service command.
 ## Inference benchmark: vLLM + 4-bit AWQ
 
 The frozen study compares BF16 and AWQ-Marlin on the same GPU, image, model family, prompt, and
-1,000-case synthetic workload at concurrency 1, 8, and 32. RunPod Secure Cloud RTX 4090 is the
-default execution path; Azure is eligible only if fresh quota and the measured cost gate pass at
-STOP 3. No GPU has been created for this release work yet.
+1,000-case synthetic workload at concurrency 1, 8, and 32. The measured run used a temporary
+RunPod Secure Cloud RTX 4090 after the admission gate passed. The Pod and encrypted volume were
+deleted after export. AWQ is presented as an efficiency result, not a quality-equivalent default.
 
 <!-- AUTOGEN:vllm-benchmark -->
-| Status | Evidence |
-| --- | --- |
-| Pending | No Phase 11 GPU benchmark has been run or published. |
+| Cases | BF16 weight memory | AWQ weight memory | Reduction | Acceptance |
+| ---: | ---: | ---: | ---: | --- |
+| 1000 | 14.25 GiB | 5.20 GiB | 63.5% | not met |
+
+Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory by 63.5%; AWQ throughput higher by 60.8% at concurrency 32.
 <!-- /AUTOGEN:vllm-benchmark -->
 
 See the [protocol and operator runbook](docs/runbooks/vllm-benchmark.md) and
@@ -342,8 +344,8 @@ See the [protocol and operator runbook](docs/runbooks/vllm-benchmark.md) and
 
 The public IBM source contains 68,228,066 rows across the three frozen inputs. That is the source
 row count, not the number of model-fitting rows: usability rules, whole-account temporal folds,
-calibration, and final holdout evaluation reduce the training population. The final Medium-source
-aggregate remains unpublished until the approved Phase 6 CPU session is completed and reconciled.
+calibration, and final holdout evaluation reduce the training population. The published aggregate
+records all three candidates, reconciliation counts, temporal folds, runtime, and projected cost.
 
 <!-- AUTOGEN:fulldata-training -->
 | Candidate | Source rows | Usable rows | Training rows | Holdout rows | PR-AUC | Gates |
@@ -390,8 +392,8 @@ human-authorized actions. AI authorship or co-author trailers are prohibited.
 ## Cloud deployment status
 
 FraudLens keeps application deployment separate from temporary research compute. The frontend and
-database exist; Azure application deployment remains deliberately disabled. RunPod is only the
-default temporary NVIDIA benchmark host and has not been used.
+database exist; Azure application deployment remains deliberately disabled. RunPod was used only
+for the completed temporary NVIDIA benchmark and has no continuing FraudLens resources.
 
 | Surface | Intended target | Current status |
 | --- | --- | --- |
@@ -399,8 +401,8 @@ default temporary NVIDIA benchmark host and has not been used.
 | Frontend | Vercel | Live; automated production deploy remains disabled |
 | Database | Supabase Postgres | Provisioned; credentials resolve only from Infisical |
 | AKS demonstration | Azure AKS | Terraform/workflow validate-only; HPA and durability measured on kind; apply is release 0.4 |
-| GPU benchmark VM | RunPod RTX 4090 by default | Not created or run; requires STOP 3 report and explicit paid approval |
-| Data-batch VM | Temporary Azure CPU experiment | Phase 6 pilots executed; VM deallocated, final artifact and verified teardown pending |
+| GPU benchmark VM | Temporary RunPod RTX 4090 | 6,000-request benchmark and 100-case application pass completed; Pod and encrypted volume deleted |
+| Data-batch VM | Temporary Azure CPU experiment | 68.2M-source-row aggregate published; resource group destroyed and clean teardown verified |
 | Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
 
 See the [Azure deployment runbook](docs/runbooks/azure-deploy.md), [paid-experiment ledger](docs/reference/experiments/ledger.md),

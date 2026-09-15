@@ -44,8 +44,12 @@ def test_standalone_scalar_embeds_schema() -> None:
 
 
 def test_readme_regions_use_evidence_and_makefile() -> None:
-    """README renderers must expose measured kind data and honest paid-run pending states."""
-    assert "No Phase 11 GPU benchmark" in render_vllm_benchmark(REPO_ROOT)
+    """README renderers must expose the committed measured benchmark evidence."""
+    vllm = render_vllm_benchmark(REPO_ROOT)
+    assert "63.5%" in vllm
+    assert "Acceptance |" in vllm
+    assert "not met" in vllm
+    assert "60.8% at concurrency 32" in vllm
     assert "hi-medium" in render_fulldata_training(REPO_ROOT)
     assert "0.3196" in render_fulldata_training(REPO_ROOT)
     assert "1 → 5 → 1" in render_k8s_benchmark(REPO_ROOT)
