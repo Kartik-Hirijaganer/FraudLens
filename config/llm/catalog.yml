@@ -302,7 +302,7 @@ vllm:
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
-    notes: Benchmark evidence publishes in docs/reference/benchmarks/vllm-awq-sar-inference.md.
+    notes: Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
 
   Qwen/Qwen2.5-7B-Instruct-AWQ:
     kind: chat
@@ -320,7 +320,7 @@ vllm:
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
-    notes: Benchmark evidence publishes in docs/reference/benchmarks/vllm-awq-sar-inference.md.
+    notes: Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
 
   Qwen/Qwen3-8B:
     kind: chat

@@ -31,7 +31,7 @@ These are not present-tense claims until their evidence rows can move beyond `pl
 
 | Claim | Status | Evidence required |
 | --- | --- | --- |
-| vLLM + 4-bit AWQ reduces model-weight memory by more than 50% versus BF16 over 1,000 synthetic SAR cases at concurrency 1, 8, and 32. | planned | [Active plan, Phase 11](../../plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md#phase-11--execute-the-gpu-benchmark-on-runpod-secure-cloud-end-to-end-application-pass-publish-tear-down) |
+| vLLM + 4-bit AWQ reduces model-weight memory by more than 50% versus BF16 over 1,000 synthetic SAR cases at concurrency 1, 8, and 32. | demonstrated | [Measured benchmark report](benchmarks/vllm-awq-sar-benchmark.md) — 63.5% reduction; acceptance was not met on reference validity, so this is not a quality-parity claim. |
 | Kubernetes manifests include a real HPA and durable worker execution proven on kind. | demonstrated | [Measured HPA and durable-worker evidence](benchmarks/k8s-hpa-scaling.md) |
 | The full-data pipeline processes all 68,228,066 downloaded IBM transactions with temporal evaluation and calibration-derived thresholds. | demonstrated | [Published full-data training study](benchmarks/ibm-full-data-training.md) |
 | AKS Terraform is CI-validated, while the actual AKS apply remains a next-release, human-approved step. | tested | [AKS runbook and validation contract](../runbooks/aks-deploy.md) |

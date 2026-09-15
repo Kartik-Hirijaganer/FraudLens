@@ -140,7 +140,8 @@ graph TD
 The production-shaped self-hosted path reuses the governed OpenAI-compatible client; it does not
 introduce a benchmark-only prompt path. A random `VLLM_API_KEY` is injected into both vLLM and the
 backend, and the endpoint is reached through an SSH tunnel during the temporary experiment. RunPod
-Secure Cloud RTX 4090 is the default host, but no GPU has been created or measured yet.
+Secure Cloud RTX 4090 hosted the measured release run; the Pod and encrypted volume were deleted
+after export. The published result demonstrates efficiency and preserves the failed quality gate.
 
 ```mermaid
 flowchart LR
@@ -179,9 +180,10 @@ flowchart LR
     gates --> report["Aggregate evidence + candidate only"]
 ```
 
-Phase 6 uses an ephemeral Azure CPU VM with a measured admission gate, Blob checkpoints, automatic
-deallocation, and explicit teardown. The final Medium aggregate is not yet published; existing
-pilots are not promoted to release evidence. See the [data-batch runbook](../runbooks/data-batch.md).
+Phase 6 used an ephemeral Azure CPU VM with a measured admission gate, Blob checkpoints, automatic
+deallocation, and explicit teardown. The published aggregate reconciles every frozen source and
+records the three candidate evaluations; the temporary resource group was destroyed. See the
+[data-batch runbook](../runbooks/data-batch.md).
 
 ## Kubernetes deployment: kind to AKS
 
@@ -391,6 +393,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
 | POST | `/api/v1/dev/reset` | `dev_reset` |
 | POST | `/api/v1/dev/seed` | `dev_seed` |
+| POST | `/api/v1/dev/transactions/{transactionId}/synthetic-provenance` | `mark_synthetic_provenance` |
 | GET | `/api/v1/drift-reports` | `list_drift_reports` |
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |

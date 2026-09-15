@@ -54,20 +54,23 @@ Why calibration-derived thresholds: rare-event calibrated probabilities do not n
 fixed risk-band cutoffs. Calibration-fold quantiles encode review capacity; holdout measures the
 frozen choice. The active pointer still moves only through quantitative gates plus human promotion.
 
-Disclose the current state: Phase 6 pilots exist, but the final Medium aggregate is not published.
+Disclose the current state: all 68,228,066 source rows were processed and the aggregate report is
+published; only the pre-registered HI-Medium candidate passed its promotion gates.
 
 ## 7:30–9:00 — vLLM BF16 versus AWQ study
 
 Open the inference benchmark page. Explain the frozen 1,000-case workload, three concurrency levels,
 same host/image/model-family comparison, quality gates, telemetry, cost, and hash-bound publication.
 
-Why AWQ: 4-bit weight-only quantization is expected to reduce the single-GPU memory envelope while
-preserving an optimized NVIDIA vLLM path. It is a hypothesis, not the result. The headline is
-mechanically derived and may report worse latency or throughput.
+Why AWQ: 4-bit weight-only quantization reduced parsed model-weight memory by 63.5% and improved
+throughput by 60.8% at concurrency 32 on the measured RTX 4090 run. The same report records the
+reference-validity failure and quality regressions, so the result is an efficiency demonstration,
+not an unconditional recommendation or quality-parity claim.
 
 Why equal utilisation: matching KV-cache utilisation controls one major memory/capacity confound for
 the primary comparison. Maximum safe concurrency is reported separately because each arm may have a
-different capacity ceiling. RunPod RTX 4090 is the default paid path, but no GPU has been used yet.
+different capacity ceiling. The temporary RunPod Pod and encrypted volume were deleted after the
+benchmark and the provider cleanup query returned no matching resources.
 
 ## 9:00–10:00 — Quality, governance, and close
 

@@ -41,8 +41,10 @@ application pass must prove that the normal FastAPI path can use the selected vL
   concurrency levels, quality thresholds, and telemetry contract.
 - [`vllm-benchmark.md`](../../runbooks/vllm-benchmark.md) defines provider selection, admission,
   execution, export, and teardown.
-- Release evidence remains **pending** until Phase 11 publishes
-  `vllm-awq-sar-benchmark.{json,md}` and the bound frontend projection.
+- The measured [`vllm-awq-sar-benchmark`](../../reference/benchmarks/vllm-awq-sar-benchmark.md)
+  and its bound frontend projection publish the 1,000-case, three-concurrency result. AWQ reduced
+  model-weight memory by 63.5% and increased throughput by 60.8% at concurrency 32, while failing
+  the reference-validity acceptance threshold; no quality-parity claim is permitted.
 
 ## Options considered and rejected
 
@@ -74,5 +76,6 @@ application pass must prove that the normal FastAPI path can use the selected vL
   burden.
 - The application needs multi-GPU serving, HA, continuous capacity, or a formal inference SLO.
 
-No AWQ performance claim is accepted until the published evidence exists. A valid benchmark may
-show memory savings with neutral or worse latency/throughput; the report must preserve that result.
+The published performance claim is limited to the measured efficiency result. The failed quality
+criterion remains visible in the report and prevents treating AWQ as an unconditional runtime
+default; any later gated cascade is separate release work.
