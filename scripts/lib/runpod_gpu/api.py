@@ -72,13 +72,25 @@ class RunpodPod(BaseModel):
     desired_status: Literal["RUNNING", "EXITED", "TERMINATED"] = Field(
         ..., alias="desiredStatus", description="Current expected lifecycle state."
     )
-    image: str = Field(..., min_length=1, description="Container image reference.")
-    interruptible: bool = Field(..., description="Whether the Pod uses interruptible pricing.")
-    locked: bool = Field(..., description="Whether lifecycle changes are disabled.")
+    image: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Container image reference when exposed by this response shape.",
+    )
+    interruptible: bool | None = Field(
+        default=None,
+        description="Whether the Pod uses interruptible pricing when provider-observable.",
+    )
+    locked: bool | None = Field(
+        default=None,
+        description="Whether lifecycle changes are disabled when provider-observable.",
+    )
     cost_per_hour: Decimal = Field(
         ..., alias="costPerHr", gt=0, description="Provider-reported hourly compute rate."
     )
-    gpu: RunpodGpu = Field(..., description="Attached GPU facts.")
+    gpu: RunpodGpu | None = Field(
+        default=None, description="Attached GPU facts when exposed by this response shape."
+    )
     machine: RunpodMachine | None = Field(default=None, description="Placement facts when ready.")
     public_ip: IPvAnyAddress | None = Field(
         default=None, alias="publicIp", description="Public SSH address when assigned."

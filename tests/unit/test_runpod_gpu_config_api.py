@@ -132,6 +132,36 @@ def test_rest_client_uses_header_auth_and_typed_lifecycle() -> None:
     assert any(method == "POST" and body and "volumeEncrypted" in body for method, _, body in seen)
 
 
+def test_rest_client_accepts_current_sparse_pod_response() -> None:
+    """Lifecycle reads tolerate provider-omitted descriptive fields, but retain safety facts."""
+    config = load_config()
+    sparse = {
+        "id": "synthetic-pod-id",
+        "name": config.pod_name(RUN_ID),
+        "desiredStatus": "EXITED",
+        "costPerHr": "0.740000",
+        "volumeEncrypted": True,
+        "volumeInGb": config.pod.volume_gb,
+        "volumeMountPath": config.pod.volume_mount_path,
+    }
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=sparse)
+
+    with RunpodApi(
+        base_url=str(config.api_base_url),
+        api_key="synthetic-control-value",
+        transport=httpx.MockTransport(handler),
+    ) as api:
+        observed = api.get_pod("synthetic-pod-id")
+
+    assert observed.image is None
+    assert observed.interruptible is None
+    assert observed.locked is None
+    assert observed.gpu is None
+    assert observed.volume_encrypted is True
+
+
 def test_rest_client_sanitizes_errors_and_rejects_blank_key() -> None:
     with pytest.raises(ValueError, match="required"):
         RunpodApi(base_url="https://example.invalid", api_key=" ")

@@ -60,11 +60,13 @@ def validate_pod_contract(
     failures = []
     if pod.name != pod_name:
         failures.append("name")
-    if pod.gpu.gpu_id != config.pod.gpu_id or pod.gpu.count != config.pod.gpu_count:
+    if pod.gpu is not None and (
+        pod.gpu.gpu_id != config.pod.gpu_id or pod.gpu.count != config.pod.gpu_count
+    ):
         failures.append("GPU")
-    if pod.image != config.pod.image_reference:
+    if pod.image is not None and pod.image != config.pod.image_reference:
         failures.append("image")
-    if pod.interruptible or pod.locked:
+    if pod.interruptible is True or pod.locked is True:
         failures.append("lifecycle")
     if pod.cost_per_hour != expected_rate:
         failures.append("hourly rate")
@@ -97,7 +99,7 @@ def pod_status(
         pod_id=pod.pod_id,
         pod_name=pod.name,
         desired_status=pod.desired_status,
-        gpu_id=pod.gpu.gpu_id,
+        gpu_id=pod.gpu.gpu_id if pod.gpu is not None else config.pod.gpu_id,
         hourly_rate_usd=pod.cost_per_hour,
         data_center_id=pod.machine.data_center_id if pod.machine else None,
         public_ip=str(pod.public_ip) if pod.public_ip else None,

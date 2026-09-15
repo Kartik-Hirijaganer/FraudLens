@@ -184,6 +184,20 @@ def test_pod_contract_reports_every_frozen_dimension(changes, message: str) -> N
         )
 
 
+def test_pod_contract_accepts_unreported_descriptive_fields() -> None:
+    """Provider omissions are unknown observations; explicit conflicts still fail above."""
+    config = load_config()
+    current = pod(config).model_copy(
+        update={"gpu": None, "image": None, "interruptible": None, "locked": None}
+    )
+    validate_pod_contract(
+        config,
+        current,
+        pod_name=config.pod_name(RUN_ID),
+        expected_rate=Decimal("0.740000"),
+    )
+
+
 def test_ssh_refuses_unready_pod_or_missing_key(sandbox, monkeypatch) -> None:
     config = load_config()
     api = FakeApi(pod(config, desiredStatus="EXITED", publicIp=None, portMappings={}))
