@@ -23,15 +23,23 @@ evidence remain the proof. Commit and push restrictions in AGENTS.md apply to ev
 | --- | --- | --- |
 | [2026-08-17 multi-agent investigation and Azure deployment](2026-08-17-multi-agent-investigation-and-azure-deployment.md) | Bounded multi-agent SAR drafting and Azure delivery | Implemented; retained for audit history |
 | [2026-09-13 local PR check command](2026-09-13-local-pr-check-command.md) | One-command local PR preflight | Active |
-| [2026-09-13 vLLM/AWQ, full-data training, and AKS](2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md) | Release 0.3.0 benchmark, data, durability, and Kubernetes work | Approved; active |
+| [2026-09-13 vLLM/AWQ, full-data training, and AKS](2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md) | Release 0.3.0 benchmark, data, durability, and Kubernetes work | Implemented; release evidence published |
 
 ## Next release: 0.4.0 first steps
 
-After release 0.3 evidence is complete, the first 0.4 work is the human-approved AKS demonstration:
-enable `AKS_DEPLOY_ENABLED`, review the Terraform plan, apply the ephemeral cluster, install the
-Infisical operator, deploy one immutable image, run smoke plus HPA/durability evidence, publish
-`aks-hpa-scaling.{json,md}`, update the claim register/README, then stop or destroy and verify clean.
-Until that evidence exists, the only supported wording is “deployable to Azure AKS; autoscaling and
+Release 0.4 work is explicitly outside the 0.3 closeout:
+
+1. Add a deterministic `SARQualityGate` over ChromaDB-retrieved source spans.
+2. Route AWQ first, then regenerate with BF16 or GPT-5 mini when the gate fails.
+3. Stream the model, validation, rejection reason, and escalation decision over the existing SSE
+   channel and surface the trace in the frontend.
+4. Publish a dedicated AWQ evaluation note that explains the quality gap and the
+   FrugalGPT/model-cascade pattern.
+5. Ground the validator in FinCEN SAR narrative field requirements.
+6. Run the human-approved AKS demonstration: apply the validated Terraform, deploy, capture HPA and
+   durability evidence, then stop or destroy and verify clean.
+
+Until AKS evidence exists, the supported wording is “deployable to Azure AKS; autoscaling and
 durability proven on Kubernetes using kind.”
 
 ## Retired plans

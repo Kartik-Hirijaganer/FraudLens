@@ -1,9 +1,9 @@
 # vLLM + AWQ SAR-inference benchmark (1,000 cases), full-scale IBM training on Azure, Kubernetes (AKS) with HPA, durable execution, and quality/privacy gates — release 0.3.0
 
-> **Status:** approved 2026-09-13; implementation in progress. Provider amendment approved
-> 2026-09-14: RunPod Secure Cloud RTX 4090 is the Phase 11 default because the required Azure GPU
-> quota is unavailable. Azure A100/A10 remains an opportunistic alternative only if quota lands
-> before the provider gate. Every phase below is audited with
+> **Status:** implemented and release evidence published 2026-09-15. Provider amendment approved
+> 2026-09-14: RunPod Secure Cloud RTX 4090 was used for Phase 11 because the required Azure GPU
+> quota remained unavailable. The temporary Pod and encrypted volume were deleted after export.
+> Every phase below is audited with
 > `drift-check plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md phase=<N>`.
 
 ## 0. Executive summary (plain language)
@@ -12,9 +12,9 @@
 
 | # | Statement (target wording) | True today? | What this plan adds |
 |---|---|---|---|
-| 1 | *Optimized SAR inference with vLLM and 4-bit AWQ, reducing model-weight memory >50% versus BF16; benchmarked GPU utilization, p95 latency, throughput, and cost on **1,000 synthetic cases** across 3 concurrency levels.* | **Partly.** The provider-neutral harness and application route are implemented; measured GPU evidence is not yet published. | Complete the IBM-derived case corpus and run the frozen protocol on a throwaway RunPod Secure Cloud RTX 4090 pod, then publish the hash-bound results (docs + UI). |
-| 2 | *Built a Python AML pipeline using LangGraph, XGBoost/SHAP, and ChromaDB for citation-grounded SAR drafts; deployed on **Azure AKS** with Terraform/HPA and added citation-quality and hallucination tests.* | **Partly.** LangGraph, XGBoost/SHAP, ChromaDB, citation grounding and an LLM-judge study already exist. Nothing is Kubernetes, nothing has an HPA, investigations die with their API process, and the quality checks are not framed as CI gates. | Kubernetes manifests with a real HorizontalPodAutoscaler proven on a local `kind` cluster at $0 (API + worker + Postgres), durable investigation execution that survives pod replacement, an AKS Terraform module validated in CI (applied next release via the existing GitHub→Azure OIDC), and deterministic citation-quality, hallucination and model-egress test suites in `make ci`. |
-| 3 (new, optional) | *Processed all 68.2 million IBM AML transactions on ephemeral Azure compute with a memory-bounded DuckDB→XGBoost pipeline (temporal evaluation, calibration-derived thresholds); trained and evaluated one candidate per dataset.* | **No.** Training today runs on samples; thresholds are derived from the test fold. | A resumable, checkpointed full-data pipeline, a pilot-first Azure CPU run, three candidate models with a pre-registered application candidate, and published reconciliation + evaluation reports. |
+| 1 | *Optimized SAR inference with vLLM and 4-bit AWQ, reducing model-weight memory >50% versus BF16; benchmarked GPU utilization, p95 latency, throughput, and cost on **1,000 synthetic cases** across 3 concurrency levels.* | **Yes.** The measured report records 63.5% lower model-weight memory and 60.8% higher throughput at concurrency 32. | Complete; the failed reference-validity criterion is disclosed, so no quality-parity claim is made. |
+| 2 | *Built a Python AML pipeline using LangGraph, XGBoost/SHAP, and ChromaDB for citation-grounded SAR drafts; made it deployable to **Azure AKS** with Terraform/HPA, proved autoscaling and durability on kind, and added citation-quality and hallucination tests.* | **Yes.** The application pipeline, durable worker, Kubernetes manifests, kind evidence, validated AKS Terraform, and provider-free quality gates are present. | Complete for release 0.3. A live AKS apply remains later work, so “deployed on AKS” is not a current claim. |
+| 3 (new, optional) | *Processed all 68.2 million IBM AML transactions on ephemeral Azure compute with a memory-bounded DuckDB→XGBoost pipeline (temporal evaluation, calibration-derived thresholds); trained and evaluated one candidate per dataset.* | **Yes.** The published report reconciles all 68,228,066 source rows and three evaluated candidates. | Complete; only HI-Medium passed the frozen promotion gates. |
 
 The bullet originally said "AWS EKS". Per your decision the project is Azure-only, so the wording becomes **Azure AKS**. Nothing is deployed to AWS. We do **not** describe 68.2 million transactions as SAR cases: a transaction is one financial event; an investigation case is a trigger transaction plus its history, risk explanation and evidence.
 
@@ -123,7 +123,7 @@ Deliberately **not** adopted, with reasons:
 - **Running all 1,000 cases through the full application on the GPU** — an end-to-end application pass on a 100-case subset proves integration; the harness proves scale.
 - **Extending Golden Rule 1** — a separate Golden Rule 7 is clearer; local kind is exempt.
 
-Assumptions (say so if wrong): Alembic migrations and generated files are exempt from the 500-line cap; the benchmark model pair defaults to `Qwen/Qwen2.5-7B-Instruct` vs `Qwen/Qwen2.5-7B-Instruct-AWQ` (official, Apache-2.0, ungated; the Qwen3 pair is a configured alternative); the Azure E-series CPU VM uses pay-as-you-go because the Spot bucket is insufficient; the RunPod pod uses Secure Cloud on-demand at the provider-reported $0.74/hour rate; the 1,000-case file (≈ 5–8 MB) is published as a GitHub Release asset under CDLA-Sharing-1.0 while the repo commits only its manifest and SHA (keeps the repo small and respects the 1 MB pre-commit guard); "UI should be user friendly, intuitive, minimal and professional" is met by following `DESIGN.md` and the existing page patterns for the new pages plus targeted fixes, not a redesign.
+Assumptions (say so if wrong): Alembic migrations and generated files are exempt from the 500-line cap; the benchmark model pair defaults to `Qwen/Qwen2.5-7B-Instruct` vs `Qwen/Qwen2.5-7B-Instruct-AWQ` (official, Apache-2.0, ungated; the Qwen3 pair is a configured alternative); the Azure E-series CPU VM uses pay-as-you-go because the Spot bucket is insufficient; the RunPod pod uses Secure Cloud on-demand at the provider-reported $0.74/hour rate; the repo commits the aggregate report and case/config hashes, while publishing the 1,000-case file as a GitHub Release asset is an optional separately authorized distribution step; "UI should be user friendly, intuitive, minimal and professional" is met by following `DESIGN.md` and the existing page patterns for the new pages plus targeted fixes, not a redesign.
 
 ## 3. Target architecture
 
@@ -145,8 +145,8 @@ flowchart LR
     MET["/metrics (Prometheus text)"]
   end
   subgraph Repo["Repository artefacts"]
-    DOCS["docs/reference/benchmarks/<br/>vllm-awq-sar-inference.{json,md}"]
-    FE["frontend/src/data/<br/>vllm-awq-sar-inference.json"]
+    DOCS["docs/reference/benchmarks/<br/>vllm-awq-sar-benchmark.{json,md}"]
+    FE["frontend/src/data/<br/>vllm-awq-sar-benchmark.json"]
     REL["GitHub Release asset<br/>vllm-cases-ibm-<sha>.jsonl.gz (CDLA-Sharing-1.0)"]
   end
   OP --> POD --> V1 & V2 & NS
@@ -681,7 +681,7 @@ Phase 6 artefacts present (application candidate + folds) so `make vllm-bench-ca
 2. **Smoke profile** (`PROFILE=smoke`, AWQ arm, 8 cases × [1, 2]) → inspect the report; fix anything before spending more. The **development set** (40 cases) runs on both arms to project the full matrix duration; `experiment_budget.py admit --allocation gpu_benchmark` must pass (projection × 1.30 within $25) — otherwise stop and report.
 3. **Full protocol on the pod in tmux** (never through a laptop tunnel): process-runtime `vllm-bench-serve ARM=bf16` → `vllm-bench-run ARM=bf16 HOST=runpod-rtx4090` (prints run id) → `vllm-bench-stop` → `vllm-bench-serve ARM=awq` → `vllm-bench-run ARM=awq RUN=<id> HOST=runpod-rtx4090` → `vllm-bench-stop`. Checkpoints are per (arm, level); a stopped pod resumes after `make runpod-gpu-start CONFIRM=yes RUN=<id>` and re-syncing the ephemeral container tree while retaining the encrypted `/workspace` volume.
 4. **End-to-end application pass (100 cases).** With the AWQ server still up: SSH tunnel `:8000` → laptop `make run-live-vllm` → `scripts/benchmark_vllm.py e2e --cases 100 --concurrency 4` submits investigations through the real API/worker path (`LiveSarDrafter` → vLLM) and records completion, quality metrics and `/readyz` `llmProvider=vllm`; flagged **functional, not a latency measurement**.
-5. `make runpod-gpu-export RUN=<id>` downloads the run directory → `make vllm-bench-report RUN=<id>` → review acceptance table → `make vllm-bench-publish RUN=<id>` (docs + frontend, hash-bound, redaction scan) → `make vllm-bench-cases-release RUN=<id>` (**permission**; Release asset under CDLA-Sharing-1.0 with attribution).
+5. `make runpod-gpu-export RUN=<id>` downloads the run directory → `make vllm-bench-report RUN=<id>` → review acceptance table → `make vllm-bench-publish RUN=<id>` (docs + frontend, hash-bound, redaction scan). Optional distribution: `make vllm-bench-cases-release RUN=<id>` requires separate permission and publishes a Release asset under CDLA-Sharing-1.0 with attribution; it is not required for the aggregate benchmark claim.
 6. **Blind manual sample (optional, recommended):** `scripts/benchmark_vllm.py review-sample --cases 20` writes 20 drafts (10 per arm, model hidden, interleaved) to `.local/`; you score factual support / citation support / unsupported allegations; `review-record` stores the scores + unblinding in `docs/reference/benchmarks/vllm-awq-manual-review.md`.
 7. `make runpod-gpu-down CONFIRM=yes RUN=<id>` (**permission**) terminates the pod and its encrypted pod volume → `make runpod-gpu-verify-clean` confirms no prefixed pod or network volume remains → ledger row completed (hours, observed price, projected cost; actual cost when billing lands).
 
@@ -700,6 +700,14 @@ The published artefact records the actual provider/SKU; headlines never claim Az
 - Both arms × [1, 8, 32] × 1,000 cases complete (6,000 measured requests, warm-up excluded) with p50/p95/p99, TTFT p95, req/s, output tok/s, useful throughput, GPU utilisation mean/p95, memory max, KV-cache usage, queue max, cost per level and per 1,000 drafts (spot and PAYG), quality metrics per arm and AWQ-vs-BF16 deltas.
 - Weight-memory reduction ≥ 50% asserted from the parsed load lines (expected ≈ 60–65%); provenance complete (run id, config/cases SHA, GPU/driver, vLLM version + image digest, model revisions, SKU/region/purchase option, prices with dates, timestamps).
 - End-to-end pass: 100/100 investigations completed through the application with vLLM as the SAR provider; `make runpod-gpu-verify-clean` passes; ledger reconciled; spend within allocation.
+
+### Execution record (2026-09-15)
+
+- Run `vllm-bench-f810b57a7b8ae05a` completed all 6,000 measured requests with zero errors. AWQ reduced parsed model-weight memory by 63.5% and increased throughput by 60.8% at concurrency 32.
+- Acceptance was intentionally published as **not met**: AWQ reference validity was 83.9% against the 100% structural target, with material citation-recall and required-fact-coverage regressions. The performance claim is demonstrated; no quality-parity claim is permitted.
+- The 100-case functional pass completed through API → durable worker → vLLM under `vllm-e2e-61dcda4aef97b74a`. It used gates-passed scoring model `xgb-ibm-aml-fs2-9d43c5f92a` because the pre-registered HI-Medium model did not reliably trigger the generic SAR-eval fixtures. This proves the application/vLLM integration, not HI-Medium model promotion or quality.
+- The optional case-corpus GitHub Release asset was not uploaded because that separate mutating permission was not granted. The committed report retains the case/config hashes needed to bind the quoted aggregate measurements.
+- Pod `4epvpth1h7naxa` and its encrypted 50 GB volume were deleted; the provider cleanup query returned zero matching Pods and zero matching network volumes. Ledger projection is $5.92 pending provider settlement.
 
 ---
 
@@ -746,7 +754,12 @@ The published artefact records the actual provider/SKU; headlines never claim Az
 1. `make pr-check PR_TITLE='chore(release): 0.3.0'` green (pre-pr → ci-changed → docker-build → tf-validate → deps-audit → k8s-validate); `make local-release-check` green.
 2. `make version-next` proposes `minor` → `0.3.0`; apply to the 7 version sources listed by `scripts/release_gate.py`; `make release-gate` passes; `make changelog-unreleased` reviewed; `make attribution-check` clean.
 3. `drift-check plans/<file>.md all` reports no drift; `scripts/experiment_budget.py ledger-check` shows total spend ≤ $75 with every run id reconciled.
-4. **Next-release (0.4.0) first steps**, recorded in `plans/README.md` and `docs/runbooks/aks-deploy.md`: set `AKS_DEPLOY_ENABLED=true`, run `deploy-aks.yml` plan → approve apply → deploy (live mode with the Infisical operator) → smoke → HPA + durability evidence on AKS → publish `aks-hpa-scaling.{json,md}` → update the README status table and the claim register → `az aks stop` when idle or destroy. Only then does "deployed on Azure AKS" become literally true; until then use "deployable to Azure AKS (Terraform/HPA validated in CI, autoscaling and durability proven on Kubernetes)".
+4. **Next-release (0.4.0) handoff only — do not implement in 0.3.0.** `plans/README.md` and
+   `docs/handoff/0.3.0-additions.md` record the future SAR quality gate, AWQ-first fallback cascade,
+   SSE/frontend decision trace, dedicated evaluation narrative, FinCEN-aligned validator, and the
+   separately approved AKS apply. Only after AKS evidence exists does "deployed on Azure AKS"
+   become literally true; until then use "deployable to Azure AKS (Terraform/HPA validated in CI,
+   autoscaling and durability proven on Kubernetes)".
 
 ---
 
