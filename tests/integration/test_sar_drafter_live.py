@@ -197,7 +197,7 @@ async def test_live_masks_phi_before_provider_and_grounds_citations(make_sar_inp
 
     sent = "\n".join(m.content for m in adapter.calls[0])
     assert "analyst@example.com" not in sent  # PHI masked before the provider saw it
-    assert "[REDACTED_EMAIL]" in sent
+    assert "[REDACTED_EMAIL]" not in sent  # raw RAG context is excluded, not forwarded masked
     assert result.status == SarDraftStatus.DRAFT
     assert result.structured.cited_regulations == ("31 CFR 1010.314",)  # fabricated id dropped
     assert result.cost_usd == Decimal("0.000200")  # 100*1/1e6 + 50*2/1e6
@@ -235,8 +235,8 @@ async def test_live_input_injection_flags_but_still_completes(make_sar_input) ->
     )
     events = await _draft(_live(_client(primary=_FakeAdapter())), injected)
     result = events[-1].result
-    assert result.status == SarDraftStatus.DRAFT  # ANALYSIS task downgrades injection to FLAG
-    assert result.guardrail_decision == "flag"
+    assert result.status == SarDraftStatus.DRAFT
+    assert result.guardrail_decision == "allow"  # caller text was replaced by a policy template
 
 
 @pytest.mark.asyncio

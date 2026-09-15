@@ -24,6 +24,28 @@ Infisical** and injected as process environment by the local command, CI job, or
 deploy platform, never written to a YAML file, `.env`, fixture, or source.
 `gitleaks` scans the whole repo (including this directory) to enforce that.
 
+### Declaring the delivery so readiness can verify it
+
+The backend **never calls Infisical itself** — it only ever reads the injected process
+environment. Two keys make that contract explicit and checkable:
+
+| Key | Meaning |
+|-----|---------|
+| `infisical_secrets_delivery` | `unconfigured` (no mechanism declared) or `externally_injected` (a CLI, CI job, or deploy platform injects the secrets as env). |
+| `infisical_required_env_keys` | The env-var **names** that injection must supply. Names only — a value here would be a Golden Rule 3 violation. |
+
+`GET /readyz`'s `infisical` check reads them: `skipped` while nothing is declared, `ok`
+when every declared name is present and non-blank, and `down` (→ 503) when a secret sync
+failed. The response reports a **count**, never the names, because `/readyz` is
+unauthenticated. Declaring `externally_injected` with an empty key list is rejected at
+boot, so the check can never pass vacuously.
+
+This is what makes a **live LLM profile** reachable at all: `/readyz` requires every check
+to report `ok` when `llm_mode: live`, so `prod.yaml` and `staging.yaml` both declare the
+delivery. A reachability probe against the Infisical host was deliberately **not** used —
+it would tie pod readiness to a SaaS that is in no request path, and a reachable Infisical
+with a mis-synced secret still leaves the app broken.
+
 ## Keys
 
 | Key | Type | Meaning |
@@ -36,6 +58,8 @@ deploy platform, never written to a YAML file, `.env`, fixture, or source.
 | `auth_dev_bypass` | bool | Dev-only auth bypass. Honored **only** when `environment != "prod"`; inert in prod. |
 | `portfolio_demo_enabled` | bool | Gates the portfolio demo story surface. A security gate, so it also defaults to `False` **in Python** — a missing YAML key leaves it off instead of failing boot. |
 | `portfolio_demo_config_file` | str | **Filename** of the story document, resolved under the config directory; absolute paths and upward traversal are rejected by the loader. |
+| `infisical_secrets_delivery` | `unconfigured` \| `externally_injected` | How Infisical secrets reach the process. Drives the `/readyz` `infisical` check — see [the delivery boundary above](#declaring-the-delivery-so-readiness-can-verify-it). |
+| `infisical_required_env_keys` | list[str] | Env-var **names** the injection must supply; a missing or blank one fails `/readyz`. Must be non-empty when delivery is `externally_injected`. |
 
 ## LLM registry files
 

@@ -61,7 +61,7 @@ function AgentRunDetails({ row, graphVersion }: { row: AgentTimelineRow; graphVe
       <div className="gap-xs flex flex-col">
         <p className="text-body-sm text-body">{row.purpose}</p>
         {row.status === "skipped" ? (
-          <p className="text-body-sm text-mute">
+          <p className="text-body-sm text-body">
             Skipped because the required upstream result was unavailable.
           </p>
         ) : null}
@@ -97,7 +97,7 @@ function AgentRunDetails({ row, graphVersion }: { row: AgentTimelineRow; graphVe
             ))}
           </ul>
         ) : (
-          <p className="text-body-sm text-mute">None.</p>
+          <p className="text-body-sm text-body">None.</p>
         )}
       </div>
 
@@ -149,7 +149,7 @@ function AgentRunDetails({ row, graphVersion }: { row: AgentTimelineRow; graphVe
 function ProvenanceTerm({ label, value }: { label: string; value?: string }) {
   return (
     <div className="gap-sm text-body-sm grid grid-cols-[auto_1fr]">
-      <dt className="text-mute font-semibold">{label}</dt>
+      <dt className="text-body font-semibold">{label}</dt>
       <dd className="text-body break-all">{value ?? "—"}</dd>
     </div>
   );
@@ -168,7 +168,7 @@ function TimelineCard({ row, graphVersion }: { row: AgentTimelineRow; graphVersi
           </span>
           <span className="gap-xs flex min-w-0 grow flex-col">
             <span className="text-body-sm text-ink font-semibold">{row.label}</span>
-            <span className="text-caption text-mute">{row.purpose}</span>
+            <span className="text-caption text-body">{row.purpose}</span>
           </span>
           <Badge tone={agentTone(row.status)} className="shrink-0">
             {statusLabel(row)}

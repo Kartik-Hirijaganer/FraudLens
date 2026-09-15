@@ -41,11 +41,12 @@ def test_postgres_upgrade_closes_public_data_api(monkeypatch: pytest.MonkeyPatch
     migration.upgrade()
 
     sql = "\n".join(statements).lower()
-    assert "all tables in schema public from anon, authenticated" in sql
-    assert "all sequences in schema public from anon, authenticated" in sql
+    assert "all tables in schema public from %i" in sql
+    assert "all sequences in schema public from %i" in sql
+    assert "select rolname from pg_roles where rolname in ('anon', 'authenticated')" in sql
     assert "alter default privileges in schema public" in sql
     assert "alter table %i.%i enable row level security" in sql
-    assert "all functions in schema public from public, anon, authenticated" in sql
+    assert "all functions in schema public from public" in sql
     assert "custom_access_token_hook(jsonb) set search_path = ''" in sql
     assert "security definer" in sql
     assert "set search_path = pg_catalog" in sql
@@ -53,7 +54,8 @@ def test_postgres_upgrade_closes_public_data_api(monkeypatch: pytest.MonkeyPatch
     assert "ddl_command.object_type = 'sequence'" in sql
     assert "'view', 'materialized view', 'foreign table'" in sql
     assert "'function', 'procedure', 'aggregate'" in sql
-    assert "revoke execute on routine %s from public, anon, authenticated" in sql
+    assert "revoke execute on routine %s from public" in sql
+    assert "revoke execute on routine %s from %i" in sql
 
 
 def test_non_postgres_upgrade_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Azure Experiment"
+  short_description: "Run a pilot-gated ephemeral Azure experiment"
+  default_prompt: "Use $azure-experiment to follow the paid data-batch protocol under plans/ with explicit approvals and verified teardown."

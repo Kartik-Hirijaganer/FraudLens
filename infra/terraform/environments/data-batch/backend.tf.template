@@ -1,0 +1,12 @@
+# Remote state for the ephemeral data-batch root. Copy to backend.tf only for an approved apply or
+# destroy; free validation and planning use init -backend=false and create no cloud resources.
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "fraudlens-tfstate-rg"
+    storage_account_name = "fraudlenstfstate"
+    container_name       = "tfstate"
+    key                  = "data-batch.terraform.tfstate"
+    use_azuread_auth     = true
+  }
+}

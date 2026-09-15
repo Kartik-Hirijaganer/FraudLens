@@ -33,7 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import SarDraft
-from fraudlens_backend.db.models.enums import SarStatus
+from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_ml.sar import SarDraftResult
 
@@ -74,6 +74,7 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             citations=[
                 citation.model_dump(by_alias=True, mode="json") for citation in result.citations
             ],
+            quality_status=SarQualityStatus.EVALUATED,
             status=SarStatus(result.status.value),
             token_usage=result.token_usage.model_dump(by_alias=True, mode="json"),
             cost_usd=result.cost_usd,
@@ -110,6 +111,7 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             content=content,
             structured=base.structured,
             citations=base.citations,
+            quality_status=SarQualityStatus.UNEVALUATED,
             status=SarStatus.REVIEWED,
             token_usage=base.token_usage,
             cost_usd=base.cost_usd,

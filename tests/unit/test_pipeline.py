@@ -55,6 +55,7 @@ def _pipeline_input(**overrides: object) -> PipelineInput:
         "agency_id": "a1",
         "run_id": "r1",
         "transaction_id": "t1",
+        "source": "synthetic-generator",
         "rule_context": RuleContext(transaction=txn),
         "amount": Decimal("9500"),
         "currency": "USD",

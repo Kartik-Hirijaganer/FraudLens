@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraudlens-worker
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fraudlens
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fraudlens
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: fraudlens-runtime
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fraudlens
+              app.kubernetes.io/component: worker
+      initContainers:
+        - name: seed-rag-index
+          image: fraudlens-backend:local
+          imagePullPolicy: Always
+          command: ["sh", "-c"]
+          args:
+            - mkdir -p /app/.local/chroma && cp -R /app/rag-index/. /app/.local/chroma/
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: local-state
+              mountPath: /app/.local
+            - name: temporary
+              mountPath: /tmp
+      containers:
+        - name: worker
+          image: fraudlens-backend:local
+          imagePullPolicy: Always
+          command: ["sh", "-c"]
+          args:
+            - |
+              worker_pid=""
+              terminate() {
+                test -z "$worker_pid" || kill -TERM "$worker_pid" 2>/dev/null || true
+                test -z "$worker_pid" || wait "$worker_pid" || true
+              }
+              trap terminate TERM INT
+              python -m fraudlens_backend.worker &
+              worker_pid=$!
+              printf '%s\n' "$worker_pid" > /tmp/fraudlens-worker.pid
+              wait "$worker_pid"
+          envFrom:
+            - configMapRef:
+                name: fraudlens-backend-config
+            - secretRef:
+                name: fraudlens-backend-secrets
+                optional: true
+            - secretRef:
+                name: fraudlens-llm-secrets
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "test -s /app/.local/worker/heartbeat"]
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os,time; assert time.time()-os.path.getmtime('/app/.local/worker/heartbeat') < 120"
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: local-state
+              mountPath: /app/.local
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: local-state
+          emptyDir: {}
+        - name: temporary
+          emptyDir: {}

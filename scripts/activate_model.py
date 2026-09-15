@@ -68,7 +68,7 @@ from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.settings import get_settings
 from fraudlens_ml.scoring import ArtifactError, load_artifact
 from fraudlens_ml.scoring.artifacts import ModelArtifactMetadata
-from train_model import _FIXTURE_LABEL, _MANIFEST_SIDECAR, _artifacts_root
+from train_model import FIXTURE_LABEL, MANIFEST_SIDECAR, artifacts_root
 
 _GATES_PASSED_KEY = "gates_passed"
 _PR_AUC_KEY = "pr_auc"
@@ -88,7 +88,7 @@ class EligibleBundle:
 
 def _read_sidecar(directory: Path) -> tuple[dict[str, Any], int, int] | None:
     """Read a bundle's manifest sidecar; None when absent/invalid (bundle is not registrable)."""
-    sidecar = directory / _MANIFEST_SIDECAR
+    sidecar = directory / MANIFEST_SIDECAR
     if not sidecar.is_file():
         return None
     try:
@@ -109,7 +109,7 @@ def discover_bundles(root: Path, *, label: str | None) -> list[EligibleBundle]:
     if not root.is_dir():
         return eligible
     for directory in sorted(path for path in root.iterdir() if path.is_dir()):
-        if directory.name == _FIXTURE_LABEL:
+        if directory.name == FIXTURE_LABEL:
             continue
         if label is not None and directory.name != label:
             continue
@@ -281,7 +281,7 @@ async def _amain(label: str | None) -> int:
     if settings.environment == "prod":
         print("activate-model refused: prod promotions go through the admin lifecycle API")
         return 1
-    root = _artifacts_root(settings)
+    root = artifacts_root(settings)
     bundles = discover_bundles(root, label=label)
     if not bundles:
         if label is not None:

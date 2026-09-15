@@ -36,15 +36,31 @@ depends_on: str | Sequence[str] | None = None
 _POSTGRESQL_DIALECT = "postgresql"
 
 _POSTGRES_HARDENING_STATEMENTS = (
-    "revoke all privileges on all tables in schema public from anon, authenticated",
-    "revoke all privileges on all sequences in schema public from anon, authenticated",
     """
-    alter default privileges in schema public
-      revoke all privileges on tables from anon, authenticated
-    """,
-    """
-    alter default privileges in schema public
-      revoke all privileges on sequences from anon, authenticated
+    do $fraudlens$
+    declare
+      web_role text;
+    begin
+      for web_role in
+        select rolname from pg_roles where rolname in ('anon', 'authenticated')
+      loop
+        execute format(
+          'revoke all privileges on all tables in schema public from %I', web_role
+        );
+        execute format(
+          'revoke all privileges on all sequences in schema public from %I', web_role
+        );
+        execute format(
+          'alter default privileges in schema public revoke all privileges on tables from %I',
+          web_role
+        );
+        execute format(
+          'alter default privileges in schema public revoke all privileges on sequences from %I',
+          web_role
+        );
+      end loop;
+    end
+    $fraudlens$
     """,
     """
     do $fraudlens$
@@ -69,7 +85,22 @@ _POSTGRES_HARDENING_STATEMENTS = (
     $fraudlens$
     """,
     "create schema if not exists fraudlens_security",
-    "revoke all privileges on schema fraudlens_security from public, anon, authenticated",
+    "revoke all privileges on schema fraudlens_security from public",
+    """
+    do $fraudlens$
+    declare
+      web_role text;
+    begin
+      for web_role in
+        select rolname from pg_roles where rolname in ('anon', 'authenticated')
+      loop
+        execute format(
+          'revoke all privileges on schema fraudlens_security from %I', web_role
+        );
+      end loop;
+    end
+    $fraudlens$
+    """,
     """
     create or replace function fraudlens_security.enforce_public_object_security()
     returns event_trigger
@@ -79,6 +110,7 @@ _POSTGRES_HARDENING_STATEMENTS = (
     as $fraudlens$
     declare
       ddl_command record;
+      web_role text;
     begin
       for ddl_command in select * from pg_event_trigger_ddl_commands()
       loop
@@ -88,28 +120,52 @@ _POSTGRES_HARDENING_STATEMENTS = (
             'alter table %s enable row level security',
             ddl_command.object_identity
           );
-          execute format(
-            'revoke all privileges on table %s from anon, authenticated',
-            ddl_command.object_identity
-          );
+          for web_role in
+            select rolname from pg_roles where rolname in ('anon', 'authenticated')
+          loop
+            execute format(
+              'revoke all privileges on table %s from %I',
+              ddl_command.object_identity,
+              web_role
+            );
+          end loop;
         elsif ddl_command.schema_name = 'public'
               and ddl_command.object_type = 'sequence' then
-          execute format(
-            'revoke all privileges on sequence %s from anon, authenticated',
-            ddl_command.object_identity
-          );
+          for web_role in
+            select rolname from pg_roles where rolname in ('anon', 'authenticated')
+          loop
+            execute format(
+              'revoke all privileges on sequence %s from %I',
+              ddl_command.object_identity,
+              web_role
+            );
+          end loop;
         elsif ddl_command.schema_name = 'public'
               and ddl_command.object_type in ('view', 'materialized view', 'foreign table') then
-          execute format(
-            'revoke all privileges on table %s from anon, authenticated',
-            ddl_command.object_identity
-          );
+          for web_role in
+            select rolname from pg_roles where rolname in ('anon', 'authenticated')
+          loop
+            execute format(
+              'revoke all privileges on table %s from %I',
+              ddl_command.object_identity,
+              web_role
+            );
+          end loop;
         elsif ddl_command.schema_name = 'public'
               and ddl_command.object_type in ('function', 'procedure', 'aggregate') then
           execute format(
-            'revoke execute on routine %s from public, anon, authenticated',
+            'revoke execute on routine %s from public',
             ddl_command.object_identity
           );
+          for web_role in
+            select rolname from pg_roles where rolname in ('anon', 'authenticated')
+          loop
+            execute format(
+              'revoke execute on routine %s from %I',
+              ddl_command.object_identity,
+              web_role
+            );
+          end loop;
         end if;
       end loop;
     end
@@ -118,7 +174,23 @@ _POSTGRES_HARDENING_STATEMENTS = (
     """
     revoke execute
       on function fraudlens_security.enforce_public_object_security()
-      from public, anon, authenticated
+      from public
+    """,
+    """
+    do $fraudlens$
+    declare
+      web_role text;
+    begin
+      for web_role in
+        select rolname from pg_roles where rolname in ('anon', 'authenticated')
+      loop
+        execute format(
+          'revoke execute on function fraudlens_security.enforce_public_object_security() from %I',
+          web_role
+        );
+      end loop;
+    end
+    $fraudlens$
     """,
     "drop event trigger if exists fraudlens_harden_public_objects",
     """
@@ -138,10 +210,29 @@ _POSTGRES_HARDENING_STATEMENTS = (
       )
       execute function fraudlens_security.enforce_public_object_security()
     """,
-    "revoke execute on all functions in schema public from public, anon, authenticated",
+    "revoke execute on all functions in schema public from public",
     """
     alter default privileges in schema public
-      revoke execute on functions from public, anon, authenticated
+      revoke execute on functions from public
+    """,
+    """
+    do $fraudlens$
+    declare
+      web_role text;
+    begin
+      for web_role in
+        select rolname from pg_roles where rolname in ('anon', 'authenticated')
+      loop
+        execute format(
+          'revoke execute on all functions in schema public from %I', web_role
+        );
+        execute format(
+          'alter default privileges in schema public revoke execute on functions from %I',
+          web_role
+        );
+      end loop;
+    end
+    $fraudlens$
     """,
     """
     do $fraudlens$

@@ -28,9 +28,11 @@ from fraudlens_backend.db.models.enums import (
     ModelTrigger,
     ModelVersionStatus,
     RunStatus,
+    SarQualityStatus,
     SarStatus,
     Severity,
     TrainingLabelType,
+    TransactionSource,
     UserRole,
 )
 from fraudlens_backend.db.models.mlops import (
@@ -93,6 +95,7 @@ __all__ = [
     "RagRetrieval",
     "RunStatus",
     "SarDraft",
+    "SarQualityStatus",
     "SarStatus",
     "Severity",
     "SystemConfig",
@@ -100,6 +103,7 @@ __all__ = [
     "TrainingLabel",
     "TrainingLabelType",
     "Transaction",
+    "TransactionSource",
     "User",
     "UserRole",
 ]

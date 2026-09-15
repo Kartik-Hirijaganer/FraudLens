@@ -57,8 +57,11 @@ class Scorer:
     def score(self, pointer: DeploymentPointer, context: RuleContext) -> ScoreOutput:
         """Score one transaction, returning the calibrated probability + version used."""
         loaded = self._cache.get(pointer)
-        vector = feature_vector(extract_features(context), loaded.feature_spec.features)
-        margin = loaded.booster.predict(xgb.DMatrix(vector), output_margin=True)
+        names = loaded.feature_spec.features
+        vector = feature_vector(extract_features(context), names)
+        margin = loaded.booster.predict(
+            xgb.DMatrix(vector, feature_names=list(names)), output_margin=True
+        )
         probability = float(loaded.calibration.apply(margin)[0])
         return ScoreOutput(
             fraud_probability=min(1.0, max(0.0, probability)),

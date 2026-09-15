@@ -16,14 +16,14 @@ Notes:
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.sar_eval.report import FrontendStudyData, SarEvalStudyReport, frontend_projection
+from lib.study.artifacts import canonical_json, install_bound_artifacts
+from lib.study.binding import sha256_hex
+from lib.study.redaction import scan_forbidden
 
 REPORT_BASENAME = "sar-multi-agent-study"
 _FORBIDDEN = ("/Users/", "/home/", "C:\\", ".local/", "Bearer ", "Authorization", "accessToken")
@@ -42,24 +42,17 @@ class PublishResult(BaseModel):
 
 
 def _json(model: BaseModel) -> str:
-    value = model.model_dump(mode="json", by_alias=True)
-    return json.dumps(value, indent=2, sort_keys=True) + "\n"
+    return canonical_json(model)
 
 
 def _scan(content: str, name: str) -> None:
-    for forbidden in _FORBIDDEN:
-        if forbidden in content:
-            raise ValueError(f"redaction scan failed for {name}: forbidden content present")
-
-
-def _sidecar(path: Path, kind: str) -> Path:
-    return path.with_name(f".{path.name}.sar-eval-{kind}")
+    scan_forbidden(content, artifact=name, forbidden=_FORBIDDEN)
 
 
 def _validate_contents(report_bytes: bytes, frontend_text: str) -> SarEvalStudyReport:
     report = SarEvalStudyReport.model_validate_json(report_bytes)
     frontend = FrontendStudyData.model_validate_json(frontend_text)
-    observed = hashlib.sha256(report_bytes).hexdigest()
+    observed = sha256_hex(report_bytes)
     if frontend.report_sha256 != observed:
         raise ValueError("published SAR evaluation artifacts drifted; republish the completed run")
     return report
@@ -67,41 +60,14 @@ def _validate_contents(report_bytes: bytes, frontend_text: str) -> SarEvalStudyR
 
 def _publish_pair(files: tuple[tuple[Path, str], tuple[Path, str]]) -> None:
     """Install two staged files and restore the prior pair if either replacement fails."""
-    states = tuple(
-        (target, _sidecar(target, "stage"), _sidecar(target, "backup"), target.exists())
-        for target, _content in files
-    )
-    sidecars = [path for _target, staged, backup, _exists in states for path in (staged, backup)]
-    if any(path.exists() for path in sidecars):
-        raise RuntimeError("stale SAR evaluation publication sidecar exists")
-    for (target, content), (_same_target, staged, _backup, _exists) in zip(
-        files, states, strict=True
-    ):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        staged.write_text(content, encoding="utf-8")
 
-    backed_up: set[Path] = set()
-    installed: set[Path] = set()
-    try:
-        for target, staged, backup, existed in states:
-            if existed:
-                os.replace(target, backup)
-                backed_up.add(target)
-            os.replace(staged, target)
-            installed.add(target)
+    def validate_pair() -> None:
         validate_published_artifacts(files[0][0], files[1][0])
-    except Exception:
-        for target, _staged, backup, _existed in reversed(states):
-            if target in installed and target.exists():
-                target.unlink()
-            if target in backed_up and backup.exists():
-                os.replace(backup, target)
-        raise
-    finally:
-        for _target, staged, _backup, _existed in states:
-            staged.unlink(missing_ok=True)
-    for _target, _staged, backup, _existed in states:
-        backup.unlink(missing_ok=True)
+
+    install_bound_artifacts(
+        dict(files),
+        validate=validate_pair,
+    )
 
 
 def publish_report(
@@ -112,7 +78,7 @@ def publish_report(
 ) -> PublishResult:
     """Atomically publish a complete report and its hash-bound frontend projection."""
     report_json = _json(report)
-    report_sha256 = hashlib.sha256(report_json.encode("utf-8")).hexdigest()
+    report_sha256 = sha256_hex(report_json)
     frontend = frontend_projection(report, report_sha256)
     frontend_json = _json(frontend)
     _scan(report_json, f"{REPORT_BASENAME}.json")

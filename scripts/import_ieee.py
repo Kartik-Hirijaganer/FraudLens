@@ -42,7 +42,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import JobExecution, JobStatus, JobType
+from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, TransactionSource
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.settings import get_settings
@@ -121,7 +121,7 @@ async def ingest_rows(
             if len(rejections) < _SAMPLE_REJECTION_LIMIT:
                 rejections.append({"index": str(index), "field": exc.field, "reason": exc.reason})
             continue
-        outcome = await repo.ingest(canonical)
+        outcome = await repo.ingest(canonical, source=TransactionSource.IEEE_CIS_SAMPLE)
         accepted += outcome.created
         duplicates += not outcome.created
     return ImportResult(

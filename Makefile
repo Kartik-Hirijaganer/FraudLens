@@ -8,6 +8,7 @@
 SHELL := bash
 
 UV ?= uv
+UVX ?= uvx
 NPM ?= npm
 DOCKER_PLATFORM ?= linux/amd64
 FRONTEND := frontend
@@ -17,27 +18,138 @@ PY_SRC := backend/src packages/fraudlens-core/src packages/fraudlens-llm/src pac
 # default — this knob does not change them.
 AML_DEMO_ROWS ?= 1600
 AML_SAMPLE_ROWS ?= 50000
+FULLDATA_CANDIDATE ?= hi-small
+FULLDATA_PILOT_ROWS ?= 1000000
+FULLDATA := $(UV) run --group fulldata python scripts/fulldata.py
+VLLM_BENCH := $(UV) run --group fulldata python scripts/benchmark_vllm.py
+RUNPOD_GPU := $(UV) run python scripts/runpod_gpu.py
+K8S_DEMO := $(UV) run python scripts/k8s_demo.py
+KUBECTL ?= $(if $(wildcard .local/tools/kubectl),.local/tools/kubectl,kubectl)
+KUBECONFORM ?= $(if $(wildcard .local/tools/kubeconform),.local/tools/kubeconform,kubeconform)
+K8S_VERSION ?= $(shell PYTHONPATH=scripts $(UV) run python -c 'from lib.k8s_demo.config import load_config; print(load_config().kubernetes_version)')
+K8S_DEMO_TESTS := tests/unit/test_k8s_demo_*.py tests/integration/test_k8s_manifests.py
+PROFILE ?= smoke
+SOURCE ?= sar-eval
+HOST ?= runpod-rtx4090
+PURCHASE ?= pay_as_you_go
+TF_ROOTS ?= $(patsubst %/main.tf,%,$(wildcard infra/terraform/environments/*/main.tf))
+DATA_BATCH_DIR := infra/terraform/environments/data-batch
+DATA_BATCH_TFVARS := data-batch.tfvars
+AKS_DIR := infra/terraform/environments/aks-demo
+AKS_TFVARS := aks-demo.tfvars
+INFISICAL_OPERATOR_CHART_VERSION ?= 0.10.11
+DATA_BATCH_PILOT_HOURS ?= 2
+FULLDATA_DATA_DIR ?= .local/aml_data
+FULLDATA_DOWNLOAD_DIR ?= .local/fulldata/downloads
+
+define DATA_BATCH_ENV
+subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+operator_cidr="$${TF_VAR_operator_cidr:-}"; \
+if [ -z "$$operator_cidr" ]; then \
+	operator_cidr="$$(curl -4 --fail --silent --show-error --max-time 10 https://api.ipify.org)/32"; \
+fi; \
+operator_principal_id="$${TF_VAR_operator_principal_id:-}"; \
+operator_principal_type="$${TF_VAR_operator_principal_type:-}"; \
+account_type="$$(az account show --query user.type -o tsv)"; \
+if [ -z "$$operator_principal_type" ]; then \
+	if [ "$$account_type" = "user" ]; then operator_principal_type="User"; else operator_principal_type="ServicePrincipal"; fi; \
+fi; \
+if [ -z "$$operator_principal_id" ]; then \
+	if [ "$$account_type" = "user" ]; then \
+		operator_principal_id="$$(az ad signed-in-user show --query id -o tsv)"; \
+	else \
+		account_client="$$(az account show --query user.name -o tsv)"; \
+		operator_principal_id="$$(az ad sp show --id "$$account_client" --query id -o tsv)"; \
+	fi; \
+fi; \
+ssh_key="$${TF_VAR_ssh_public_key:-}"; \
+if [ -z "$$ssh_key" ]; then \
+	ssh_key_file="$${TF_VAR_ssh_public_key_file:-$$HOME/.ssh/id_ed25519.pub}"; \
+	test -f "$$ssh_key_file" || { echo "SSH public key not found: $$ssh_key_file"; exit 2; }; \
+	ssh_key="$$(< "$$ssh_key_file")"; \
+fi; \
+budget_contacts="$${TF_VAR_budget_contact_emails:-}"; \
+if [ -z "$$budget_contacts" ]; then \
+	account_contact="$$(az account show --query user.name -o tsv)"; \
+	budget_contacts="[\"$$account_contact\"]"; \
+fi; \
+shutdown_time="$${TF_VAR_auto_shutdown_time:-$$(python3 -c 'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%H%M"))')}"; \
+budget_start="$${TF_VAR_budget_start_date:-$$(date -u +%Y-%m-01T00:00:00Z)}"; \
+export TF_VAR_subscription_id="$$subscription_id" \
+	TF_VAR_tenant_id="$$tenant_id" \
+	TF_VAR_operator_cidr="$$operator_cidr" \
+	TF_VAR_operator_principal_id="$$operator_principal_id" \
+	TF_VAR_operator_principal_type="$$operator_principal_type" \
+	TF_VAR_ssh_public_key="$$ssh_key" \
+	TF_VAR_budget_contact_emails="$$budget_contacts" \
+	TF_VAR_auto_shutdown_time="$$shutdown_time" \
+	TF_VAR_budget_start_date="$$budget_start" \
+	TF_VAR_use_oidc="$${TF_VAR_use_oidc:-false}" \
+	TF_VAR_run_id="$${TF_VAR_run_id:-$(if $(RUN),$(RUN),data-batch-pending)}"
+endef
+
+define AKS_ENV
+subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+admin_object_id="$${TF_VAR_cluster_admin_object_id:-$$(az ad signed-in-user show --query id -o tsv)}"; \
+admin_object_ids="$${TF_VAR_cluster_admin_object_ids:-[\"$$admin_object_id\"]}"; \
+authorized_ranges="$${TF_VAR_authorized_ip_ranges:-}"; \
+if [ -z "$$authorized_ranges" ]; then \
+	operator_ip="$$(curl -4 --fail --silent --show-error --max-time 10 https://api.ipify.org)"; \
+	authorized_ranges="[\"$$operator_ip/32\"]"; \
+fi; \
+budget_contacts="$${TF_VAR_budget_contact_emails:-}"; \
+if [ -z "$$budget_contacts" ]; then \
+	account_contact="$$(az account show --query user.name -o tsv)"; \
+	budget_contacts="[\"$$account_contact\"]"; \
+fi; \
+budget_start="$${TF_VAR_budget_start_date:-$$(date -u +%Y-%m-01T00:00:00Z)}"; \
+export TF_VAR_subscription_id="$$subscription_id" \
+	TF_VAR_tenant_id="$$tenant_id" \
+	TF_VAR_cluster_admin_object_ids="$$admin_object_ids" \
+	TF_VAR_authorized_ip_ranges="$$authorized_ranges" \
+	TF_VAR_budget_contact_emails="$$budget_contacts" \
+	TF_VAR_budget_start_date="$$budget_start" \
+	TF_VAR_use_oidc="$${TF_VAR_use_oidc:-false}"
+endef
+
+.PHONY: iac-scan data-batch-quota data-batch-plan data-batch-up data-batch-upload \
+	data-batch-download data-batch-ssh data-batch-start data-batch-down \
+	data-batch-verify-clean data-batch-watchdog runpod-gpu-plan runpod-gpu-up \
+	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
+	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
+
+.PHONY: aks-init aks-plan aks-up aks-credentials aks-operator-install aks-secrets-operator \
+	aks-secrets-sync aks-deploy aks-smoke aks-hpa-demo aks-stop aks-start aks-down \
+	aks-verify-clean
+
+.PHONY: k8s-tools-check k8s-validate k8s-demo-test kind-image kind-up kind-load \
+	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
+	hpa-evidence-validate
 
 .PHONY: help install \
         backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
+        postgres-run-test \
         frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
-        header-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check openapi \
+        header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates fulldata-test \
         backend-coverage-diff frontend-coverage-diff test-coverage-diff \
         version-next changelog-unreleased pr-summary release-gate local-release-check \
-        run rebuild run-live run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
+        run rebuild run-live run-live-vllm run-live-vllm-worker run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
-        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan tf-validate \
+        db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
+        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-e2e vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate \
         docker-build docker-build-base docker-build-base-if-changed \
-        pr-title-check ci pre-pr pr-check upgrade dev
+        pr-title-check ci pre-pr pr-check worker upgrade dev
 
 help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install all dependencies (uv workspace + frontend npm ci).
-	$(UV) sync --all-packages
+	$(UV) sync --all-packages --group fulldata
 	cd $(FRONTEND) && $(NPM) ci
 
 # ---------------------------------------------------------------------------
@@ -57,6 +169,10 @@ backend-fmt:
 	$(UV) run ruff check --fix .
 	$(UV) run ruff format .
 backend-ci: backend-lint backend-format-check backend-typecheck backend-coverage ## Backend CI gate.
+
+postgres-run-test: ## Prove durable claim/fencing behavior against PostgreSQL.
+	@test -n "$${POSTGRES_TEST_DATABASE_URL:-}" || { echo "POSTGRES_TEST_DATABASE_URL is required"; exit 1; }
+	$(UV) run pytest tests/integration/test_run_leases_postgres.py -q -o addopts='' -m postgres
 
 # ---------------------------------------------------------------------------
 # Frontend (TypeScript) sub-targets
@@ -118,6 +234,12 @@ ci-changed: lint-changed format-check-changed test-coverage-diff ## Changed-file
 # ---------------------------------------------------------------------------
 header-check: ## Validate top-of-file SUMMARY headers (rule 2).
 	$(UV) run python scripts/check_headers.py
+file-length-check: ## Enforce the absolute 500-physical-line source cap.
+	$(UV) run python scripts/check_file_length.py
+docs-links-check: ## Validate every relative link in README, AGENTS, docs, and plans.
+	$(UV) run python scripts/check_docs_links.py
+experiment-budget-check: ## Reconcile the $75 experiment ceiling, ledger, and published run IDs.
+	$(UV) run python scripts/experiment_budget.py ledger-check
 attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
 	bash scripts/check_no_ai_attribution.sh
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
@@ -135,7 +257,7 @@ supabase-security-check: ## Audit live Supabase DB CIDRs + TLS (SUPABASE_PROJECT
 llm-catalog-check: ## Validate LLM catalog/provider schemas and trust metadata.
 	$(UV) run python scripts/check_llm_catalog.py
 dup-check: ## Copy/paste detection (jscpd).
-	npx --yes jscpd@4 backend/src packages frontend/src --config .jscpd.json
+	npx --yes jscpd@4 backend/src packages frontend/src scripts --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
 deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
@@ -149,11 +271,14 @@ deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs netw
 		--ignore-vuln CVE-2026-45833
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
 openapi: ## Fail if the committed OpenAPI is stale.
-	$(UV) run python scripts/update_docs.py --check openapi
-docs: ## Regenerate header inventories + OpenAPI + ERD + architecture AUTOGEN (WRITES).
-	$(UV) run python scripts/update_docs.py
-docs-check: ## Fail if any generated doc / header inventory is stale.
-	$(UV) run python scripts/update_docs.py --check
+	$(UV) run --group fulldata python scripts/update_docs.py --check openapi
+docs: ## Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES).
+	$(UV) run python scripts/sync_skills.py
+	$(UV) run --group fulldata python scripts/update_docs.py
+skills-check: ## Validate project skills and fail if the generated Codex mirror is stale.
+	$(UV) run python scripts/sync_skills.py --check
+docs-check: skills-check ## Fail if any generated skill or documentation artifact is stale.
+	$(UV) run --group fulldata python scripts/update_docs.py --check
 backend-coverage-diff: ## Backend: ≥90% coverage on CHANGED lines (diff-cover, Cobertura).
 	$(UV) run pytest -q --cov-report=xml --cov-fail-under=0
 	$(UV) run diff-cover coverage.xml --compare-branch=$(BASE_REF) --fail-under=90
@@ -217,8 +342,14 @@ rebuild: ## Alias for `make run`.
 	$(MAKE) run
 run-live: ## Boot local dev against real Supabase/Postgres + OpenRouter via Infisical.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live
+run-live-vllm: ## Boot the backend against self-hosted vLLM over a local SSH tunnel.
+	infisical run --env=prod --path=/ --recursive -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml FRAUDLENS_RUN_EXECUTION_MODE=worker FRAUDLENS_MODEL_ARTIFACTS_DIR=.local/fulldata/artifacts VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run uvicorn fraudlens_backend.main:app --reload --host 127.0.0.1 --port $${BACKEND_PORT:-18000}
+run-live-vllm-worker: ## Run the durable worker against the same tunneled vLLM and dev database.
+	infisical run --env=prod --path=/ --recursive -- env FRAUDLENS_LLM_MODE=live FRAUDLENS_SAR_CONFIG_FILE=llm/sar-vllm.yml FRAUDLENS_RUN_EXECUTION_MODE=worker FRAUDLENS_MODEL_ARTIFACTS_DIR=.local/fulldata/artifacts VLLM_BASE_URL=http://127.0.0.1:8000/v1 $(UV) run python -m fraudlens_backend.worker
 run-live-demo: ## Boot live dev AND bootstrap the exact portfolio demo story (mutating; prints the URL).
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/local_demo.py live-demo
+worker: ## Run the durable investigation worker against the configured database.
+	$(UV) run python -m fraudlens_backend.worker
 local-demo-down: ## Stop the local demo stack and remove its containers.
 	$(UV) run python scripts/local_demo.py down
 local-demo-reset: ## Tear down the local demo and delete its volumes + local state.
@@ -274,6 +405,189 @@ train-aml: ## Train + register an IBM AML-Data candidate (active model is unchan
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml
 train-aml-sample: ## Fast real-data candidate smoke using a deterministic stratified sample.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/train_model.py --source ibm-aml --sample-rows $(AML_SAMPLE_ROWS)
+fulldata-verify: ## Verify all three IBM full-data files against frozen hashes and row counts.
+	$(FULLDATA) verify
+fulldata-ingest: ## Ingest one IBM source into typed Parquet (FULLDATA_CANDIDATE).
+	$(FULLDATA) ingest --candidate $(FULLDATA_CANDIDATE)
+fulldata-features: ## Build the 19 live-parity features for one IBM source.
+	$(FULLDATA) features --candidate $(FULLDATA_CANDIDATE)
+fulldata-parity: ## Run the mandatory live-builder parity sample for one source.
+	$(FULLDATA) parity --candidate $(FULLDATA_CANDIDATE)
+fulldata-folds: ## Materialize whole-cohort temporal folds for one source.
+	$(FULLDATA) folds --candidate $(FULLDATA_CANDIDATE)
+fulldata-train: ## Train/resume and evaluate one fixed IBM candidate.
+	$(FULLDATA) train --candidate $(FULLDATA_CANDIDATE)
+fulldata-evaluate: ## Bind every completed source candidate into one run manifest.
+	$(FULLDATA) evaluate
+fulldata-report: ## Render the current aggregate full-data report locally.
+	$(FULLDATA) report
+fulldata-publish: ## Validate and publish the current report to docs + frontend data.
+	$(FULLDATA) publish
+fulldata-validate: ## Revalidate the committed full-data report/frontend hash binding.
+	$(FULLDATA) validate
+fulldata-pilot: ## Run the approved bounded pilot (candidate + row target configurable).
+	$(FULLDATA) pilot --candidate $(FULLDATA_CANDIDATE) --rows $(FULLDATA_PILOT_ROWS)
+
+# ---------------------------------------------------------------------------
+# vLLM BF16-versus-AWQ benchmark. Case validation and tests are provider-free;
+# serve/run require an operator-selected GPU host. The full IBM corpus remains
+# fail-closed until the Phase-6 application-candidate artifacts are available.
+# ---------------------------------------------------------------------------
+VLLM_CASES ?= .local/vllm-bench/cases-$(SOURCE)-$(PROFILE).json
+VLLM_BENCH_TESTS := $(wildcard tests/unit/test_vllm_bench_*.py)
+
+vllm-bench-cases: ## Build a deterministic case corpus (PROFILE + SOURCE).
+	$(VLLM_BENCH) cases --profile "$(PROFILE)" --source "$(SOURCE)"
+vllm-bench-cases-release: ## Attach full IBM cases to the RUN release (mutating; permission required).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	@test "$(RELEASE_UPLOAD_APPROVED)" = "1" || { echo "RELEASE_UPLOAD_APPROVED=1 is required"; exit 2; }
+	$(VLLM_BENCH) cases-release --run "$(RUN)" --confirm-upload
+vllm-bench-serve: ## Start one pinned local vLLM arm (ARM=bf16|awq; GPU required).
+	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
+	$(VLLM_BENCH) serve --arm "$(ARM)"
+vllm-bench-stop: ## Stop the configured local vLLM container.
+	$(VLLM_BENCH) stop
+vllm-bench-run: ## Run/resume one arm (RUN + ARM; server must already be ready).
+	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
+	$(VLLM_BENCH) run $(if $(RUN),--run "$(RUN)",) --arm "$(ARM)" \
+		--profile "$(PROFILE)" --source "$(SOURCE)" \
+		--host "$(HOST)" --purchase-option "$(PURCHASE)"
+vllm-bench-e2e: ## Prove 100 API -> durable-worker -> vLLM cases (functional, never latency).
+	$(VLLM_BENCH) e2e --cases "$${E2E_CASES:-100}" --concurrency "$${E2E_CONCURRENCY:-4}" \
+		$(if $(RUN),--run "$(RUN)",) $(if $(MODEL_OVERRIDE),--model-override "$(MODEL_OVERRIDE)",)
+vllm-bench-report: ## Build the local report (RUN; VLLM_CASES may override the case path).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) report --run "$(RUN)" --cases "$(VLLM_CASES)"
+vllm-bench-publish: ## Publish an accepted full run (RUN; optional ALLOW_UNMET=1).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) publish --run "$(RUN)" \
+		$(if $(filter 1 true yes,$(ALLOW_UNMET)),--allow-unmet-acceptance,)
+vllm-bench-test: ## Portable fake-server suite with >=90% benchmark-harness branch coverage.
+	$(UV) run --group fulldata pytest $(VLLM_BENCH_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/vllm_bench --cov=benchmark_vllm --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+vllm-bench-validate: ## Rebuild deterministic smoke cases and verify protocol/publication bindings.
+	$(VLLM_BENCH) validate
+
+# ---------------------------------------------------------------------------
+# RunPod Secure Cloud RTX 4090 operator. Every lifecycle mutation is separately
+# confirmed; the Pod exposes SSH only and carries an eight-hour self-stop guard.
+# ---------------------------------------------------------------------------
+RUNPOD_GPU_TESTS := $(wildcard tests/unit/test_runpod_gpu_*.py)
+
+runpod-gpu-plan: experiment-budget-check ## Check live Secure Cloud capacity and budget admission.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) plan --run "$(RUN)"
+runpod-gpu-up: ## Create the admitted RunPod Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod creation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) create --run "$(RUN)" --confirm-create
+runpod-gpu-status: ## Show redacted status for an existing RunPod session.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) status --run "$(RUN)"
+runpod-gpu-ssh: ## Open full SSH to a ready identity-matched RunPod Pod.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) ssh --run "$(RUN)"
+runpod-gpu-sync: ## Sync committed source, cases, and vLLM token (CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod sync: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	@test -f "$(VLLM_CASES)" || { echo "VLLM_CASES=$(VLLM_CASES) was not found"; exit 2; }
+	$(RUNPOD_GPU) sync --run "$(RUN)" --cases "$(VLLM_CASES)" --confirm-sync
+runpod-gpu-start: ## Start a stopped Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod start: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) start --run "$(RUN)" --confirm-start
+runpod-gpu-stop: ## Stop a running Pod (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod stop: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) stop --run "$(RUN)" --confirm-stop
+runpod-gpu-export: ## Download and lineage-check benchmark artifacts before teardown.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) export --run "$(RUN)"
+runpod-gpu-down: ## Delete a stopped Pod and Pod volume (CONFIRM=yes; irreversible).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing RunPod deletion: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) delete --run "$(RUN)" --confirm-delete
+runpod-gpu-verify-clean: ## Prove no matching Pod or network volume remains (read-only).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(RUNPOD_GPU) verify-clean --run "$(RUN)"
+runpod-gpu-test: ## Provider-free RunPod operator tests with >=90% branch coverage.
+	$(UV) run --group fulldata pytest $(RUNPOD_GPU_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/runpod_gpu --cov=runpod_gpu --cov=runpod_bench --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+
+# ---------------------------------------------------------------------------
+# Kubernetes demonstration. Every local mutation is guarded to the exact configured kind
+# context by scripts/k8s_demo.py. The AKS secret path additionally requires CONFIRM=yes and a
+# non-kind current context; no target here creates an Azure resource.
+# ---------------------------------------------------------------------------
+k8s-tools-check: ## Verify pinned local Kubernetes demonstration tools.
+	$(K8S_DEMO) tools-check
+
+k8s-validate: ## Render and statically validate every Kubernetes platform surface.
+	@set -eu; \
+	manifest_dir="$$(mktemp -d)"; \
+	cleanup() { rm -rf "$$manifest_dir"; }; \
+	trap cleanup EXIT INT TERM; \
+	$(K8S_DEMO) render --platform kind > "$$manifest_dir/kind.yaml"; \
+	$(K8S_DEMO) render --platform aks > "$$manifest_dir/aks.yaml"; \
+	$(KUBECTL) kustomize deploy/k8s/load > "$$manifest_dir/load.yaml"; \
+	cp deploy/k8s/addons/metrics-server-kind/components.yaml "$$manifest_dir/metrics.yaml"; \
+	$(KUBECONFORM) -strict -kubernetes-version "$(K8S_VERSION)" \
+		-skip InfisicalSecret -summary "$$manifest_dir"/*.yaml; \
+	$(UVX) checkov --config-file .checkov.yaml --framework kubernetes \
+		--directory "$$manifest_dir"
+	$(UV) run pytest tests/integration/test_k8s_manifests.py -q -o addopts='' --no-cov
+
+k8s-demo-test: ## Run the Kubernetes harness contract suite with branch coverage.
+	$(UV) run pytest $(K8S_DEMO_TESTS) -q -o addopts='' \
+		--cov=lib.k8s_demo --cov=k8s_demo --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+
+kind-image: ## Build the backend image for the current host architecture (no push).
+	@set -eu; \
+	arch="$$(uname -m)"; \
+	case "$$arch" in arm64|aarch64) platform=arm64 ;; x86_64|amd64) platform=amd64 ;; *) echo "unsupported host architecture: $$arch"; exit 2 ;; esac; \
+	$(MAKE) docker-build DOCKER_PLATFORM=linux/$$platform
+
+kind-up: ## Create the pinned zero-cost kind cluster and install metrics-server.
+	$(K8S_DEMO) kind-up
+
+kind-load: ## Load fraudlens-backend:local into the configured kind nodes.
+	$(K8S_DEMO) kind-load
+
+kind-deploy: ## Apply the kind overlay and wait for DB bootstrap, API, and worker.
+	$(K8S_DEMO) deploy --platform kind
+
+kind-smoke: ## Prove both ops probes via port-forward and run the remote smoke suite.
+	$(K8S_DEMO) smoke
+
+kind-hpa-demo: ## Run the HPA staircase and forced worker-kill durability proof.
+	$(K8S_DEMO) hpa-demo
+
+hpa-evidence-validate: ## Revalidate the committed Kubernetes scaling evidence.
+	$(K8S_DEMO) evidence-validate
+
+k8s-secrets-sync: ## Apply allowlisted runtime Secrets to an explicitly confirmed AKS context.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS secret mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) secrets-sync --confirm-aks
+
+kind-down: ## Delete the configured kind cluster and prove no backing containers remain.
+	$(K8S_DEMO) kind-down
+
+kind-demo: ## Build, deploy, smoke, prove HPA/durability, and always tear down local kind.
+	@set -eu; \
+	cleanup() { $(K8S_DEMO) kind-down; }; \
+	trap cleanup EXIT INT TERM; \
+	$(MAKE) kind-image; \
+	$(K8S_DEMO) kind-up; \
+	$(K8S_DEMO) kind-load; \
+	$(K8S_DEMO) deploy --platform kind; \
+	$(K8S_DEMO) smoke; \
+	$(K8S_DEMO) hpa-demo; \
+	trap - EXIT INT TERM; \
+	cleanup
+
 activate-model: ## Promote the best gates-passed local model bundle to ACTIVE (dev only).
 	$(UV) run python scripts/activate_model.py
 batch-score: ## Batch-investigate a tenant's un-scored rows (AGENCY_ID=<uuid>; defaults to the demo tenant).
@@ -336,7 +650,9 @@ SAR_EVAL := $(UV) run python scripts/benchmark_sar_agents.py
 SAR_EVAL_RETRY_ARG := $(if $(filter 1 true yes,$(SAR_EVAL_RETRY_FAILED)),--retry-failed,)
 SAR_EVAL_TESTS := tests/unit/test_sar_eval_cli.py \
 	tests/unit/test_sar_eval_scenarios_metrics.py \
-	tests/unit/test_sar_eval_runner_judge.py \
+	tests/unit/test_sar_eval_runner.py \
+	tests/unit/test_sar_eval_runner_contracts.py \
+	tests/unit/test_sar_eval_judge.py \
 	tests/unit/test_sar_eval_report_publish.py
 
 sar-eval-scenarios: ## Generate the deterministic, synthetic 8x4 evaluation matrix (free).
@@ -364,12 +680,242 @@ sar-eval-test: ## Portable SAR evaluation suite with >=90% harness coverage; nev
 		--cov-report=term-missing --cov-fail-under=90
 	$(MAKE) sar-eval-validate
 
-tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolded/inert).
+SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
+	tests/integration/test_train_model.py tests/integration/test_train_model_cli.py \
+	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
+	tests/unit/test_study_helpers.py tests/unit/test_quality_config.py \
+	$(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
+scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
+	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
+		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
+		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
+		--cov=lib.model_training --cov=lib.quality --cov=lib.sar_eval --cov=lib.study \
+		--cov=local_demo --cov=train_model --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+	$(MAKE) sar-eval-validate
+
+quality-gates: ## Run offline SAR citation, hallucination, and byte-level egress gates.
+	$(UV) run pytest tests/quality -q -o addopts='' -m quality
+
+FULLDATA_TESTS := tests/unit/test_fulldata_config_ingest.py \
+	tests/unit/test_fulldata_features_folds.py tests/unit/test_fulldata_train_report.py \
+	tests/unit/test_fulldata_cli.py
+fulldata-test: ## Portable DuckDB full-data suite with >=90% harness branch coverage.
+	$(UV) run --group fulldata pytest $(FULLDATA_TESTS) -q -o addopts='' \
+		--cov=scripts/lib/fulldata --cov=fulldata --cov-branch \
+		--cov-report=term-missing --cov-fail-under=90
+
+data-batch-quota: ## Show the non-sensitive West US 3 quota decision inputs (read-only).
+	@az vm list-usage --location westus3 \
+		--query "[?localName=='Total Regional vCPUs' || localName=='Total Regional Low-priority vCPUs' || localName=='Standard EADSv5 Family vCPUs'].{quota:localName,current:currentValue,limit:limit}" \
+		-o table
+
+data-batch-plan: experiment-budget-check data-batch-quota ## Plan the PAYG CPU experiment without creating resources.
+	@echo ">> projected two-pilot scheduling envelope ($(DATA_BATCH_PILOT_HOURS) PAYG hours)"
+	@$(UV) run python scripts/experiment_budget.py estimate \
+		--rate azure_e16ads_v5_payg --pilot-hours "$(DATA_BATCH_PILOT_HOURS)" \
+		--pilot-units 1 --target-units 1
+	@$(UV) run python scripts/experiment_budget.py admit --allocation azure_cpu_batch \
+		--rate azure_e16ads_v5_payg --pilot-hours "$(DATA_BATCH_PILOT_HOURS)" \
+		--pilot-units 1 --target-units 1
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	terraform -chdir=$(DATA_BATCH_DIR) init -backend=false -input=false -no-color >/dev/null; \
+	terraform -chdir=$(DATA_BATCH_DIR) plan -input=false -lock=false -no-color \
+		-var-file=$(DATA_BATCH_TFVARS)
+
+data-batch-up: ## Create the approved data-batch session (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud mutation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	cp $(DATA_BATCH_DIR)/backend.tf.template $(DATA_BATCH_DIR)/backend.tf; \
+	terraform -chdir=$(DATA_BATCH_DIR) init -reconfigure -input=false -no-color; \
+	trap 'rm -f $(DATA_BATCH_DIR)/data-batch.tfplan' EXIT; \
+	terraform -chdir=$(DATA_BATCH_DIR) plan -input=false -no-color \
+		-var-file=$(DATA_BATCH_TFVARS) -out=data-batch.tfplan; \
+	terraform -chdir=$(DATA_BATCH_DIR) apply -input=false -no-color data-batch.tfplan
+
+data-batch-upload: ## Upload Medium CSVs after separate approval (CONFIRM=yes, RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing Blob upload: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@test -f "$(FULLDATA_DATA_DIR)/HI-Medium_Trans.csv"
+	@test -f "$(FULLDATA_DATA_DIR)/LI-Medium_Trans.csv"
+	@set -euo pipefail; \
+	account="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_account_name)"; \
+	container="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_container_name)"; \
+	az storage blob upload-batch --auth-mode login --account-name "$$account" \
+		--destination "$$container/input/$(RUN)" --source "$(FULLDATA_DATA_DIR)" \
+		--pattern '*-Medium_Trans.csv' --overwrite false
+
+data-batch-download: ## Download exported artifacts for RUN (read-only cloud operation).
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@mkdir -p "$(FULLDATA_DOWNLOAD_DIR)/$(RUN)"
+	@set -euo pipefail; \
+	account="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_account_name)"; \
+	container="$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw storage_container_name)"; \
+	az storage blob download-batch --auth-mode login --account-name "$$account" \
+		--source "$$container" --destination "$(FULLDATA_DOWNLOAD_DIR)/$(RUN)" \
+		--pattern "artifacts/$(RUN)/*" --overwrite false
+
+data-batch-ssh: ## Connect to the existing data-batch VM.
+	@ssh "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw ssh_command | sed 's/^ssh //')"
+
+data-batch-start: ## Restart a deallocated data-batch VM (requires CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud mutation: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@az vm start \
+		--resource-group "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw vm_name)"
+
+data-batch-watchdog: ## Inspect both shutdown safeguards on the existing VM.
+	@echo ">> platform auto-shutdown: $$(terraform -chdir=$(DATA_BATCH_DIR) output -raw auto_shutdown_time) UTC"
+	@ssh "$$(terraform -chdir=$(DATA_BATCH_DIR) output -raw ssh_command | sed 's/^ssh //')" \
+		'sudo systemctl status fraudlens-watchdog.timer --no-pager; sudo systemctl list-timers fraudlens-watchdog.timer --no-pager'
+
+data-batch-down: ## Destroy the approved data-batch session (requires CONFIRM=yes and RUN=...).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing cloud teardown: rerun with CONFIRM=yes after explicit approval"; exit 2; }
+	@test -n "$(RUN)" || { echo "RUN=data-batch-<session> is required"; exit 2; }
+	@set -euo pipefail; \
+	$(DATA_BATCH_ENV); \
+	cp $(DATA_BATCH_DIR)/backend.tf.template $(DATA_BATCH_DIR)/backend.tf; \
+	terraform -chdir=$(DATA_BATCH_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(DATA_BATCH_DIR) destroy -input=false -no-color -auto-approve \
+		-var-file=$(DATA_BATCH_TFVARS)
+
+data-batch-verify-clean: ## Prove no tagged data-batch resource, RG, or budget remains (read-only).
+	@set -euo pipefail; \
+	failed=0; \
+	if [ "$$(az group exists --name fraudlens-data-batch-rg)" != "false" ]; then \
+		echo "residue: resource group fraudlens-data-batch-rg exists"; failed=1; \
+	fi; \
+	resource_count="$$(az resource list \
+		--query "length([?starts_with(name, 'fraudlens-data-batch') || tags.environment == 'data-batch'])" -o tsv)"; \
+	if [ "$$resource_count" != "0" ]; then \
+		echo "residue: $$resource_count tagged/prefixed Azure resources"; \
+		az resource list --query "[?starts_with(name, 'fraudlens-data-batch') || tags.environment == 'data-batch'].{name:name,type:type,resourceGroup:resourceGroup}" -o table; \
+		failed=1; \
+	fi; \
+	if az consumption budget show --budget-name fraudlens-data-batch-budget \
+		--only-show-errors --output none >/dev/null 2>&1; then \
+		echo "residue: subscription budget fraudlens-data-batch-budget exists"; failed=1; \
+	fi; \
+	test "$$failed" = "0" || exit 1; \
+	echo "data-batch-verify-clean OK: no resource group, tagged resource, or budget remains"
+
+aks-init: ## Initialize the next-release AKS remote-state root without applying resources.
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
+
+aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never applies.
+	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v5_spot"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; disks, IP and traffic excluded)")'
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	terraform -chdir=$(AKS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
+	terraform -chdir=$(AKS_DIR) plan -refresh=false -input=false -lock=false -no-color \
+		-var-file=$(AKS_TFVARS)
+
+aks-up: ## Apply the reviewed AKS plan in the next release (requires CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS creation: pass CONFIRM=yes after explicit approval"; exit 2; }
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(AKS_DIR) plan -input=false -no-color -var-file=$(AKS_TFVARS) -out=aks-demo.tfplan; \
+	trap 'rm -f $(AKS_DIR)/aks-demo.tfplan' EXIT; \
+	terraform -chdir=$(AKS_DIR) apply -input=false -no-color aks-demo.tfplan
+
+aks-credentials: ## Fetch Entra-backed AKS credentials after an approved apply (CONFIRM=yes).
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing kubeconfig mutation: pass CONFIRM=yes"; exit 2; }
+	az aks get-credentials --overwrite-existing \
+		--resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-operator-install: ## Install the pinned Infisical operator on an approved AKS context.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing Helm mutation: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	context="$$(kubectl config current-context)"; \
+	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
+	test "$$context" = "$$expected" || { echo "Refusing Helm mutation on context $$context; expected $$expected"; exit 2; }; \
+	helm repo add --force-update infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/; \
+	helm repo update infisical-helm-charts; \
+	helm upgrade --install infisical-operator infisical-helm-charts/secrets-operator \
+		--version $(INFISICAL_OPERATOR_CHART_VERSION) --namespace infisical-operator-system \
+		--create-namespace --set 'scopedNamespaces={fraudlens}' --set scopedRBAC=true \
+		--set installCRDs=true --wait --timeout 10m
+
+aks-secrets-operator: ## Verify the approved Infisical operator and its CRD are ready.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	context="$$(kubectl config current-context)"; \
+	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
+	test "$$context" = "$$expected" || { echo "Unexpected kubectl context: $$context"; exit 2; }; \
+	kubectl wait --for=condition=Established crd/infisicalsecrets.secrets.infisical.com --timeout=120s; \
+	kubectl rollout status deployment/infisical-operator-controller-manager \
+		-n infisical-operator-system --timeout=300s
+
+aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approved AKS only.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS Secret mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) secrets-sync --confirm-aks
+
+aks-deploy: ## Deploy an immutable image and operator-backed secret references to approved AKS.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
+	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
+	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
+	$(K8S_DEMO) deploy --platform aks --confirm-aks \
+		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
+		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
+		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
+
+aks-smoke: ## Run probe smoke tests against the approved AKS workload.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) smoke --platform aks --confirm-aks
+
+aks-hpa-demo: ## Capture next-release AKS HPA evidence after an approved deployment.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS load mutation: pass CONFIRM=yes"; exit 2; }
+	$(K8S_DEMO) hpa-demo --platform aks --confirm-aks
+
+aks-stop: ## Stop an approved AKS cluster to suspend node compute charges.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS stop: pass CONFIRM=yes"; exit 2; }
+	az aks stop --resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-start: ## Start an existing AKS cluster after explicit cost approval.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS start: pass CONFIRM=yes"; exit 2; }
+	az aks start --resource-group "$$(terraform -chdir=$(AKS_DIR) output -raw resource_group)" \
+		--name "$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"
+
+aks-down: ## Destroy the approved AKS cluster and all Terraform-managed support resources.
+	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS destroy: pass CONFIRM=yes"; exit 2; }
+	@set -euo pipefail; \
+	$(AKS_ENV); \
+	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
+	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	terraform -chdir=$(AKS_DIR) destroy -input=false -no-color -auto-approve \
+		-var-file=$(AKS_TFVARS)
+
+aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget remains.
+	@set -euo pipefail; \
+	failed=0; \
+	for group in fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg; do \
+		if [ "$$(az group exists --name "$$group")" != "false" ]; then echo "residue: resource group $$group exists"; failed=1; fi; \
+	done; \
+	count="$$(az resource list --query "length([?starts_with(name, 'fraudlens-aks-demo') || tags.environment == 'aks-demo'])" -o tsv)"; \
+	if [ "$$count" != "0" ]; then echo "residue: $$count AKS resources remain"; failed=1; fi; \
+	if az consumption budget show --budget-name fraudlens-aks-demo-budget --only-show-errors --output none >/dev/null 2>&1; then \
+		echo "residue: subscription budget fraudlens-aks-demo-budget exists"; failed=1; \
+	fi; \
+	test "$$failed" = "0" || exit 1; \
+	echo "aks-verify-clean OK: no scoped AKS resources remain"
+
+iac-scan: ## Scan Terraform for security and configuration defects (read-only).
+	$(UVX) checkov --config-file .checkov.yaml
+
+tf-validate: ## Terraform fmt + validate (no backend) per discovered environment root.
 	terraform fmt -recursive -check infra/terraform
-	@for env in dev prod; do \
-		echo ">> terraform validate ($$env)"; \
-		terraform -chdir=infra/terraform/environments/$$env init -backend=false -input=false -no-color >/dev/null; \
-		terraform -chdir=infra/terraform/environments/$$env validate -no-color; \
+	@for root in $(TF_ROOTS); do \
+		echo ">> terraform validate ($$(basename $$root))"; \
+		terraform -chdir=$$root init -backend=false -input=false -no-color >/dev/null; \
+		terraform -chdir=$$root validate -no-color; \
 	done
 
 # ---------------------------------------------------------------------------
@@ -378,7 +924,7 @@ tf-validate: ## Terraform fmt + validate (no backend) per environment (scaffolde
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check sar-eval-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).
@@ -388,6 +934,7 @@ pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR check
 	$(MAKE) ci-changed BASE_REF="$(BASE_REF)"
 	$(MAKE) docker-build
 	$(MAKE) tf-validate
+	$(MAKE) iac-scan
 	$(MAKE) deps-audit
 	$(MAKE) docker-build-base-if-changed BASE_REF="$(BASE_REF)"
 	@echo ">> PR preflight passed"

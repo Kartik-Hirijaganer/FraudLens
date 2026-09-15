@@ -13,6 +13,7 @@ import pytest
 from fraudlens_core import RuleContext
 from fraudlens_ml.scoring import (
     DeploymentPointer,
+    LoadedArtifact,
     ModelCache,
     Scorer,
     current_feature_spec,
@@ -64,6 +65,21 @@ def test_high_risk_scores_above_low_risk(
         ),
     )
     assert high.fraud_probability > low.fraud_probability
+
+
+def test_scorer_binds_persisted_feature_names_to_prediction_matrix(
+    fixture_model_dir: Path, make_rule_context: CtxFactory
+) -> None:
+    loaded = load_artifact(fixture_model_dir)
+    loaded.booster.feature_names = list(loaded.feature_spec.features)
+
+    class LoadedCache:
+        def get(self, _pointer: DeploymentPointer) -> LoadedArtifact:
+            return loaded
+
+    pointer = DeploymentPointer(active_version_label="named", active_artifact_uri="named")
+    output = Scorer(LoadedCache()).score(pointer, make_rule_context())  # type: ignore[arg-type]
+    assert 0.0 <= output.fraud_probability <= 1.0
 
 
 def test_scorer_rejects_unsatisfiable_feature_spec(

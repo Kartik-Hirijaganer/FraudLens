@@ -48,9 +48,11 @@ jobs:
 
   quality:
     # Cross-cutting checks that `make ci` includes but the per-stack jobs above do not:
-    # SUMMARY headers, secret scan, generated-doc freshness, duplication, LLM catalog, and the
-    # portfolio-demo literal guard (values derived from config/portfolio-demo.yaml must appear
-    # nowhere else). Lives here so every caller (PR, Renovate, release, deploy) enforces them.
+    # SUMMARY headers, physical-line ratchet, docs links, experiment budget/ledger, secret scan,
+    # generated-doc freshness, duplication, LLM catalog, portable vLLM harness coverage,
+    # and the portfolio-demo literal guard
+    # (values derived from config/portfolio-demo.yaml must appear nowhere else). Lives here so
+    # every caller (PR, Renovate, release, deploy) enforces them.
     name: quality
     runs-on: ubuntu-latest
     steps:
@@ -74,8 +76,68 @@ jobs:
           url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
           curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
-      - name: Cross-cutting checks (headers, secrets, docs, duplication, LLM catalog, tenancy, demo literals)
-        run: make header-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check
+      - name: Cross-cutting quality and governance checks
+        run: make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test
+
+  durable-postgres:
+    name: durable-postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fraudlens
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: fraudlens
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fraudlens -d fraudlens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
+      POSTGRES_TEST_DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --all-packages
+      - name: Apply migrations and run durable PostgreSQL gate
+        run: make db-migrate postgres-run-test
+
+  k8s-validate:
+    name: k8s-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up pinned kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.8
+      - name: Install pinned kubeconform
+        run: |
+          set -euo pipefail
+          archive="$(mktemp)"
+          curl -sSfL \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            -o "$archive"
+          echo "c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3  $archive" \
+            | sha256sum --check
+          sudo tar -xzf "$archive" -C /usr/local/bin kubeconform
+          kubeconform -v
+      - name: Install Python dependencies
+        run: uv sync --all-packages
+      - name: Validate Kubernetes manifests and harness
+        run: make k8s-validate k8s-demo-test
 
   docker-build:
     name: docker-build
@@ -97,8 +159,12 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-      - name: Terraform fmt -check + validate (dev + prod)
+      - name: Set up uv for Checkov
+        uses: astral-sh/setup-uv@v5
+      - name: Terraform fmt-check + validate (all roots)
         run: make tf-validate
+      - name: Scan ephemeral experiment IaC
+        run: make iac-scan
 
   deps-audit:
     # Dependency vulnerability gate (plan §16 Phase 13): pip-audit over the resolved Python

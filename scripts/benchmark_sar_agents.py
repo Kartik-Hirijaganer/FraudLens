@@ -22,7 +22,6 @@ import os
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -39,6 +38,7 @@ from lib.sar_eval.scenarios import (
     validate_alert_preflight,
     write_scenarios,
 )
+from lib.study.urls import validate_origin_url
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCENARIOS = "scenarios.json"
@@ -64,24 +64,11 @@ def _positive_decimal(value: str | None, name: str) -> Decimal:
 def _validated_base_url(value: str, *, loopback_http_hosts: tuple[str, ...]) -> str:
     """Allow bearer auth only over HTTPS, except explicit loopback development."""
     try:
-        parsed = urlsplit(value)
-        _port = parsed.port
+        return validate_origin_url(value, allow_http_hosts=loopback_http_hosts)
     except ValueError as exc:
-        raise ValueError("SAR_EVAL_BASE_URL must be a valid absolute URL") from exc
-    if (
-        not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-        or parsed.path not in {"", "/"}
-    ):
-        raise ValueError("SAR_EVAL_BASE_URL must be an origin without credentials or a path")
-    if parsed.scheme != "https" and not (
-        parsed.scheme == "http" and parsed.hostname in loopback_http_hosts
-    ):
-        raise ValueError("SAR_EVAL_BASE_URL must use HTTPS except for an explicit loopback origin")
-    return value.rstrip("/")
+        raise ValueError(
+            "SAR_EVAL_BASE_URL must be an HTTPS origin or configured loopback HTTP origin"
+        ) from exc
 
 
 def _run_dir(config_path: Path, run_id: str) -> Path:

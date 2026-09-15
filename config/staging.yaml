@@ -17,3 +17,10 @@ multi_agent_sar_enabled: false
 
 # Mirror prod: the baked FinCEN/BSA RAG index is required at readiness (§10.6).
 rag_index_required: true
+
+# Mirror prod's provider-neutral secret-delivery contract: shared service secrets are injected
+# from Infisical prod, while llmProvider verifies the active profile's API key. Names only.
+infisical_secrets_delivery: externally_injected
+infisical_required_env_keys:
+  - DATABASE_URL
+  - SUPABASE_SERVICE_ROLE_KEY

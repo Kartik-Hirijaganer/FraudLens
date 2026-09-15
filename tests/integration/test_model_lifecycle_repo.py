@@ -23,6 +23,7 @@ from fraudlens_backend.db.models import (
     ModelTrigger,
     ModelVersion,
     ModelVersionStatus,
+    RunStatus,
     TrainingDataset,
 )
 from fraudlens_backend.db.repositories import ModelLifecycleRepository
@@ -64,9 +65,18 @@ async def _make_candidate(
     return version
 
 
-async def _seeded_run_id(session: AsyncSession) -> uuid.UUID:
-    """Return one seeded analysis-run id (FK for inference logs)."""
-    return (await session.execute(select(AnalysisRun.id).limit(1))).scalar_one()
+async def _create_inference_run_id(
+    session: AsyncSession, *, transaction_id: uuid.UUID
+) -> uuid.UUID:
+    """Create one analysis run for a single inference log and return its id."""
+    run = AnalysisRun(
+        agency_id=DEMO_AGENCY_ID,
+        transaction_id=transaction_id,
+        status=RunStatus.COMPLETED,
+    )
+    session.add(run)
+    await session.flush()
+    return run.id
 
 
 async def test_matured_label_counts_balanced(db_session: AsyncSession) -> None:
@@ -185,14 +195,17 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
     await repo.promote_to_shadow(candidate)
     await repo.approve(candidate, approved_by=DEMO_ANALYST_ID)
     await repo.start_canary(candidate, percent=50, updated_by=DEMO_ANALYST_ID)
-    run_id = await _seeded_run_id(db_session)
+    transaction_id = (
+        await db_session.execute(select(AnalysisRun.transaction_id).limit(1))
+    ).scalar_one()
 
     base = datetime(2026, 1, 1, tzinfo=UTC)
     for index in range(4):
+        active_run_id = await _create_inference_run_id(db_session, transaction_id=transaction_id)
         db_session.add(
             ModelInferenceLog(
                 agency_id=DEMO_AGENCY_ID,
-                run_id=run_id,
+                run_id=active_run_id,
                 model_version_id=active_id,
                 was_canary=False,
                 fraud_probability=0.2,
@@ -200,10 +213,11 @@ async def test_canary_inference_stats_and_probabilities(db_session: AsyncSession
                 created_at=base + timedelta(seconds=index),
             )
         )
+        canary_run_id = await _create_inference_run_id(db_session, transaction_id=transaction_id)
         db_session.add(
             ModelInferenceLog(
                 agency_id=DEMO_AGENCY_ID,
-                run_id=run_id,
+                run_id=canary_run_id,
                 model_version_id=candidate.id,
                 was_canary=True,
                 fraud_probability=0.8,

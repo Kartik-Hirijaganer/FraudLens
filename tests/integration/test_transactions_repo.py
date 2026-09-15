@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import Agency
+from fraudlens_backend.db.models import Agency, TransactionSource
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.db.repositories.transactions import decode_cursor, encode_cursor
 from fraudlens_core import RiskBand, build_canonical
@@ -41,9 +41,10 @@ def _canonical(external_id: str, *, origin: str = "4111111111111111"):
 
 async def test_ingest_creates_then_dedups(db_session: AsyncSession) -> None:
     repo = TransactionRepository(db_session, await _agency(db_session))
-    first = await repo.ingest(_canonical("T1"))
+    first = await repo.ingest(_canonical("T1"), source=TransactionSource.SYNTHETIC_GENERATOR)
     second = await repo.ingest(_canonical("T1"))
     assert first.created is True
+    assert first.transaction.source is TransactionSource.SYNTHETIC_GENERATOR
     assert second.created is False
     assert second.transaction.id == first.transaction.id
 

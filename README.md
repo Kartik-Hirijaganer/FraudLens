@@ -58,8 +58,9 @@ secret outside source control.
   through regulatory retrieval and SAR drafting, avoiding unnecessary LLM work.
 - **Regulatory RAG** — retrieves versioned FinCEN/BSA context from ChromaDB, with a deterministic
   offline embedder for the default local demo and a guarded live embedding path as an opt-in.
-- **Governed SAR drafting** — produces masked, cited draft narratives through a versioned prompt,
-  strict output schema, citation grounding, budget guard, replay cache, and mock/live provider seam.
+- **Governed SAR drafting** — produces cited draft narratives through a provenance-derived,
+  synthetic-only model-input allowlist, versioned prompt, strict schema, citation grounding, budget
+  guard, replay cache, and mock/live provider seam.
 - **Analyst workflow** — exposes dashboards, transaction search, live investigation progress, alert
   review actions, SAR review, and role-aware navigation for analyst, reviewer, auditor, and admin
   responsibilities.
@@ -315,24 +316,98 @@ before using either live-service command.
   typing, branch coverage, changed-line coverage, tenancy checks, docs generation, duplication,
   secret scanning, dependency audits, Terraform validation, and container builds. →
   [Makefile](Makefile), [CI workflow](.github/workflows/ci.yml)
+- **SAR quality/privacy is thresholded and provider-free.** `make quality-gates` checks all 32
+  synthetic scenarios, adversarial unsupported claims, raw retry/fallback request bytes, and the
+  published study binding without network or credentials. →
+  [Quality gates](docs/reference/quality-gates.md),
+  [ADR-026](docs/architecture/adr/ADR-026-synthetic-only-model-egress.md)
+
+## Inference benchmark: vLLM + 4-bit AWQ
+
+The frozen study compares BF16 and AWQ-Marlin on the same GPU, image, model family, prompt, and
+1,000-case synthetic workload at concurrency 1, 8, and 32. The measured run used a temporary
+RunPod Secure Cloud RTX 4090 after the admission gate passed. The Pod and encrypted volume were
+deleted after export. AWQ is presented as an efficiency result, not a quality-equivalent default.
+
+<!-- AUTOGEN:vllm-benchmark -->
+| Cases | BF16 weight memory | AWQ weight memory | Reduction | Acceptance |
+| ---: | ---: | ---: | ---: | --- |
+| 1000 | 14.25 GiB | 5.20 GiB | 63.5% | not met |
+
+Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory by 63.5%; AWQ throughput higher by 60.8% at concurrency 32.
+<!-- /AUTOGEN:vllm-benchmark -->
+
+See the [protocol and operator runbook](docs/runbooks/vllm-benchmark.md) and
+[ADR-020](docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md).
+
+## Training at scale: 68.2M IBM transactions
+
+The public IBM source contains 68,228,066 rows across the three frozen inputs. That is the source
+row count, not the number of model-fitting rows: usability rules, whole-account temporal folds,
+calibration, and final holdout evaluation reduce the training population. The published aggregate
+records all three candidates, reconciliation counts, temporal folds, runtime, and projected cost.
+
+<!-- AUTOGEN:fulldata-training -->
+| Candidate | Source rows | Usable rows | Training rows | Holdout rows | PR-AUC | Gates |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| hi-small | 5078345 | 5054380 | 3032849 | 1010853 | 0.2632 | failed |
+| hi-medium | 31898238 | 31796234 | 19078362 | 6358506 | 0.3196 | passed |
+| li-medium | 31251483 | 31157276 | 18695899 | 6231386 | 0.0839 | failed |
+<!-- /AUTOGEN:fulldata-training -->
+
+See the [data-batch runbook](docs/runbooks/data-batch.md) and
+[model lifecycle](docs/runbooks/model-lifecycle.md#dataset-strategy).
+
+## Kubernetes deployment: AKS, Terraform, and HPA
+
+Release 0.3 proves the portable runtime on local kind and validates the AKS Terraform/workflow
+without applying it. The measured evidence is Kubernetes behavior on kind—not an observed AKS
+deployment. A human-approved, ephemeral AKS session is a release 0.4 step.
+
+<!-- AUTOGEN:k8s-benchmark -->
+| Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
+| --- | --- | ---: | ---: | ---: | ---: |
+| kind | 1 → 5 → 1 | 46 s | 91 s | 100/100 | 0 |
+<!-- /AUTOGEN:k8s-benchmark -->
+
+Evidence: [HPA and durable-worker report](docs/reference/benchmarks/k8s-hpa-scaling.md),
+[ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md), and the
+[AKS runbook](docs/runbooks/aks-deploy.md).
+
+## Quality and privacy gates
+
+Provider-free CI evaluates citation validity, required-fact coverage, abstention behavior,
+unsupported claims, model-egress byte safety, tenant isolation, secrets, attribution, and
+dependency/IaC posture. The alert review UI exposes the exact persisted, policy-projected model
+input; it never reconstructs prompts from raw browser data. Drafting failure is a durable
+`drafting-blocked` state, while risk and SHAP evidence remain available to the analyst.
+
+## Working with AI agents
+
+[`AGENTS.md`](AGENTS.md) is the contributor contract. Project skills are authored once under
+`.claude/skills/` and deterministically mirrored to `.agents/skills/`; `make docs-check` rejects
+drift. Agents may edit and verify, but cloud mutations, commits, pushes, tags, and releases remain
+human-authorized actions. AI authorship or co-author trailers are prohibited.
 
 ## Cloud deployment status
 
-FraudLens is **not currently hosted**. The repository contains the intended deployment topology so
-it can be reviewed and validated before any account is created, but workflows are inert until the
-required accounts, state backend, identities, and explicit enablement exist.
+FraudLens keeps application deployment separate from temporary research compute. The frontend and
+database exist; Azure application deployment remains deliberately disabled. RunPod was used only
+for the completed temporary NVIDIA benchmark and has no continuing FraudLens resources.
 
 | Surface | Intended target | Current status |
 | --- | --- | --- |
-| Backend API | Azure Container Apps + Azure Container Registry | Terraform/workflow scaffolded and validated; not applied or deployed |
-| Frontend | Vercel | Build/deploy workflow scaffolded; no hosted project |
-| Database | Supabase Postgres | Schema and live-local integration available; no hosted project provisioned for this application |
-| Artifact storage | Azure Blob Storage | Terraform scaffolded; not provisioned |
-| Secrets | Infisical Cloud | Active source of truth for local secret injection; future workloads use short-lived identity |
+| Backend API | Azure Container Apps + Azure Container Registry | Azure state/OIDC bootstrapped; deploy gate is disabled, so the app is not deployed |
+| Frontend | Vercel | Live; automated production deploy remains disabled |
+| Database | Supabase Postgres | Provisioned; credentials resolve only from Infisical |
+| AKS demonstration | Azure AKS | Terraform/workflow validate-only; HPA and durability measured on kind; apply is release 0.4 |
+| GPU benchmark VM | Temporary RunPod RTX 4090 | 6,000-request benchmark and 100-case application pass completed; Pod and encrypted volume deleted |
+| Data-batch VM | Temporary Azure CPU experiment | 68.2M-source-row aggregate published; resource group destroyed and clean teardown verified |
+| Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
 
-No workflow runs `terraform apply` or performs a cloud push until those prerequisites and explicit
-deployment gates are configured. See the [Azure deployment runbook](docs/runbooks/azure-deploy.md)
-and [deployment/rollback runbook](docs/runbooks/deploy-rollback.md) for the planned path.
+See the [Azure deployment runbook](docs/runbooks/azure-deploy.md), [paid-experiment ledger](docs/reference/experiments/ledger.md),
+and [deployment/rollback runbook](docs/runbooks/deploy-rollback.md). Future inference, retraining,
+or AKS sessions incur new cost and require fresh admission/approval.
 
 ## Project internals and reference
 
@@ -379,30 +454,37 @@ and the error envelope `{code, message, details, requestId}`.
 | Identity/admin | `/api/v1/me`, `/api/v1/users`, `/api/v1/config` | Current principal · invite user · system configuration |
 
 The committed machine-readable contract is
-[`docs/reference/generated/api/openapi.json`](docs/reference/generated/api/openapi.json). When the
-backend is running, use Swagger UI at `/docs` or ReDoc at `/redoc`.
+[`openapi.json`](docs/reference/generated/api/openapi.json), with an equivalent
+[`openapi.yaml`](docs/reference/generated/api/openapi.yaml) and a generated
+[`standalone Scalar reference`](docs/reference/generated/api/index.html). When the backend is
+running, use Swagger UI at `/docs`, ReDoc at `/redoc`, or Scalar at `/scalar`. For browser-based
+schema editing, upload `openapi.json` to [editor.swagger.io](https://editor.swagger.io/); do not
+send authenticated requests or secret-bearing examples to third-party tools.
 
 ### Developer commands
 
-The root [Makefile](Makefile) is the single source of truth; CI invokes the same targets.
+The root [Makefile](Makefile) is the single source of truth; CI invokes the same targets. This table
+is regenerated from its help text.
 
+<!-- AUTOGEN:make-targets -->
 | Command | What it does |
 | --- | --- |
-| `make install` | Reproduce the Python `uv` workspace and frontend npm dependencies |
-| `make run` | Reset generated local state, ingest/score IBM AML data, then run the full local app |
-| `make local-demo` | Start the local demo without first deleting the existing volume/state |
-| `make local-demo-down` | Stop and remove local containers while preserving volumes |
-| `make local-demo-reset` | Remove local containers, volumes, caches, artifacts, and downloaded dataset |
-| `make dev` | Print the standalone backend and frontend dev-server commands |
-| `make test` | Run backend pytest and frontend Vitest suites |
-| `make coverage` | Enforce at least 90% coverage for both stacks, with Python branch coverage |
-| `make pre-pr` | Format, regenerate docs, and run the shared code-quality CI umbrella |
-| `make pr-check` | Run the complete local PR preflight, including separate GitHub workflow checks |
-| `make docs` / `make docs-check` | Regenerate or verify headers, OpenAPI, ERD, and architecture regions |
-| `make deps-audit` | Run `pip-audit` and production npm dependency audit |
-| `make train-model` | Train/register a reproducible synthetic XGBoost candidate without activating it |
-| `make retrain` / `make drift-scan` | Run matured-label retraining or the advisory drift scan |
-| `make docker-build` / `make tf-validate` | Validate the backend image and inert Terraform scaffold locally |
+| `make install` | Install all dependencies (uv workspace + frontend npm ci). |
+| `make run` | Clean-reset generated state, ingest IBM AML, pipeline-score, then boot locally. |
+| `make local-demo` | Boot the IBM-backed local stack; fetches via Infisical /ml when absent. |
+| `make test` | Run tests for both stacks. |
+| `make coverage` | Run tests with ≥90% coverage gate. |
+| `make pre-pr` | Format, regenerate docs, then run the shared CI umbrella (writes). |
+| `make pr-check` | Complete local PR preflight; mirrors all applicable GitHub PR checks (writes). |
+| `make docs` | Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES). |
+| `make fulldata-pilot` | Run the approved bounded pilot (candidate + row target configurable). |
+| `make fulldata-validate` | Revalidate the committed full-data report/frontend hash binding. |
+| `make vllm-bench-validate` | Rebuild deterministic smoke cases and verify protocol/publication bindings. |
+| `make runpod-gpu-plan` | Check live Secure Cloud capacity and budget admission. |
+| `make kind-demo` | Build, deploy, smoke, prove HPA/durability, and always tear down local kind. |
+| `make k8s-validate` | Render and statically validate every Kubernetes platform surface. |
+| `make tf-validate` | Terraform fmt + validate (no backend) per discovered environment root. |
+<!-- /AUTOGEN:make-targets -->
 
 ## Security and governance
 
@@ -432,7 +514,7 @@ See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-gu
 | Security posture and PHI controls | [docs/runbooks/security.md](docs/runbooks/security.md) · [docs/runbooks/phi-guardrails.md](docs/runbooks/phi-guardrails.md) |
 | Database schema and tenancy | [docs/reference/database.md](docs/reference/database.md) |
 | Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
-| Generated OpenAPI | [docs/reference/generated/api/openapi.json](docs/reference/generated/api/openapi.json) |
+| Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |
 | Contributor/agent rules | [AGENTS.md](AGENTS.md) |
 | Implementation plans | [plans/](plans/) |
 

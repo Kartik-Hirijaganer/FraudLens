@@ -181,6 +181,51 @@ def test_dense_dual_role_frame_matches_scorer_including_v2_features() -> None:
         )
 
 
+def test_amount_windows_preserve_cents_after_large_account_totals() -> None:
+    """Exact cent prefixes prevent cross-account floating-point cancellation."""
+    frame = pd.DataFrame(
+        [
+            {
+                "Timestamp": "2022/09/01 00:00",
+                "From Bank": "10",
+                "Account": "LARGE",
+                "To Bank": "20",
+                "Account.1": "SINK",
+                "Amount Paid": "9000000000000000.00",
+                "Payment Currency": "US Dollar",
+                "Payment Format": "ACH",
+                "Is Laundering": "0",
+            },
+            {
+                "Timestamp": "2022/09/01 00:01",
+                "From Bank": "30",
+                "Account": "DEST",
+                "To Bank": "40",
+                "Account.1": "OTHER",
+                "Amount Paid": "20.29",
+                "Payment Currency": "US Dollar",
+                "Payment Format": "Wire",
+                "Is Laundering": "0",
+            },
+            {
+                "Timestamp": "2022/09/01 00:02",
+                "From Bank": "50",
+                "Account": "ORIGIN",
+                "To Bank": "30",
+                "Account.1": "DEST",
+                "Amount Paid": "1.00",
+                "Payment Currency": "US Dollar",
+                "Payment Format": "ACH",
+                "Is Laundering": "0",
+            },
+        ],
+        dtype=str,
+    )
+    features, _ = build_feature_matrix(frame, IBM_AML)
+    expected = extract_feature_vector(_context_for_row(frame, 2)).flatten()
+    np.testing.assert_allclose(features[2], expected, atol=1e-9)
+
+
 def test_history_cap_mirrors_online_most_recent_limit() -> None:
     """With a tiny cap the builder must agree with a capped online history, row for row."""
     frame = _dense_frame()

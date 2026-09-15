@@ -6,8 +6,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from fraudlens_backend.settings import AppSettings, find_config_dir
+from fraudlens_backend.settings import AppSettings, _config_anchored, find_config_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,10 +62,28 @@ def test_config_dir_override_is_honored(monkeypatch: pytest.MonkeyPatch) -> None
         assert find_config_dir() == Path(override_dir)
 
 
+def test_config_anchored_rejects_absolute_and_traversing_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    assert _config_anchored("llm/sar.yml") == REPO_ROOT / "config" / "llm" / "sar.yml"
+    with pytest.raises(ValueError, match="relative"):
+        _config_anchored(str(REPO_ROOT / "config" / "llm" / "sar.yml"))
+    with pytest.raises(ValueError, match="remain below"):
+        _config_anchored("../pyproject.toml")
+
+
 def test_dev_bypass_is_inert_in_prod() -> None:
     assert AppSettings(environment="prod", auth_dev_bypass=True).is_dev_bypass_enabled is False
     assert AppSettings(environment="dev", auth_dev_bypass=True).is_dev_bypass_enabled is True
     assert AppSettings(environment="dev", auth_dev_bypass=False).is_dev_bypass_enabled is False
+
+
+def test_durable_run_intervals_fail_closed() -> None:
+    with pytest.raises(ValidationError, match="shorter than the lease"):
+        AppSettings(run_lease_seconds=10, run_heartbeat_seconds=10)
+    with pytest.raises(ValidationError, match="poll maximum"):
+        AppSettings(run_event_poll_ms=500, run_event_poll_max_ms=499)
 
 
 def test_candidate_scoring_fallback_is_inert_in_prod() -> None:
@@ -103,6 +122,7 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.azure_arm_endpoint == ""
     assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
+    assert settings.sar_config_file == "llm/sar.yml"
     assert settings.rag_embedding_mode == "offline"
     assert settings.investigation_rag_min_similarity == 0.2
     assert settings.database_url is None
@@ -132,6 +152,36 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.azure_arm_endpoint.startswith("https://")
     assert settings.azure_arm_token_resource.startswith("https://")
     assert settings.azure_storage_token_resource.startswith("https://")
+
+
+def test_secret_delivery_defaults_to_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing is claimed by default, so the /readyz Infisical check stays informational."""
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    settings = AppSettings(environment="dev")
+    assert settings.infisical_secrets_delivery == "unconfigured"
+    assert settings.infisical_required_env_keys == []
+
+
+def test_injected_secret_delivery_requires_at_least_one_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declaring injection with nothing to verify is rejected at boot (fails closed)."""
+    monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
+    with pytest.raises(ValidationError, match="infisical_required_env_keys"):
+        AppSettings(environment="dev", infisical_secrets_delivery="externally_injected")
+
+
+def test_prod_overlay_declares_verifiable_secret_injection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """config/prod.yaml must make the live-mode Infisical readiness check satisfiable."""
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    settings = AppSettings()
+    assert settings.infisical_secrets_delivery == "externally_injected"
+    assert "DATABASE_URL" in settings.infisical_required_env_keys
+    # Names only — an overlay may never carry a secret VALUE (Golden Rule 3).
+    assert all(key.isupper() for key in settings.infisical_required_env_keys)
 
 
 def test_database_url_read_from_unprefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:

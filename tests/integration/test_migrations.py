@@ -57,6 +57,26 @@ def test_upgrade_columns_match_models(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_durable_stage_uniqueness_matches_restart_contract(tmp_path: Path) -> None:
+    db_path = tmp_path / "run-stage-uniqueness.db"
+    command.upgrade(_config(f"sqlite+aiosqlite:///{db_path}"), "head")
+    engine = create_engine(f"sqlite:///{db_path}")
+    expected = {
+        "alerts": frozenset({"run_id"}),
+        "model_inference_logs": frozenset({"run_id"}),
+        "sar_drafts": frozenset({"run_id", "version"}),
+    }
+    try:
+        inspector = inspect(engine)
+        for table, columns in expected.items():
+            assert columns in {
+                frozenset(constraint["column_names"])
+                for constraint in inspector.get_unique_constraints(table)
+            }
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_drops_every_model_table(tmp_path: Path) -> None:
     db_path = tmp_path / "downgrade.db"
     cfg = _config(f"sqlite+aiosqlite:///{db_path}")
@@ -205,7 +225,127 @@ def test_transaction_text_migration_matches_and_restores_request_bounds(tmp_path
         engine.dispose()
 
 
+def test_transaction_source_and_sar_quality_migration_backfill_and_downgrade(
+    tmp_path: Path,
+) -> None:
+    """Known IBM rows backfill while SARs evaluate; both additive fields reverse cleanly."""
+    db_path = tmp_path / "egress-provenance.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "0007_transaction_text_lengths")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """INSERT INTO transactions
+                    (external_id, amount, currency, occurred_at, origin_account, dest_account,
+                     channel, country, features, feature_hash, agency_id, id)
+                    VALUES ('IBM-1', 100, 'USD', CURRENT_TIMESTAMP, 'subject', 'counterparty',
+                            'wire', 'US', '{"dataset_source":"ibm-aml"}', :hash, :agency, :id)"""
+                ),
+                {"hash": "a" * 64, "agency": "1" * 32, "id": "2" * 32},
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO sar_drafts
+                    (run_id, version, model_id, prompt_version, prompt_hash, workflow,
+                     revision_count, content, structured, citations, status, token_usage,
+                     cost_usd, agency_id, id)
+                    VALUES (:run, 1, 'mock', 'v1', :hash, 'single_writer', 0, '', '{}', '[]',
+                            'draft', '{}', 0, :agency, :id)"""
+                ),
+                {
+                    "run": "3" * 32,
+                    "hash": "b" * 64,
+                    "agency": "1" * 32,
+                    "id": "4" * 32,
+                },
+            )
+        command.upgrade(cfg, "head")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT source FROM transactions")).scalar_one() == (
+                "ibm-aml-synthetic"
+            )
+            assert (
+                connection.execute(text("SELECT quality_status FROM sar_drafts")).scalar_one()
+                == "evaluated"
+            )
+        assert any(
+            "source" in str(item["sqltext"])
+            for item in inspect(engine).get_check_constraints("transactions")
+        )
+        assert any(
+            "quality_status" in str(item["sqltext"])
+            for item in inspect(engine).get_check_constraints("sar_drafts")
+        )
+
+        command.downgrade(cfg, "0007_transaction_text_lengths")
+        assert "source" not in {
+            column["name"] for column in inspect(engine).get_columns("transactions")
+        }
+        assert "quality_status" not in {
+            column["name"] for column in inspect(engine).get_columns("sar_drafts")
+        }
+    finally:
+        engine.dispose()
+
+
 def test_exactly_one_alembic_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite+aiosqlite:///unused.db"))
     assert len(script.get_heads()) == 1
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
+
+
+def test_run_lease_migration_backfills_counters_and_downgrades(tmp_path: Path) -> None:
+    """Existing inline runs receive zeroed counters while nullable queue state stays empty."""
+    db_path = tmp_path / "run-leases.db"
+    cfg = _config(f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, "0008_transaction_source")
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO agencies (name, slug, id) VALUES ('A', 'a', :agency)"),
+                {"agency": "1" * 32},
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO transactions
+                    (external_id, amount, currency, occurred_at, origin_account, dest_account,
+                     channel, country, features, feature_hash, source, agency_id, id)
+                    VALUES ('T', 1, 'USD', CURRENT_TIMESTAMP, 'masked-a', 'masked-b', 'wire',
+                            'US', '{}', :hash, 'unknown', :agency, :transaction)"""
+                ),
+                {"hash": "a" * 64, "agency": "1" * 32, "transaction": "2" * 32},
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO analysis_runs
+                    (transaction_id, status, workflow_mode, agency_id, id)
+                    VALUES (:transaction, 'running', 'single_writer', :agency, :run)"""
+                ),
+                {"transaction": "2" * 32, "agency": "1" * 32, "run": "3" * 32},
+            )
+        command.upgrade(cfg, "head")
+        columns = {item["name"] for item in inspect(engine).get_columns("analysis_runs")}
+        assert {
+            "request_fingerprint",
+            "model_override",
+            "lease_owner",
+            "lease_expires_at",
+            "heartbeat_at",
+            "attempt",
+            "next_attempt_at",
+            "deadline_at",
+            "fencing_token",
+        }.issubset(columns)
+        with engine.connect() as connection:
+            counters = connection.execute(
+                text("SELECT attempt, fencing_token FROM analysis_runs")
+            ).one()
+        assert counters == (0, 0)
+        command.downgrade(cfg, "0008_transaction_source")
+        downgraded = {item["name"] for item in inspect(engine).get_columns("analysis_runs")}
+        assert "lease_owner" not in downgraded and "fencing_token" not in downgraded
+    finally:
+        engine.dispose()

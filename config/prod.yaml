@@ -26,3 +26,14 @@ azure_storage_token_resource: "https://storage.azure.com/"
 # The FinCEN/BSA RAG index is baked into the image; require it at readiness so a broken
 # deploy (missing/empty index) fails /readyz instead of serving without citations (§10.6).
 rag_index_required: true
+
+# Secret delivery contract. The service never calls Infisical: the deploy platform injects
+# the prod runtime secrets as process environment, so readiness VERIFIES the injection
+# instead of probing app.infisical.com (which would tie pod readiness to an unrelated SaaS and
+# still prove nothing). The active llmProvider probe separately verifies its profile-selected API
+# key, so this provider-neutral list contains only shared service secrets. A failed secret sync
+# leaves a name unset → /readyz 503. Names only — values stay in Infisical prod (Golden Rule 3).
+infisical_secrets_delivery: externally_injected
+infisical_required_env_keys:
+  - DATABASE_URL
+  - SUPABASE_SERVICE_ROLE_KEY

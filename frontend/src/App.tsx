@@ -41,6 +41,7 @@ import { usePortfolioDemoPersonas } from "./lib/portfolioDemo";
 // its research view is opened — the rest of the app never pulls either build-time data import.
 const ResearchRoute = lazy(() => import("./pages/ResearchRoute"));
 const SarEvalStudyRoute = lazy(() => import("./pages/SarEvalStudyRoute"));
+const InferenceBenchmarkRoute = lazy(() => import("./pages/InferenceBenchmarkRoute"));
 import { paths, useHashRoute, type Route } from "./lib/router";
 import {
   hasPermission,
@@ -82,6 +83,12 @@ const SIDEBAR: NavGroup[] = [
   {
     heading: "Research",
     items: [
+      {
+        label: "Inference benchmark",
+        href: paths.researchInferenceBenchmark,
+        permission: "view",
+        isActive: (r) => r.name === "researchInferenceBenchmark",
+      },
       {
         label: "Graph typologies",
         href: paths.researchGraphTypologies,
@@ -147,6 +154,12 @@ function renderRoute(route: Route, session: Session) {
           <SarEvalStudyRoute />
         </Suspense>
       );
+    case "researchInferenceBenchmark":
+      return (
+        <Suspense fallback={<Spinner label="Loading research…" />}>
+          <InferenceBenchmarkRoute />
+        </Suspense>
+      );
     default:
       return (
         <EmptyState title="Page not found" description="The link you followed doesn't exist." />
@@ -178,7 +191,7 @@ export function App() {
               <span className="font-display text-display-xs text-ink">FraudLens</span>
             </a>
             <div className="gap-md flex items-center">
-              <span className="text-caption text-mute">{roleLabel(session.role)}</span>
+              <span className="text-caption text-body">{roleLabel(session.role)}</span>
               <span className="h-2xl w-2xl bg-primary-neutral text-ink-deep text-caption flex items-center justify-center rounded-full font-semibold">
                 {session.analyst.initials}
               </span>
@@ -206,7 +219,7 @@ export function App() {
                 .filter((group) => group.items.length > 0)
                 .map((group) => (
                   <div key={group.heading} className="gap-xxs flex flex-col">
-                    <p className="text-caption text-mute px-lg py-xs font-semibold uppercase tracking-wide">
+                    <p className="text-caption text-body px-lg py-xs font-semibold uppercase tracking-wide">
                       {group.heading}
                     </p>
                     {group.items.map((item) => {

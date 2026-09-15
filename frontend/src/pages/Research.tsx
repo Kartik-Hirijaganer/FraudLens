@@ -14,12 +14,11 @@
  * so colour is never load-bearing.
  *
  * Key classes:
- * - ResearchProps: the committed study data + the viewer's verified agency index.
+ * - (none)
  *
  * Key functions:
  * - ADR_017_HREF: bundle the canonical ADR text into a UTF-8 browser-readable URL.
  * - Research: render the finding, metric hero, banner, motif tabs, scope control, graph, panels.
- * - RESEARCH_PATH: the canonical hash route for the research page.
  *
  * Notes:
  * - The isolation-delta copy says "isolation delta" and only "cost of isolation" when the
@@ -37,20 +36,28 @@
 import { useMemo, useState } from "react";
 
 import adr017Text from "../../../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md?raw";
-import {
-  MotifGraph,
-  type EdgeView,
-  type GraphSelection,
-  type NodeView,
-} from "../components/MotifGraph";
+import { type EdgeView, type GraphSelection, type NodeView } from "../components/MotifGraph";
 import { StatTile } from "../components/ui/StatTile";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { PageHeader } from "../components/ui/PageHeader";
 import { agencyStyle } from "../lib/agencyStyle";
-import { cx } from "../lib/cx";
 import { layoutGraph } from "../lib/graphLayout";
 import { TYPOLOGIES, type GfpStudyData, type Typology } from "../lib/gfpStudy";
-import { paths } from "../lib/router";
+import { ResearchGraphCanvas } from "./ResearchGraphCanvas";
+import {
+  PARALLEL_EDGE_LABEL_OFFSET,
+  SINGLE_EDGE_LABEL_OFFSET,
+  TYPOLOGY_LABELS,
+  type Scope,
+  accountReference,
+  accountRole,
+  clampAgency,
+  edgePair,
+  formatRelativeTime,
+  headlineFinding,
+  signed,
+  syntheticAccountNumber,
+} from "./researchGraphLabels";
 
 function createAdrHref(): string {
   if (typeof URL.createObjectURL === "function") {
@@ -61,120 +68,7 @@ function createAdrHref(): string {
 
 export const ADR_017_HREF = createAdrHref();
 
-const TYPOLOGY_LABELS: Record<Typology, string> = {
-  scatter_gather: "Scatter–gather",
-  intra_tenant_cycle: "Intra-tenant cycle",
-  cross_tenant_cycle: "Cross-tenant cycle",
-};
-
-type Scope = "global" | "tenant";
-
-const SECONDS_PER_MINUTE = 60;
-const MINUTES_PER_HOUR = 60;
-const ACCOUNT_INSTITUTION_WIDTH = 6;
-const ACCOUNT_GROUP_WIDTH = 4;
-const ACCOUNT_INSTITUTION_BASE = 361_187;
-const ACCOUNT_INSTITUTION_STEP = 111_111;
-const ACCOUNT_SUFFIX_MODULUS = 10_000;
-const ACCOUNT_PRODUCT_GROUPS = "3828 2049";
-const SINGLE_EDGE_LABEL_OFFSET = 16;
-const PARALLEL_EDGE_LABEL_OFFSET = 24;
-
-type MotifEdges = GfpStudyData["motifs"][number]["edges"];
-
-function signed(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
-}
-
-// Shorter precision for the plain-language finding: four decimals read as noise in a sentence.
-function signedShort(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(3)}`;
-}
-
-function formatRelativeTime(offsetSeconds: number): string {
-  const totalSeconds = Math.max(0, Math.floor(offsetSeconds));
-  const hours = Math.floor(totalSeconds / (SECONDS_PER_MINUTE * MINUTES_PER_HOUR));
-  const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE) % MINUTES_PER_HOUR;
-  const seconds = totalSeconds % SECONDS_PER_MINUTE;
-
-  if (hours > 0) {
-    return `${hours}h ${String(minutes).padStart(2, "0")}m later`;
-  }
-  if (minutes > 0) {
-    return seconds > 0 ? `${minutes}m ${seconds}s later` : `${minutes}m later`;
-  }
-  return seconds > 0 ? `${seconds}s later` : "Starts here";
-}
-
-function syntheticAccountNumber(agencyIndex: number, nodeIndex: number): string {
-  const institution = String(
-    (ACCOUNT_INSTITUTION_BASE + agencyIndex * ACCOUNT_INSTITUTION_STEP) % 1_000_000,
-  ).padStart(ACCOUNT_INSTITUTION_WIDTH, "0");
-  const suffix = String(nodeIndex % ACCOUNT_SUFFIX_MODULUS).padStart(ACCOUNT_GROUP_WIDTH, "0");
-  return `${institution} ${ACCOUNT_PRODUCT_GROUPS} ${suffix}`;
-}
-
-function accountReference(accountNumber: string): string {
-  return `•••• ${accountNumber.slice(-ACCOUNT_GROUP_WIDTH)}`;
-}
-
-function accountRole(nodeId: string, edges: MotifEdges): string {
-  const incoming = edges.filter((edge) => edge.targetNodeId === nodeId).length;
-  const outgoing = edges.filter((edge) => edge.sourceNodeId === nodeId).length;
-
-  if (incoming === 0 && outgoing > 1) {
-    return "Scatter origin";
-  }
-  if (incoming > 1) {
-    return "Convergence";
-  }
-  if (incoming > 0 && outgoing > 0) {
-    return "Relay";
-  }
-  if (outgoing > 0) {
-    return "Origin";
-  }
-  if (incoming > 0) {
-    return "Destination";
-  }
-  return "Account";
-}
-
-function edgePair(sourceNodeId: string, targetNodeId: string): string {
-  return [sourceNodeId, targetNodeId].sort().join("::");
-}
-
-/**
- * Build the study's headline finding as one plain sentence, DERIVED from the metrics.
- *
- * The four tiles below it lead with PR-AUC and a normalized multiple, which a non-ML reader cannot
- * turn into a conclusion. The conclusion is the relationship between two of them: the graph lift is
- * large, and almost none of it needs a cross-tenant graph. Every number here is read from the
- * artifact, and the wording follows the sign of the measured values rather than assuming the
- * favourable result — a zero or negative isolation delta is a valid outcome (ADR-017).
- */
-function headlineFinding(metrics: GfpStudyData["metrics"]): string {
-  const lift = `Multi-hop graph features move holdout PR-AUC by ${signedShort(metrics.armAToCLift)}`;
-  if (metrics.isolationDeltaC > 0) {
-    return (
-      `${lift}. Only ${signedShort(metrics.isolationDeltaC)} of that depends on seeing across ` +
-      `tenant boundaries — so FraudLens declines to cross them, at almost none of the benefit.`
-    );
-  }
-  return (
-    `${lift}. Restricting the graph to a single tenant costs nothing measurable ` +
-    `(${signedShort(metrics.isolationDeltaC)}), so the isolation boundary is free here.`
-  );
-}
-
-function clampAgency(index: number | null, count: number): number {
-  if (index === null || index < 0 || index >= count) {
-    return 0;
-  }
-  return index;
-}
-
-export interface ResearchProps {
+interface ResearchProps {
   data: GfpStudyData;
   // The viewer's verified agency index within the study, or null when it is not a demo agency.
   viewerAgencyIndex: number | null;
@@ -397,224 +291,25 @@ export function Research({ data, viewerAgencyIndex }: ResearchProps) {
           </p>
         </div>
 
-        <div className="gap-xl flex flex-col lg:flex-row">
-          <div className="bg-canvas-soft grow overflow-x-auto rounded-lg">
-            <MotifGraph
-              titleId="motif-graph-title"
-              descId="motif-graph-desc"
-              title={`${TYPOLOGY_LABELS[motif.typology]} — ${scope === "global" ? "global" : tenantName} view`}
-              description={description}
-              width={layout.width}
-              height={layout.height}
-              nodes={nodeViews}
-              edges={edgeViews}
-              selected={selected}
-              onSelect={setSelected}
-            />
-          </div>
-
-          <aside className="gap-lg flex shrink-0 flex-col lg:w-[280px]">
-            <div className="gap-sm flex flex-col">
-              <h2 className="text-caption text-mute font-semibold uppercase tracking-wide">
-                Agencies
-              </h2>
-              <ul aria-label="Agencies" className="gap-xs flex flex-col">
-                {motifAgencies.map((index) => (
-                  <li key={index} className="gap-sm text-body-sm text-body flex items-center">
-                    <span
-                      aria-hidden="true"
-                      className={cx("size-md rounded-sm", agencyStyle(index).swatch)}
-                    />
-                    <span className="text-ink font-semibold">{agencyStyle(index).letter}</span>
-                    <span>{agencyName(index)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-caption text-mute">
-                {scope === "global"
-                  ? "Arrowheads show money direction; global scope shows every agency's transfer as solid."
-                  : `Arrowheads show money direction · solid = owned by ${tenantName} · dashed = unavailable to this tenant.`}
-              </p>
-              {/* Anchors the study to the app the reader is signed into WITHOUT claiming a
-                  partition is a tenant: these are offline analysis partitions, and the runtime
-                  demo agency declares which one it mirrors (`agency.research_partition_key`). */}
-              <p className="text-caption text-mute" data-testid="partition-anchor">
-                <span className="text-ink font-semibold">
-                  {agencyStyle(tenantIndex).letter} · {tenantName}
-                </span>{" "}
-                is the offline study partition the agency you are signed into mirrors. Partitions
-                are an analysis concept — only one runtime tenant exists.
-              </p>
-            </div>
-
-            <div className="gap-sm flex flex-col">
-              <h2 className="text-caption text-mute font-semibold uppercase tracking-wide">
-                Account key
-              </h2>
-              <ul aria-label="Account key" className="gap-sm flex flex-col">
-                {nodeViews.map((node) => (
-                  <li key={node.id} className="bg-canvas-soft p-sm rounded-sm">
-                    <div className="gap-sm text-caption text-body flex items-center">
-                      <span className="text-ink font-semibold">
-                        {agencyStyle(node.agencyIndex).letter}
-                      </span>
-                      <span className="grow">{node.role}</span>
-                      <span className="text-mute font-mono">{node.accountReference}</span>
-                    </div>
-                    <p className="text-caption text-ink mt-xs font-mono">{node.accountNumber}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="gap-sm border-canvas-soft p-lg flex flex-col rounded-lg border">
-              <h2 className="text-caption text-mute font-semibold uppercase tracking-wide">
-                Detail
-              </h2>
-              <DetailBody
-                selected={selected}
-                nodeViews={nodeViews}
-                edgeViews={edgeViews}
-                motifServable={motif.servable}
-                motifOwnerName={motifOwnerName}
-                scope={scope}
-                tenantName={tenantName}
-                ghostCount={ghostCount}
-              />
-            </div>
-          </aside>
-        </div>
-
-        <details className="text-body-sm text-body">
-          <summary className="text-ink cursor-pointer font-semibold">
-            Text alternative — nodes and edges
-          </summary>
-          <div className="gap-lg mt-md flex flex-col lg:flex-row">
-            <table className="grow text-left">
-              <caption className="text-caption text-mute mb-xs text-left">Accounts</caption>
-              <thead>
-                <tr className="text-caption text-mute">
-                  <th scope="col" className="pr-lg">
-                    Node
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    Synthetic account
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    Role
-                  </th>
-                  <th scope="col">Agency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nodeViews.map((node) => (
-                  <tr key={node.id}>
-                    <td className="pr-lg">{node.id}</td>
-                    <td className="pr-lg whitespace-nowrap font-mono">{node.accountNumber}</td>
-                    <td className="pr-lg">{node.role}</td>
-                    <td>{agencyName(node.agencyIndex)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <table className="grow text-left">
-              <caption className="text-caption text-mute mb-xs text-left">Transfers</caption>
-              <thead>
-                <tr className="text-caption text-mute">
-                  <th scope="col" className="pr-lg">
-                    Edge
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    Order / time
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    From
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    To
-                  </th>
-                  <th scope="col" className="pr-lg">
-                    Owner
-                  </th>
-                  <th scope="col">Visible</th>
-                </tr>
-              </thead>
-              <tbody>
-                {edgeViews.map((edge) => (
-                  <tr key={edge.id}>
-                    <td className="pr-lg">{edge.id}</td>
-                    <td className="pr-lg whitespace-nowrap">
-                      #{edge.sequence} · {edge.relativeTime}
-                    </td>
-                    <td className="pr-lg whitespace-nowrap font-mono">
-                      {edge.sourceAccountNumber}
-                    </td>
-                    <td className="pr-lg whitespace-nowrap font-mono">
-                      {edge.targetAccountNumber}
-                    </td>
-                    <td className="pr-lg">{agencyName(edge.ownerAgencyIndex)}</td>
-                    <td>{edge.present ? "yes" : "unavailable"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <ResearchGraphCanvas
+          title={`${TYPOLOGY_LABELS[motif.typology]} — ${scope === "global" ? "global" : tenantName} view`}
+          description={description}
+          width={layout.width}
+          height={layout.height}
+          nodeViews={nodeViews}
+          edgeViews={edgeViews}
+          selected={selected}
+          onSelect={setSelected}
+          motifAgencies={motifAgencies}
+          agencyName={agencyName}
+          tenantIndex={tenantIndex}
+          tenantName={tenantName}
+          scope={scope}
+          motifServable={motif.servable}
+          motifOwnerName={motifOwnerName}
+          ghostCount={ghostCount}
+        />
       </section>
     </div>
   );
 }
-
-interface DetailBodyProps {
-  selected: GraphSelection;
-  nodeViews: NodeView[];
-  edgeViews: EdgeView[];
-  motifServable: boolean;
-  motifOwnerName: string | null;
-  scope: Scope;
-  tenantName: string;
-  ghostCount: number;
-}
-
-function DetailBody({
-  selected,
-  nodeViews,
-  edgeViews,
-  motifServable,
-  motifOwnerName,
-  scope,
-  tenantName,
-  ghostCount,
-}: DetailBodyProps) {
-  if (selected?.kind === "node") {
-    const node = nodeViews.find((candidate) => candidate.id === selected.id);
-    if (node) {
-      return <p className="text-body-sm text-body">{node.label}</p>;
-    }
-  }
-  if (selected?.kind === "edge") {
-    const edge = edgeViews.find((candidate) => candidate.id === selected.id);
-    if (edge) {
-      return <p className="text-body-sm text-body">{edge.label}</p>;
-    }
-  }
-  if (motifServable && scope === "tenant") {
-    return (
-      <p className="text-body-sm text-body">
-        {ghostCount === 0
-          ? `Every edge is owned by ${tenantName}; this motif survives the isolation boundary.`
-          : `Every edge is owned by ${motifOwnerName ?? "one agency"}; ${tenantName} cannot see this motif in its isolated graph.`}
-      </p>
-    );
-  }
-  return (
-    <p className="text-body-sm text-body">
-      {motifServable
-        ? `Every edge is owned by ${motifOwnerName ?? "one agency"}; the motif is servable within that single agency.`
-        : "This motif spans multiple tenants, so no single agency can see it — the point of the isolation boundary. Select a node or edge for detail."}
-    </p>
-  );
-}
-
-// Keep the canonical route href importable alongside the page (rule 5: one source of truth).
-export const RESEARCH_PATH = paths.researchGraphTypologies;

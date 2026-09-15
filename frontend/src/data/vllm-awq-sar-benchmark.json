@@ -1,0 +1,396 @@
+{
+  "acceptanceMet": false,
+  "arms": [
+    {
+      "arm": "bf16",
+      "levels": [
+        {
+          "concurrency": 1,
+          "costPer1000DraftsUsd": 1.7221823803388887,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 1.7221823803388887
+          },
+          "costUsd": 1.7221823803388887,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 1.7221823803388887
+          },
+          "durationSeconds": 8378.184553,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 59.28253273224358,
+          "latencyP50Ms": 8299.172909930348,
+          "latencyP95Ms": 10738.9440913219,
+          "latencyP99Ms": 11921.364155532792,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.885,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 53,
+            "referenceValidity": 0.9808333333333333,
+            "requiredFactCoverage": 0.9304166666666667,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 747
+          },
+          "requests": 1000,
+          "requestsPerSecond": 0.11935759992800914,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 95.07691308301936,
+            "gpuUtilizationP95Pct": 96.0,
+            "kvCachePeakPct": 1.7684264876726474,
+            "memoryPeakMib": 22937.0,
+            "queuePeak": 1.0,
+            "samples": 7697
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 113.3719882927835,
+          "ttftP95Ms": 147.70755763165653,
+          "usefulDraftsPerSecond": 0.08916012714622283
+        },
+        {
+          "concurrency": 8,
+          "costPer1000DraftsUsd": 0.2546823939444444,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.2546823939444444
+          },
+          "costUsd": 0.2546823939444444,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.2546823939444444
+          },
+          "durationSeconds": 1238.99543,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 399.90865825873146,
+          "latencyP50Ms": 9732.324475888163,
+          "latencyP95Ms": 12527.918080426753,
+          "latencyP99Ms": 13743.091830275951,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.8829166666666667,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 50,
+            "referenceValidity": 0.9824166666666667,
+            "requiredFactCoverage": 0.9324666666666667,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 758
+          },
+          "requests": 1000,
+          "requestsPerSecond": 0.8071054789927676,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 92.8804920913884,
+            "gpuUtilizationP95Pct": 97.0,
+            "kvCachePeakPct": 10.584742480960374,
+            "memoryPeakMib": 22694.0,
+            "queuePeak": 0.0,
+            "samples": 1138
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 120.50292221829295,
+          "ttftP95Ms": 169.93953897617757,
+          "usefulDraftsPerSecond": 0.6117859530765178
+        },
+        {
+          "concurrency": 32,
+          "costPer1000DraftsUsd": 0.09866330912222222,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.09866330912222222
+          },
+          "costUsd": 0.09866330912222222,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.09866330912222222
+          },
+          "durationSeconds": 479.983666,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 1037.5394732703257,
+          "latencyP50Ms": 15036.29216691479,
+          "latencyP95Ms": 19425.521181244403,
+          "latencyP99Ms": 21307.052215030417,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.8864166666666666,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 59,
+            "referenceValidity": 0.9795833333333334,
+            "requiredFactCoverage": 0.93135,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 745
+          },
+          "requests": 1000,
+          "requestsPerSecond": 2.0834042298431044,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 88.74259681093395,
+            "gpuUtilizationP95Pct": 99.09999999999997,
+            "kvCachePeakPct": 39.8089583064412,
+            "memoryPeakMib": 22698.0,
+            "queuePeak": 22.0,
+            "samples": 439
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 159.71132647246122,
+          "ttftP95Ms": 293.6582014430314,
+          "usefulDraftsPerSecond": 1.5521361512331129
+        }
+      ],
+      "quality": {
+        "abstentionCorrectness": 1.0,
+        "citationRecall": 0.8872549019607843,
+        "evaluated": 1020,
+        "fabricatedReferenceAttempts": 53,
+        "referenceValidity": 0.9812091503267973,
+        "requiredFactCoverage": 0.9290196078431372,
+        "schemaValidRate": 1.0,
+        "truncationRate": 0.0,
+        "unsupportedClaimFlags": 0,
+        "usefulCount": 759
+      },
+      "server": {
+        "arm": "bf16",
+        "driverVersion": "580.159.04",
+        "gpuName": "NVIDIA GeForce RTX 4090",
+        "hostKey": "runpod-rtx4090",
+        "hourlyRateUsd": 0.74,
+        "image": "vllm/vllm-openai:v0.10.2",
+        "imageDigest": "sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6",
+        "kvCacheTokens": 123968,
+        "maximumConcurrency": 15.13,
+        "model": "Qwen/Qwen2.5-7B-Instruct",
+        "modelRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+        "priceSourceUrl": "https://www.runpod.io/pricing",
+        "priceVerifiedAt": "2026-09-14",
+        "provider": "runpod",
+        "purchaseOption": "pay_as_you_go",
+        "region": "secure-cloud",
+        "safetensorsTotalGib": 14.19,
+        "sku": "NVIDIA GeForce RTX 4090",
+        "tokenizer": "Qwen/Qwen2.5-7B-Instruct",
+        "tokenizerRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+        "vllmVersion": "v0.10.2",
+        "weightMemoryGib": 14.2488
+      },
+      "totalCostUsd": 2.0755280834055556
+    },
+    {
+      "arm": "awq",
+      "levels": [
+        {
+          "concurrency": 1,
+          "costPer1000DraftsUsd": 0.6563698733055556,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.6563698733055556
+          },
+          "costUsd": 0.6563698733055556,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.6563698733055556
+          },
+          "durationSeconds": 3193.150735,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 140.61252889773147,
+          "latencyP50Ms": 3121.768386568874,
+          "latencyP95Ms": 4173.654205678031,
+          "latencyP99Ms": 4578.278771219775,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.761,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 294,
+            "referenceValidity": 0.8359166666666666,
+            "requiredFactCoverage": 0.8590166666666667,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 422
+          },
+          "requests": 1000,
+          "requestsPerSecond": 0.31317030825981346,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 87.72776831345826,
+            "gpuUtilizationP95Pct": 88.0,
+            "kvCachePeakPct": 0.714207829026281,
+            "memoryPeakMib": 23001.0,
+            "queuePeak": 1.0,
+            "samples": 2935
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 111.63055198267102,
+          "ttftP95Ms": 147.8458171710372,
+          "usefulDraftsPerSecond": 0.13215787008564128
+        },
+        {
+          "concurrency": 8,
+          "costPer1000DraftsUsd": 0.11748470263333333,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.11748470263333333
+          },
+          "costUsd": 0.11748470263333333,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.11748470263333333
+          },
+          "durationSeconds": 571.547202,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 786.5054687119263,
+          "latencyP50Ms": 4454.295912757516,
+          "latencyP95Ms": 5868.638504575938,
+          "latencyP99Ms": 6481.610794179141,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.76625,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 286,
+            "referenceValidity": 0.8428333333333333,
+            "requiredFactCoverage": 0.8582,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 425
+          },
+          "requests": 1000,
+          "requestsPerSecond": 1.7496367692829682,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 85.98857142857143,
+            "gpuUtilizationP95Pct": 97.0,
+            "kvCachePeakPct": 4.356122560244247,
+            "memoryPeakMib": 22758.0,
+            "queuePeak": 0.0,
+            "samples": 525
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 117.83919436857104,
+          "ttftP95Ms": 185.84821727126834,
+          "usefulDraftsPerSecond": 0.7435956269452615
+        },
+        {
+          "concurrency": 32,
+          "costPer1000DraftsUsd": 0.06134990637777778,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.06134990637777778
+          },
+          "costUsd": 0.06134990637777777,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.06134990637777777
+          },
+          "durationSeconds": 298.459004,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 1496.0547144357556,
+          "latencyP50Ms": 9329.177731182426,
+          "latencyP95Ms": 12372.645258670673,
+          "latencyP99Ms": 13542.784460866824,
+          "quality": {
+            "abstentionCorrectness": 1.0,
+            "citationRecall": 0.757,
+            "evaluated": 1000,
+            "fabricatedReferenceAttempts": 305,
+            "referenceValidity": 0.83175,
+            "requiredFactCoverage": 0.8571166666666666,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 400
+          },
+          "requests": 1000,
+          "requestsPerSecond": 3.3505439159074593,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 83.3970588235294,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": 16.404972194962387,
+            "memoryPeakMib": 23149.0,
+            "queuePeak": 22.0,
+            "samples": 272
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 152.9699955135584,
+          "ttftP95Ms": 315.43652219697816,
+          "usefulDraftsPerSecond": 1.3402175663629836
+        }
+      ],
+      "quality": {
+        "abstentionCorrectness": 1.0,
+        "citationRecall": 0.7656862745098039,
+        "evaluated": 1020,
+        "fabricatedReferenceAttempts": 294,
+        "referenceValidity": 0.8391339869281046,
+        "requiredFactCoverage": 0.8584967320261437,
+        "schemaValidRate": 1.0,
+        "truncationRate": 0.0,
+        "unsupportedClaimFlags": 0,
+        "usefulCount": 434
+      },
+      "server": {
+        "arm": "awq",
+        "driverVersion": "580.159.04",
+        "gpuName": "NVIDIA GeForce RTX 4090",
+        "hostKey": "runpod-rtx4090",
+        "hourlyRateUsd": 0.74,
+        "image": "vllm/vllm-openai:v0.10.2",
+        "imageDigest": "sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6",
+        "kvCacheTokens": 293488,
+        "maximumConcurrency": 35.83,
+        "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+        "modelRevision": "b25037543e9394b818fdfca67ab2a00ecc7dd641",
+        "priceSourceUrl": "https://www.runpod.io/pricing",
+        "priceVerifiedAt": "2026-09-14",
+        "provider": "runpod",
+        "purchaseOption": "pay_as_you_go",
+        "region": "secure-cloud",
+        "safetensorsTotalGib": 5.2,
+        "sku": "NVIDIA GeForce RTX 4090",
+        "tokenizer": "Qwen/Qwen2.5-7B-Instruct",
+        "tokenizerRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+        "vllmVersion": "v0.10.2",
+        "weightMemoryGib": 5.2036
+      },
+      "totalCostUsd": 0.8352044823166668
+    }
+  ],
+  "headline": "Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory by 63.5%; AWQ throughput higher by 60.8% at concurrency 32.",
+  "measuredCases": 1000,
+  "qualityDeltas": [
+    {
+      "deltaPercentagePoints": 0.0,
+      "metric": "schema_valid_rate",
+      "warning": false
+    },
+    {
+      "deltaPercentagePoints": -14.207516339869276,
+      "metric": "reference_validity",
+      "warning": true
+    },
+    {
+      "deltaPercentagePoints": -12.15686274509804,
+      "metric": "citation_recall",
+      "warning": true
+    },
+    {
+      "deltaPercentagePoints": -7.052287581699346,
+      "metric": "required_fact_coverage",
+      "warning": true
+    },
+    {
+      "deltaPercentagePoints": 0.0,
+      "metric": "abstention_correctness",
+      "warning": false
+    },
+    {
+      "deltaPercentagePoints": 0.0,
+      "metric": "truncation_rate",
+      "warning": false
+    }
+  ],
+  "reportSha256": "799733ff4043606acaa7e3e07607e7e2aed654f26fdd9ee0ee252b43d5551b25",
+  "runId": "vllm-bench-f810b57a7b8ae05a",
+  "weightMemoryReduction": 0.6348043344000898
+}

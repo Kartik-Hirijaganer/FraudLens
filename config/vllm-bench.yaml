@@ -1,0 +1,149 @@
+# Frozen, provider-neutral vLLM BF16-versus-AWQ SAR benchmark protocol.
+# Secrets are injected at runtime; this file stores only environment-variable names.
+
+seed: 1729
+protocol_version: vllm-sar-bench-v1
+
+cases:
+  source: ibm-final-test
+  count: 1000
+  quotas:
+    hi-small: 500
+    hi-medium: 250
+    li-medium: 250
+  dev_count: 40
+  warmup_count: 10
+  abstention_fixtures: 20
+  strata: [payment_format, amount_band, history_length_band, prompt_length_band]
+  fulldata_config: config/fulldata.yaml
+  application_candidate: hi-medium
+  fixture_source: config/sar-eval.yaml
+  license: CDLA-Sharing-1.0
+  attribution: IBM AML transaction datasets (synthetic), IBM
+  source_url: https://github.com/IBM/AML-Data
+
+arms:
+  bf16:
+    model: Qwen/Qwen2.5-7B-Instruct
+    revision: a09a35458c702b33eeacc393d103063234e8bc28
+    tokenizer: Qwen/Qwen2.5-7B-Instruct
+    tokenizer_revision: a09a35458c702b33eeacc393d103063234e8bc28
+    dtype: bfloat16
+    quantization: null
+    safetensors_total_gib: "14.19"
+  awq:
+    model: Qwen/Qwen2.5-7B-Instruct-AWQ
+    revision: b25037543e9394b818fdfca67ab2a00ecc7dd641
+    tokenizer: Qwen/Qwen2.5-7B-Instruct
+    tokenizer_revision: a09a35458c702b33eeacc393d103063234e8bc28
+    dtype: auto
+    quantization: awq_marlin
+    safetensors_total_gib: "5.20"
+
+server:
+  image: vllm/vllm-openai
+  image_tag: v0.10.2
+  container_name: fraudlens-vllm-bench
+  docker_publish_host: 127.0.0.1
+  docker_bind_host: 0.0.0.0
+  process_bind_host: 127.0.0.1
+  port: 8000
+  base_url: http://127.0.0.1:8000/v1
+  base_url_env: VLLM_BENCH_BASE_URL
+  api_key_env: VLLM_API_KEY
+  image_digest_env: VLLM_IMAGE_DIGEST
+  max_model_len: 8192
+  gpu_memory_utilization: "0.90"
+  max_num_seqs: 64
+  enable_prefix_caching: false
+  extra_args: []
+  log_source:
+    kind: docker
+    target: fraudlens-vllm-bench
+    command_prefix: []
+
+request:
+  max_tokens: 1024
+  temperature: 0.0
+  json_object_mode: true
+  seed_requests: true
+  timeout_s: 300
+  max_attempts: 2
+  allowed_plain_http_hosts: [127.0.0.1, localhost, 10.0.0.4]
+
+application_pass:
+  base_url: http://127.0.0.1:18000
+  base_url_env: FRAUDLENS_E2E_BASE_URL
+  auth_token_env: FRAUDLENS_E2E_AUTH_TOKEN
+
+load:
+  concurrency_levels: [1, 8, 32]
+  warmup_requests: 10
+  cooldown_s: 15
+  case_order: shuffled
+  max_error_rate: 0.0
+
+telemetry:
+  sampler: nvidia_smi
+  interval_s: 1.0
+  command_prefix: []
+  dcgm_url: http://127.0.0.1:9400/metrics
+  prometheus_url: http://127.0.0.1:8000/metrics
+
+cost:
+  default_host: runpod-rtx4090
+  hosts:
+    azure-nc24ads-a100:
+      provider: azure
+      sku: Standard_NC24ads_A100_v4
+      region: eastus
+      prices:
+        pay_as_you_go: "3.673000"
+        spot: "0.678770"
+      price_source_url: https://prices.azure.com/api/retail/prices
+      price_verified_at: 2026-09-13
+    azure-nv36ads-a10:
+      provider: azure
+      sku: Standard_NV36ads_A10_v5
+      region: eastus
+      prices:
+        pay_as_you_go: "3.200000"
+        spot: "0.591360"
+      price_source_url: https://prices.azure.com/api/retail/prices
+      price_verified_at: 2026-09-13
+    runpod-rtx4090:
+      provider: runpod
+      sku: NVIDIA GeForce RTX 4090
+      region: secure-cloud
+      prices:
+        pay_as_you_go: "0.740000"
+      price_source_url: https://www.runpod.io/pricing
+      price_verified_at: 2026-09-14
+  comparison_model:
+    model: openrouter/openai/gpt-5-mini
+    input_per_million_usd: "0.25"
+    output_per_million_usd: "2.00"
+  drafts_per_unit: 1000
+
+quality:
+  schema_valid_min: 0.99
+  reference_validity_min: 1.0
+  coverage_warn_min: 0.95
+  awq_delta_warn_pp: 5.0
+
+acceptance:
+  weight_memory_reduction_min: 0.50
+  token_accounting_drift_max: 0.05
+  require_gpu_telemetry: true
+
+kv_cache_mode: equal_utilization
+
+paths:
+  output_dir: .local/vllm-bench
+
+profiles:
+  smoke:
+    cases_count: 8
+    concurrency_levels: [1, 2]
+    warmup_requests: 1
+  full: {}

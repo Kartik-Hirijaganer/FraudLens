@@ -13,18 +13,15 @@
  * - (none)
  *
  * Key functions:
- * - isDemoBypassEnabled: expose the local-only tokenless bypass gate.
- * - isLiveDemoAuthEnabled: expose the explicit live-demo-auth gate (real Supabase sign-in).
- * - isDemoPickerEnabled: expose the local-bypass or live-portfolio demo picker gates.
  * - Login: render the split-panel sign-in screen and start a demo or Supabase session on submit.
  *
  * Notes:
  * - Auto-filled credentials are synthetic demo values fetched from the backend projection — no
- *   PHI, no real secret, and no credential literal in this bundle.
+ * PHI, no real secret, and no credential literal in this bundle.
  * - The projection's loading / unavailable states only affect the picker: the email-password form
- *   stays usable, so a failed (or disabled) demo projection never blocks a real sign-in.
+ * stays usable, so a failed (or disabled) demo projection never blocks a real sign-in.
  * - The login uses its own `auth-*` slate/sky palette (tailwind.config) to match the design brief,
- *   deliberately distinct from the wise tokens used by the signed-in shell.
+ * deliberately distinct from the wise tokens used by the signed-in shell.
  * - All motion is gated behind `motion-safe:` so reduced-motion users get the static final frame.
  */
 import { useEffect, useRef, useState } from "react";
@@ -41,6 +38,15 @@ import {
 } from "../lib/session";
 import { signInWithPassword } from "../lib/supabase";
 import { notify, notifyError } from "../lib/toast";
+import { BrandMotif } from "./LoginBrandMotif";
+import { isDemoBypassEnabled, isDemoPickerEnabled, type LoginEnv } from "./loginEnvironment";
+
+export {
+  isDemoBypassEnabled,
+  isDemoPickerEnabled,
+  isLiveDemoAuthEnabled,
+} from "./loginEnvironment";
+export type { LoginEnv } from "./loginEnvironment";
 
 const ACCENT_DOT: Record<RoleAccent, string> = {
   green: "bg-auth-green",
@@ -51,29 +57,6 @@ const ACCENT_DOT: Record<RoleAccent, string> = {
 
 const INPUT_CLASS =
   "border-auth-border focus:border-auth-panel focus:shadow-auth-focus w-full rounded-sm border bg-canvas px-lg py-md text-body-sm text-auth-panel outline-none transition placeholder:text-auth-faint";
-
-export type LoginEnv = Pick<
-  ImportMetaEnv,
-  "DEV" | "VITE_AUTH_DEV_BYPASS" | "VITE_DEMO_AUTH_ENABLED"
->;
-
-export function isDemoPickerEnabled(env: LoginEnv = import.meta.env): boolean {
-  return isDemoBypassEnabled(env) || isLiveDemoAuthEnabled(env);
-}
-
-export function isDemoBypassEnabled(
-  env: Pick<ImportMetaEnv, "DEV" | "VITE_AUTH_DEV_BYPASS"> = import.meta.env,
-): boolean {
-  return env.DEV && env.VITE_AUTH_DEV_BYPASS === "true";
-}
-
-// Live demo auth = real Supabase email/password sign-in against the seeded demo tenant. It is
-// the picker gate for portfolio production builds, where the tokenless dev bypass is off.
-export function isLiveDemoAuthEnabled(
-  env: Pick<ImportMetaEnv, "VITE_DEMO_AUTH_ENABLED"> = import.meta.env,
-): boolean {
-  return env.VITE_DEMO_AUTH_ENABLED === "true";
-}
 
 // What the picker says while the backend projection is loading or unusable. `disabled` never
 // renders (the whole picker is hidden), and only `ready` invites a selection — a failed
@@ -429,96 +412,6 @@ export function Login({
           </div>
         </div>
       </main>
-    </div>
-  );
-}
-
-// The two right-angle connector paths drawn across the grid.
-const MOTIF_LINES = [
-  "0,620 112,620 112,340 280,340 280,508 448,508 448,228 640,228",
-  "0,760 168,760 168,600 336,600 336,676 560,676 560,452 640,452",
-] as const;
-
-// Pulse-nodes positioned over the grid; each breathes on its own duration/phase.
-const MOTIF_NODES = [
-  {
-    pos: "right-[80px] top-1/4",
-    size: "size-[10px]",
-    tone: "bg-auth-cyan shadow-node-cyan",
-    dur: "2.4s",
-    delay: "0s",
-  },
-  {
-    pos: "right-[180px] top-[56%]",
-    size: "size-[8px]",
-    tone: "bg-auth-amber shadow-node-amber",
-    dur: "3s",
-    delay: "0.5s",
-  },
-  {
-    pos: "left-[140px] top-[33%]",
-    size: "size-[7px]",
-    tone: "bg-canvas/70",
-    dur: "3.1s",
-    delay: "0.9s",
-  },
-  {
-    pos: "left-[220px] top-[70%]",
-    size: "size-[8px]",
-    tone: "bg-auth-green shadow-node-green",
-    dur: "2.7s",
-    delay: "1.3s",
-  },
-  {
-    pos: "right-[300px] top-[80%]",
-    size: "size-[6px]",
-    tone: "bg-canvas/50",
-    dur: "3.4s",
-    delay: "0.3s",
-  },
-] as const;
-
-function BrandMotif() {
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="bg-auth-glow absolute inset-0" />
-      <div className="bg-auth-grid-coarse motion-safe:animate-grid-pan absolute inset-0 bg-[length:56px_56px] opacity-90" />
-      <div className="bg-auth-grid-fine motion-safe:animate-grid-pan absolute inset-0 bg-[length:14px_14px] opacity-50" />
-      <svg
-        viewBox="0 0 640 900"
-        preserveAspectRatio="none"
-        className="absolute inset-0 size-full text-white opacity-90"
-      >
-        {MOTIF_LINES.map((points, i) => (
-          <polyline
-            key={points}
-            points={points}
-            fill="none"
-            stroke={i === 0 ? undefined : "currentColor"}
-            className={cx(i === 0 && "stroke-auth-cyan", "motion-safe:animate-draw")}
-            strokeWidth="1.5"
-            strokeOpacity={i === 0 ? "0.42" : "0.22"}
-            strokeDasharray="1700"
-            style={{
-              animationDuration: i === 0 ? "3s" : "3.2s",
-              animationDelay: i === 0 ? "0.4s" : "0.7s",
-            }}
-          />
-        ))}
-      </svg>
-      <div className="bg-auth-sheen motion-safe:animate-sheen absolute inset-y-0 w-[180px] translate-x-[-140%]" />
-      {MOTIF_NODES.map((node) => (
-        <span
-          key={node.pos}
-          className={cx(
-            "motion-safe:animate-node-pulse absolute rounded-full",
-            node.pos,
-            node.size,
-            node.tone,
-          )}
-          style={{ animationDuration: node.dur, animationDelay: node.delay }}
-        />
-      ))}
     </div>
   );
 }

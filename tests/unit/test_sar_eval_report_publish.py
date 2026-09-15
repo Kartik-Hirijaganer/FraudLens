@@ -424,11 +424,11 @@ def test_publish_restores_prior_bound_pair_when_second_install_fails(
 
     def fail_frontend_stage(source: str | Path, destination: str | Path) -> None:
         source_path = Path(source)
-        if Path(destination) == frontend_path and source_path.name.endswith("sar-eval-stage"):
+        if Path(destination) == frontend_path and source_path.name.endswith(".staging"):
             raise OSError("simulated second-artifact install failure")
         real_replace(source, destination)
 
-    monkeypatch.setattr("lib.sar_eval.publish.os.replace", fail_frontend_stage)
+    monkeypatch.setattr("lib.study.artifacts.os.replace", fail_frontend_stage)
     changed = _report().model_copy(
         update={"disclosures": (*_report().disclosures, "A valid changed disclosure.")}
     )

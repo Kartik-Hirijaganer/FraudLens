@@ -1,0 +1,33 @@
+file_length:
+  max_lines: 500
+  roots:
+    - backend/src
+    - packages
+    - frontend/src
+    - scripts
+    - tests
+    - alembic
+  extensions:
+    - .py
+    - .ts
+    - .tsx
+  exclude_globs:
+    - "**/node_modules/**"
+    - "**/.venv/**"
+    - "**/dist/**"
+    - "**/coverage/**"
+    - "**/generated/**"
+    - "**/__pycache__/**"
+    - "**/.mypy_cache/**"
+    - "**/.ruff_cache/**"
+    - "**/.pytest_cache/**"
+    - "alembic/versions/*.py"
+
+sar_quality:
+  citation_precision_min: 1.0
+  citation_recall_min: 0.9
+  unsupported_claim_recall_min: 0.95
+  clean_draft_false_positive_max: 0.05
+  required_fact_coverage_min: 0.95
+
+egress_policy_file: config/llm/egress.yml

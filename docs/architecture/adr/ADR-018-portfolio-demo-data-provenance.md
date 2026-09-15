@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-07-26
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when (per master-plan §22)
-- **Related:** [ADR-015 — tenant-safe global model training](../../../plans/2026-06-12-aml-fraud-detection-system.md#22-decision-records-adrs)
+- **Related:** [ADR-015 — tenant-safe global model training](README.md)
   · [ADR-017 — graph-feature serving boundary](ADR-017-graph-feature-serving-boundary.md)
-  · implementation plan [`plans/2026-07-25-portfolio-demo-story.md`](../../../plans/2026-07-25-portfolio-demo-story.md)
+  · [retired-plan index](../../../plans/README.md#retired-plans)
   · runbooks [`portfolio-demo.md`](../../runbooks/portfolio-demo.md) · [`portfolio-demo-uat.md`](../../runbooks/portfolio-demo-uat.md)
 
 ## Context

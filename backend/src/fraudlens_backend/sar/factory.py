@@ -6,6 +6,7 @@ calls a provider. Model selection is config-driven: `load_sar_llm_config` reads
 `config/llm/sar.yml` (the model reference, the OpenRouter fallback chain, and the output-token cap)
 so no model name is ever hardcoded in source (plan §7.2). Every live collaborator (guardrailed
 client, pricing catalog, prompt template, budget guard, replay cache) is overridable for tests/DI.
+`AppSettings.sar_config_file` selects and safely anchors the routing profile below config/.
 
 Key classes:
 - SarLlmConfig: the non-secret SAR model selection and generation limits.
@@ -38,8 +39,9 @@ from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.cache import InMemorySarDraftCache, SarDraftCache
 from fraudlens_backend.sar.drafter_live import LiveSarDrafter
 from fraudlens_backend.sar.drafter_mock import MockSarDrafter
+from fraudlens_backend.sar.egress import load_egress_policy
 from fraudlens_backend.sar.prompt import SarPromptTemplate
-from fraudlens_backend.settings import AppSettings, find_config_dir
+from fraudlens_backend.settings import AppSettings, _config_anchored, find_config_dir
 from fraudlens_llm import Catalog, LlmClient, TaskType, get_llm_settings, load_catalog
 from fraudlens_ml.sar import SarDrafter
 
@@ -106,7 +108,7 @@ def build_sar_drafter(  # noqa: PLR0913 - explicit overridable collaborators (DI
     template = prompt or SarPromptTemplate.load()
     if settings.llm_mode == "mock":
         return MockSarDrafter(template)
-    sar_config = config or load_sar_llm_config()
+    sar_config = config or load_sar_llm_config(_config_anchored(settings.sar_config_file))
     return LiveSarDrafter(
         client=client or LlmClient.from_settings(),
         catalog=catalog or load_catalog(get_llm_settings().catalog_path),
@@ -151,6 +153,7 @@ def build_agent_drafter_factory(
 
     resolved_catalog = catalog or load_catalog(get_llm_settings().catalog_path)
     resolved_client = client or LlmClient.from_settings()
+    egress_policy = load_egress_policy()
 
     def build(  # noqa: PLR0913 - explicit run-scoped collaborators.
         toolset: EvidenceToolset,
@@ -196,6 +199,7 @@ def build_agent_drafter_factory(
             config=resolved_config,
             tool_definitions=toolset.definitions,
             tool_executor=toolset.execute,
+            egress_policy=egress_policy,
         )
         graph = build_agent_graph(
             runtime=runtime,
@@ -204,6 +208,7 @@ def build_agent_drafter_factory(
             run_id=run_id,
             record_execution=record_execution,
             replay=replay,
+            egress_policy=egress_policy,
         )
         return MultiAgentSarDrafter(
             graph=graph,

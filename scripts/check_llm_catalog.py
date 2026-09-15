@@ -26,8 +26,9 @@ from pathlib import Path
 import yaml
 
 from fraudlens_llm.catalog import Catalog, Kind, Lifecycle, ModelCard, load_catalog
-from fraudlens_llm.exceptions import ModelNotFoundError
-from fraudlens_llm.providers import Protocol, Providers, load_providers
+from fraudlens_llm.exceptions import ModelNotFoundError, ProviderNotConfiguredError
+from fraudlens_llm.providers import Protocol, Providers, load_providers, resolve_base_url
+from fraudlens_llm.settings import LlmSettings
 
 _DEFAULT_STALE_DAYS = 180
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,7 @@ def main() -> int:
     findings = _trust_findings(catalog, stale_days=args.stale_days)
     findings.extend(_agent_capability_findings(catalog, args.agents))
     warnings = _freshness_warnings(catalog, stale_days=args.stale_days)
+    warnings.extend(_provider_connection_warnings(providers, settings=LlmSettings()))
     if args.live:
         findings.extend(
             _live_findings(
@@ -163,9 +165,14 @@ def _live_findings(
         if not api_key:
             findings.append(f"{provider}: --live requires env var {config.api_key_env}")
             continue
+        try:
+            base_url = resolve_base_url(config)
+        except (ProviderNotConfiguredError, ValueError):
+            findings.append(f"{provider}: --live base URL is not resolvable")
+            continue
         chat_model_ids = _fetch_openai_compatible_models(
             provider,
-            config.base_url,
+            base_url,
             api_key,
             endpoint="models",
         )
@@ -175,7 +182,7 @@ def _live_findings(
         if provider == "openrouter":
             fetched_embed_model_ids = _fetch_openai_compatible_models(
                 provider,
-                config.base_url,
+                base_url,
                 api_key,
                 endpoint="embeddings/models",
             )
@@ -190,6 +197,23 @@ def _live_findings(
         unknown = provider_names - set(providers.providers)
         findings.extend(f"{provider}: --live-provider is not configured" for provider in unknown)
     return findings
+
+
+def _provider_connection_warnings(
+    providers: Providers,
+    *,
+    settings: LlmSettings,
+) -> list[str]:
+    """Warn when an OpenAI-compatible endpoint cannot resolve in this environment."""
+    warnings: list[str] = []
+    for provider, config in providers.providers.items():
+        if config.protocol != Protocol.OPENAI_COMPATIBLE:
+            continue
+        try:
+            resolve_base_url(config, settings)
+        except (ProviderNotConfiguredError, ValueError):
+            warnings.append(f"{provider}: base URL is not resolvable in the current environment")
+    return warnings
 
 
 def _fetch_openai_compatible_models(

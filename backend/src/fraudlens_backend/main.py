@@ -31,9 +31,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.responses import HTMLResponse
 
 from fraudlens_backend import __version__
 from fraudlens_backend.api import ops
+from fraudlens_backend.api.docs import scalar_api_reference
 from fraudlens_backend.api.errors import register_exception_handlers
 from fraudlens_backend.api.v1.router import api_router
 from fraudlens_backend.db.session import (
@@ -44,6 +46,7 @@ from fraudlens_backend.db.session import (
 from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
 from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_components
+from fraudlens_backend.runs.reaper import reap_stale_runs
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_backend.telemetry import init_telemetry
 
@@ -61,9 +64,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     init_telemetry(resolved)
     engine = create_engine_from_settings(resolved)
 
+    sessionmaker = build_sessionmaker(engine) if engine is not None else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Dispose the DB engine's connection pool on application shutdown."""
+        """Recover stale worker claims at startup and dispose the DB pool at shutdown."""
+        if sessionmaker is not None and resolved.run_execution_mode == "worker":
+            async with sessionmaker() as session:
+                await reap_stale_runs(session, resolved)
+                await session.commit()
         try:
             yield
         finally:
@@ -80,7 +89,6 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     app.state.db_engine = engine
-    sessionmaker = build_sessionmaker(engine) if engine is not None else None
     app.state.db_sessionmaker = sessionmaker
     app.state.rag_index_dir = _resolve_index_dir(resolved)
     # Per-scope counters for the per-route rate-limit dependency (api/deps.rate_limit); kept on
@@ -101,6 +109,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     register_exception_handlers(app)
     install_gateway(app, resolved)
+
+    @app.get("/scalar", include_in_schema=False)
+    async def scalar_docs() -> HTMLResponse:
+        """Serve the configured Scalar API reference without telemetry or persisted auth."""
+        return scalar_api_reference(app, resolved)
+
     app.include_router(ops.router)
     app.include_router(api_router, prefix=resolved.api_v1_prefix)
     return app

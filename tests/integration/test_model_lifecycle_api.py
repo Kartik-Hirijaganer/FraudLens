@@ -28,6 +28,7 @@ from fraudlens_backend.db.models import (
     ModelTrigger,
     ModelVersion,
     ModelVersionStatus,
+    RunStatus,
     Severity,
     TrainingDataset,
     TrainingLabel,
@@ -337,12 +338,21 @@ async def _add_inference_logs(
 ) -> None:
     """Add 25 hash-only inference logs for an arm (enough to clear the min-sample window)."""
     async with sm() as session:
-        run_id = (await session.execute(select(AnalysisRun.id).limit(1))).scalar_one()
+        transaction_id = (
+            await session.execute(select(AnalysisRun.transaction_id).limit(1))
+        ).scalar_one()
         for _ in range(25):
+            run = AnalysisRun(
+                agency_id=DEMO_AGENCY_ID,
+                transaction_id=transaction_id,
+                status=RunStatus.COMPLETED,
+            )
+            session.add(run)
+            await session.flush()
             session.add(
                 ModelInferenceLog(
                     agency_id=DEMO_AGENCY_ID,
-                    run_id=run_id,
+                    run_id=run.id,
                     model_version_id=uuid.UUID(version_id),
                     was_canary=was_canary,
                     fraud_probability=probability,

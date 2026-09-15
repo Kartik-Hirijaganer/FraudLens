@@ -1,0 +1,256 @@
+# Validate, apply, prove, stop, or destroy the next-release AKS demonstration. This workflow is
+# dispatch-only and every cloud job remains inert until AKS_DEPLOY_ENABLED is explicitly enabled.
+name: deploy-aks
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Governed AKS lifecycle action
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply-and-verify
+          - destroy
+      stop_cluster_after:
+        description: Stop node compute after successful evidence capture
+        required: true
+        default: true
+        type: boolean
+      confirm_destroy:
+        description: Type destroy-fraudlens-aks-demo for the destroy action
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: deploy-aks
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_use_oidc: "true"
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_tenant_id: ${{ vars.AZURE_TENANT_ID }}
+  TF_VAR_client_id: ${{ vars.AZURE_CLIENT_ID }}
+  TF_VAR_cluster_admin_object_ids: '["${{ vars.AKS_ADMIN_OBJECT_ID }}"]'
+  TF_VAR_authorized_ip_ranges: '["${{ vars.AKS_OPERATOR_CIDR }}"]'
+  TF_VAR_budget_contact_emails: '["${{ vars.AZURE_BUDGET_CONTACT_EMAIL }}"]'
+  TF_VAR_budget_start_date: ${{ vars.AZURE_BUDGET_START_DATE }}
+
+jobs:
+  verify:
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' }}
+    uses: ./.github/workflows/_ci-reusable.yml
+
+  plan:
+    needs: verify
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action != 'destroy' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Plan the exact committed AKS root
+        working-directory: infra/terraform/environments/aks-demo
+        run: |
+          set -euo pipefail
+          cp backend.tf.template backend.tf
+          terraform init -input=false -lock-timeout=120s
+          terraform plan -input=false -lock-timeout=120s -var-file=aks-demo.tfvars
+
+  build-push:
+    needs: verify
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute immutable image reference
+        id: image
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${owner}/fraudlens-backend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push once
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          tags: ${{ steps.image.outputs.image }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  apply:
+    needs: [plan, build-push]
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Re-plan and apply the reviewed root
+        working-directory: infra/terraform/environments/aks-demo
+        run: |
+          set -euo pipefail
+          cp backend.tf.template backend.tf
+          terraform init -input=false -lock-timeout=120s
+          terraform plan -input=false -lock-timeout=120s -var-file=aks-demo.tfvars -out=tfplan
+          terraform apply -input=false -lock-timeout=120s tfplan
+
+  deploy:
+    needs: [apply, build-push]
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.8
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.10
+      - uses: hashicorp/setup-terraform@v3
+      - name: Select the Entra-backed cluster context
+        run: |
+          set -euo pipefail
+          make aks-init
+          make aks-credentials CONFIRM=yes
+          kubelogin convert-kubeconfig -l azurecli
+      - name: Install the pinned Infisical operator
+        run: make aks-operator-install CONFIRM=yes
+      - name: Deploy the immutable application image
+        env:
+          INFISICAL_AKS_IDENTITY_ID: ${{ vars.INFISICAL_AKS_IDENTITY_ID }}
+        run: make aks-deploy CONFIRM=yes IMAGE_TAG="$GITHUB_SHA"
+
+  smoke:
+    needs: deploy
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.8
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.10
+      - uses: hashicorp/setup-terraform@v3
+      - run: make aks-init
+      - run: make aks-credentials CONFIRM=yes
+      - run: kubelogin convert-kubeconfig -l azurecli
+      - run: make aks-smoke CONFIRM=yes
+
+  hpa-evidence:
+    needs: smoke
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.8
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.10
+      - uses: hashicorp/setup-terraform@v3
+      - run: make aks-init
+      - run: make aks-credentials CONFIRM=yes
+      - run: kubelogin convert-kubeconfig -l azurecli
+      - run: make aks-hpa-demo CONFIRM=yes
+      - name: Upload evidence without committing it
+        uses: actions/upload-artifact@v4
+        with:
+          name: aks-hpa-evidence-${{ github.sha }}
+          path: |
+            docs/reference/benchmarks/aks-hpa-scaling.json
+            docs/reference/benchmarks/aks-hpa-scaling.md
+          if-no-files-found: error
+
+  stop-cluster:
+    needs: hpa-evidence
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'apply-and-verify' && inputs.stop_cluster_after }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+      - run: make aks-init
+      - run: make aks-stop CONFIRM=yes
+
+  destroy:
+    needs: verify
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' && inputs.action == 'destroy' && inputs.confirm_destroy == 'destroy-fraudlens-aks-demo' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+      - run: make aks-down CONFIRM=yes
+      - run: make aks-verify-clean

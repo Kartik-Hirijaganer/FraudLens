@@ -48,7 +48,13 @@ from fraudlens_backend.api.deps import (
     optional_actor,
     require_permission,
 )
-from fraudlens_backend.db.models import JobExecution, JobStatus, JobType, Transaction
+from fraudlens_backend.db.models import (
+    JobExecution,
+    JobStatus,
+    JobType,
+    Transaction,
+    TransactionSource,
+)
 from fraudlens_backend.db.repositories import AuditLogRepository, TransactionRepository
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
@@ -218,7 +224,10 @@ async def ingest_transaction(
 ) -> TransactionResponse:
     """Ingest one transaction (201); 409 when its externalId already exists for the agency."""
     repo = _repo(tenant, session)
-    outcome = await repo.ingest(_mapping_to_canonical(payload.model_dump(by_alias=True)))
+    outcome = await repo.ingest(
+        _mapping_to_canonical(payload.model_dump(by_alias=True)),
+        source=TransactionSource.API_UPLOAD,
+    )
     if not outcome.created:
         raise AppError("duplicate_external_id")
     writer = audit_writer(tenant, session, request)
@@ -273,7 +282,7 @@ async def ingest_batch(
             duplicates += existing is not None
             accepted += existing is None
             continue
-        outcome = await repo.ingest(canonical)
+        outcome = await repo.ingest(canonical, source=TransactionSource.API_UPLOAD)
         if outcome.created:
             accepted += 1
             created.append(_to_response(outcome.transaction))
@@ -333,7 +342,7 @@ async def upload_csv(
                 settings.ingest_sample_errors_limit,
             )
             continue
-        outcome = await repo.ingest(canonical)
+        outcome = await repo.ingest(canonical, source=TransactionSource.API_UPLOAD)
         accepted += outcome.created
         duplicates += not outcome.created
         if outcome.created:

@@ -26,6 +26,10 @@ Notes:
 - `database_url` is read from the unprefixed DATABASE_URL env (Infisical-injected in
   prod, a local docker URL in dev) as well as FRAUDLENS_DATABASE_URL; it never lives
   in committed YAML.
+- `infisical_secrets_delivery` + `infisical_required_env_keys` declare HOW secrets reach
+  the process (the service never calls Infisical itself) and WHICH injected env-var names
+  the /readyz infisical check must find; declaring injection without any key to verify is
+  rejected at boot, so the readiness gate can never be satisfied vacuously.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -43,28 +47,19 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-Environment = Literal["dev", "prod", "staging"]
-StorageBackend = Literal["local", "azure_blob"]
-QueueBackend = Literal["local", "container_apps_jobs"]
-LlmMode = Literal["mock", "live"]
-RagEmbeddingMode = Literal["offline", "live"]
-
-# Safe defaults for the always-on static security headers. The Content-Security-Policy is
-# handled separately (it is path-aware: strict on the API, relaxed on the docs UI — see
-# middleware/security.py). All values are overridable via config (plan §12.3).
-_DEFAULT_SECURITY_HEADERS: dict[str, str] = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-}
-
-# Strict default Content-Security-Policy for the JSON API surface: nothing loads, frames,
-# or submits. The interactive docs UI relaxes this via content_security_policy_docs (which
-# carries the documentation CDN origin and therefore lives in config, not source — §12.3).
-_DEFAULT_CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+from fraudlens_backend.settings_cloud import AzureRuntimeFields
+from fraudlens_backend.settings_defaults import (
+    Environment,
+    LlmMode,
+    QueueBackend,
+    RagEmbeddingMode,
+    SecretsDelivery,
+    StorageBackend,
 )
+from fraudlens_backend.settings_gateway import GatewayRuntimeFields
+from fraudlens_backend.settings_investigations import InvestigationRuntimeFields
+
+__all__ = ["AppSettings", "_config_anchored", "find_config_dir", "get_settings"]
 
 
 def find_config_dir() -> Path:
@@ -80,12 +75,29 @@ def find_config_dir() -> Path:
     return Path(__file__).resolve().parents[3] / "config"  # pragma: no cover - last resort
 
 
+def _config_anchored(path_value: str) -> Path:
+    """Resolve a relative path below config/, rejecting absolute paths and traversal."""
+    path = Path(path_value)
+    if path.is_absolute():
+        raise ValueError("Configuration path must be relative to the config directory")
+    base = find_config_dir().resolve()
+    resolved = (base / path).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError("Configuration path must remain below the config directory")
+    return resolved
+
+
 def _active_environment() -> str:
     """Return the active environment name from the env var (default 'dev')."""
     return os.environ.get("FRAUDLENS_ENVIRONMENT", "dev")
 
 
-class AppSettings(BaseSettings):
+class AppSettings(
+    InvestigationRuntimeFields,
+    GatewayRuntimeFields,
+    AzureRuntimeFields,
+    BaseSettings,
+):
     """Validated, immutable application settings loaded from YAML + env."""
 
     model_config = SettingsConfigDict(
@@ -204,78 +216,6 @@ class AppSettings(BaseSettings):
         "Infisical; deliberately non-secret demo data, but never an inline YAML value.",
     )
 
-    # --- Gateway edge: CORS allowlist (boot-critical; origins set in config, not source) ---
-    cors_allow_origins: list[str] = Field(
-        default_factory=list,
-        description="Exact allowed CORS origins; set per-env in config (never hardcoded).",
-    )
-    cors_allow_methods: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="Allowed CORS methods for the gateway edge.",
-    )
-    cors_allow_headers: list[str] = Field(
-        default_factory=lambda: ["*"],
-        description="Allowed CORS request headers for the gateway edge.",
-    )
-    cors_allow_credentials: bool = Field(
-        default=False,
-        description="Whether the gateway allows credentialed CORS requests.",
-    )
-
-    # --- Gateway edge: rate limiting (fixed-window, per client) ---
-    rate_limit_enabled: bool = Field(
-        default=True,
-        description="Enable the gateway fixed-window rate limiter.",
-    )
-    rate_limit_requests: int = Field(
-        default=120,
-        gt=0,
-        description="Max requests per client within the window before 429.",
-    )
-    rate_limit_window_seconds: float = Field(
-        default=60.0,
-        gt=0,
-        description="Length of the rate-limit fixed window, in seconds.",
-    )
-
-    # --- Gateway edge: security response headers (config-overridable safe defaults) ---
-    security_headers: dict[str, str] = Field(
-        default_factory=lambda: dict(_DEFAULT_SECURITY_HEADERS),
-        description="Static security response headers applied to every gateway response.",
-    )
-    csp_enabled: bool = Field(
-        default=True,
-        description="Stamp a Content-Security-Policy header on every gateway response.",
-    )
-    content_security_policy: str = Field(
-        default=_DEFAULT_CONTENT_SECURITY_POLICY,
-        description="Strict CSP applied to the API surface (config-overridable, plan §12.3).",
-    )
-    content_security_policy_docs: str = Field(
-        default="",
-        description="Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. "
-        "Empty falls back to the strict policy so the API surface is never weakened.",
-    )
-    docs_ui_paths: list[str] = Field(
-        default_factory=lambda: ["/docs", "/redoc"],
-        description="Paths serving the interactive docs UI that receive the relaxed CSP.",
-    )
-    gateway_routes_file: str | None = Field(
-        default=None,
-        description="Override path to the gateway routing table; else discovered under config/.",
-    )
-
-    # --- Observability (plan §11.5, §16 Phase 12): optional OTel export, OFF by default ---
-    telemetry_enabled: bool = Field(
-        default=False,
-        description="Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default "
-        "(stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14).",
-    )
-    telemetry_service_name: str = Field(
-        default="fraudlens-backend",
-        description="Service name reported by telemetry export when enabled (App Insights / OTel).",
-    )
-
     # --- Config-driven backends (plan §12.3): local for the one-command demo, cloud later ---
     storage_backend: StorageBackend = Field(
         default="local",
@@ -301,6 +241,10 @@ class AppSettings(BaseSettings):
     llm_mode: LlmMode = Field(
         default="mock",
         description="SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider.",
+    )
+    sar_config_file: str = Field(
+        default="llm/sar.yml",
+        description="SAR model-routing config resolved below the config directory.",
     )
     multi_agent_sar_enabled: bool = Field(
         default=False,
@@ -359,6 +303,27 @@ class AppSettings(BaseSettings):
         description="When true, a missing/empty RAG index fails /readyz (prod bakes the index).",
     )
 
+    # --- Infisical secret delivery (Golden Rule 3): the service NEVER calls Infisical at
+    # runtime. Secrets arrive as process environment, injected by `infisical run` locally, the
+    # Infisical GitHub action in CI, Terraform-wired Container Apps secrets, or the Infisical
+    # Kubernetes operator. These keys declare that contract so /readyz can verify the injection
+    # actually happened instead of probing a service that is not in any request path.
+    infisical_secrets_delivery: SecretsDelivery = Field(
+        default="unconfigured",
+        description="How Infisical secrets reach this process. 'unconfigured' declares no "
+        "delivery mechanism, so the /readyz infisical check reports 'skipped'; "
+        "'externally_injected' declares that a CLI/CI job/deploy platform injects them as env, "
+        "so the check verifies every infisical_required_env_keys name is present and non-blank.",
+    )
+    infisical_required_env_keys: list[str] = Field(
+        default_factory=list,
+        description="Environment-variable NAMES (never values) the Infisical injection must "
+        "supply; the /readyz infisical check reports 'down' when any is missing or blank, so a "
+        "broken secret sync fails readiness instead of serving errors. Must be non-empty when "
+        "infisical_secrets_delivery is 'externally_injected' (an injection claim with nothing to "
+        "verify is rejected at boot).",
+    )
+
     # --- Database (secret value via env; non-secret local docker URL in dev) ---
     database_url: str | None = Field(
         default=None,
@@ -369,85 +334,6 @@ class AppSettings(BaseSettings):
         default=5.0,
         gt=0,
         description="Timeout for the /readyz database connectivity probe, in seconds.",
-    )
-
-    # --- Azure runtime integration (non-secret resource names + managed identity) ---
-    azure_managed_identity_token_url: str = Field(
-        default="",
-        description="Managed-identity token endpoint URL, supplied by config/env in Azure.",
-    )
-    azure_managed_identity_api_version: str = Field(
-        default="2018-02-01",
-        description="Managed-identity token API version.",
-    )
-    azure_managed_identity_client_id: str | None = Field(
-        default=None,
-        description=(
-            "User-assigned managed identity client id used for Azure data/control-plane calls."
-        ),
-    )
-    azure_arm_endpoint: str = Field(
-        default="",
-        description="Azure Resource Manager endpoint base URL, supplied by config/env.",
-    )
-    azure_arm_token_resource: str = Field(
-        default="",
-        description="Token resource/audience for Azure Resource Manager.",
-    )
-    azure_subscription_id: str | None = Field(
-        default=None,
-        description="Azure subscription id containing the Container Apps Jobs.",
-    )
-    azure_resource_group_name: str | None = Field(
-        default=None,
-        description="Azure resource group containing the Container Apps Jobs.",
-    )
-    azure_container_apps_api_version: str = Field(
-        default="2024-03-01",
-        description="Azure Container Apps Jobs ARM API version.",
-    )
-    azure_container_apps_retrain_job_name: str | None = Field(
-        default=None,
-        description="Container Apps Job name for model retraining.",
-    )
-    azure_container_apps_batch_score_job_name: str | None = Field(
-        default=None,
-        description="Container Apps Job name for batch scoring.",
-    )
-    azure_storage_account_name: str | None = Field(
-        default=None,
-        description="Azure Storage account name for artifact and SAR-PDF blobs.",
-    )
-    azure_storage_blob_host_suffix: str = Field(
-        default="blob.core.windows.net",
-        description="Azure Blob DNS suffix used to build the storage endpoint.",
-    )
-    azure_storage_blob_endpoint: str | None = Field(
-        default=None,
-        description=(
-            "Optional full Azure Blob endpoint base URL; otherwise derived from account name."
-        ),
-    )
-    azure_storage_token_resource: str = Field(
-        default="",
-        description="Token resource/audience for Azure Blob Storage.",
-    )
-    azure_storage_container_name: str = Field(
-        default="artifacts",
-        description="Blob container for model/artifact keys.",
-    )
-    azure_storage_sar_pdf_container_name: str = Field(
-        default="sar-pdfs",
-        description="Blob container for SAR PDF keys.",
-    )
-    azure_storage_blob_api_version: str = Field(
-        default="2023-11-03",
-        description="Azure Blob data-plane API version.",
-    )
-    azure_rest_timeout_seconds: float = Field(
-        default=10.0,
-        gt=0,
-        description="Timeout for Azure managed-identity, Blob, and ARM REST calls.",
     )
 
     # --- Ingestion limits (plan §16 Phase 3; config-driven, never hardcoded) ---
@@ -484,51 +370,6 @@ class AppSettings(BaseSettings):
         "defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13).",
     )
 
-    # --- Investigation pipeline (plan §16 Phase 8; config-driven, never hardcoded) ---
-    investigation_history_window_hours: int = Field(
-        default=168,
-        gt=0,
-        description="Same-account history lookback fed to the rules engine + features (covers the "
-        "widest built-in rule window, structuring at 7 days).",
-    )
-    investigation_history_max: int = Field(
-        default=100,
-        gt=0,
-        description="Cap on same-account history rows loaded per investigation (bounds the query).",
-    )
-    investigation_rag_top_k: int = Field(
-        default=4,
-        gt=0,
-        description="How many FinCEN/BSA chunks the investigation retrieves for citations.",
-    )
-    investigation_rag_min_similarity: float = Field(
-        default=0.2,
-        ge=0.0,
-        le=1.0,
-        description="Minimum cosine similarity required to surface a vector RAG citation.",
-    )
-    batch_score_limit: int = Field(
-        default=2000,
-        gt=0,
-        description="Max un-investigated transactions one batch-score sweep investigates "
-        "(covers the whole demo case pack; a cloud Job can raise it per run).",
-    )
-
-    # --- Alerts & review workflow (plan §16 Phase 9; config-driven, never hardcoded) ---
-    review_low_confidence_margin: float = Field(
-        default=0.1,
-        gt=0,
-        le=0.5,
-        description="Half-width around the 0.5 decision boundary inside which a run's model "
-        "probability force-flags the alert as low-confidence for review (plan §8.5).",
-    )
-    sar_pdf_max_attempts: int = Field(
-        default=3,
-        gt=0,
-        description="Max attempts the deferred SAR-PDF task makes before giving up; PDF "
-        "generation is best-effort and never blocks SAR approval (plan §16 Phase 9).",
-    )
-
     # --- Model lifecycle / MLOps (plan §16 Phase 10, §9.4, §10.5.1; config-driven) ---
     retrain_min_labels_total: int = Field(
         default=10,
@@ -561,6 +402,17 @@ class AppSettings(BaseSettings):
         description="Max absolute deviation between the canary's and active's mean predicted "
         "probability (alert-rate/precision proxy) before auto-abort → rollback (plan §10.5.1).",
     )
+
+    @model_validator(mode="after")
+    def _require_verifiable_secret_injection(self) -> AppSettings:
+        """Reject an 'externally_injected' declaration with nothing to verify (fails closed)."""
+        declared_injection = self.infisical_secrets_delivery == "externally_injected"
+        if declared_injection and not self.infisical_required_env_keys:
+            raise ValueError(
+                "infisical_required_env_keys must list at least one env-var name when "
+                "infisical_secrets_delivery is 'externally_injected'"
+            )
+        return self
 
     @property
     def is_dev_bypass_enabled(self) -> bool:

@@ -17,6 +17,8 @@ Key classes:
 - AlertStatus: lifecycle status of an alert.
 - AlertActionType: a review action recorded against an alert.
 - SarStatus: lifecycle status of a SAR draft.
+- SarQualityStatus: whether the current narrative has passed the deterministic quality gate.
+- TransactionSource: immutable ingest provenance used to authorize model egress.
 - AnalysisRunEventType: the persisted ordered event types backing SSE replay (§9.1).
 - JobType: the kind of background job recorded in `job_executions`.
 - JobStatus: lifecycle status of a background job execution.
@@ -80,6 +82,7 @@ class RunStatus(StrEnum):
 
     PENDING = "pending"
     RUNNING = "running"
+    RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -120,6 +123,24 @@ class SarStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     FAILED = "failed"
+
+
+class SarQualityStatus(StrEnum):
+    """Evaluation state for the exact current SAR narrative."""
+
+    EVALUATED = "evaluated"
+    UNEVALUATED = "unevaluated"
+
+
+class TransactionSource(StrEnum):
+    """Persisted ingest provenance from which model-egress eligibility is derived."""
+
+    UNKNOWN = "unknown"
+    API_UPLOAD = "api-upload"
+    PORTFOLIO_DEMO = "portfolio-demo"
+    IBM_AML_SYNTHETIC = "ibm-aml-synthetic"
+    IEEE_CIS_SAMPLE = "ieee-cis-sample"
+    SYNTHETIC_GENERATOR = "synthetic-generator"
 
 
 class AnalysisRunEventType(StrEnum):

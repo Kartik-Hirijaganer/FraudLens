@@ -6,8 +6,8 @@
 > §10.5.1 promotion gates**; Phase 10 adds the **human-gated MLOps workflow** —
 > retrain → candidate → shadow → approve → canary → active → rollback, advisory drift, and
 > tenant-safe training — all with **no redeploy**. See plan
-> [§10.5 / §10.5.1](../../plans/2026-06-12-aml-fraud-detection-system.md) and
-> [§9.2 / §9.4](../../plans/2026-06-12-aml-fraud-detection-system.md) (model-lifecycle tables + tenant-safe policy).
+> the [retired foundation-plan index](../../plans/README.md#retired-plans) (promotion gates,
+> model-lifecycle tables, and tenant-safe policy).
 
 ## The pieces
 
@@ -119,6 +119,23 @@ an image, or written to the database. Only the fixed numeric features plus the l
 the loader. Bank/account/card identifiers exist transiently for per-account window grouping and
 are then discarded. The global training manifest is PHI-free and contains no raw identifiers or
 `agency_id`.
+
+### Full-data ephemeral path
+
+`config/fulldata.yaml` pre-registers the IBM candidates and exact source hashes/counts. The
+memory-bounded pipeline runs typed Parquet ingest, 19-feature temporal windows, live-builder parity,
+whole-account chronological folds, XGBoost training, Platt calibration, and untouched holdout gates
+as resumable stages. Thresholds are derived from calibration-fold operating-point quantiles and
+persisted with the candidate; the holdout never selects them.
+
+The release CPU experiment uses an ephemeral Azure E16ads v5 host only because the Medium files are
+larger than the local execution envelope. Pilot throughput and peak RSS admit or reject the full run
+under the shared budget. Exported evidence distinguishes all source, usable, training, calibration,
+and holdout counts. The 68,228,066 IBM source rows are therefore not described as model-fitting
+rows. Publication registers a candidate only and never flips the active model pointer.
+
+See [`data-batch.md`](data-batch.md). The final Medium aggregate remains pending until its report is
+downloaded, hash-validated, published, and the Azure session is destroyed and reconciled.
 
 **Feature space v2 (19 features).** The v1 ten features are extended with direction-split flow
 (`inbound_velocity_24h`, `inbound_amount_24h_log`), burstiness (`seconds_since_prev_txn_log`),

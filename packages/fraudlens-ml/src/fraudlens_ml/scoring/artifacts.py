@@ -85,8 +85,12 @@ class ModelArtifactMetadata(BaseModel):
     )
     risk_thresholds: ModelRiskThresholds | None = Field(
         default=None,
-        description="Holdout-derived calibrated-probability operating points for risk banding; "
+        description="Calibrated-probability operating points for risk banding; "
         "None (legacy/synthetic artifacts) keeps the identity banding behavior.",
+    )
+    threshold_source: Literal["calibration", "holdout"] = Field(
+        default="holdout",
+        description="Fold used for thresholds; old bundles default to their historical holdout.",
     )
 
 
@@ -101,6 +105,7 @@ class LoadedArtifact:
     background: np.ndarray
     metrics: dict[str, float]
     risk_thresholds: ModelRiskThresholds | None = None
+    threshold_source: Literal["calibration", "holdout"] = "holdout"
 
 
 class DeploymentPointer(BaseModel):
@@ -133,6 +138,7 @@ def save_artifact(  # noqa: PLR0913 - an artifact bundles many parts; all are ke
     background: np.ndarray,
     metrics: dict[str, float],
     risk_thresholds: ModelRiskThresholds | None = None,
+    threshold_source: Literal["calibration", "holdout"] = "holdout",
 ) -> ModelArtifactMetadata:
     """Write a booster + metadata bundle to a directory and return the recorded metadata."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -146,6 +152,7 @@ def save_artifact(  # noqa: PLR0913 - an artifact bundles many parts; all are ke
         background=[[float(value) for value in row] for row in np.asarray(background)],
         metrics=metrics,
         risk_thresholds=risk_thresholds,
+        threshold_source=threshold_source,
     )
     (directory / _METADATA_FILE).write_text(
         json.dumps(metadata.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
@@ -176,6 +183,7 @@ def load_artifact(directory: Path) -> LoadedArtifact:
         background=np.array(metadata.background, dtype=np.float64),
         metrics=metadata.metrics,
         risk_thresholds=metadata.risk_thresholds,
+        threshold_source=metadata.threshold_source,
     )
 
 

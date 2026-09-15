@@ -1,10 +1,10 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / JWKS / Infisical) and returns 200 only
-when none report "down", else 503. Both are UNPREFIXED (no /api/v1) per the
-endpoint contract. The probes are pluggable via a dependency so real reachability
-checks can be wired in later (and so tests can simulate a degraded dependency);
-in this skeleton they report "skipped" because those services are not provisioned.
+set of dependency probes (database / ChromaDB / JWKS / Infisical / active LLM provider) and returns
+200 only when none report "down", else 503 — and, under a live LLM profile, only when
+every probe reports "ok". Both are UNPREFIXED (no /api/v1) per the endpoint contract.
+The probes are pluggable via a dependency so tests can simulate a degraded dependency;
+an unconfigured dependency reports "skipped" rather than failing the process.
 
 Key classes:
 - LivenessResponse: body of /healthz.
@@ -22,8 +22,15 @@ Notes:
   DATABASE_URL is configured it reports "skipped" (the app still boots).
 - The ChromaDB probe checks the baked RAG index for presence (plan §16 Phase 6): a populated
   index → "ok"; a missing/empty index → "down" when `rag_index_required` (prod bakes the
-  index) else "skipped" (dev/local need not have built it yet). Infisical remains "skipped".
+  index) else "skipped" (dev/local need not have built it yet).
 - The JWKS probe checks Supabase Auth reachability only when `auth_jwks_url` is configured.
+- The Infisical probe verifies DELIVERY, not reachability: the service never calls Infisical
+  (secrets are injected as env by `infisical run` / the CI action / the deploy platform), so
+  probing that host would couple pod readiness to an unrelated SaaS and still prove nothing
+  about the injection. With `infisical_secrets_delivery = "externally_injected"` it asserts
+  every `infisical_required_env_keys` name is present and non-blank — "down" (503) when a
+  secret sync fails — and reports "skipped" while no delivery is declared. Its detail carries
+  a COUNT, never key names, because /readyz is unauthenticated.
 - Probes may be sync or async; readyz awaits any awaitable result.
 """
 
@@ -43,13 +50,14 @@ from starlette.responses import Response
 
 from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
-from fraudlens_backend.settings import AppSettings
-from fraudlens_llm import get_llm_settings, load_providers
+from fraudlens_backend.sar.factory import load_sar_llm_config
+from fraudlens_backend.settings import AppSettings, _config_anchored
+from fraudlens_llm import Protocol, get_llm_settings, load_providers, resolve_base_url
 
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
 _LIVE_REQUIRED_CHECKS = frozenset(
-    {"database", "chromadb", "supabaseAuth", "infisical", "openrouter"}
+    {"database", "chromadb", "supabaseAuth", "infisical", "llmProvider"}
 )
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
@@ -79,6 +87,36 @@ class ReadinessResponse(CamelModel):
 def _skipped(name: str) -> DependencyCheck:
     """Return a 'skipped' check for a dependency that is not configured/provisioned."""
     return DependencyCheck(name=name, status="skipped", detail="not configured")
+
+
+async def _probe_llm_provider(settings: AppSettings, timeout: float) -> DependencyCheck:
+    """Probe the active SAR provider's OpenAI-compatible models endpoint."""
+    if settings.llm_mode != "live":
+        return _skipped("llmProvider")
+    provider_name = "unconfigured"
+    try:
+        llm_settings = get_llm_settings()
+        sar_config = load_sar_llm_config(_config_anchored(settings.sar_config_file))
+        provider_name, separator, _model_id = sar_config.model.partition("/")
+        if not separator:
+            raise ValueError("SAR model reference has no provider")
+        provider = load_providers(llm_settings.providers_path).get(provider_name)
+        if provider.protocol != Protocol.OPENAI_COMPATIBLE:
+            raise ValueError("SAR provider does not expose an OpenAI-compatible models route")
+        base_url = resolve_base_url(provider, llm_settings)
+        api_key = os.environ.get(provider.api_key_env)
+        if not api_key:
+            raise ValueError("SAR provider API key was not injected")
+        status = await _fetch_status(
+            f"{base_url.rstrip('/')}/models",
+            min(timeout, provider.timeout_s),
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+    except Exception:  # provider/config/reachability failures all fail closed
+        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
+    if status != _HTTP_OK:
+        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
+    return DependencyCheck(name="llmProvider", status="ok", detail=provider_name)
 
 
 def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
@@ -126,34 +164,28 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(name="supabaseAuth", status="down", detail="unexpected status")
         return DependencyCheck(name="supabaseAuth", status="ok")
 
-    async def _openrouter() -> DependencyCheck:
-        """Probe the configured OpenRouter models endpoint in live LLM mode."""
-        if settings.llm_mode != "live":
-            return _skipped("openrouter")
-        try:
-            llm_settings = get_llm_settings()
-            provider = load_providers(llm_settings.providers_path).get("openrouter")
-            api_key = os.environ.get(provider.api_key_env)
-            if provider.base_url is None or not api_key:
-                return _skipped("openrouter")
-            status = await _fetch_status(
-                f"{provider.base_url.rstrip('/')}/models",
-                min(timeout, provider.timeout_s),
-                headers={"Authorization": f"Bearer {api_key}"},
+    def _infisical() -> DependencyCheck:
+        """Verify Infisical-delivered secrets reached the process env (no outbound call)."""
+        if settings.infisical_secrets_delivery == "unconfigured":
+            return _skipped("infisical")
+        missing = sum(
+            1 for key in settings.infisical_required_env_keys if not os.environ.get(key, "").strip()
+        )
+        if missing:
+            # Count only — the response is unauthenticated, so the secret inventory of a
+            # deployment never leaks through a readiness body.
+            return DependencyCheck(
+                name="infisical", status="down", detail=f"{missing} injected secret(s) missing"
             )
-        except Exception:  # provider/config/reachability failures all fail closed
-            return DependencyCheck(name="openrouter", status="down", detail="unreachable")
-        if status != _HTTP_OK:
-            return DependencyCheck(name="openrouter", status="down", detail="unexpected status")
-        return DependencyCheck(name="openrouter", status="ok")
+        return DependencyCheck(name="infisical", status="ok", detail="externally injected")
 
     infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
     return [
         _database,
         _chromadb,
         _supabase_auth,
-        infisical_probe or (lambda: _skipped("infisical")),
-        _openrouter,
+        infisical_probe or _infisical,
+        lambda: _probe_llm_provider(settings, timeout),
     ]
 
 

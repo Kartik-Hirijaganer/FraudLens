@@ -38,6 +38,14 @@ def _build_base_flat() -> str:
     return re.sub(r"\s+", " ", (WORKFLOWS / "build-base.yml").read_text())
 
 
+def _deploy_aks() -> dict:
+    return _load_yaml(WORKFLOWS / "deploy-aks.yml")
+
+
+def _deploy_aks_flat() -> str:
+    return re.sub(r"\s+", " ", (WORKFLOWS / "deploy-aks.yml").read_text())
+
+
 def _job_script(job: dict) -> str:
     """Concatenate + normalize a job's step `run` scripts (for scoped content assertions)."""
     runs = " ".join(step.get("run", "") for step in job.get("steps", []))
@@ -219,3 +227,60 @@ def test_azure_runtime_backends_receive_required_env() -> None:
         assert "sar_pdf_container_name" in hcl
         assert "retrain_job_name" in hcl
         assert "batch_score_job_name" in hcl
+
+
+# --- Deferred AKS workflow: dispatch-only, inert, immutable and recoverable ------------------
+
+
+def test_aks_workflow_is_dispatch_only_and_feature_gated() -> None:
+    text = (WORKFLOWS / "deploy-aks.yml").read_text()
+    assert "workflow_dispatch:" in text
+    assert "\npush:" not in text and "\npull_request:" not in text
+    workflow = _deploy_aks()
+    for job in workflow["jobs"].values():
+        assert "AKS_DEPLOY_ENABLED == 'true'" in job["if"]
+    for name, job in workflow["jobs"].items():
+        if name != "verify":
+            assert job["timeout-minutes"] >= 1
+
+
+def test_aks_workflow_builds_one_sha_image_then_smokes_before_evidence() -> None:
+    text = (WORKFLOWS / "deploy-aks.yml").read_text()
+    flat = _deploy_aks_flat()
+    workflow = _deploy_aks()
+    assert text.count("docker/build-push-action") == 1
+    assert "fraudlens-backend:${GITHUB_SHA}" in flat
+    assert workflow["jobs"]["smoke"]["needs"] == "deploy"
+    assert workflow["jobs"]["hpa-evidence"]["needs"] == "smoke"
+    assert "actions/upload-artifact" in text
+    assert "git commit" not in text and "git push" not in text
+
+
+def test_aks_workflow_uses_exact_root_kubelogin_and_guarded_destroy() -> None:
+    flat = _deploy_aks_flat()
+    assert "cp backend.tf.template backend.tf" in flat
+    assert "-var-file=aks-demo.tfvars" in flat
+    assert "kubelogin convert-kubeconfig -l azurecli" in flat
+    assert "inputs.confirm_destroy == 'destroy-fraudlens-aks-demo'" in flat
+    assert "make aks-down CONFIRM=yes" in flat
+    assert "make aks-verify-clean" in flat
+
+
+def test_aks_module_and_tfvars_hold_the_cost_and_security_posture() -> None:
+    module = (TERRAFORM / "modules" / "aks" / "main.tf").read_text()
+    tfvars = (TERRAFORM / "environments" / "aks-demo" / "aks-demo.tfvars").read_text()
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    for contract in (
+        "sku_tier            = var.sku_tier",
+        "local_account_disabled            = true",
+        "oidc_issuer_enabled               = true",
+        "workload_identity_enabled         = true",
+        "run_command_enabled               = false",
+        'network_plugin_mode = "overlay"',
+        'network_data_plane  = "cilium"',
+    ):
+        assert contract in module
+    assert re.search(r'sku_tier\s*=\s*"Free"', tfvars)
+    assert re.search(r"user_min_count\s*=\s*1", tfvars)
+    assert re.search(r"user_max_count\s*=\s*2", tfvars)
+    assert "wildcard infra/terraform/environments/*/main.tf" in makefile

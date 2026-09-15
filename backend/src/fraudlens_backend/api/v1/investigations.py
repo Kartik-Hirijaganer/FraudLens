@@ -1,13 +1,10 @@
 """Summary: The investigation API (plan §5.4, §10.2, §16 Phase 8; endpoints 6-8). `POST
-/investigations` STARTS and OWNS the run (ADR-016): it validates the transaction is the agency's,
-creates the `analysis_runs(running)` row, launches the `Runner` as an in-process background task
-    via the `RunManager`, and returns **202 `{runId}`** — an optional `Idempotency-Key` is hashed
-    into the tenant-scoped run row and dedupes across restarts/replicas. `GET
-    /investigations/{runId}` is the authoritative snapshot the
-SSE observer reconciles against. `GET /investigations/{runId}/stream` is a PURE OBSERVER: it
-replays the persisted `analysis_run_events` from `Last-Event-ID`, then tails the live broadcast
-(the ephemeral `sar.token`s) until `run.completed`/`run.failed` — it never starts the run, so a
-never-connected, dropped, or doubly-reconnected stream never strands or duplicates a run. Every
+/investigations` validates the tenant transaction, persists a running inline run or pending durable
+worker run, and returns **202 `{runId}`**. An optional hashed `Idempotency-Key` dedupes across
+restarts/replicas. Live multi-agent runs reserve their worst-case attempt spend transactionally.
+`GET /investigations/{runId}` is the authoritative snapshot. `GET
+/investigations/{runId}/stream` is a pure observer: it replays persisted events from
+`Last-Event-ID`, then uses an inline live tail or worker-mode database polling until terminal. Every
 route is scoped to the verified `agency_id` claim (a cross-tenant runId → 404, no existence leak).
 
 Key classes:
@@ -20,8 +17,8 @@ Key functions:
 - stream_investigation: GET /investigations/{runId}/stream — SSE replay-from-Last-Event-ID + tail.
 
 Notes:
-- The SSE generator opens its OWN short-lived session for the persisted-event replay and then tails
-  the in-memory broadcast queue, so a long-lived stream does not pin the request DB session.
+- The SSE generator opens its own short-lived sessions for persisted-event reads, so a long-lived
+  stream does not pin the request DB session.
 - Stream-owned session cleanup runs in a shielded task so a client disconnect cannot interrupt
   SQLAlchemy while it returns an asyncpg connection to the pool.
 - Replaying persisted events (with a `seq`) then de-duping any live event whose `seq` was already
@@ -33,17 +30,16 @@ Notes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
-from anyio import CancelScope
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
     DbSessionDep,
@@ -56,6 +52,13 @@ from fraudlens_backend.api.deps import (
     optional_actor,
     require_permission,
 )
+from fraudlens_backend.api.v1.investigation_stream import SSE_HEADERS as _SSE_HEADERS
+from fraudlens_backend.api.v1.investigation_stream import EventPolling
+from fraudlens_backend.api.v1.investigation_stream import event_stream as _event_stream
+from fraudlens_backend.api.v1.investigation_stream import (
+    parse_last_event_id as _parse_last_event_id,
+)
+from fraudlens_backend.api.v1.investigation_stream import stream_session as _stream_session
 from fraudlens_backend.db.models import AnalysisResult, AnalysisRun, RagRetrieval, SarDraft
 from fraudlens_backend.db.repositories import (
     AgentExecutionRepository,
@@ -80,6 +83,7 @@ from fraudlens_backend.pipeline_wiring import (
     build_pipeline_input,
     resolve_workflow_mode,
 )
+from fraudlens_backend.runs.admission import reserve_agent_spend
 from fraudlens_backend.services.sar_regeneration import regenerate_sar_for_run, sar_draft_to_view
 from fraudlens_backend.settings import AppSettings
 
@@ -91,9 +95,6 @@ InvestigationWriteDep = Annotated[
 ]
 
 _IDEMPOTENCY_HEADER = "Idempotency-Key"
-_LAST_EVENT_ID_HEADER = "Last-Event-ID"
-_TERMINAL_EVENTS = frozenset({"run.completed", "run.failed"})
-_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 _SECONDS_PER_DAY = 86_400
 
 
@@ -105,7 +106,26 @@ def _manager(request: Request) -> RunManager:
     return cast(RunManager, manager)
 
 
-async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + correlation + the optional override (keyword-only).
+def _request_fingerprint(
+    *,
+    transaction_id: uuid.UUID,
+    model_override: str | None,
+    workflow_mode: str | None,
+) -> str:
+    """Hash the behavior-bearing request fields bound to an Idempotency-Key."""
+    payload = json.dumps(
+        {
+            "modelOverride": model_override,
+            "transactionId": str(transaction_id),
+            "workflowMode": workflow_mode,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the transaction boundary.
     *,
     manager: RunManager,
     session: AsyncSession,
@@ -117,12 +137,19 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
     idempotency_key: str | None = None,
     workflow_mode: str | None = None,
 ) -> str:
-    """Create the running run, build its input, launch the background Runner; return the runId."""
+    """Persist an inline or queued run before returning its durable run id."""
     agency_id = uuid.UUID(tenant.agency_id)
     run_repo = AnalysisRunRepository(session, agency_id)
+    fingerprint = _request_fingerprint(
+        transaction_id=transaction_id,
+        model_override=model_override,
+        workflow_mode=workflow_mode,
+    )
     if idempotency_key is not None:
         existing = await run_repo.get_by_idempotency_key(idempotency_key)
         if existing is not None:
+            if existing.request_fingerprint != fingerprint:
+                raise AppError("idempotency_key_conflict")
             return str(existing.id)
     repo = TransactionRepository(session, agency_id)
     transaction = await repo.get(transaction_id)
@@ -140,44 +167,67 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
         requested=workflow_mode,
     )
     evaluation_mode = workflow_mode is not None
-    if resolved_workflow == "multi_agent" and settings.llm_mode == "live":
-        if not evaluation_mode:
-            client_host = request.client.host if request.client else "unknown"
-            quotas = manager.agent_quotas
-            enforce_rate_limit(
-                request,
-                scope="live_multi_agent_per_ip_daily",
-                limit=quotas.live_runs_per_ip_per_day,
-                window_seconds=_SECONDS_PER_DAY,
-                key=client_host,
-            )
-            enforce_rate_limit(
-                request,
-                scope="live_multi_agent_total_daily",
-                limit=quotas.live_runs_total_per_day,
-                window_seconds=_SECONDS_PER_DAY,
-                key="all",
-            )
-        await manager.ensure_agent_budget(session, agency_id=agency_id)
-    try:
-        run = await run_repo.create_running(
-            transaction_id=transaction.id,
-            idempotency_key=idempotency_key,
-            workflow_mode=resolved_workflow,
-            graph_version=(
-                getattr(manager, "agent_graph_version", None)
-                if resolved_workflow == "multi_agent"
-                else None
-            ),
+    reserve_live_agent_spend = resolved_workflow == "multi_agent" and settings.llm_mode == "live"
+    if reserve_live_agent_spend and not evaluation_mode:
+        client_host = request.client.host if request.client else "unknown"
+        quotas = manager.agent_quotas
+        enforce_rate_limit(
+            request,
+            scope="live_multi_agent_per_ip_daily",
+            limit=quotas.live_runs_per_ip_per_day,
+            window_seconds=_SECONDS_PER_DAY,
+            key=client_host,
         )
+        enforce_rate_limit(
+            request,
+            scope="live_multi_agent_total_daily",
+            limit=quotas.live_runs_total_per_day,
+            window_seconds=_SECONDS_PER_DAY,
+            key="all",
+        )
+    try:
+        graph_version = (
+            getattr(manager, "agent_graph_version", None)
+            if resolved_workflow == "multi_agent"
+            else None
+        )
+        if settings.run_execution_mode == "worker":
+            run = await run_repo.create_pending(
+                transaction_id=transaction.id,
+                idempotency_key=idempotency_key,
+                workflow_mode=resolved_workflow,
+                graph_version=graph_version,
+                request_fingerprint=fingerprint,
+                model_override=model_override,
+                deadline_at=datetime.now(UTC) + timedelta(seconds=settings.run_deadline_seconds),
+            )
+        else:
+            run = await run_repo.create_running(
+                transaction_id=transaction.id,
+                idempotency_key=idempotency_key,
+                workflow_mode=resolved_workflow,
+                graph_version=graph_version,
+                request_fingerprint=fingerprint,
+                model_override=model_override,
+            )
     except IntegrityError:
         # A second replica may win the tenant/key UNIQUE race after our initial lookup.
         await session.rollback()
         if idempotency_key is not None:
             existing = await run_repo.get_by_idempotency_key(idempotency_key)
             if existing is not None:
+                if existing.request_fingerprint != fingerprint:
+                    raise AppError("idempotency_key_conflict") from None
                 return str(existing.id)
         raise
+    if reserve_live_agent_spend:
+        attempt_count = settings.run_max_attempts if settings.run_execution_mode == "worker" else 1
+        await reserve_agent_spend(
+            session,
+            run=run,
+            agency_id=agency_id,
+            maximum_attempt_cost_usd=manager.agent_max_cost_usd * attempt_count,
+        )
     await audit_writer(tenant, session, request).record(
         actor_id=optional_actor(tenant),
         action="investigation.start",
@@ -195,21 +245,22 @@ async def _create_and_start(  # noqa: PLR0913 - run-creation collaborators + cor
         },
     )
     await session.commit()
-    pipeline_input = await build_pipeline_input(
-        repo=repo,
-        transaction=transaction,
-        run_id=run.id,
-        agency_id=agency_id,
-        settings=settings,
-    )
-    manager.start(
-        agency_id=agency_id,
-        run_id=run.id,
-        transaction_id=transaction.id,
-        pipeline_input=pipeline_input,
-        model_override=model_override,
-        workflow_mode=resolved_workflow,
-    )
+    if settings.run_execution_mode == "inline":
+        pipeline_input = await build_pipeline_input(
+            repo=repo,
+            transaction=transaction,
+            run_id=run.id,
+            agency_id=agency_id,
+            settings=settings,
+        )
+        manager.start(
+            agency_id=agency_id,
+            run_id=run.id,
+            transaction_id=transaction.id,
+            pipeline_input=pipeline_input,
+            model_override=model_override,
+            workflow_mode=resolved_workflow,
+        )
     return str(run.id)
 
 
@@ -247,12 +298,15 @@ def _snapshot(  # noqa: PLR0913, PLR0917 -- projection joins the run's tenant-sc
     sar: SarDraft | None,
     alert_id: uuid.UUID | None,
     agent_executions: list[Any] | None = None,
+    max_attempts: int = 1,
 ) -> InvestigationSnapshotResponse:
     """Project the run + (optional) result + (optional) SAR draft onto the snapshot response."""
     return InvestigationSnapshotResponse(
         run_id=str(run.id),
         transaction_id=str(run.transaction_id),
         status=run.status.value,
+        attempt=run.attempt,
+        max_attempts=max_attempts,
         risk_score=run.risk_score,
         risk_band=run.risk_band.value if run.risk_band is not None else None,
         fraud_probability=result.fraud_probability if result is not None else None,
@@ -287,6 +341,7 @@ async def get_investigation(
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     tenant: TenantDep,
     session: DbSessionDep,
+    settings: SettingsDep,
 ) -> InvestigationSnapshotResponse:
     """Return the authoritative run snapshot; 404 when missing or owned by another agency."""
     agency_id = uuid.UUID(tenant.agency_id)
@@ -306,6 +361,7 @@ async def get_investigation(
         sar,
         alert.id if alert is not None else None,
         list(executions),
+        settings.run_max_attempts,
     )
 
 
@@ -342,117 +398,12 @@ async def regenerate_investigation_sar(
     return sar_draft_to_view(draft)
 
 
-def _parse_last_event_id(request: Request) -> int:
-    """Parse the SSE `Last-Event-ID` (header or `lastEventId` query) as a seq; 0 when absent/bad."""
-    raw = request.headers.get(_LAST_EVENT_ID_HEADER) or request.query_params.get("lastEventId")
-    try:
-        return max(0, int(raw)) if raw is not None else 0
-    except (TypeError, ValueError):
-        return 0
-
-
-def _sse_frame(seq: int | None, event_type: str, data: dict[str, Any]) -> str:
-    """Format one Server-Sent Event frame (id only for persisted events with a seq)."""
-    lines = []
-    if seq is not None:
-        lines.append(f"id: {seq}")
-    lines.append(f"event: {event_type}")
-    lines.append(f"data: {json.dumps(data, separators=(',', ':'))}")
-    return "\n".join(lines) + "\n\n"
-
-
-@asynccontextmanager
-async def _stream_session(
-    sessionmaker: async_sessionmaker[AsyncSession],
-) -> AsyncIterator[AsyncSession]:
-    """Yield an SSE-owned session and finish closing it even when the request is cancelled."""
-    session = sessionmaker()
-    with CancelScope(shield=True):
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
-async def _event_stream(
-    *,
-    manager: RunManager,
-    sessionmaker: async_sessionmaker[AsyncSession],
-    agency_id: uuid.UUID,
-    run_id: uuid.UUID,
-    after_seq: int,
-) -> AsyncIterator[str]:
-    """Replay persisted events from `after_seq`, then tail the live broadcast until terminal."""
-    queue = manager.attach(str(run_id))
-    try:
-        max_seq = after_seq
-        async with _stream_session(sessionmaker) as session:
-            events = await AnalysisRunRepository(session, agency_id).events_after(
-                run_id=run_id, after_seq=after_seq
-            )
-        for event in events:
-            payload = await _terminal_snapshot_payload(
-                sessionmaker=sessionmaker,
-                agency_id=agency_id,
-                run_id=run_id,
-                event_type=event.event_type.value,
-                payload=dict(event.payload),
-            )
-            yield _sse_frame(event.seq, event.event_type.value, payload)
-            max_seq = event.seq
-            if event.event_type.value in _TERMINAL_EVENTS:
-                return
-        if queue is None:  # run is terminal/evicted — the persisted replay is the whole stream
-            return
-        while True:
-            message = await queue.get()
-            if message is None:  # the run finished (done sentinel)
-                return
-            if message.seq is not None and message.seq <= max_seq:
-                continue  # already replayed from the persisted log
-            payload = await _terminal_snapshot_payload(
-                sessionmaker=sessionmaker,
-                agency_id=agency_id,
-                run_id=run_id,
-                event_type=message.event_type,
-                payload=message.data,
-            )
-            yield _sse_frame(message.seq, message.event_type, payload)
-            if message.seq is not None:
-                max_seq = message.seq
-            if message.event_type in _TERMINAL_EVENTS:
-                return
-    finally:
-        if queue is not None:
-            manager.detach(str(run_id), queue)
-
-
-async def _terminal_snapshot_payload(
-    *,
-    sessionmaker: async_sessionmaker[AsyncSession],
-    agency_id: uuid.UUID,
-    run_id: uuid.UUID,
-    event_type: str,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Add the run's nullable alert id and SAR status to the terminal SSE snapshot."""
-    if event_type != "run.completed":
-        return payload
-    async with _stream_session(sessionmaker) as session:
-        alert = await AlertRepository(session, agency_id).get_for_run(run_id)
-        sar = await SarDraftRepository(session, agency_id).get_for_run(run_id)
-    return {
-        **payload,
-        "alertId": str(alert.id) if alert is not None else None,
-        "sarStatus": sar.status.value if sar is not None else None,
-    }
-
-
 @router.get("/investigations/{runId}/stream")
 async def stream_investigation(
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     request: Request,
     tenant: TenantDep,
+    settings: SettingsDep,
 ) -> StreamingResponse:
     """Stream a run as SSE: replay persisted events from Last-Event-ID, then tail live tokens."""
     manager = _manager(request)
@@ -470,5 +421,14 @@ async def stream_investigation(
         agency_id=agency_id,
         run_id=run_id,
         after_seq=_parse_last_event_id(request),
+        polling=(
+            EventPolling(
+                initial_seconds=settings.run_event_poll_ms / 1000,
+                maximum_seconds=settings.run_event_poll_max_ms / 1000,
+                heartbeat_seconds=settings.run_event_heartbeat_seconds,
+            )
+            if settings.run_execution_mode == "worker"
+            else None
+        ),
     )
     return StreamingResponse(generator, media_type="text/event-stream", headers=_SSE_HEADERS)

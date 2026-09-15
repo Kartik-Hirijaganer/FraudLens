@@ -104,6 +104,11 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="No investigation run with that id exists for this agency.",
         ),
         ErrorSpec(
+            code="idempotency_key_conflict",
+            http_status=409,
+            message="That Idempotency-Key is already bound to a different investigation request.",
+        ),
+        ErrorSpec(
             code="investigations_unavailable",
             http_status=503,
             message="The investigation service is not available (database not configured).",

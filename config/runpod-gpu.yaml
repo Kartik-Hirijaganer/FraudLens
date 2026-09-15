@@ -1,0 +1,43 @@
+# RunPod Secure Cloud configuration for the ephemeral Phase-11 vLLM benchmark host.
+# Secret values are injected at runtime; only environment-variable names live here.
+
+api_base_url: https://rest.runpod.io/v1
+api_key_env: RUNPOD_API_KEY
+name_prefix: fraudlens
+state_dir: .local/runpod-gpu
+allocation: gpu_benchmark
+rate_key: runpod_rtx4090_secure_payg
+
+pod:
+  cloud_type: SECURE
+  compute_type: GPU
+  gpu_id: NVIDIA GeForce RTX 4090
+  gpu_count: 1
+  gpu_type_priority: custom
+  image: vllm/vllm-openai
+  image_digest: sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6
+  interruptible: false
+  locked: false
+  container_disk_gb: 50
+  volume_gb: 50
+  volume_mount_path: /workspace
+  volume_encrypted: true
+  ports: [22/tcp]
+  global_networking: false
+  allowed_cuda_versions: ["12.8", "12.9", "13.0"]
+  min_ram_per_gpu_gb: 40
+  min_vcpu_per_gpu: 6
+  min_download_mbps: 100
+
+ssh:
+  user: root
+  private_key_path_env: RUNPOD_SSH_PRIVATE_KEY_PATH
+  public_key_path_env: RUNPOD_SSH_PUBLIC_KEY_PATH
+  connect_timeout_seconds: 20
+
+remote:
+  source_link: /workspace/FraudLens
+  state_root: /workspace/.fraudlens
+  local_output_link: /workspace/.fraudlens/local
+  api_key_path: /workspace/.fraudlens/vllm-api-key
+  uv_version: 0.11.3

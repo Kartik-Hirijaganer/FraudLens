@@ -1318,6 +1318,12 @@
             "description": "Alert raised by this run, or None when the run did not alert.",
             "title": "Alertid"
           },
+          "attempt": {
+            "description": "Number of fenced execution attempts claimed.",
+            "minimum": 0.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
           "citations": {
             "description": "Grounded regulatory citations the SAR relied on.",
             "items": {
@@ -1368,6 +1374,12 @@
             ],
             "description": "Agent graph version, or null for single-writer runs.",
             "title": "Graphversion"
+          },
+          "maxAttempts": {
+            "description": "Configured terminal attempt limit.",
+            "exclusiveMinimum": 0.0,
+            "title": "Maxattempts",
+            "type": "integer"
           },
           "modelVersion": {
             "anyOf": [
@@ -1507,7 +1519,7 @@
             "title": "Sarstatus"
           },
           "status": {
-            "description": "Run status: pending | running | completed | failed.",
+            "description": "Run status: pending | running | retrying | completed | failed.",
             "title": "Status",
             "type": "string"
           },
@@ -1541,6 +1553,8 @@
           "runId",
           "transactionId",
           "status",
+          "attempt",
+          "maxAttempts",
           "workflowMode",
           "createdAt",
           "updatedAt"
@@ -2424,6 +2438,19 @@
             "title": "Modelid",
             "type": "string"
           },
+          "modelInput": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact synthetic-only, allowlisted fields sent to the drafting model.",
+            "title": "Modelinput"
+          },
           "promptHash": {
             "description": "Hash of the exact prompt template used.",
             "title": "Prompthash",
@@ -2433,6 +2460,11 @@
             "description": "SAR prompt template version id used.",
             "title": "Promptversion",
             "type": "string"
+          },
+          "qualityStatus": {
+            "$ref": "#/components/schemas/SarQualityStatus",
+            "default": "evaluated",
+            "description": "Quality evaluation state for this exact narrative version."
           },
           "revisionCount": {
             "description": "Number of agent-writer revisions completed for this artifact.",
@@ -2546,6 +2578,15 @@
         ],
         "title": "SarMetrics",
         "type": "object"
+      },
+      "SarQualityStatus": {
+        "description": "Evaluation state for the exact current SAR narrative.",
+        "enum": [
+          "evaluated",
+          "unevaluated"
+        ],
+        "title": "SarQualityStatus",
+        "type": "string"
       },
       "SarReviewDecision": {
         "description": "The human SAR review verb applied to the latest draft (plan \u00a75.4 / \u00a710.4).",
@@ -3157,7 +3198,7 @@
   "info": {
     "summary": "FraudLens AML fraud investigation API.",
     "title": "FraudLens",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3602,6 +3643,55 @@
           }
         ],
         "summary": "Dev Seed",
+        "tags": [
+          "dev"
+        ]
+      }
+    },
+    "/api/v1/dev/transactions/{transactionId}/synthetic-provenance": {
+      "post": {
+        "description": "Mark one generated local transaction synthetic for the governed vLLM E2E pass.",
+        "operationId": "mark_synthetic_provenance_api_v1_dev_transactions__transactionId__synthetic_provenance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transactionId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transactionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevUtilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mark Synthetic Provenance",
         "tags": [
           "dev"
         ]

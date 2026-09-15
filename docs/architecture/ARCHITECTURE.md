@@ -18,6 +18,7 @@ generated regions below stay synchronized with the codebase.
 | Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
 | Regulatory RAG | FinCEN/BSA chunks are stored in ChromaDB. The deterministic 256-dimensional `HashingEmbedder` remains the keyless default; `make ingest-rag-live` and `make run-live` opt into 1536-dimensional OpenRouter `text-embedding-3-small`. | Expand the curated regulatory corpus and authoritative source metadata without changing the embedding/index contract. |
 | SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode retains the single writer and adds a bounded four-agent implementation behind process and tenant flags; production defaults to the single writer. Both use the injected `SarDrafter` seam and the existing human review gate. | Publication requires a committed synthetic evaluation that compares both live arms through the real API; enable the agent path by default only when its measured quality benefit justifies the additional cost and latency ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)). |
+| SAR quality + model egress | `make quality-gates` enforces configured citation/fact/hallucination thresholds and byte-level retry/fallback privacy offline. Live prompts consume only frozen `SarModelInput` projections authorized from persisted synthetic source provenance ([ADR-023](adr/ADR-023-sar-quality-and-privacy-gates.md), [ADR-026](adr/ADR-026-synthetic-only-model-egress.md)). | Real customer data remains out of scope; enabling another data class/source requires a new privacy/compliance and provider-contract decision. |
 
 The diagrams below show the full system shape. Where a diagram names an LLM provider or semantic
 RAG flow, treat it as the opt-in/target path described above, not the keyless local default.
@@ -33,7 +34,7 @@ C4Context
     System_Ext(supabase, "Supabase", "Postgres (tenant-scoped data)")
     System_Ext(llm, "LLM provider", "SAR drafting (primary + fallback)")
     Rel(analyst, fraudlens, "Investigates, reviews drafts", "HTTPS")
-    Rel(fraudlens, infisical, "Fetches secrets at runtime")
+    Rel(infisical, fraudlens, "Injects scoped secrets at process start")
     Rel(fraudlens, supabase, "Reads/writes tenant data", "TLS")
     Rel(fraudlens, llm, "Drafts SAR narratives", "HTTPS")
 ```
@@ -46,14 +47,17 @@ C4Container
     Person(analyst, "AML Analyst")
     Container(spa, "Frontend SPA", "React + TS + Vite (Vercel)", "wise design system")
     Container(api, "Backend API", "FastAPI on Azure Container Apps", "/api/v1 + /healthz,/readyz")
+    Container(worker, "Investigation worker", "Python process", "claims persisted runs with leases")
     ContainerDb(db, "Postgres", "Supabase", "agency_id-scoped tables")
     Container(vector, "Vector store", "ChromaDB", "FinCEN/BSA embeddings")
     System_Ext(infisical, "Infisical")
     Rel(analyst, spa, "Uses", "HTTPS")
     Rel(spa, api, "Calls", "HTTPS/JSON (camelCase)")
     Rel(api, db, "Queries (scoped by agency_id)")
+    Rel(worker, db, "Claims/writes fenced runs (scoped by agency_id)")
     Rel(api, vector, "Retrieves regulatory context")
-    Rel(api, infisical, "Fetches secrets at runtime")
+    Rel(infisical, api, "Injects runtime secrets")
+    Rel(infisical, worker, "Injects runtime secrets")
 ```
 
 ## C4 — Components (Backend)
@@ -128,8 +132,123 @@ graph TD
 ```
 
 - **Azure via GitHub→Azure OIDC** (federated; no long-lived client secret in GitHub).
-- **Vercel/Supabase credentials** are fetched **short-lived from Infisical at job/runtime**,
-  masked, never persisted. Deploy is **inert** until the accounts + Terraform state exist.
+- **Vercel/Supabase credentials** are injected from Infisical at job/runtime, masked, and never
+  persisted. The frontend and database exist; Azure application deploy jobs remain feature-gated.
+
+## Inference serving and benchmark
+
+The production-shaped self-hosted path reuses the governed OpenAI-compatible client; it does not
+introduce a benchmark-only prompt path. A random `VLLM_API_KEY` is injected into both vLLM and the
+backend, and the endpoint is reached through an SSH tunnel during the temporary experiment. RunPod
+Secure Cloud RTX 4090 hosted the measured release run; the Pod and encrypted volume were deleted
+after export. The published result demonstrates efficiency and preserves the failed quality gate.
+
+```mermaid
+flowchart LR
+    cases["1,000 synthetic cases<br/>+ warm-up/dev/abstention"] --> harness["Checkpointed benchmark harness"]
+    harness --> bf16["Qwen2.5-7B BF16<br/>same host + image"]
+    harness --> awq["Qwen2.5-7B AWQ-Marlin<br/>same host + image"]
+    bf16 --> aggregate["Aggregate latency, TTFT,<br/>throughput, memory, cost"]
+    awq --> aggregate
+    aggregate --> quality["Schema, citations, facts,<br/>abstention, unsupported claims"]
+    quality --> publish["Hash-bound JSON + Markdown<br/>+ frontend projection"]
+```
+
+The primary comparison holds KV-cache utilisation equal; a separate maximum-safe-concurrency
+observation describes capacity. Provider selection is a fresh quota/capacity/price decision at
+STOP 3, pilot cost is projected with a 30% margin, and teardown is part of acceptance. See
+[ADR-020](adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) and the
+[benchmark runbook](../runbooks/vllm-benchmark.md).
+
+## Full-data training on ephemeral compute
+
+The full-data pipeline processes frozen public IBM AML sources with DuckDB and Parquet in bounded,
+checkpointed stages. Raw account identifiers exist only long enough to build namespaced temporal
+windows; the published report contains reconciliation, timings, metrics, and provenance—not rows or
+identifiers. Source rows, usable rows, training rows, calibration rows, and holdout rows are distinct
+counts.
+
+```mermaid
+flowchart LR
+    source["Frozen IBM CSVs<br/>68,228,066 source rows"] --> verify["Hash, row-count,<br/>schema verification"]
+    verify --> parquet["Typed Parquet ingest"]
+    parquet --> features["19 live-parity temporal features"]
+    features --> parity["Live-builder parity sample"]
+    parity --> folds["Whole-account chronological folds"]
+    folds --> train["XGBoost + Platt calibration"]
+    train --> gates["Holdout + shared promotion gates"]
+    gates --> report["Aggregate evidence + candidate only"]
+```
+
+Phase 6 used an ephemeral Azure CPU VM with a measured admission gate, Blob checkpoints, automatic
+deallocation, and explicit teardown. The published aggregate reconciles every frozen source and
+records the three candidate evaluations; the temporary resource group was destroyed. See the
+[data-batch runbook](../runbooks/data-batch.md).
+
+## Kubernetes deployment: kind to AKS
+
+One Kustomize base serves the local kind proof and the AKS overlay. The release measures HPA and
+durable-worker behavior on kind, while Terraform, policy, and the inert workflow validate the AKS
+shape without applying it.
+
+```mermaid
+flowchart TD
+    base["Kustomize base<br/>API + worker + Postgres + HPA"] --> kind["kind overlay<br/>zero-cost measured proof"]
+    base --> aks["AKS overlay<br/>Infisical operator + Cilium policy"]
+    kind --> evidence["1 → 5 → 1<br/>100/100 durable runs"]
+    aks --> validate["Terraform + Checkov + schema<br/>validate-only in release 0.3"]
+    validate --> next["Release 0.4<br/>approved apply → evidence → teardown"]
+```
+
+kindnet does not enforce the committed NetworkPolicies; Cilium is selected for AKS enforcement.
+The supported claim is “deployable to Azure AKS; autoscaling and durability proven on Kubernetes
+using kind,” not “deployed on AKS.” See [ADR-021](adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md).
+
+## Durable execution
+
+The API owns run creation, not execution. A worker atomically claims eligible rows using a lease,
+heartbeats while executing, and fences writes with its claim token. A reaper makes expired work
+eligible for bounded retry. SSE remains a pure observer/replay surface.
+
+```mermaid
+sequenceDiagram
+    participant API
+    participant DB as Postgres
+    participant W1 as Worker attempt 1
+    participant W2 as Replacement worker
+    API->>DB: create pending run (agency_id scoped)
+    W1->>DB: atomic claim + lease + fencing token
+    W1->>DB: heartbeat and persist step events
+    W1--xDB: process/pod terminates
+    W2->>DB: reclaim after lease expiry (attempt 2)
+    W2->>DB: fenced terminal write
+    DB-->>API: replayable snapshot/events
+```
+
+This is at-least-once execution with exactly-one accepted terminal write, not an exactly-once side
+effect guarantee. Idempotent persistence and bounded attempts make replacement explicit. See
+[ADR-027](adr/ADR-027-durable-investigation-execution.md).
+
+## Model-egress boundary
+
+Only persisted, allowlisted synthetic provenance may cross the model boundary. The backend rebuilds
+the exact typed projection from tenant-scoped persisted facts, maps identifiers to run-local aliases,
+checks the corpus binding and PHI policy, then sends bytes. The alert UI displays this same persisted
+projection under “What the model saw”; it does not infer it from browser state.
+
+```mermaid
+flowchart LR
+    persisted["Tenant-scoped transaction,<br/>score, rules, SHAP, retrieval"] --> provenance{"Allowed synthetic<br/>source + corpus hash?"}
+    provenance -->|no| block["Fail closed before transport"]
+    provenance -->|yes| project["SarModelInput<br/>extra=forbid + aliases"]
+    project --> scan["PHI + prompt-risk scan"]
+    scan --> transport["Governed provider client"]
+    project --> review["Alert review disclosure"]
+```
+
+Raw account IDs, names, addresses, free-form database records, and client-supplied tenant IDs are
+not model inputs. Extending allowed sources or data classes requires a new architecture/privacy
+decision. See [ADR-026](adr/ADR-026-synthetic-only-model-egress.md).
 
 ## LLM catalog, routing, and guardrails
 
@@ -184,8 +303,9 @@ SAR drafting reaches `fraudlens-ml` only through the injected `SarDrafter` proto
 (`fraudlens_ml.sar`), so ml never imports `fraudlens-llm`. The backend supplies three concrete
 implementations: a deterministic, keyless **mock** (the `make local-demo` default — no provider,
 no cost), the guarded **live single writer**, and a **bounded live four-agent** drafter selected only
-when both the process setting and tenant-scoped runtime flag permit it. All consume a PHI-free
-`SarInput` and return the same terminal contract, so draft persistence, SSE, review, approval, and
+when both the process setting and tenant-scoped runtime flag permit it. The mock consumes the broad
+internal `SarInput`; every live path first derives an exact frozen `SarModelInput` from persisted
+synthetic source provenance and returns the same terminal contract, so persistence, SSE, review, and
 PDF generation do not fork into parallel workflows.
 
 The agent graph is deterministic: Evidence Investigator and Regulatory Analyst run in parallel,
@@ -196,6 +316,15 @@ limits, and the preflight cost cap. Tenant-scoped execution attempts persist for
 restart-safe replay. The graph stops at `draft`; only the existing authenticated human endpoint can
 approve a SAR or transition its alert. [ADR-019](adr/ADR-019-multi-agent-sar-drafting.md) records
 these non-negotiable bounds and the synthetic-only evaluation protocol.
+
+`SarModelInput` omits tenant/user/database ids, account values, free text, edited narratives, and
+labels. It admits only verified transaction facts, controlled templated rule findings, numeric
+served-schema SHAP drivers, and exact digest-bound public regulation excerpts. Agent tool results
+are field-allowlisted and evidence ids become case aliases; output is remasked before another model
+sees it. `unknown` or `api-upload` provenance blocks live drafting before transport while preserving
+the deterministic investigation. The cache key includes tenant, projected evidence, prompt, model,
+and generation settings. [The quality-gate reference](../reference/quality-gates.md) documents the
+thresholds and socket-denied raw-request tests.
 
 Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML front-matter
 semantic version + a static instruction body). Every draft records the template's
@@ -221,6 +350,7 @@ silently substitutes the mock. Below-threshold runs never invoke RAG or SAR draf
 | Generated docs stay in sync | `make docs` / `make docs-check` (this file's AUTOGEN regions, OpenAPI, ERD) |
 | Graph-feature serving boundary: no cross-tenant graph topology in live scoring ([ADR-017](adr/ADR-017-graph-feature-serving-boundary.md)) | Offline-only `scripts/lib/gfp/` (never a runtime package); `snapml` confined to the benchmark-only `gfp` dependency group; served vector stays the 19 `FEATURE_NAMES`; identifier-free `RuleContext` |
 | Bounded multi-agent SAR drafting preserves human authority ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)) | Fixed four-role graph; read-only tenant-scoped tools with context-supplied `agency_id`; deterministic support checks; one revision maximum; preflight cost cap; human-only approval and alert transitions |
+| Synthetic-only live model egress ([ADR-026](adr/ADR-026-synthetic-only-model-egress.md)) | Persisted transaction source; frozen extra-forbid projection; controlled facts/rules/features; corpus digest binding; tool-result aliases; pre-transport refusal; transport byte tests |
 
 Decision records are indexed in [`adr/README.md`](adr/README.md). That index retains the historical
 summaries for ADR-001…016 after their retired source plan was removed; ADR-017 and later have
@@ -263,6 +393,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
 | POST | `/api/v1/dev/reset` | `dev_reset` |
 | POST | `/api/v1/dev/seed` | `dev_seed` |
+| POST | `/api/v1/dev/transactions/{transactionId}/synthetic-provenance` | `mark_synthetic_provenance` |
 | GET | `/api/v1/drift-reports` | `list_drift_reports` |
 | GET | `/api/v1/health` | `api_health` |
 | POST | `/api/v1/investigations` | `start_investigation` |
@@ -306,6 +437,59 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 <!-- AUTOGEN:config-keys -->
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
+| `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |
+| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version. |
+| `azure_managed_identity_client_id` | `str | None` | `None` | User-assigned identity client id for Azure data/control-plane calls. |
+| `azure_arm_endpoint` | `str` | `''` | Azure Resource Manager endpoint base URL, supplied by config/env. |
+| `azure_arm_token_resource` | `str` | `''` | Token resource/audience for Azure Resource Manager. |
+| `azure_subscription_id` | `str | None` | `None` | Azure subscription id containing the Container Apps Jobs. |
+| `azure_resource_group_name` | `str | None` | `None` | Azure resource group containing the Container Apps Jobs. |
+| `azure_container_apps_api_version` | `str` | `'2024-03-01'` | Azure Container Apps Jobs ARM API version. |
+| `azure_container_apps_retrain_job_name` | `str | None` | `None` | Container Apps Job name for model retraining. |
+| `azure_container_apps_batch_score_job_name` | `str | None` | `None` | Container Apps Job name for batch scoring. |
+| `azure_storage_account_name` | `str | None` | `None` | Azure Storage account name for artifact and SAR-PDF blobs. |
+| `azure_storage_blob_host_suffix` | `str` | `'blob.core.windows.net'` | Azure Blob DNS suffix used to build the storage endpoint. |
+| `azure_storage_blob_endpoint` | `str | None` | `None` | Optional Azure Blob endpoint; otherwise derived from the account name. |
+| `azure_storage_token_resource` | `str` | `''` | Token resource/audience for Azure Blob Storage. |
+| `azure_storage_container_name` | `str` | `'artifacts'` | Blob container for model/artifact keys. |
+| `azure_storage_sar_pdf_container_name` | `str` | `'sar-pdfs'` | Blob container for SAR PDF keys. |
+| `azure_storage_blob_api_version` | `str` | `'2023-11-03'` | Azure Blob data-plane API version. |
+| `azure_rest_timeout_seconds` | `float` | `10.0` | Timeout for Azure managed-identity, Blob, and ARM REST calls. |
+| `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
+| `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
+| `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
+| `cors_allow_credentials` | `bool` | `False` | Whether the gateway allows credentialed CORS requests. |
+| `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
+| `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
+| `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
+| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Static security response headers applied to every gateway response. |
+| `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
+| `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable). |
+| `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI; empty keeps the strict policy. |
+| `docs_ui_paths` | `list` | `['/docs', '/redoc', '/scalar']` | Interactive documentation paths that receive the relaxed CSP. |
+| `scalar_js_url` | `str` | `''` | Configured browser asset URL for the Scalar API reference runtime. |
+| `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
+| `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry exporter; disabled by default. |
+| `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled. |
+| `run_execution_mode` | `Literal` | `'inline'` | Run investigations in-process or enqueue them for a durable worker. |
+| `run_lease_seconds` | `int` | `60` | Worker lease lifetime before an abandoned run becomes recoverable. |
+| `run_heartbeat_seconds` | `int` | `10` | Interval at which a worker extends its active run lease. |
+| `run_max_attempts` | `int` | `3` | Maximum fenced worker claims before a run fails permanently. |
+| `run_deadline_seconds` | `int` | `300` | Wall-clock deadline applied when a queued investigation is accepted. |
+| `run_claim_batch` | `int` | `1` | Maximum runs a worker claims per scheduling pass. |
+| `run_retry_backoff_seconds` | `int` | `5` | Base delay before an expired run is eligible for another attempt. |
+| `run_worker_poll_seconds` | `float` | `1.0` | Idle delay between durable worker claim attempts. |
+| `run_worker_heartbeat_file` | `str` | `'.local/worker/heartbeat'` | Worker liveness file updated while its scheduler loop is healthy. |
+| `run_event_poll_ms` | `int` | `250` | Worker-mode SSE polling interval for persisted run events. |
+| `run_event_poll_max_ms` | `int` | `2000` | Maximum worker-mode SSE polling backoff interval. |
+| `run_event_heartbeat_seconds` | `int` | `15` | Maximum quiet interval before worker-mode SSE emits a keepalive comment. |
+| `investigation_history_window_hours` | `int` | `168` | Same-account history lookback covering the widest built-in rule window. |
+| `investigation_history_max` | `int` | `100` | Maximum same-account history rows loaded per investigation. |
+| `investigation_rag_top_k` | `int` | `4` | Number of FinCEN/BSA chunks retrieved for investigation citations. |
+| `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
+| `batch_score_limit` | `int` | `2000` | Maximum un-investigated transactions processed by one batch-score sweep. |
+| `review_low_confidence_margin` | `float` | `0.1` | Decision-boundary half-width that forces analyst review. |
+| `sar_pdf_max_attempts` | `int` | `3` | Maximum best-effort SAR PDF generation attempts. |
 | `app_name` | `str` | `'FraudLens'` | Human-readable service name. |
 | `environment` | `Literal` | `'dev'` | Active deployment environment; gates the auth dev-bypass. |
 | `log_level` | `str` | `'INFO'` | Python logging level name. |
@@ -327,27 +511,13 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `portfolio_demo_enabled` | `bool` | `False` | Enable the config-driven portfolio demo story; a security gate that fails closed in code, so a missing YAML key leaves it off (like auth_dev_bypass). |
 | `portfolio_demo_config_file` | `str` | `'portfolio-demo.yaml'` | Portfolio-demo story config FILENAME, resolved relative to find_config_dir(); absolute paths and upward traversal are rejected by the loader. |
 | `demo_auth_password` | `str | None` | `None` | Public synthetic demo credential supplied by FRAUDLENS_DEMO_AUTH_PASSWORD / Infisical; deliberately non-secret demo data, but never an inline YAML value. |
-| `cors_allow_origins` | `list` | `[]` | Exact allowed CORS origins; set per-env in config (never hardcoded). |
-| `cors_allow_methods` | `list` | `['*']` | Allowed CORS methods for the gateway edge. |
-| `cors_allow_headers` | `list` | `['*']` | Allowed CORS request headers for the gateway edge. |
-| `cors_allow_credentials` | `bool` | `False` | Whether the gateway allows credentialed CORS requests. |
-| `rate_limit_enabled` | `bool` | `True` | Enable the gateway fixed-window rate limiter. |
-| `rate_limit_requests` | `int` | `120` | Max requests per client within the window before 429. |
-| `rate_limit_window_seconds` | `float` | `60.0` | Length of the rate-limit fixed window, in seconds. |
-| `security_headers` | `dict` | `{'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'}` | Static security response headers applied to every gateway response. |
-| `csp_enabled` | `bool` | `True` | Stamp a Content-Security-Policy header on every gateway response. |
-| `content_security_policy` | `str` | `"default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"` | Strict CSP applied to the API surface (config-overridable, plan §12.3). |
-| `content_security_policy_docs` | `str` | `''` | Relaxed CSP for the interactive docs UI (Swagger/ReDoc CDN); set in config. Empty falls back to the strict policy so the API surface is never weakened. |
-| `docs_ui_paths` | `list` | `['/docs', '/redoc']` | Paths serving the interactive docs UI that receive the relaxed CSP. |
-| `gateway_routes_file` | `str | None` | `None` | Override path to the gateway routing table; else discovered under config/. |
-| `telemetry_enabled` | `bool` | `False` | Enable the optional OpenTelemetry → Azure Monitor exporter; OFF by default (stdout JSON → Log Analytics is the v1 telemetry path, the live exporter lands in P14). |
-| `telemetry_service_name` | `str` | `'fraudlens-backend'` | Service name reported by telemetry export when enabled (App Insights / OTel). |
 | `storage_backend` | `Literal` | `'local'` | Artifact/PDF storage backend selector (local-FS vs Azure Blob). |
 | `storage_local_dir` | `str` | `'.local/artifacts'` | Root directory for the local-FS storage backend (gitignored). |
 | `queue_backend` | `Literal` | `'local'` | Background-job backend selector (local runner vs Container Apps Jobs). |
 | `local_job_execute_on_submit` | `bool` | `False` | When true, the local job backend executes known job commands synchronously after submission. Enabled by local-demo for browser UAT; off in hermetic tests. |
 | `local_retrain_command` | `list` | `['uv', 'run', 'python', 'scripts/retrain.py']` | Command the local job backend runs for a retrain submission. |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
+| `sar_config_file` | `str` | `'llm/sar.yml'` | SAR model-routing config resolved below the config directory. |
 | `multi_agent_sar_enabled` | `bool` | `False` | Process-level gate for bounded multi-agent SAR drafting; the feature is active only when the tenant-scoped system_config flag is also enabled. |
 | `multi_agent_config_file` | `str` | `'llm/agents.yml'` | Multi-agent configuration filename resolved below the config directory; absolute paths and upward traversal are rejected by the loader. |
 | `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
@@ -359,39 +529,16 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `rag_embedding_mode` | `Literal` | `'offline'` | RAG embedder mode: deterministic hashing or live OpenRouter embeddings. |
 | `rag_version` | `str` | `'rag-v1'` | Offline corpus/index version; live mode reads its version from llm/rag.yml. |
 | `rag_index_required` | `bool` | `False` | When true, a missing/empty RAG index fails /readyz (prod bakes the index). |
+| `infisical_secrets_delivery` | `Literal` | `'unconfigured'` | How Infisical secrets reach this process. 'unconfigured' declares no delivery mechanism, so the /readyz infisical check reports 'skipped'; 'externally_injected' declares that a CLI/CI job/deploy platform injects them as env, so the check verifies every infisical_required_env_keys name is present and non-blank. |
+| `infisical_required_env_keys` | `list` | `[]` | Environment-variable NAMES (never values) the Infisical injection must supply; the /readyz infisical check reports 'down' when any is missing or blank, so a broken secret sync fails readiness instead of serving errors. Must be non-empty when infisical_secrets_delivery is 'externally_injected' (an injection claim with nothing to verify is rejected at boot). |
 | `database_url` | `str | None` | `None` | Async SQLAlchemy URL (asyncpg driver); read from env, never committed YAML. |
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
-| `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |
-| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version. |
-| `azure_managed_identity_client_id` | `str | None` | `None` | User-assigned managed identity client id used for Azure data/control-plane calls. |
-| `azure_arm_endpoint` | `str` | `''` | Azure Resource Manager endpoint base URL, supplied by config/env. |
-| `azure_arm_token_resource` | `str` | `''` | Token resource/audience for Azure Resource Manager. |
-| `azure_subscription_id` | `str | None` | `None` | Azure subscription id containing the Container Apps Jobs. |
-| `azure_resource_group_name` | `str | None` | `None` | Azure resource group containing the Container Apps Jobs. |
-| `azure_container_apps_api_version` | `str` | `'2024-03-01'` | Azure Container Apps Jobs ARM API version. |
-| `azure_container_apps_retrain_job_name` | `str | None` | `None` | Container Apps Job name for model retraining. |
-| `azure_container_apps_batch_score_job_name` | `str | None` | `None` | Container Apps Job name for batch scoring. |
-| `azure_storage_account_name` | `str | None` | `None` | Azure Storage account name for artifact and SAR-PDF blobs. |
-| `azure_storage_blob_host_suffix` | `str` | `'blob.core.windows.net'` | Azure Blob DNS suffix used to build the storage endpoint. |
-| `azure_storage_blob_endpoint` | `str | None` | `None` | Optional full Azure Blob endpoint base URL; otherwise derived from account name. |
-| `azure_storage_token_resource` | `str` | `''` | Token resource/audience for Azure Blob Storage. |
-| `azure_storage_container_name` | `str` | `'artifacts'` | Blob container for model/artifact keys. |
-| `azure_storage_sar_pdf_container_name` | `str` | `'sar-pdfs'` | Blob container for SAR PDF keys. |
-| `azure_storage_blob_api_version` | `str` | `'2023-11-03'` | Azure Blob data-plane API version. |
-| `azure_rest_timeout_seconds` | `float` | `10.0` | Timeout for Azure managed-identity, Blob, and ARM REST calls. |
 | `ingest_max_batch_size` | `int` | `500` | Max transactions accepted in one /transactions/batch request. |
 | `ingest_csv_max_bytes` | `int` | `5242880` | Max accepted /transactions/upload body size in bytes (413 above it). |
 | `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |
 | `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
 | `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
 | `client_error_rate_limit_requests` | `int` | `60` | Per-client request budget for the telemetry client-error sink within the rate-limit window — a stricter per-route limit layered on the global gateway limiter as defense-in-depth for this abuse-prone, client-driven endpoint (plan §16 Phase 13). |
-| `investigation_history_window_hours` | `int` | `168` | Same-account history lookback fed to the rules engine + features (covers the widest built-in rule window, structuring at 7 days). |
-| `investigation_history_max` | `int` | `100` | Cap on same-account history rows loaded per investigation (bounds the query). |
-| `investigation_rag_top_k` | `int` | `4` | How many FinCEN/BSA chunks the investigation retrieves for citations. |
-| `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
-| `batch_score_limit` | `int` | `2000` | Max un-investigated transactions one batch-score sweep investigates (covers the whole demo case pack; a cloud Job can raise it per run). |
-| `review_low_confidence_margin` | `float` | `0.1` | Half-width around the 0.5 decision boundary inside which a run's model probability force-flags the alert as low-confidence for review (plan §8.5). |
-| `sar_pdf_max_attempts` | `int` | `3` | Max attempts the deferred SAR-PDF task makes before giving up; PDF generation is best-effort and never blocks SAR approval (plan §16 Phase 9). |
 | `retrain_min_labels_total` | `int` | `10` | Min matured reviewed labels (any class) before a retrain is eligible; below it the trigger returns insufficient_matured_labels (plan §9.4). Dev-friendly default. |
 | `retrain_min_labels_per_class` | `int` | `2` | Min matured labels required for EACH of the fraud/benign classes before a retrain is eligible (guards a one-sided training set, plan §9.4). |
 | `retrain_tenant_slices` | `int` | `2` | Deterministic holdout partitions used as per-tenant evaluation slices when computing the §9.4 per-tenant slice gate (synthetic-data MLOps stand-in for agencies). |
@@ -496,13 +643,23 @@ erDiagram
     analysis_runs {
         uuid id PK
         uuid agency_id FK
+        integer attempt
         datetime created_at
+        datetime deadline_at
         string error_code
+        integer fencing_token
         string graph_version
+        datetime heartbeat_at
         string idempotency_key
+        datetime lease_expires_at
+        string lease_owner
+        numeric llm_reserved_usd
+        string model_override
         string model_version
+        datetime next_attempt_at
         string prompt_version
         string rag_version
+        string request_fingerprint
         enum risk_band
         float risk_score
         string rules_version
@@ -619,6 +776,7 @@ erDiagram
         string pdf_blob_url
         string prompt_hash
         string prompt_version
+        enum quality_status
         uuid reviewed_by FK
         integer revision_count
         uuid run_id FK
@@ -674,6 +832,7 @@ erDiagram
         datetime occurred_at
         string origin_account
         enum risk_band
+        enum source
     }
     users {
         uuid id PK

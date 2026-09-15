@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.schema import Table
     from sqlalchemy.types import TypeEngine
 
-_DOCS_PATHS = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
+_DOCS_PATHS = ("/openapi.json", "/docs", "/redoc", "/scalar", "/docs/oauth2-redirect")
 
 
 def _iter_api_routes(routes: Iterable[Any], prefix: str = "") -> Iterator[tuple[str, APIRoute]]:

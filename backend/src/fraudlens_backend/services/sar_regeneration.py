@@ -12,17 +12,18 @@ Key classes:
 
 Key functions:
 - sar_draft_to_view: project a persisted `SarDraft` ORM row onto the camelCase `SarDraftView`.
+- sar_model_input_for_view:
 - regenerate_sar_for_run: reconstruct the input, draft, and persist the next SAR version for a run.
 
 Notes:
 - `rag_context` is intentionally left empty on the reconstructed input: rebuilding the fenced
-  regulation block would import the chromadb-backed RAG retriever into the request path, and it is
-  not needed for grounding — the drafter grounds `cited_regulations` against `SarInput.citations`
-  (protocol §8.1), which are reconstructed from the prior draft. The keyless mock drafter (the
-  local-demo / no-key default) composes purely from those citations.
+regulation block would import the chromadb-backed RAG retriever into the request path, and it is
+not needed for grounding — the drafter grounds `cited_regulations` against `SarInput.citations`
+(protocol §8.1), which are reconstructed from the prior draft. The keyless mock drafter (the
+local-demo / no-key default) composes purely from those citations.
 - A decided draft (approved/rejected) is not regenerable (`invalid_sar_transition`, 409) — a
-  regenerate must not discard a recorded human decision. Regeneration also requires a completed run
-  with an `analysis_results` snapshot to reconstruct from (`sar_not_regenerable`, 409).
+regenerate must not discard a recorded human decision. Regeneration also requires a completed run
+with an `analysis_results` snapshot to reconstruct from (`sar_not_regenerable`, 409).
 """
 
 from __future__ import annotations
@@ -32,7 +33,13 @@ import uuid
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import SarDraft
+from fraudlens_backend.db.models import (
+    AnalysisResult,
+    AnalysisRun,
+    RagRetrieval,
+    SarDraft,
+    Transaction,
+)
 from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import (
     AnalysisRunRepository,
@@ -42,9 +49,12 @@ from fraudlens_backend.db.repositories import (
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.sar import build_sar_drafter
+from fraudlens_backend.sar.egress import EgressBlockedError, load_egress_policy, project_for_model
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_llm_call
-from fraudlens_core.rules.base import RuleHit
+from fraudlens_core.rules.base import RuleHit, TransactionDirection
+from fraudlens_ml.rag import extract_citations
+from fraudlens_ml.rag.retriever import RetrievedChunk
 from fraudlens_ml.sar import (
     SarCitation,
     SarDrafter,
@@ -60,7 +70,9 @@ _TERMINAL_EVENTS = frozenset({SarEventType.COMPLETED, SarEventType.FAILED})
 _DECIDED: frozenset[SarStatus] = frozenset({SarStatus.APPROVED, SarStatus.REJECTED})
 
 
-def sar_draft_to_view(draft: SarDraft) -> SarDraftView:
+def sar_draft_to_view(
+    draft: SarDraft, *, model_input: dict[str, object] | None = None
+) -> SarDraftView:
     """Project a persisted SAR draft row onto the API view (the single ORM→view mapping, rule 5)."""
     return SarDraftView(
         sar_draft_id=str(draft.id),
@@ -68,6 +80,8 @@ def sar_draft_to_view(draft: SarDraft) -> SarDraftView:
         alert_id=str(draft.alert_id) if draft.alert_id is not None else None,
         version=draft.version,
         status=draft.status,
+        quality_status=draft.quality_status,
+        model_input=model_input,
         content=draft.content,
         structured=dict(draft.structured or {}),
         citations=[dict(citation) for citation in (draft.citations or [])],
@@ -130,6 +144,75 @@ def _citations(draft: SarDraft | None) -> tuple[SarCitation, ...]:
     return tuple(citations)
 
 
+def _retrieval_citations(retrieval: RagRetrieval) -> tuple[SarCitation, ...]:
+    """Rebuild the exact ordered citation set offered to the original drafting workflow."""
+    chunks: list[RetrievedChunk] = []
+    for item in retrieval.chunks or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            chunks.append(RetrievedChunk.model_validate(item))
+        except ValidationError:
+            continue
+    return tuple(SarCitation.model_validate(item) for item in extract_citations(chunks))
+
+
+def _sar_input_from_records(
+    *,
+    agency_id: uuid.UUID,
+    run: AnalysisRun,
+    result: AnalysisResult,
+    transaction: Transaction,
+    citations: tuple[SarCitation, ...],
+) -> SarInput:
+    """Reconstruct the persisted PHI-free drafting boundary without provider or network access."""
+    return SarInput(
+        agency_id=str(agency_id),
+        transaction_id=str(run.transaction_id),
+        source=transaction.source.value,
+        risk_band=result.risk_band,
+        fraud_probability=result.fraud_probability,
+        amount=transaction.amount,
+        currency=transaction.currency,
+        country=transaction.country,
+        channel=transaction.channel,
+        direction=TransactionDirection.OUTBOUND,
+        occurred_at=transaction.occurred_at,
+        model_version=result.model_version,
+        rules_version=run.rules_version or result.model_version,
+        rag_version=run.rag_version or result.model_version,
+        rule_hits=_rule_hits(list(result.rule_hits or [])),
+        top_features=_features(list(result.top_features or [])),
+        citations=citations,
+        rag_context="",
+    )
+
+
+def sar_model_input_for_view(
+    *,
+    agency_id: uuid.UUID,
+    run: AnalysisRun,
+    result: AnalysisResult | None,
+    transaction: Transaction | None,
+    retrieval: RagRetrieval | None,
+) -> dict[str, object] | None:
+    """Project persisted evidence through the same egress allowlist for an analyst disclosure."""
+    if result is None or transaction is None or retrieval is None:
+        return None
+    try:
+        sar_input = _sar_input_from_records(
+            agency_id=agency_id,
+            run=run,
+            result=result,
+            transaction=transaction,
+            citations=_retrieval_citations(retrieval),
+        )
+        projected = project_for_model(sar_input, load_egress_policy())
+    except (EgressBlockedError, RuntimeError, ValidationError, ValueError):
+        return None
+    return projected.model_dump(mode="json", by_alias=True)
+
+
 async def _draft_result(drafter: SarDrafter, sar_input: SarInput) -> SarDraftResult:
     """Consume the drafter's token stream and return its terminal (completed/failed) result."""
     async for event in drafter.draft(sar_input):
@@ -171,22 +254,12 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
     if latest is not None and latest.status in _DECIDED:
         # An approved/rejected draft is a recorded human decision — do not overwrite it (§10.4).
         raise AppError("invalid_sar_transition")
-    sar_input = SarInput(
-        agency_id=str(agency_id),
-        transaction_id=str(run.transaction_id),
-        risk_band=result.risk_band,
-        fraud_probability=result.fraud_probability,
-        amount=transaction.amount,
-        currency=transaction.currency,
-        country=transaction.country,
-        channel=transaction.channel,
-        model_version=result.model_version,
-        rules_version=run.rules_version or result.model_version,
-        rag_version=run.rag_version or result.model_version,
-        rule_hits=_rule_hits(list(result.rule_hits or [])),
-        top_features=_features(list(result.top_features or [])),
+    sar_input = _sar_input_from_records(
+        agency_id=agency_id,
+        run=run,
+        result=result,
+        transaction=transaction,
         citations=_citations(latest),
-        rag_context="",
     )
     active_drafter = drafter if drafter is not None else build_sar_drafter(settings)
     draft_result = await _draft_result(active_drafter, sar_input)

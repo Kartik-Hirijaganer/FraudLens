@@ -14,7 +14,7 @@
 
 [project]
 name = "fraudlens"
-version = "0.2.0"
+version = "0.3.0"
 description = "FraudLens — AML fraud investigation system (workspace root)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -59,6 +59,15 @@ dev = [
 # and the deploy image (`--no-dev`) all stay snapml-free. Install: `uv sync --group gfp`.
 gfp = [
     "snapml==1.17.2 ; platform_machine == 'x86_64'",
+]
+
+# OFFLINE-ONLY group for the memory-bounded IBM full-data training pipeline (ADR-025).
+# Keep these analytical IO dependencies out of workspace members and serving images.
+# `make install` includes the group because repo-wide type-checking and coverage collect the
+# offline harness; deployment images still omit it through `uv sync --no-dev`.
+fulldata = [
+    "duckdb>=1.4",
+    "pyarrow>=18",
 ]
 
 # ---------------------------------------------------------------------------
@@ -122,7 +131,7 @@ exclude = ['(^|/)(build|dist|\.venv|node_modules)/']
 # stubs / py.typed marker; xgboost and numpy do. Ignoring their missing stubs keeps
 # the rest of the tree under strict typing while letting the scoring code import them.
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*"]
+module = ["sklearn.*", "shap.*", "imblearn.*", "pandas.*", "pyarrow.*"]
 ignore_missing_imports = true
 
 # snapml (benchmark-only `gfp` dependency group; ADR-017) ships no stubs/py.typed and is
@@ -145,6 +154,8 @@ testpaths = ["tests"]
 addopts = "-m 'not smoke and not llm_live' --cov --cov-report=term-missing --cov-fail-under=90 --strict-markers"
 markers = [
     "llm_live: opt-in live OpenRouter SAR tests (requires Infisical /llm credentials)",
+    "quality: deterministic provider-free citation, hallucination, and model-egress gates",
+    "postgres: integration tests requiring the dedicated PostgreSQL service",
     "smoke: live-URL smoke tests run against a deployed environment (deploy gate)",
 ]
 

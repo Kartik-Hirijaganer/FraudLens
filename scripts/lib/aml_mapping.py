@@ -18,6 +18,8 @@ Key functions:
 - ibm_country: map an IBM AML-Data currency name to a proxy ISO-3166 alpha-2 country.
 - ibm_is_outbound: map an account's send/receive role in a transfer to the is_outbound flag.
 - ibm_account_key: build the PHI-transient `Bank+Account` key used to group the 24h window.
+- ibm_currency_country_map: expose the canonical immutable batch-SQL mapping.
+- ibm_payment_format_channel_map: expose the canonical immutable batch-SQL mapping.
 - ieee_channel: map an IEEE-CIS `ProductCD` to a canonical channel token.
 - ieee_country: map an IEEE-CIS `addr2` code to a proxy ISO-3166 alpha-2 country.
 
@@ -36,7 +38,9 @@ Notes:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from types import MappingProxyType
 
 # --- Canonical fallback tokens (named, no magic values; governance rule 4) ---------------
 # Not one of the scorer's six graded channels, so `channel_risk` applies its documented
@@ -153,6 +157,16 @@ def ibm_is_outbound(is_sender: bool) -> float:
 def ibm_account_key(bank: str, account: str) -> str:
     """Build the transient `Bank+Account` key grouping an account's 24h window (PHI-transient)."""
     return f"{bank.strip()}{_ACCOUNT_KEY_SEPARATOR}{account.strip()}"
+
+
+def ibm_currency_country_map() -> Mapping[str, str]:
+    """Expose the immutable IBM currency-to-country mapping for generated batch SQL."""
+    return MappingProxyType(_IBM_CURRENCY_COUNTRIES)
+
+
+def ibm_payment_format_channel_map() -> Mapping[str, str]:
+    """Expose the immutable IBM payment-format mapping for generated batch SQL."""
+    return MappingProxyType(_IBM_PAYMENT_FORMAT_CHANNELS)
 
 
 def ieee_channel(product_cd: str | None) -> str:

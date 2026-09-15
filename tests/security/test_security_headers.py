@@ -1,7 +1,7 @@
 """Security-header / CSP hardening tests (plan §16 Phase 13): the path-aware Content-Security-
 Policy is the header Phase 13 adds (middleware/security.py). The four static headers are covered
 by test_gateway.py; here we prove the CSP is strict on the API surface, relaxed only on the docs
-UI (Swagger/ReDoc CDN), toggleable, and that every response now carries all five headers."""
+UI (Swagger/ReDoc/Scalar CDN), toggleable, and that every response now carries all five headers."""
 
 from __future__ import annotations
 
@@ -41,6 +41,16 @@ def test_docs_ui_gets_relaxed_csp_for_the_cdn(client_factory: Callable[..., Test
     assert _CDN in response.headers["content-security-policy"]  # Swagger UI loads from the CDN
 
 
+def test_scalar_renders_with_configured_docs_csp(
+    client_factory: Callable[..., TestClient],
+) -> None:
+    response = client_factory().get("/scalar")
+    assert response.status_code == 200
+    assert "Scalar.createApiReference" in response.text
+    assert '"url": "/openapi.json"' in response.text
+    assert _CDN in response.headers["content-security-policy"]
+
+
 def test_csp_can_be_disabled(client_factory: Callable[..., TestClient]) -> None:
     response = client_factory(csp_enabled=False).get("/api/v1/health")
     assert "content-security-policy" not in {key.lower() for key in response.headers}
@@ -67,4 +77,5 @@ def test_is_docs_path_matches_docs_ui_only(make_settings: Callable[..., AppSetti
     assert is_docs_path("/docs", settings)
     assert is_docs_path("/docs/oauth2-redirect", settings)
     assert is_docs_path("/redoc", settings)
+    assert is_docs_path("/scalar", settings)
     assert not is_docs_path("/api/v1/health", settings)

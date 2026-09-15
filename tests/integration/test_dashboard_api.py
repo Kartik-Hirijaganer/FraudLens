@@ -157,21 +157,22 @@ async def test_metrics_endpoint_maps_new_alert_status_counts(
 ) -> None:
     await _seed(db_sessionmaker)
     async with db_sessionmaker() as session:
-        transaction_id, run_id = await _add_transaction_and_run(session)
+        pending_transaction_id, pending_run_id = await _add_transaction_and_run(session)
+        escalated_transaction_id, escalated_run_id = await _add_transaction_and_run(session)
         session.add_all(
             [
                 Alert(
                     agency_id=DEMO_AGENCY_ID,
-                    transaction_id=transaction_id,
-                    run_id=run_id,
+                    transaction_id=pending_transaction_id,
+                    run_id=pending_run_id,
                     status=AlertStatus.PENDING_REVIEW,
                     severity=Severity.HIGH,
                     review_flags=[{"flag": "low_model_confidence", "reason": "Review required."}],
                 ),
                 Alert(
                     agency_id=DEMO_AGENCY_ID,
-                    transaction_id=transaction_id,
-                    run_id=run_id,
+                    transaction_id=escalated_transaction_id,
+                    run_id=escalated_run_id,
                     status=AlertStatus.ESCALATED,
                     severity=Severity.CRITICAL,
                     review_flags=[],

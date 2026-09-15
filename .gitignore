@@ -282,6 +282,7 @@ coverage/
 # Terraform — state is never committed; provider lock IS (see keep-tracked below)
 *.tfstate*
 .terraform/
+*.tfplan
 *.auto.tfvars
 crash.log
 crash.*.log

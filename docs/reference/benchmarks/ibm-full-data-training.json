@@ -1,0 +1,480 @@
+{
+  "manifest": {
+    "applicationCandidate": "hi-medium",
+    "commit": "ad2dd247d899",
+    "completedAt": "2026-09-14T17:16:34.845122+00:00",
+    "configSha256": "5835992a6919461386c35da050fece4e8cb0d0e62ad4f879b720d71ef992804d",
+    "cost": {
+      "actualUsd": null,
+      "allocation": "azure_cpu_batch",
+      "projectedUsd": 2.489219235254673
+    },
+    "crossFileOverlap": [
+      {
+        "leftSource": "ibm-aml",
+        "overlappingAccounts": 18,
+        "rightSource": "ibm-aml-hi-medium"
+      },
+      {
+        "leftSource": "ibm-aml",
+        "overlappingAccounts": 4,
+        "rightSource": "ibm-aml-li-medium"
+      },
+      {
+        "leftSource": "ibm-aml-hi-medium",
+        "overlappingAccounts": 14408,
+        "rightSource": "ibm-aml-li-medium"
+      }
+    ],
+    "durationSeconds": 4228.478541769963,
+    "libraryVersions": {
+      "duckdb": "1.5.5",
+      "pyarrow": "25.0.1",
+      "xgboost": "3.2.0"
+    },
+    "peakRssMib": 23483.37109375,
+    "provenance": "measured",
+    "runId": "fulldata-b55c4ae63ed8bbae",
+    "sources": [
+      {
+        "candidate": "hi-small",
+        "evaluation": {
+          "baselinePrAuc": 0.13873810286961627,
+          "calibrationMethod": "platt",
+          "candidate": "hi-small",
+          "completedTrees": 147,
+          "featureSpecVersion": 2,
+          "gates": {
+            "active_pr_auc": null,
+            "baseline_pr_auc": 0.13873810286961627,
+            "checks": [
+              {
+                "name": "pr_auc_floor",
+                "passed": false,
+                "threshold": 0.26650759309217065,
+                "value": 0.26321904951332303
+              },
+              {
+                "name": "beats_baseline",
+                "passed": true,
+                "threshold": 0.02,
+                "value": 0.12448094664370676
+              },
+              {
+                "name": "recall_at_budget",
+                "passed": true,
+                "threshold": 0.6,
+                "value": 0.7221603563474388
+              },
+              {
+                "name": "precision_at_top_pct",
+                "passed": true,
+                "threshold": 0.03553434574562275,
+                "value": 0.08734790780492631
+              },
+              {
+                "name": "calibration_ece",
+                "passed": true,
+                "threshold": 0.05,
+                "value": 0.00040818631607485466
+              }
+            ],
+            "metrics": {
+              "brier": 0.0015663780504837632,
+              "ece": 0.00040818631607485466,
+              "holdout_base_rate": 0.0017767172872811378,
+              "pr_auc": 0.26321904951332303,
+              "precision_at_budget": 0.02566131808559049,
+              "precision_at_top_pct": 0.08734790780492631,
+              "recall_at_budget": 0.7221603563474388
+            },
+            "passed": false
+          },
+          "metrics": {
+            "brier": 0.0015663780504837632,
+            "ece": 0.00040818631607485466,
+            "holdout_base_rate": 0.0017767172872811378,
+            "pr_auc": 0.26321904951332303,
+            "precision_at_budget": 0.02566131808559049,
+            "precision_at_top_pct": 0.08734790780492631,
+            "recall_at_budget": 0.7221603563474388
+          },
+          "modelBundle": "xgb-ibm-aml-5835992a6919",
+          "modelSha256": "2de2450f059440ba6d78033e7c219055da2aea77c00a6fb1a826428e22953a1b",
+          "riskThresholds": {
+            "critical": 0.013380788266658783,
+            "high": 0.004973826929926872,
+            "medium": 0.0015767720760777593
+          },
+          "scalePosWeight": 1318.20356676816,
+          "source": "ibm-aml",
+          "thresholdSource": "calibration",
+          "trainingPeakRssMib": 3757.640625,
+          "trainingSeconds": 9.581607667001663
+        },
+        "folds": {
+          "boundary_epochs": [
+            1662471600,
+            1662562680,
+            1662653640
+          ],
+          "calibration_fractions": [
+            "1/2",
+            "1/2"
+          ],
+          "candidate": "hi-small",
+          "counts": {
+            "calibration": {
+              "positives": 524,
+              "prevalence": 0.001036933842037773,
+              "rows": 505336
+            },
+            "holdout": {
+              "positives": 1796,
+              "prevalence": 0.0017767172872811378,
+              "rows": 1010853
+            },
+            "train": {
+              "positives": 2299,
+              "prevalence": 0.000758033123310788,
+              "rows": 3032849
+            },
+            "tuning": {
+              "positives": 557,
+              "prevalence": 0.0011022238404882238,
+              "rows": 505342
+            }
+          },
+          "fractions": [
+            "3/5",
+            "1/5",
+            "1/5"
+          ],
+          "source": "ibm-aml"
+        },
+        "reconciliation": {
+          "candidate": "hi-small",
+          "input_sha256": "b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040",
+          "limited_rows": null,
+          "parsed_rows": 5078345,
+          "rejected": {
+            "missing_account": 0,
+            "non_positive_amount": 23965,
+            "unknown_currency": 0,
+            "unparsable_timestamp": 0
+          },
+          "source": "ibm-aml",
+          "source_rows": 5078345,
+          "usable_rows": 5054380
+        },
+        "source": "ibm-aml"
+      },
+      {
+        "candidate": "hi-medium",
+        "evaluation": {
+          "baselinePrAuc": 0.06368211193660558,
+          "calibrationMethod": "platt",
+          "candidate": "hi-medium",
+          "completedTrees": 263,
+          "featureSpecVersion": 2,
+          "gates": {
+            "active_pr_auc": null,
+            "baseline_pr_auc": 0.06368211193660558,
+            "checks": [
+              {
+                "name": "pr_auc_floor",
+                "passed": true,
+                "threshold": 0.2508136345235815,
+                "value": 0.31959880877247315
+              },
+              {
+                "name": "beats_baseline",
+                "passed": true,
+                "threshold": 0.02,
+                "value": 0.2559166968358676
+              },
+              {
+                "name": "recall_at_budget",
+                "passed": true,
+                "threshold": 0.6,
+                "value": 0.7789691497366441
+              },
+              {
+                "name": "precision_at_top_pct",
+                "passed": true,
+                "threshold": 0.03344181793647753,
+                "value": 0.0965935897839147
+              },
+              {
+                "name": "calibration_ece",
+                "passed": true,
+                "threshold": 0.05,
+                "value": 0.0006081117338332017
+              }
+            ],
+            "metrics": {
+              "brier": 0.0013894097646698356,
+              "ece": 0.0006081117338332017,
+              "holdout_base_rate": 0.0016720908968238767,
+              "pr_auc": 0.31959880877247315,
+              "precision_at_budget": 0.02605008712719312,
+              "precision_at_top_pct": 0.0965935897839147,
+              "recall_at_budget": 0.7789691497366441
+            },
+            "passed": true
+          },
+          "metrics": {
+            "brier": 0.0013894097646698356,
+            "ece": 0.0006081117338332017,
+            "holdout_base_rate": 0.0016720908968238767,
+            "pr_auc": 0.31959880877247315,
+            "precision_at_budget": 0.02605008712719312,
+            "precision_at_top_pct": 0.0965935897839147,
+            "recall_at_budget": 0.7789691497366441
+          },
+          "modelBundle": "xgb-ibm-aml-hi-medium-5835992a6919",
+          "modelSha256": "cd3f50cf010ad9995d09bba51454ae0b1bcdc800531decd8c6207fdc3a561468",
+          "riskThresholds": {
+            "critical": 0.024055195972323418,
+            "high": 0.003444005036726594,
+            "medium": 0.0011252214899286628
+          },
+          "scalePosWeight": 1227.4052540081127,
+          "source": "ibm-aml-hi-medium",
+          "thresholdSource": "calibration",
+          "trainingPeakRssMib": 10269.00390625,
+          "trainingSeconds": 324.41954011999997
+        },
+        "folds": {
+          "boundary_epochs": [
+            1662756300,
+            1662992760,
+            1663134540
+          ],
+          "calibration_fractions": [
+            "1/2",
+            "1/2"
+          ],
+          "candidate": "hi-medium",
+          "counts": {
+            "calibration": {
+              "positives": 3505,
+              "prevalence": 0.0011023836018158979,
+              "rows": 3179474
+            },
+            "holdout": {
+              "positives": 10632,
+              "prevalence": 0.0016720908968238767,
+              "rows": 6358506
+            },
+            "train": {
+              "positives": 15531,
+              "prevalence": 0.0008140635972836662,
+              "rows": 19078362
+            },
+            "tuning": {
+              "positives": 5554,
+              "prevalence": 0.0017466001990004692,
+              "rows": 3179892
+            }
+          },
+          "fractions": [
+            "3/5",
+            "1/5",
+            "1/5"
+          ],
+          "source": "ibm-aml-hi-medium"
+        },
+        "reconciliation": {
+          "candidate": "hi-medium",
+          "input_sha256": "3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5",
+          "limited_rows": null,
+          "parsed_rows": 31898238,
+          "rejected": {
+            "missing_account": 0,
+            "non_positive_amount": 102004,
+            "unknown_currency": 0,
+            "unparsable_timestamp": 0
+          },
+          "source": "ibm-aml-hi-medium",
+          "source_rows": 31898238,
+          "usable_rows": 31796234
+        },
+        "source": "ibm-aml-hi-medium"
+      },
+      {
+        "candidate": "li-medium",
+        "evaluation": {
+          "baselinePrAuc": 0.0015099815982804478,
+          "calibrationMethod": "platt",
+          "candidate": "li-medium",
+          "completedTrees": 222,
+          "featureSpecVersion": 2,
+          "gates": {
+            "active_pr_auc": null,
+            "baseline_pr_auc": 0.0015099815982804478,
+            "checks": [
+              {
+                "name": "pr_auc_floor",
+                "passed": false,
+                "threshold": 0.09101506470631093,
+                "value": 0.08391154365349436
+              },
+              {
+                "name": "beats_baseline",
+                "passed": true,
+                "threshold": 0.02,
+                "value": 0.08240156205521391
+              },
+              {
+                "name": "recall_at_budget",
+                "passed": false,
+                "threshold": 0.6,
+                "value": 0.5670457550912457
+              },
+              {
+                "name": "precision_at_top_pct",
+                "passed": true,
+                "threshold": 0.012135341960841458,
+                "value": 0.020894181082902717
+              },
+              {
+                "name": "calibration_ece",
+                "passed": true,
+                "threshold": 0.05,
+                "value": 0.00012080999580784858
+              }
+            ],
+            "metrics": {
+              "brier": 0.0005956821260042489,
+              "ece": 0.00012080999580784858,
+              "holdout_base_rate": 0.0006067670980420729,
+              "pr_auc": 0.08391154365349436,
+              "precision_at_budget": 0.006881278685367654,
+              "precision_at_top_pct": 0.020894181082902717,
+              "recall_at_budget": 0.5670457550912457
+            },
+            "passed": false
+          },
+          "metrics": {
+            "brier": 0.0005956821260042489,
+            "ece": 0.00012080999580784858,
+            "holdout_base_rate": 0.0006067670980420729,
+            "pr_auc": 0.08391154365349436,
+            "precision_at_budget": 0.006881278685367654,
+            "precision_at_top_pct": 0.020894181082902717,
+            "recall_at_budget": 0.5670457550912457
+          },
+          "modelBundle": "xgb-ibm-aml-li-medium-5835992a6919",
+          "modelSha256": "e8d0bd9b7f75da3791350afba1b282ed981816f4be721179ccac37b550f7f516",
+          "riskThresholds": {
+            "critical": 0.008606621995568275,
+            "high": 0.0027448039036244154,
+            "medium": 0.0010196416405960917
+          },
+          "scalePosWeight": 2297.7703184556744,
+          "source": "ibm-aml-li-medium",
+          "thresholdSource": "calibration",
+          "trainingPeakRssMib": 10091.15234375,
+          "trainingSeconds": 317.70875989700016
+        },
+        "folds": {
+          "boundary_epochs": [
+            1662756060,
+            1662992280,
+            1663134060
+          ],
+          "calibration_fractions": [
+            "1/2",
+            "1/2"
+          ],
+          "candidate": "li-medium",
+          "counts": {
+            "calibration": {
+              "positives": 1607,
+              "prevalence": 0.0005158171625562319,
+              "rows": 3115445
+            },
+            "holdout": {
+              "positives": 3781,
+              "prevalence": 0.0006067670980420729,
+              "rows": 6231386
+            },
+            "train": {
+              "positives": 8133,
+              "prevalence": 0.00043501518702042624,
+              "rows": 18695899
+            },
+            "tuning": {
+              "positives": 2514,
+              "prevalence": 0.0008071802439264021,
+              "rows": 3114546
+            }
+          },
+          "fractions": [
+            "3/5",
+            "1/5",
+            "1/5"
+          ],
+          "source": "ibm-aml-li-medium"
+        },
+        "reconciliation": {
+          "candidate": "li-medium",
+          "input_sha256": "0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910",
+          "limited_rows": null,
+          "parsed_rows": 31251483,
+          "rejected": {
+            "missing_account": 0,
+            "non_positive_amount": 94207,
+            "unknown_currency": 0,
+            "unparsable_timestamp": 0
+          },
+          "source": "ibm-aml-li-medium",
+          "source_rows": 31251483,
+          "usable_rows": 31157276
+        },
+        "source": "ibm-aml-li-medium"
+      }
+    ],
+    "stageDurationsSeconds": {
+      "features:ibm-aml": 39.608491874998435,
+      "features:ibm-aml-hi-medium": 680.125242928,
+      "features:ibm-aml-li-medium": 673.5436223249999,
+      "folds:ibm-aml": 1.027230249979766,
+      "folds:ibm-aml-hi-medium": 13.289093137000236,
+      "folds:ibm-aml-li-medium": 13.410749878999923,
+      "ingest:ibm-aml": 19.463974624988623,
+      "ingest:ibm-aml-hi-medium": 1057.609752896,
+      "ingest:ibm-aml-li-medium": 1036.7275874300003,
+      "parity:ibm-aml": 1.3237970829941332,
+      "parity:ibm-aml-hi-medium": 17.847604190999846,
+      "parity:ibm-aml-li-medium": 22.79148746700048,
+      "train:ibm-aml": 9.581607667001663,
+      "train:ibm-aml-hi-medium": 324.41954011999997,
+      "train:ibm-aml-li-medium": 317.70875989700016
+    },
+    "stagePeakRssMib": {
+      "evaluate": 3629.953125,
+      "features:ibm-aml": 3637.65625,
+      "features:ibm-aml-hi-medium": 23483.37109375,
+      "features:ibm-aml-li-medium": 23016.609375,
+      "folds:ibm-aml": 3465.578125,
+      "folds:ibm-aml-hi-medium": 16242.8515625,
+      "folds:ibm-aml-li-medium": 15926.3671875,
+      "ingest:ibm-aml": 2104.9375,
+      "ingest:ibm-aml-hi-medium": 11323.41015625,
+      "ingest:ibm-aml-li-medium": 11346.87109375,
+      "parity:ibm-aml": 610.6875,
+      "parity:ibm-aml-hi-medium": 940.9921875,
+      "parity:ibm-aml-li-medium": 958.84765625,
+      "train:ibm-aml": 3757.640625,
+      "train:ibm-aml-hi-medium": 10269.00390625,
+      "train:ibm-aml-li-medium": 10091.15234375
+    },
+    "startedAt": "2026-09-14T16:06:06.366580+00:00",
+    "vmSku": "Azure Standard_E16ads_v5 (Medium) + local arm64 (HI-Small)"
+  },
+  "runId": "fulldata-b55c4ae63ed8bbae",
+  "syntheticData": true,
+  "title": "IBM AML full-data temporal training study"
+}

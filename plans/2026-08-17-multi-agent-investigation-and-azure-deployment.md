@@ -253,7 +253,7 @@ The timeline expands the **machine-progress** axis (today one status `Badge`), n
 | New `AgentTimeline` — `<ol>`, nested `<ol>` for the parallel fork, **exactly one** `aria-live="polite"` region. Reused by Investigation **and** AlertDetail | `components/AgentTimeline.tsx` |
 | `agentTone`/`agentGlyph` — semantic palette only; brand green never appears in the rail | [`lib/risk.ts`](frontend/src/lib/risk.ts) |
 | `formatDurationMs` | [`lib/format.ts`](frontend/src/lib/format.ts) |
-| Extend `InvestigationSnapshot` + `AlertDetailResponse` + `snapshot()` factory | [`lib/api.ts`](frontend/src/lib/api.ts), [`test/factories.ts`](frontend/src/test/factories.ts) |
+| Extend `InvestigationSnapshot` + `AlertDetailResponse` + `snapshot()` factory | [`lib/api`](frontend/src/lib/api/index.ts), [`test/factories`](frontend/src/test/factories/index.ts) |
 | "How this SAR was produced" card + an **"Open the investigation run"** button | [`pages/AlertDetail.tsx`](frontend/src/pages/AlertDetail.tsx) |
 
 Each card expands to purpose, evidence consumed, tool calls made, structured result, model + prompt + graph version, latency, tokens, cost, retry/degraded/failed state.
@@ -306,7 +306,7 @@ Implements A15. **Nothing in the browser bundle may address Supabase, Infisical,
 | Session state in a `Secure` + `HttpOnly` + `SameSite=Strict` cookie; refresh token in a separate cookie scoped to the refresh path only; CSRF double-submit token in a readable cookie + `X-CSRF-Token` header required on every state-changing request | new `middleware/csrf.py`, [`api/deps.py`](backend/src/fraudlens_backend/api/deps.py) |
 | **Bearer auth stays supported** for CLI, smoke tests, and the eval harness — cookie and bearer resolve to the same `AccessClaims`, so RBAC/tenancy are untouched | `api/deps.py` |
 | Exact-origin CORS (`frontend_origin`, no wildcard) with `allow_credentials: true`; add the auth routes to the routing table with their own tighter rate limit | `config/gateway/routes.yaml`, `config/{staging,prod}.yaml` |
-| Delete `@supabase/supabase-js`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `lib/supabase.ts`; rewrite `lib/session.ts` and the `send()` 401-refresh path to call the gateway; `credentials: "include"` on every request | [`frontend/src/lib/supabase.ts`](frontend/src/lib/supabase.ts) (removed), [`lib/config.ts`](frontend/src/lib/config.ts), [`lib/session.ts`](frontend/src/lib/session.ts), [`lib/api.ts`](frontend/src/lib/api.ts), [`pages/Login.tsx`](frontend/src/pages/Login.tsx), `vite-env.d.ts`, `package.json` |
+| Delete `@supabase/supabase-js`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `lib/supabase.ts`; rewrite `lib/session.ts` and the `send()` 401-refresh path to call the gateway; `credentials: "include"` on every request | [`frontend/src/lib/supabase.ts`](frontend/src/lib/supabase.ts) (removed), [`lib/config.ts`](frontend/src/lib/config.ts), [`lib/session.ts`](frontend/src/lib/session.ts), [`lib/api`](frontend/src/lib/api/index.ts), [`pages/Login.tsx`](frontend/src/pages/Login.tsx), `vite-env.d.ts`, `package.json` |
 | The SSE client already uses `fetch` (not `EventSource`) so it carries cookies with one `credentials` flag — no rework | [`lib/sse.ts`](frontend/src/lib/sse.ts) |
 | A CI guard asserting the built bundle contains no `supabase.co`, no `VITE_SUPABASE_*`, and no non-gateway origin | `scripts/check_frontend_egress.py`, added to `make ci` |
 

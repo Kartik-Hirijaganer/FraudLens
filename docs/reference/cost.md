@@ -62,6 +62,25 @@ Local demo cost is intended to be zero beyond the developer machine:
 - Re-run `make deps-audit` after dependency upgrades; security fixes can change transitive cost or
   footprint.
 
+## Paid experiment budget
+
+Release 0.3 has one shared $75 ceiling, enforced by
+[`config/experiments/budget.yaml`](../../config/experiments/budget.yaml) and reconciled in the
+[`experiment ledger`](experiments/ledger.md). A measured pilot projects remaining work with a 30%
+margin; admission fails if the allocation or overall ceiling would be exceeded.
+
+| Allocation | Ceiling | Default path | Current evidence status |
+| --- | ---: | --- | --- |
+| Azure CPU full-data batch | $15 | E16ads v5 PAYG | Pilots executed; final aggregate/teardown pending |
+| GPU benchmark | $25 | RunPod Secure Cloud RTX 4090 | Not created; requires STOP 3 report and approval |
+| 100-case application pass | $5 | Same approved GPU session | Not run |
+| Supporting resources | $5 | Ephemeral storage/networking | Reconciled per resource session |
+| Reserve | $25 | Exceptions only | Unallocated |
+
+Every paid session needs a ledger row before creation, automatic shutdown/watchdog protection,
+artifact export before deletion, settled cost, and read-only proof that scoped resources are gone.
+Deallocation or a stopped Pod is not teardown because disks/volumes and support resources may bill.
+
 ## Pre-Deploy Checklist
 
 | Check | Command Or Owner Action |

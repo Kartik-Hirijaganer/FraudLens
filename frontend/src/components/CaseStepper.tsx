@@ -37,13 +37,13 @@ type MarkerState = "done" | "active" | "pending";
 const MARKER_CLASSES: Record<MarkerState, string> = {
   done: "bg-ink text-canvas",
   active: "bg-primary text-on-primary",
-  pending: "bg-canvas-soft text-mute",
+  pending: "bg-canvas-soft text-body",
 };
 
 const LABEL_CLASSES: Record<MarkerState, string> = {
   done: "text-ink",
   active: "text-ink",
-  pending: "text-mute",
+  pending: "text-body",
 };
 
 function markerState(index: number, currentStep: number): MarkerState {

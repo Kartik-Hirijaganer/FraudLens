@@ -33,6 +33,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -50,6 +51,7 @@ from fraudlens_backend.db.models.enums import (
     AlertActionType,
     AlertOrigin,
     AlertStatus,
+    SarQualityStatus,
     SarStatus,
     Severity,
 )
@@ -62,6 +64,7 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_alerts_agency_id_status", "agency_id", "status"),
         Index("ix_alerts_agency_id_assigned_to", "agency_id", "assigned_to"),
+        UniqueConstraint("run_id", name="uq_alerts_run_id"),
     )
 
     transaction_id: Mapped[uuid.UUID] = mapped_column(
@@ -102,7 +105,10 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     """A draft Suspicious Activity Report — masked content, citations, review status."""
 
     __tablename__ = "sar_drafts"
-    __table_args__ = (Index("ix_sar_drafts_agency_id_run_id", "agency_id", "run_id"),)
+    __table_args__ = (
+        Index("ix_sar_drafts_agency_id_run_id", "agency_id", "run_id"),
+        UniqueConstraint("run_id", "version", name="uq_sar_drafts_run_id_version"),
+    )
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
     alert_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("alerts.id"), nullable=True)
@@ -119,6 +125,12 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     structured: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     citations: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    quality_status: Mapped[SarQualityStatus] = mapped_column(
+        str_enum(SarQualityStatus, create_constraint=True),
+        nullable=False,
+        default=SarQualityStatus.EVALUATED,
+        server_default=SarQualityStatus.EVALUATED.value,
+    )
     status: Mapped[SarStatus] = mapped_column(
         str_enum(SarStatus), nullable=False, default=SarStatus.DRAFT
     )

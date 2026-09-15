@@ -16,6 +16,7 @@
  * value can't be a design-token class); colours/spacing stay tokens.
  */
 import { cx } from "../lib/cx";
+import { formatMachineKey } from "../lib/format";
 import type { ShapFeature } from "../lib/investigation";
 import { EmptyState } from "./feedback/EmptyState";
 
@@ -41,8 +42,10 @@ export function ShapBarChart({ features }: ShapBarChartProps) {
         return (
           <li key={feature.feature} className="gap-xxs flex flex-col">
             <div className="gap-md flex items-baseline justify-between">
-              <span className="text-body-sm text-ink font-semibold">{feature.feature}</span>
-              <span className="text-caption text-mute">
+              <span className="text-body-sm text-ink font-semibold">
+                {formatMachineKey(feature.feature)}
+              </span>
+              <span className="text-caption text-body">
                 {increasesRisk ? "+" : ""}
                 {feature.shapValue.toFixed(3)}
               </span>

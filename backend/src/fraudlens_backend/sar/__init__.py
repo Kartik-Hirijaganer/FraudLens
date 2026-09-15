@@ -13,6 +13,7 @@ from fraudlens_backend.sar.budget import (
 from fraudlens_backend.sar.cache import InMemorySarDraftCache, SarDraftCache
 from fraudlens_backend.sar.drafter_live import LiveSarDrafter
 from fraudlens_backend.sar.drafter_mock import MockSarDrafter
+from fraudlens_backend.sar.drafter_replay import PersistedSarDrafter, resume_drafter
 from fraudlens_backend.sar.factory import SarLlmConfig, build_sar_drafter, load_sar_llm_config
 from fraudlens_backend.sar.prompt import SarPromptMeta, SarPromptTemplate, build_messages
 from fraudlens_backend.sar.schema import (
@@ -27,6 +28,7 @@ __all__ = [
     "InMemorySarDraftCache",
     "LiveSarDrafter",
     "MockSarDrafter",
+    "PersistedSarDrafter",
     "SarBudgetExceededError",
     "SarDraftCache",
     "SarLlmConfig",
@@ -40,4 +42,5 @@ __all__ = [
     "load_sar_llm_config",
     "parse_and_ground",
     "render_markdown",
+    "resume_drafter",
 ]

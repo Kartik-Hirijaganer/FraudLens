@@ -38,11 +38,12 @@ rate_limit_requests: 120
 rate_limit_window_seconds: 60
 
 # Content-Security-Policy (boot-critical security header, plan §12.3 / §16 Phase 13). The API
-# surface gets a strict policy; the interactive docs UI (Swagger/ReDoc) relaxes it so the
+# surface gets a strict policy; the interactive docs UI (Swagger/ReDoc/Scalar) relaxes it so the
 # documentation CDN can load its assets. The CDN origin lives here (config), never in source.
 csp_enabled: true
 content_security_policy: "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 content_security_policy_docs: "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data: https://cdn.jsdelivr.net https://fastapi.tiangolo.com; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+scalar_js_url: "https://cdn.jsdelivr.net/npm/@scalar/api-reference"
 
 # Telemetry client-error sink: stricter per-route request budget (defense-in-depth beyond the
 # global gateway limiter above) for this abuse-prone, client-driven endpoint (plan §16 Phase 13).
@@ -52,7 +53,20 @@ client_error_rate_limit_requests: 60
 storage_backend: local
 queue_backend: local
 llm_mode: mock
+sar_config_file: llm/sar.yml
 multi_agent_sar_enabled: false
 multi_agent_config_file: llm/agents.yml
 rag_embedding_mode: offline
 investigation_rag_min_similarity: 0.2
+run_execution_mode: inline
+run_lease_seconds: 60
+run_heartbeat_seconds: 10
+run_max_attempts: 3
+run_deadline_seconds: 300
+run_claim_batch: 1
+run_retry_backoff_seconds: 5
+run_worker_poll_seconds: 1.0
+run_worker_heartbeat_file: .local/worker/heartbeat
+run_event_poll_ms: 250
+run_event_poll_max_ms: 2000
+run_event_heartbeat_seconds: 15

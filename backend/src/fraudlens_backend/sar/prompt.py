@@ -3,7 +3,7 @@ Phase 7). `SarPromptTemplate.load` reads a semantic-versioned markdown template
 (`config/llm/prompts/sar/<id>.md`, YAML front matter + static instruction body), and records the
 template's `prompt_version` (`<id>@<semver>`) plus a `prompt_hash` (SHA-256 of the EXACT file
 bytes) — so every SAR persists which prompt produced it and any edit to the template changes the
-hash (auditable A/B + golden tests, plan §7.3). `build_messages` turns a PHI-free `SarInput` into
+hash (auditable A/B + golden tests, plan §7.3). `build_messages` turns a closed `SarModelInput` into
 the `[system, user]` chat messages: the system message is the static (hashed) template; the user
 message is assembled from the structured non-PHI facts (band, probability, amount, rule hits, SHAP
 drivers) plus the already-fenced `rag_context` regulation block (RAG-as-data, plan §8.1). As
@@ -38,9 +38,9 @@ from fraudlens_backend.prompting import (
     load_versioned_prompt,
     split_front_matter,
 )
+from fraudlens_backend.sar.egress import SarModelInput
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
-from fraudlens_ml.sar import SarInput
 
 DEFAULT_SAR_PROMPT_ID = "v1"
 
@@ -88,7 +88,9 @@ def _split_front_matter(raw: str) -> tuple[SarPromptMeta, str]:
     return split_front_matter(raw, meta_type=SarPromptMeta, prompt_label="SAR")
 
 
-def build_messages(template: SarPromptTemplate, sar_input: SarInput) -> list[dict[str, object]]:
+def build_messages(
+    template: SarPromptTemplate, sar_input: SarModelInput
+) -> list[dict[str, object]]:
     """Assemble the PHI-masked [system, user] chat messages for one SAR input."""
     user_text = mask_text(_render_user_content(sar_input)).value
     return [
@@ -97,7 +99,7 @@ def build_messages(template: SarPromptTemplate, sar_input: SarInput) -> list[dic
     ]
 
 
-def _render_user_content(sar_input: SarInput) -> str:
+def _render_user_content(sar_input: SarModelInput) -> str:
     """Render the structured, PHI-free facts + fenced regulation block into the user message."""
     probability_pct = f"{sar_input.fraud_probability * 100:.1f}%"
     blocks = [
@@ -105,12 +107,16 @@ def _render_user_content(sar_input: SarInput) -> str:
         "\n".join(
             (
                 "Transaction facts:",
+                f"- Case: {sar_input.case_alias}",
+                f"- Subject: {sar_input.subject_alias}",
+                f"- Counterparty: {sar_input.counterparty_alias}",
                 f"- Risk band: {sar_input.risk_band.value}",
                 f"- Model fraud probability: {probability_pct}",
-                f"- Amount: {sar_input.amount} {sar_input.currency}",
-                f"- Country: {sar_input.country}",
-                f"- Channel: {sar_input.channel}",
-                f"- Scoring model version: {sar_input.model_version}",
+                f"- Amount: {sar_input.transaction.amount} {sar_input.transaction.currency}",
+                f"- Country: {sar_input.transaction.country}",
+                f"- Channel: {sar_input.transaction.channel}",
+                f"- Direction: {sar_input.transaction.direction.value}",
+                f"- Occurred at: {sar_input.transaction.occurred_at.isoformat()}",
             )
         ),
         _render_rule_hits(sar_input),
@@ -120,36 +126,39 @@ def _render_user_content(sar_input: SarInput) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
-def _render_rule_hits(sar_input: SarInput) -> str:
+def _render_rule_hits(sar_input: SarModelInput) -> str:
     """Render the deterministic rule indicators that fired (PHI-free reasons)."""
     if not sar_input.rule_hits:
         return "Rule indicators: none fired."
     lines = ["Rule indicators that fired:"]
     lines.extend(
-        f"- [{hit.code}] {hit.rule_type.value} (severity {hit.severity}): {hit.reason}"
+        f"- {hit.rule_type.value} (severity {hit.severity}): {hit.reason}"
         for hit in sar_input.rule_hits
     )
     return "\n".join(lines)
 
 
-def _render_top_features(sar_input: SarInput) -> str:
+def _render_top_features(sar_input: SarModelInput) -> str:
     """Render the top SHAP drivers with the direction each pushes the risk."""
-    if not sar_input.top_features:
+    if not sar_input.shap_drivers:
         return ""
     lines = ["Top model risk drivers (SHAP):"]
-    for feature in sar_input.top_features:
+    for feature in sar_input.shap_drivers:
         direction = "increases" if feature.shap_value >= 0 else "decreases"
         lines.append(f"- {feature.feature}={feature.value:g} {direction} risk")
     return "\n".join(lines)
 
 
-def _render_regulations(sar_input: SarInput) -> str:
+def _render_regulations(sar_input: SarModelInput) -> str:
     """Render the citable regulation ids plus the pre-fenced RAG-as-data excerpt block."""
-    if not sar_input.citations:
+    if not sar_input.regulations:
         return "Regulations: none available — cite none."
     lines = ["Regulations (cite ONLY these ids verbatim):"]
-    lines.extend(f"- {citation.citation}: {citation.title}" for citation in sar_input.citations)
-    if sar_input.rag_context:
-        lines.append("")
-        lines.append(sar_input.rag_context)
+    lines.extend(
+        (
+            f"- {citation.citation_id}: {citation.title} ({citation.source})\n"
+            f"  <regulation-data>{citation.snippet}</regulation-data>"
+        )
+        for citation in sar_input.regulations
+    )
     return "\n".join(lines)

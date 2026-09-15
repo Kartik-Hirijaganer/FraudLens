@@ -183,7 +183,7 @@ describe("reduceInvestigation", () => {
 
   it("ignores an unknown event but keeps the last persisted id", () => {
     const state = reduceInvestigation(initialInvestigationState(), msg("noise", {}, "9"));
-    expect(state.status).toBe("starting");
+    expect(state.status).toBe("pending");
     expect(state.lastEventId).toBe("9");
   });
 
@@ -305,6 +305,21 @@ describe("reduceInvestigation", () => {
       label: "Parallel investigation",
       children: [expect.objectContaining({ label: "Evidence investigator" }), expect.any(Object)],
     });
+  });
+
+  it("projects durable queue retries and preserves evidence when drafting is blocked", () => {
+    const retrying = investigationStateFromSnapshot(
+      snapshot({ status: "retrying", attempt: 2, maxAttempts: 3 }),
+    );
+    expect(retrying).toMatchObject({ status: "retrying", attempt: 2, maxAttempts: 3 });
+
+    const blocked = investigationStateFromSnapshot(
+      snapshot({ status: "completed", sarStatus: "failed", sarContent: null }),
+    );
+    expect(blocked.status).toBe("drafting-blocked");
+    expect(blocked.fraudProbability).toBe(0.91);
+    expect(blocked.topFeatures).toHaveLength(1);
+    expect(blocked.draftingBlockReason).toMatch(/manual drafting/i);
   });
 
   it("marks an unexecuted reviewer skipped after a writer failure", () => {

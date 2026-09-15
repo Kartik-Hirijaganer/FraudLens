@@ -68,7 +68,7 @@ export function DataTable<T>({
       <table className="w-full border-collapse text-left">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="bg-canvas-soft text-caption text-mute">
+          <tr className="bg-canvas-soft text-caption text-body">
             {columns.map((column) => (
               <th
                 key={column.id}

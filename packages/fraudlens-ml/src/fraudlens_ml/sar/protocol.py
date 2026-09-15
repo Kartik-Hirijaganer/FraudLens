@@ -44,6 +44,7 @@ Notes:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
@@ -51,7 +52,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from fraudlens_core import RiskBand
+from fraudlens_core import RiskBand, TransactionDirection
 from fraudlens_core.rules.base import RuleHit
 
 
@@ -177,6 +178,7 @@ class SarInput(BaseModel):
     transaction_id: str = Field(
         ..., min_length=1, description="Transaction under investigation (id only)."
     )
+    source: str = Field(..., min_length=1, description="Persisted transaction ingest provenance.")
     risk_band: RiskBand = Field(..., description="The blended risk band assigned to the run.")
     fraud_probability: float = Field(
         ..., ge=0.0, le=1.0, description="Calibrated model probability of fraud."
@@ -187,6 +189,8 @@ class SarInput(BaseModel):
         ..., min_length=2, max_length=2, description="ISO-3166 alpha-2 country code."
     )
     channel: str = Field(..., min_length=1, description="Origination channel (e.g. 'wire').")
+    direction: TransactionDirection = Field(..., description="Subject-relative fund direction.")
+    occurred_at: datetime = Field(..., description="Verified transaction occurrence time.")
     model_version: str = Field(..., min_length=1, description="Scoring model version label used.")
     rules_version: str = Field(
         ..., min_length=1, description="Deterministic rules-set fingerprint."

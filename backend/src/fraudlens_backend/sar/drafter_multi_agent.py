@@ -26,6 +26,7 @@ from fraudlens_backend.agents.graph import AgentGraph, AgentGraphResult
 from fraudlens_backend.agents.prompts import AgentPromptTemplate
 from fraudlens_backend.agents.runtime import AgentBudgetExceededError
 from fraudlens_backend.sar.budget import BudgetGuard, SarBudgetExceededError
+from fraudlens_backend.sar.egress import EgressBlockedError
 from fraudlens_backend.sar.schema import ground_citations, render_markdown
 from fraudlens_backend.sar.streaming import stream_result
 from fraudlens_llm import GuardrailDecision
@@ -85,6 +86,9 @@ class MultiAgentSarDrafter:
                     await queue.put(event)
             except (AgentBudgetExceededError, SarBudgetExceededError) as exc:
                 failure = exc
+            except EgressBlockedError as exc:
+                async for event in stream_result(self._failed_result(exc.code)):
+                    await queue.put(event)
             except TimeoutError:
                 async for event in stream_result(self._failed_result(_WORKFLOW_TIMEOUT)):
                     await queue.put(event)

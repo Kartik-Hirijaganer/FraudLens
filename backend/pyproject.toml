@@ -4,7 +4,7 @@
 
 [project]
 name = "fraudlens-backend"
-version = "0.2.0"
+version = "0.3.0"
 description = "FraudLens FastAPI service for AML fraud investigation workflows."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -23,6 +23,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.13",
     "langgraph>=1.2",
+    "scalar-fastapi>=1.8.2,<2",
     "fraudlens-core",
 ]
 

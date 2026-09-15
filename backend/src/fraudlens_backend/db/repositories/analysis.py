@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -50,6 +51,7 @@ from fraudlens_backend.db.models import (
     Transaction,
 )
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
+from fraudlens_backend.runs.leases import LeaseLostError
 from fraudlens_core import RiskBand
 
 
@@ -60,7 +62,7 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         """Bind the session + agency scope to the `analysis_runs` table."""
         super().__init__(session, AnalysisRun, agency_id)
 
-    async def create_running(
+    async def create_running(  # noqa: PLR0913 - explicit persisted run provenance is intentional.
         self,
         *,
         transaction_id: uuid.UUID,
@@ -68,6 +70,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         idempotency_key: str | None = None,
         workflow_mode: str = "single_writer",
         graph_version: str | None = None,
+        request_fingerprint: str | None = None,
+        model_override: str | None = None,
     ) -> AnalysisRun:
         """Insert a running run with resolved workflow provenance and a hashed idempotency key."""
         run = AnalysisRun(
@@ -78,6 +82,37 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             idempotency_key=_idempotency_digest(idempotency_key),
             workflow_mode=workflow_mode,
             graph_version=graph_version,
+            request_fingerprint=request_fingerprint,
+            model_override=model_override,
+        )
+        self._session.add(run)
+        await self._session.flush()
+        return run
+
+    async def create_pending(  # noqa: PLR0913 - explicit persisted queue identity is intentional.
+        self,
+        *,
+        transaction_id: uuid.UUID,
+        deadline_at: datetime,
+        request_fingerprint: str,
+        triggered_by: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        workflow_mode: str = "single_writer",
+        graph_version: str | None = None,
+        model_override: str | None = None,
+    ) -> AnalysisRun:
+        """Persist a queued run before returning 202 to a worker-mode caller."""
+        run = AnalysisRun(
+            agency_id=self._agency_id,
+            transaction_id=transaction_id,
+            status=RunStatus.PENDING,
+            triggered_by=triggered_by,
+            idempotency_key=_idempotency_digest(idempotency_key),
+            request_fingerprint=request_fingerprint,
+            workflow_mode=workflow_mode,
+            graph_version=graph_version,
+            model_override=model_override,
+            deadline_at=deadline_at,
         )
         self._session.add(run)
         await self._session.flush()
@@ -107,6 +142,59 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         )
         await self._session.flush()
         return seq
+
+    async def event_by_type(
+        self, *, run_id: uuid.UUID, event_type: AnalysisRunEventType
+    ) -> AnalysisRunEvent | None:
+        """Return the first matching singleton stage event for restart-safe replay."""
+        statement = (
+            select(AnalysisRunEvent)
+            .where(
+                AnalysisRunEvent.agency_id == self._agency_id,
+                AnalysisRunEvent.run_id == run_id,
+                AnalysisRunEvent.event_type == event_type,
+            )
+            .order_by(AnalysisRunEvent.seq.asc())
+            .limit(1)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none()
+
+    async def require_fence(
+        self,
+        *,
+        run_id: uuid.UUID,
+        lease_owner: str | None,
+        fencing_token: int | None,
+    ) -> None:
+        """Lock and validate worker ownership; inline callers pass two None values."""
+        if lease_owner is None and fencing_token is None:
+            return
+        if lease_owner is None or fencing_token is None:
+            raise LeaseLostError("incomplete run lease identity")
+        statement = (
+            select(AnalysisRun.id)
+            .where(
+                AnalysisRun.id == run_id,
+                AnalysisRun.agency_id == self._agency_id,
+                AnalysisRun.status.in_((RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.FAILED)),
+                AnalysisRun.lease_owner == lease_owner,
+                AnalysisRun.fencing_token == fencing_token,
+            )
+            .with_for_update()
+        )
+        if (await self._session.execute(statement)).scalar_one_or_none() is None:
+            raise LeaseLostError("run lease ownership was lost")
+
+    async def release_lease(self, *, run_id: uuid.UUID) -> None:
+        """Clear worker ownership after its terminal event is staged in the same transaction."""
+        run = await self.get(run_id)
+        if run is None:
+            return
+        run.lease_owner = None
+        run.lease_expires_at = None
+        run.heartbeat_at = None
+        run.next_attempt_at = None
+        await self._session.flush()
 
     async def get_result(self, run_id: uuid.UUID) -> AnalysisResult | None:
         """Return the immutable `analysis_results` snapshot for the run, or None (agency-scoped)."""
@@ -150,6 +238,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         model_version: str,
     ) -> None:
         """Persist the immutable `analysis_results` snapshot for the run (one per run)."""
+        if await self.get_result(run_id) is not None:
+            return
         self._session.add(
             AnalysisResult(
                 agency_id=self._agency_id,
@@ -175,6 +265,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         rag_version: str,
     ) -> None:
         """Persist the `rag_retrievals` row (the citations retrieved for the run)."""
+        if await self.get_retrieval(run_id) is not None:
+            return
         self._session.add(
             RagRetrieval(
                 agency_id=self._agency_id,
@@ -197,6 +289,14 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         feature_hash: str,
     ) -> None:
         """Persist the hash-only `model_inference_logs` row for the scoring step (no PHI)."""
+        existing = await self._session.execute(
+            select(ModelInferenceLog.id).where(
+                ModelInferenceLog.agency_id == self._agency_id,
+                ModelInferenceLog.run_id == run_id,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return
         self._session.add(
             ModelInferenceLog(
                 agency_id=self._agency_id,
@@ -222,6 +322,23 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         `review_flags` are the PHI-free force-review reasons computed at investigation time
         (critical band / low model confidence / SAR unavailable, plan §8.5, Phase 9).
         """
+        existing = (
+            await self._session.execute(
+                select(Alert).where(
+                    Alert.agency_id == self._agency_id,
+                    Alert.run_id == run_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.severity = severity
+            existing.review_flags = review_flags or []
+            if existing.status in {AlertStatus.OPEN, AlertStatus.PENDING_REVIEW}:
+                existing.status = (
+                    AlertStatus.PENDING_REVIEW if existing.review_flags else AlertStatus.OPEN
+                )
+            await self._session.flush()
+            return existing
         flags = review_flags or []
         alert = Alert(
             agency_id=self._agency_id,

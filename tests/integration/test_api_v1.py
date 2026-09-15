@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from fraudlens_backend import __version__
 from fraudlens_backend.api.deps import (
     AccessClaims,
     enforce_tenant,
@@ -31,7 +32,7 @@ def test_api_health_returns_camelcase_heartbeat(
     assert response.json() == {
         "status": "ok",
         "service": "FraudLens",
-        "version": "0.2.0",
+        "version": __version__,
         "environment": "dev",
     }
 
