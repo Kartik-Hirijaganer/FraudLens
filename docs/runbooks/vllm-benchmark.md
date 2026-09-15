@@ -82,13 +82,22 @@ make run-live-vllm-worker
 From a third terminal, submit exactly 100 calibrated synthetic cases at concurrency four. The
 runner requires `/readyz` to report `llmProvider=vllm`, requires every snapshot to show a durable
 worker claim, validates the persisted SAR schema and citation membership, and writes only PHI-free
-functional evidence. It intentionally does not publish request timings as benchmark latency.
+functional evidence. After each ordinary ingest, the runner calls the admin-only, non-production
+synthetic-provenance utility so the persisted source—not a request classification—authorizes model
+egress. The utility is tenant-scoped, audited, and hard-disabled in production. The runner
+intentionally does not publish request timings as benchmark latency.
 
 ```bash
 RUN=vllm-e2e-<16-lowercase-hex> \
 MODEL_OVERRIDE=xgb-ibm-aml-hi-medium-5835992a6919 \
 make vllm-bench-e2e
 ```
+
+For the 2026-09-15 execution, the HI-Medium candidate did not reliably trigger the generic
+SAR-eval fixtures. The completed 100-case functional pass therefore used the already gates-passed
+`xgb-ibm-aml-fs2-9d43c5f92a` scorer and records that override in its evidence. This proves the
+API/worker/vLLM integration only; it is not evidence that the HI-Medium candidate was promoted or
+that AWQ preserved output quality.
 
 Do not claim an AWQ latency or throughput improvement unless the observations prove it. A valid
 result may show only the required model-weight memory reduction; disclose neutral or adverse
