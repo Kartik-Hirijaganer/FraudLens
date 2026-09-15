@@ -49,6 +49,7 @@ _HTTP_READY = frozenset({200, 503})
 _PROVIDER_CHECK = "llmProvider"
 _MAX_CASES = 1000
 _MAX_CONCURRENCY = 64
+_ACCOUNT_SLOTS_PER_CASE = 16
 
 
 class E2eCaseOutcome(BaseModel):
@@ -159,7 +160,8 @@ def _namespaced_scenario(
         }
     )
     account_map = {
-        account: f"SYNTH-E2E-A-{digest}-{position:02d}" for position, account in enumerate(accounts)
+        account: (f"SYNTH-E2E-A-{digest}-{index * _ACCOUNT_SLOTS_PER_CASE + position:04x}")
+        for position, account in enumerate(accounts)
     }
     transaction_map = {
         item.external_id: f"E2E-{digest}-{position:02d}"
@@ -235,6 +237,10 @@ def _case_outcome(  # noqa: PLR0913 - explicit transport/time inputs keep the ca
     run_id: str | None = None
     try:
         transaction_id = ingest(client, scenario)
+        response_body(
+            client.post(f"/api/v1/dev/transactions/{transaction_id}/synthetic-provenance"),
+            200,
+        )
         payload: dict[str, object] = {
             "transactionId": transaction_id,
             "workflowMode": "single_writer",

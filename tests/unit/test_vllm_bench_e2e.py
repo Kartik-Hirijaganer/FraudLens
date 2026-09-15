@@ -20,6 +20,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from fraudlens_core.phi import mask_identifier
 from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config
 from lib.sar_eval.scenarios import generate_scenarios
 from lib.vllm_bench.e2e import (
@@ -60,6 +61,19 @@ def _transport(*, provider: str = "vllm", attempt: int = 1) -> httpx.MockTranspo
         if path == "/api/v1/transactions" and request.method == "POST":
             body = json.loads(request.content)
             return httpx.Response(201, json={"transactionId": f"txn-{body['externalId']}"})
+        if (
+            path.startswith("/api/v1/dev/transactions/")
+            and path.endswith("/synthetic-provenance")
+            and request.method == "POST"
+        ):
+            return httpx.Response(
+                200,
+                json={
+                    "action": "synthetic-provenance",
+                    "status": "accepted",
+                    "agencyId": "synthetic-agency",
+                },
+            )
         if path == "/api/v1/investigations" and request.method == "POST":
             body = json.loads(request.content)
             run_id = f"run-{body['transactionId']}"
@@ -152,6 +166,19 @@ def test_e2e_namespaces_accounts_without_breaking_scenario_links() -> None:
         )
         < len(first.transactions) * 2
     )
+
+
+def test_e2e_account_namespaces_remain_unique_after_phi_masking_at_max_load() -> None:
+    config = load_sar_eval_config()
+    original = generate_scenarios(config, DEFAULT_SAR_EVAL_CONFIG.read_bytes()).scenarios[0]
+    accounts = {
+        account
+        for index in range(1000)
+        for transaction in _namespaced_scenario(original, _RUN_ID, index).transactions
+        for account in (transaction.origin_account, transaction.dest_account)
+    }
+    masked = {mask_identifier(account).value for account in accounts}
+    assert len(masked) == len(accounts)
 
 
 @pytest.mark.parametrize(("cases", "concurrency"), [(0, 1), (2, 0), (2, 3), (1001, 1)])
