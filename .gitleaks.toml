@@ -22,4 +22,6 @@ regexes = [
   '''(?i)(changeme|example\.com|dev-agency|acme|<[^>]+>|\$\{[^}]+\})''',
   # Public Hugging Face git revisions pinned by config/vllm-bench.yaml.
   '''(?:a09a35458c702b33eeacc393d103063234e8bc28|b25037543e9394b818fdfca67ab2a00ecc7dd641)''',
+  # Non-secret benchmark host selector emitted as the report's `hostKey` value.
+  '''runpod-rtx4090''',
 ]
