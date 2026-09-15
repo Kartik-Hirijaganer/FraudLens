@@ -6,7 +6,7 @@
 - **Related:** [ADR-016 — run owns execution; SSE is an observer](README.md)
   · [ADR-018 — portfolio demo data provenance](ADR-018-portfolio-demo-data-provenance.md)
   · implementation plan
-  [`plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md`](../../../plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md)
+  `plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md` (retired; see plans/README.md)
 
 ## Context
 

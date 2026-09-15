@@ -6,7 +6,7 @@
 - **Related:** [ADR-019 — bounded multi-agent SAR drafting](ADR-019-multi-agent-sar-drafting.md)
   · [ADR-026 — provenance-derived synthetic-only model egress](ADR-026-synthetic-only-model-egress.md)
   · implementation plan
-  [`plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md`](../../../plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md)
+  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
 ## Context
 

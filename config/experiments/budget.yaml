@@ -3,9 +3,9 @@ ceiling_usd: "75.00"
 admission_margin: "0.30"
 allocations:
   azure_cpu_batch: "15.00"
-  gpu_benchmark: "25.00"
+  gpu_benchmark: "10.00"
   e2e_application_pass: "5.00"
-  supporting_resources: "5.00"
+  supporting_resources: "20.00"
   reserve: "25.00"
 watchdog_hours:
   azure_cpu_batch: "8.00"
@@ -22,6 +22,15 @@ rates:
     price_source_url: https://prices.azure.com/api/retail/prices
     price_verified_at: 2026-09-14
     effective_from: 2025-10-01
+  azure_d2as_v4_payg:
+    provider: azure
+    sku: Standard_D2as_v4
+    region: westus3
+    purchase_option: pay_as_you_go
+    hourly_rate_usd: "0.096000"
+    price_source_url: https://prices.azure.com/api/retail/prices
+    price_verified_at: 2026-09-15
+    effective_from: 2022-12-01
   azure_d2as_v5_spot:
     provider: azure
     sku: Standard_D2as_v5

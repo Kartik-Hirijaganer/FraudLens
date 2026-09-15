@@ -59,7 +59,7 @@ def test_plan_admits_eight_hour_secure_cloud_envelope(sandbox, monkeypatch) -> N
     assert plan.admitted is True
     assert plan.projected_cost_usd == Decimal("5.92000000")
     assert plan.cost_with_margin_usd == Decimal("7.6960000000")
-    assert plan.allocation_usd == Decimal("25.00")
+    assert plan.allocation_usd == Decimal("10.00")
     assert plan.gpu_memory_gb == 24
     assert plan.pod_name == config.pod_name(RUN_ID)
 

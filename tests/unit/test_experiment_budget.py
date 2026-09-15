@@ -32,11 +32,12 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     assert config.admission_margin == Decimal("0.30")
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "gpu_benchmark": Decimal("25.00"),
+        "gpu_benchmark": Decimal("10.00"),
         "e2e_application_pass": Decimal("5.00"),
-        "supporting_resources": Decimal("5.00"),
+        "supporting_resources": Decimal("20.00"),
         "reserve": Decimal("25.00"),
     }
+    assert sum(config.allocations.values()) == config.ceiling_usd
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
     assert config.rates["azure_nc24ads_a100_v4_spot"].hourly_rate_usd == Decimal("0.678770")
     runpod_quote = config.rates["runpod_rtx4090_secure_payg"]
@@ -48,6 +49,11 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     assert config.rates["azure_e16ads_v5_spot"].hourly_rate_usd == Decimal("0.193670")
     assert config.rates["azure_b2s_payg"].hourly_rate_usd == Decimal("0.041600")
     assert config.rates["azure_d2as_v5_spot"].hourly_rate_usd == Decimal("0.015893")
+    aks_user_pool = config.rates["azure_d2as_v4_payg"]
+    assert aks_user_pool.sku == "Standard_D2as_v4"
+    assert aks_user_pool.purchase_option == "pay_as_you_go"
+    assert aks_user_pool.hourly_rate_usd == Decimal("0.096000")
+    assert aks_user_pool.price_verified_at == date(2026, 9, 15)
     for key, quote in config.rates.items():
         if key == "runpod_rtx4090_secure_payg":
             assert str(quote.price_source_url) == "https://www.runpod.io/pricing"
@@ -56,7 +62,8 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
             assert str(quote.price_source_url).startswith("https://prices.azure.com/")
     for key in azure_quotes:
         assert config.rates[key].region == "westus3"
-        assert config.rates[key].price_verified_at == date(2026, 9, 14)
+        # Every quote is re-verified against the live retail price API on the date recorded.
+        assert config.rates[key].price_verified_at in {date(2026, 9, 14), date(2026, 9, 15)}
 
 
 def test_projection_scales_pilot_work_and_admission_applies_margin() -> None:
@@ -111,6 +118,7 @@ def test_committed_ledger_covers_all_published_reports() -> None:
     config = load_budget_config(REPO_ROOT)
     entries = load_ledger(REPO_ROOT / "docs" / "reference" / "experiments" / "ledger.md")
     assert {entry.run_id for entry in entries} == {
+        "aks-demo-20260915-01",
         "data-batch-20260914-pilot1",
         "gfp-c41b1fbb266f44d4",
         "sar-eval-e5c9a36b5f8a33f3",
@@ -118,6 +126,12 @@ def test_committed_ledger_covers_all_published_reports() -> None:
     }
     batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")
     assert batch.evidence_run_ids == ("fulldata-b55c4ae63ed8bbae",)
+    # The AKS session is admitted and open: no resource exists yet, so teardown is unverified.
+    aks = next(entry for entry in entries if entry.run_id == "aks-demo-20260915-01")
+    assert aks.allocation == "supporting_resources"
+    assert aks.projected_cost_usd == Decimal("5.000000")
+    assert aks.started_at is None and aks.stopped_at is None
+    assert aks.teardown_verified == "no"
     assert check_ledger(config, entries, REPO_ROOT / "docs/reference/benchmarks") == []
 
 

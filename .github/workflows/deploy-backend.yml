@@ -42,8 +42,24 @@ env:
   REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha }}
 
 jobs:
+  # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
+  # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
+  # the whole graph before anything billable is touched.
+  identity:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a non-personal deploy identity
+        run: bash scripts/check_deploy_identity.sh
+
   # Deploy parity: re-run the identical gate at the exact SHA being deployed.
   verify:
+    needs: identity
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     uses: ./.github/workflows/_ci-reusable.yml
 

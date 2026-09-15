@@ -242,6 +242,8 @@ experiment-budget-check: ## Reconcile the $75 experiment ceiling, ledger, and pu
 	$(UV) run python scripts/experiment_budget.py ledger-check
 attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
 	bash scripts/check_no_ai_attribution.sh
+deploy-identity-check: ## Refuse a non-personal repo, commit email, remote, or Azure account.
+	bash scripts/check_deploy_identity.sh
 hooks-install: ## Point git at the tracked .githooks (commit-msg blocks AI trailers; Golden Rule 2).
 	git config core.hooksPath .githooks
 	@printf 'core.hooksPath = %s\n' "$$(git config core.hooksPath)"
@@ -819,7 +821,7 @@ aks-init: ## Initialize the next-release AKS remote-state root without applying 
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
 
 aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never applies.
-	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v5_spot"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; disks, IP and traffic excluded)")'
+	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v4_payg"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; ephemeral OS disks, Standard Load Balancer, public IPs and egress traffic excluded)")'
 	@set -euo pipefail; \
 	$(AKS_ENV); \
 	terraform -chdir=$(AKS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
@@ -937,7 +939,7 @@ pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively 
 	bash scripts/check_pr_title.sh
 
 ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
-pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
+pre-pr: deploy-identity-check fmt docs ci ## Identity gate, format, regenerate docs, then the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).
 	$(MAKE) pr-title-check

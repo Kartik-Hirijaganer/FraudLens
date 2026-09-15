@@ -21,9 +21,7 @@ evidence remain the proof. Commit and push restrictions in AGENTS.md apply to ev
 
 | Plan | Scope | Status |
 | --- | --- | --- |
-| [2026-08-17 multi-agent investigation and Azure deployment](2026-08-17-multi-agent-investigation-and-azure-deployment.md) | Bounded multi-agent SAR drafting and Azure delivery | Implemented; retained for audit history |
-| [2026-09-13 local PR check command](2026-09-13-local-pr-check-command.md) | One-command local PR preflight | Active |
-| [2026-09-13 vLLM/AWQ, full-data training, and AKS](2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md) | Release 0.3.0 benchmark, data, durability, and Kubernetes work | Implemented; release evidence published |
+| [2026-09-15 Azure deployment, cost projection, and budget alerts](2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md) | Release 0.4.0 Azure apply, cost controls, and AKS evidence | Active |
 
 ## Next release: 0.4.0 first steps
 
@@ -54,6 +52,9 @@ dead Markdown links.
 | `2026-06-12-aml-fraud-detection-system.md` | `ef51c0c` | [Architecture](../docs/architecture/ARCHITECTURE.md), [reference docs](../docs/reference), and ADR-001 through ADR-016 in the [ADR index](../docs/architecture/adr/README.md) |
 | `2026-07-14-gfp-isolation-gap-visual-study.md` | `ef51c0c` | [ADR-017](../docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md) and [published study](../docs/reference/benchmarks/gfp-tenant-isolation-study.md) |
 | `2026-07-25-portfolio-demo-story.md` | Not present in tracked history; dead reference removed in Phase 0 | [ADR-018](../docs/architecture/adr/ADR-018-portfolio-demo-data-provenance.md) and [portfolio demo runbook](../docs/runbooks/portfolio-demo.md) |
+| `2026-08-17-multi-agent-investigation-and-azure-deployment.md` | `TBD` | [ADR-019](../docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md) |
+| `2026-09-13-local-pr-check-command.md` | `TBD` | `make pr-check` in the [Makefile](../Makefile) and [scripts/check_pr_title.sh](../scripts/check_pr_title.sh) |
+| `2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` | `TBD` | [ADR-020](../docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) through [ADR-028](../docs/architecture/adr/ADR-028-paid-experiment-governance.md) in the [ADR index](../docs/architecture/adr/README.md), plus the published [vLLM/AWQ benchmark](../docs/reference/benchmarks/vllm-awq-sar-benchmark.md), [full-data training](../docs/reference/benchmarks/ibm-full-data-training.md), and [HPA scaling](../docs/reference/benchmarks/k8s-hpa-scaling.md) reports |
 
 ## Documentation backlog
 

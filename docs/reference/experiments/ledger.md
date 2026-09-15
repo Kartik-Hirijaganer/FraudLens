@@ -36,6 +36,10 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | Dataset checksum | local `.local/aml_data` | HI-Small_Trans.csv | 2026-09-13 | `b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040` | verified; copy into `config/fulldata.yaml` in Phase 5 |
 | Dataset checksum | local `.local/aml_data` | HI-Medium_Trans.csv | 2026-09-13 | `3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5` | verified; copy into `config/fulldata.yaml` in Phase 5 |
 | Dataset checksum | local `.local/aml_data` | LI-Medium_Trans.csv | 2026-09-13 | `0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910` | verified; copy into `config/fulldata.yaml` in Phase 5 |
+| Azure quota | westus3 | Standard DASv5 Family vCPUs | 2026-09-15 read | — | current limit 0; blocks `Standard_D2as_v5`; no request raised |
+| Azure quota | westus3 | Total regional low-priority/Spot vCPUs | 2026-09-15 read | — | current limit 3; blocks the Spot user pool |
+| Azure quota | westus3 | Standard DASv4 Family vCPUs | 2026-09-15 read | — | current limit 10; supports `Standard_D2as_v4` (chosen SKU) |
+| AKS SKU decision | westus3 | `Standard_D2as_v4` pay-as-you-go user pool | 2026-09-15 | user decision | selected; **no quota request is required** — a Spot increase would not lift the DASv5 zero family limit |
 
 ## Resource sessions
 
@@ -45,6 +49,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-08-17 | OpenRouter | multi-model SAR evaluation | metered API | — | — | 0 | 0 | 7.600000 | 5.486233 | sar-eval-e5c9a36b5f8a33f3 | — | historical | historical | not-applicable |
 | 2026-09-14 | Azure | Standard_E16ads_v5 | pay-as-you-go | 2026-09-14T01:49:31Z | 2026-09-14T17:35:34Z | 9.955459 | 1.048000 | 3.235985 | — | data-batch-20260914-pilot1 | fulldata-b55c4ae63ed8bbae | current-plan | azure_cpu_batch | yes |
 | 2026-09-14 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-14T21:59:09Z | 2026-09-15T04:01:53Z | 6.045556 | 0.740000 | 5.920000 | — | vllm-bench-f810b57a7b8ae05a | vllm-e2e-61dcda4aef97b74a | current-plan | gpu_benchmark | yes |
+| 2026-09-15 | Azure | Standard_B2s + 2×Standard_D2as_v4 | pay-as-you-go | — | — | 0 | 0.233600 | 5.000000 | — | aks-demo-20260915-01 | — | current-plan | supporting_resources | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start

@@ -474,7 +474,7 @@ is regenerated from its help text.
 | `make local-demo` | Boot the IBM-backed local stack; fetches via Infisical /ml when absent. |
 | `make test` | Run tests for both stacks. |
 | `make coverage` | Run tests with ≥90% coverage gate. |
-| `make pre-pr` | Format, regenerate docs, then run the shared CI umbrella (writes). |
+| `make pre-pr` | Identity gate, format, regenerate docs, then the shared CI umbrella (writes). |
 | `make pr-check` | Complete local PR preflight; mirrors all applicable GitHub PR checks (writes). |
 | `make docs` | Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES). |
 | `make fulldata-pilot` | Run the approved bounded pilot (candidate + row target configurable). |
