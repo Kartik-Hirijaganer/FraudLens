@@ -40,6 +40,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | Azure quota | westus3 | Total regional low-priority/Spot vCPUs | 2026-09-15 read | — | current limit 3; blocks the Spot user pool |
 | Azure quota | westus3 | Standard DASv4 Family vCPUs | 2026-09-15 read | — | current limit 10; supports `Standard_D2as_v4` (chosen SKU) |
 | AKS SKU decision | westus3 | `Standard_D2as_v4` pay-as-you-go user pool | 2026-09-15 | user decision | selected; **no quota request is required** — a Spot increase would not lift the DASv5 zero family limit |
+| GitHub deploy gate | repo settings | `Production` environment required reviewer (`Kartik-Hirijaganer`) | 2026-09-15 verified | run `34994335606` | configured; blocking observed on a plan-only dispatch, run cancelled unapproved, `AKS_DEPLOY_ENABLED` disarmed |
 
 ## Resource sessions
 
