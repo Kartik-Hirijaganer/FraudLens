@@ -133,11 +133,21 @@ def test_the_revision_name_fits_the_limit_azure_actually_enforces() -> None:
     """
     app_name = _workflow()["env"]["APP_NAME"]
     meta = _step("build-push", "Compute image reference")["run"]
-    assert 'echo "revision_suffix=s${DEPLOY_SHA:0:12}"' in meta
-    # Longest possible rendered name: app + "--" + "s" + the truncated SHA.
-    assert len(f"{app_name}--s{'0' * 12}") <= _AZURE_REVISION_NAME_LIMIT
+    assert "revision_suffix=s${DEPLOY_SHA:0:12}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" in meta
+    # Longest plausible rendered name: app + "--" + "s" + 12 SHA chars + a 7-digit run number
+    # and a 2-digit attempt, each with its separator.
+    assert len(f"{app_name}--s{'0' * 12}-{'0' * 7}-{'0' * 2}") <= _AZURE_REVISION_NAME_LIMIT
     # The image tag keeps the FULL sha: that is the build-once identity.
     assert 'echo "image=${image_name}:${DEPLOY_SHA}"' in meta
+
+
+def test_the_revision_name_is_unique_per_deploy_not_merely_per_commit() -> None:
+    # A revision name is taken for good once used -- deactivating one does not release it. A
+    # SHA-only suffix therefore fails every redeploy of the same commit, which is exactly what
+    # bringing a release up looks like.
+    meta = _step("build-push", "Compute image reference")["run"]
+    assert "${GITHUB_RUN_NUMBER}" in meta
+    assert "${GITHUB_RUN_ATTEMPT}" in meta
 
 
 def test_every_job_that_names_the_revision_reads_one_computed_suffix() -> None:

@@ -98,7 +98,14 @@ jobs:
           # so the full 40-character SHA cannot fit — it is truncated here, once, rather than in
           # each of the four jobs that name the revision. The IMAGE tag keeps the full SHA: that
           # is the build-once identity, and shortening it would weaken the digest it pins.
-          echo "revision_suffix=s${DEPLOY_SHA:0:12}" >> "$GITHUB_OUTPUT"
+          #
+          # The run number and attempt make the name UNIQUE per deploy, not merely per commit.
+          # A revision name is taken for good once used — deactivating one does not release it —
+          # so a SHA-only suffix fails every redeploy of the same commit with "revision with
+          # suffix ... already exists". Redeploying one commit is the normal case while a release
+          # is being brought up, and it does not weaken build-once: the IMAGE is still the one
+          # digest built for this SHA, and the suffix still carries the SHA for traceability.
+          echo "revision_suffix=s${DEPLOY_SHA:0:12}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
         uses: docker/login-action@v4
