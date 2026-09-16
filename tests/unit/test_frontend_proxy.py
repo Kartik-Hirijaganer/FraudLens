@@ -107,6 +107,19 @@ def test_the_vercel_cli_is_pinned_rather_than_whatever_published_today() -> None
     assert 'npm i -g "vercel@${VERCEL_CLI_VERSION}"' in str(build["run"])
 
 
+def test_the_deploy_names_the_project_it_is_meant_to_deploy() -> None:
+    """`vercel pull --yes` does not fail when unlinked — it CREATES a project and deploys there.
+
+    The build then succeeds against a brand-new project while FRONTEND_URL keeps serving the old
+    one, which is a green deploy that shipped nothing. Naming the project is what prevents it.
+    """
+    build = _deploy_step("Deploy to Vercel")
+    assert build["env"]["VERCEL_ORG_ID"] == "${{ vars.VERCEL_ORG_ID }}"
+    assert build["env"]["VERCEL_PROJECT_ID"] == "${{ vars.VERCEL_PROJECT_ID }}"
+    # Absent variables render as empty strings, so the guard has to be explicit.
+    assert 'test -n "$VERCEL_PROJECT_ID"' in str(build["run"])
+
+
 def test_the_deploy_asserts_the_permanent_domain_now_serves_this_build() -> None:
     # `vercel deploy` prints the immutable per-deployment URL, not the alias. Without this the
     # job reports success for a deployment the recruiter-facing link never points at.

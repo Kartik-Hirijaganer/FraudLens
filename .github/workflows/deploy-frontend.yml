@@ -77,6 +77,12 @@ jobs:
           # Pinned: an unpinned `npm i -g vercel` makes every deploy depend on whatever the CLI
           # published that morning, which is the one moving part a reproducible deploy cannot have.
           VERCEL_CLI_VERSION: "59.17.0"
+          # WHICH project to deploy. `vercel pull --yes` with no link does not fail — it CREATES a
+          # project named after the working directory and deploys there, so the build succeeds
+          # while FRONTEND_URL keeps serving the old one. These are non-secret identifiers, the
+          # same posture as the Azure subscription and client ids.
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           # The SPA is same-origin: frontend/.env.production pins VITE_API_BASE_URL empty and
           # vercel.json proxies /api/* to the gateway, so the browser never learns a second
           # hostname and CORS is not load-bearing. Vercel performs no substitution of its own in
@@ -96,6 +102,10 @@ jobs:
             echo "vercel.json still carries an unresolved origin placeholder"
             exit 1
           fi
+          test -n "$VERCEL_ORG_ID" && test -n "$VERCEL_PROJECT_ID" || {
+            echo "::error::VERCEL_ORG_ID and VERCEL_PROJECT_ID are required; without them the CLI creates a new project instead of deploying the existing one"
+            exit 1
+          }
           npm i -g "vercel@${VERCEL_CLI_VERSION}"
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           vercel build --prod --token="$VERCEL_TOKEN"
