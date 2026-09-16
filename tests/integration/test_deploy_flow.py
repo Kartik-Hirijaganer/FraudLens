@@ -70,11 +70,18 @@ def test_image_is_built_exactly_once_and_reused() -> None:
 
 
 def test_image_tagged_by_commit_sha() -> None:
-    """The single image is immutable, tagged by the deployed commit SHA (build-once identity)."""
+    """The single image is immutable, tagged by the deployed commit SHA (build-once identity).
+
+    The tag reads `DEPLOY_SHA` rather than the event field directly, because the deploy now also
+    runs from a `workflow_dispatch` against a release branch, where `github.event.workflow_run` is
+    absent. Both paths must still resolve to the SHA actually being deployed -- a tag that fell
+    back to empty would push `fraudlens-backend:` and break build-once identity outright.
+    """
     flat = _deploy_backend_flat()
     assert LOWERCASE_OWNER_SCRIPT in flat
     assert 'image_name="ghcr.io/${owner}/fraudlens-backend"' in flat
-    assert "image=${image_name}:${{ github.event.workflow_run.head_sha }}" in flat
+    assert "image=${image_name}:${DEPLOY_SHA}" in flat
+    assert "DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}" in flat
 
 
 def test_ghcr_image_references_are_lowercase() -> None:

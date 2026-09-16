@@ -19,6 +19,12 @@
 # runtime from Infisical, never injected into the image or terraform state.
 name: deploy-backend
 
+# `workflow_run` always executes the workflow file from the DEFAULT branch, whatever ref
+# triggered it -- so a deploy change on a release branch is inert until it is merged.
+# `workflow_dispatch` executes the file from the ref it is dispatched against, which is how a
+# release branch iterates on its own deploy without a merge per attempt. The gates are unchanged
+# either way: `verify` re-runs the full CI suite at the deployed SHA, AZURE_DEPLOY_ENABLED still
+# gates every cloud job, and `environment: production` still requires human approval.
 on:
   workflow_run:
     workflows: ["ci"]
@@ -26,6 +32,7 @@ on:
     branches:
       - dev
       - "release/*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,14 +46,15 @@ concurrency:
 env:
   APP_NAME: fraudlens-prod-api
   RESOURCE_GROUP: fraudlens-prod-rg
-  REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha }}
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
   # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
   # the whole graph before anything billable is touched.
   identity:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -60,7 +68,7 @@ jobs:
   # Deploy parity: re-run the identical gate at the exact SHA being deployed.
   verify:
     needs: identity
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     uses: ./.github/workflows/_ci-reusable.yml
 
   # Build ONE immutable image (SHA tag) and push to GHCR. The same digest is promoted unchanged.
@@ -75,7 +83,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Compute image reference (build-once SHA tag)
         id: meta
         shell: bash
@@ -84,7 +92,7 @@ jobs:
           image_name="ghcr.io/${owner}/fraudlens-backend"
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
           echo "base_image=ghcr.io/${owner}/fraudlens-base:latest" >> "$GITHUB_OUTPUT"
-          echo "image=${image_name}:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "image=${image_name}:${DEPLOY_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -136,14 +144,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # `terraform_wrapper: false` is load-bearing, not hygiene. The default wrapper intercepts
+      # the binary to capture step outputs and does not preserve `-detailed-exitcode`, so
+      # terraform's "2 = changes pending" arrives as 0 and the apply below is skipped on a plan
+      # that had 14 resources to add -- silently, with the job reporting success.
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
       - name: Terraform plan; apply only if the plan is non-empty
         working-directory: infra/terraform/environments/prod
         env:
@@ -167,7 +181,13 @@ jobs:
             -var-file=prod.tfvars -var="container_image=${{ needs.build-push.outputs.image }}" -out=tfplan
           code=$?
           set -e
-          if [ "$code" = "2" ]; then
+          echo "terraform plan -detailed-exitcode => $code"
+          # Cross-check the exit code against the plan file itself. "Skip the apply" is the one
+          # outcome that looks like success while doing nothing, so it has to be proven, not
+          # inferred from a status another tool could have rewritten.
+          changes=$(terraform show -json tfplan | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("resource_changes",[])))')
+          echo "planned resource changes: $changes"
+          if [ "$code" = "2" ] || [ "$changes" != "0" ]; then
             echo "infra changed — applying"; retry terraform apply -input=false -lock-timeout=120s -auto-approve tfplan
           elif [ "$code" = "0" ]; then
             echo "no infra changes — skipping apply (fast app-rollout path)"
@@ -290,7 +310,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -370,7 +390,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
