@@ -22,8 +22,12 @@ analyst review, grounded SAR drafts, and governed model operations.**
 **[Engineering](#engineering-highlights)** · **[API](#api-surface)** ·
 **[Docs](#documentation)**
 
-> **Current status:** FraudLens runs locally. Azure, Vercel, and Supabase deployment resources are
-> scaffolded and CI-validated, but no cloud environment is provisioned or hosting this application.
+> **Current status:** FraudLens is **live** at
+> **[fraud-lens-amber.vercel.app](https://fraud-lens-amber.vercel.app)** — the SPA on Vercel with
+> `/api/*` proxied same-origin to Azure Container Apps, state in Supabase Postgres. It also runs
+> fully locally with no cloud account. Deploys are never automatic: each one needs the owner's
+> approval on a protected environment. Recurring cost is ~$2.72/month under enforced hard caps
+> ([cost model](docs/reference/cost-model.md), [ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md)).
 
 **Keywords:** AML · fraud detection · explainable AI · XGBoost · SHAP · LangGraph · regulatory RAG
 · SAR drafting · multi-tenant SaaS · FastAPI · React · MLOps
@@ -76,8 +80,8 @@ secret outside source control.
 
 ### Architecture diagram
 
-This is the **target deployment architecture** captured by the repository. It is scaffolded and
-CI-validated, but it is **not currently deployed**. The main request and investigation path runs
+This is the **deployed architecture**: everything in the Azure box below is applied and serving,
+reached through the Vercel same-origin proxy. The main request and investigation path runs
 top-to-bottom; dashed connections are runtime configuration or trust relationships.
 
 ```mermaid
@@ -86,16 +90,16 @@ flowchart TB
 
     subgraph experience["Experience and identity"]
         direction TB
-        frontend["React + TypeScript SPA<br/>Vercel target"]
+        frontend["React + TypeScript SPA<br/>Vercel — /api/* proxied same-origin"]
         auth["Supabase Auth<br/>email/password + JWT"]
     end
 
-    subgraph azure["Azure runtime target — scaffolded, not deployed"]
+    subgraph azure["Azure runtime — deployed (Container Apps, eastus2)"]
         direction TB
         registry["GHCR / optional ACR<br/>versioned backend image"]
         gateway["Azure Container Apps<br/>FastAPI gateway + /api/v1"]
         pipeline["Investigation runtime<br/>rules + XGBoost + SHAP + LangGraph"]
-        jobs["Container Apps Jobs<br/>batch score + retrain"]
+        jobs["Container Apps Jobs<br/>batch score + retrain (manual trigger only)"]
         blob[("Azure Blob Storage<br/>model artifacts + SAR PDFs")]
         observe["Log Analytics + Application Insights"]
     end
@@ -192,9 +196,9 @@ flowchart TB
 | **ML / investigation** | XGBoost · SHAP · scikit-learn · imbalanced-learn · LangGraph |
 | **LLM / RAG** | Standalone governed LLM client · OpenRouter opt-in · versioned prompts · ChromaDB · deterministic hashing embeddings locally |
 | **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Wise design system · D3 force |
-| **Data** | Docker Postgres 16 locally · Supabase Postgres as the unprovisioned cloud target · local artifact and queue backends |
+| **Data** | Docker Postgres 16 locally · Supabase Postgres in the cloud · local artifact and queue backends |
 | **Security** | Fail-closed JWT/AuthZ · `agency_id` tenant enforcement · RBAC · PHI masking · Infisical secrets · gitleaks |
-| **Infra / CI** | Docker · Terraform · GitHub Actions · Azure Container Apps/ACR/Blob target · Vercel target |
+| **Infra / CI** | Docker · Terraform · GitHub Actions · Azure Container Apps + Blob · Vercel · ephemeral AKS |
 
 ## Quick start
 
@@ -360,17 +364,22 @@ See the [data-batch runbook](docs/runbooks/data-batch.md) and
 
 ## Kubernetes deployment: AKS, Terraform, and HPA
 
-Release 0.3 proves the portable runtime on local kind and validates the AKS Terraform/workflow
-without applying it. The measured evidence is Kubernetes behavior on kind—not an observed AKS
-deployment. A human-approved, ephemeral AKS session is a release 0.4 step.
+One Kustomize base runs on local kind and on Azure AKS. Both have now been measured, and each row
+below comes from its own artifact — kind evidence is never cited as an AKS deployment. The AKS
+session was human-approved, bounded, and destroyed afterwards with a verified-clean check, so the
+cluster is **ephemeral by design**: what persists at $0 is the Terraform, the evidence, and the
+workflow logs. AKS scale-out is slower than kind because pods bind on node capacity and trigger the
+cluster autoscaler — that is node autoscaling on top of pod autoscaling, not a regression.
 
 <!-- AUTOGEN:k8s-benchmark -->
 | Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
 | --- | --- | ---: | ---: | ---: | ---: |
 | kind | 1 → 5 → 1 | 46 s | 92 s | 100/100 | 0 |
+| aks | 1 → 5 → 1 | 101 s | 117 s | 100/100 | 0 |
 <!-- /AUTOGEN:k8s-benchmark -->
 
-Evidence: [HPA and durable-worker report](docs/reference/benchmarks/k8s-hpa-scaling.md),
+Evidence: [kind report](docs/reference/benchmarks/k8s-hpa-scaling.md),
+[AKS report](docs/reference/benchmarks/aks-hpa-scaling.md),
 [ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md), and the
 [AKS runbook](docs/runbooks/aks-deploy.md).
 
@@ -391,19 +400,26 @@ human-authorized actions. AI authorship or co-author trailers are prohibited.
 
 ## Cloud deployment status
 
-FraudLens keeps application deployment separate from temporary research compute. The frontend and
-database exist; Azure application deployment remains deliberately disabled. RunPod was used only
-for the completed temporary NVIDIA benchmark and has no continuing FraudLens resources.
+FraudLens keeps always-on application hosting separate from temporary research compute. The
+application is deployed; every paid experiment was destroyed after producing its evidence. RunPod
+was used only for the completed temporary NVIDIA benchmark and has no continuing FraudLens
+resources.
 
-| Surface | Intended target | Current status |
+| Surface | Target | Current status |
 | --- | --- | --- |
-| Backend API | Azure Container Apps + Azure Container Registry | Azure state/OIDC bootstrapped; deploy gate is disabled, so the app is not deployed |
-| Frontend | Vercel | Live; automated production deploy remains disabled |
+| Backend API | Azure Container Apps | **Deployed** and serving; scale-to-zero with a 1-replica hard cap, deploys gated by required production approval |
+| Frontend | Vercel | **Live** at `fraud-lens-amber.vercel.app`; `/api/*` proxied same-origin to the backend |
 | Database | Supabase Postgres | Provisioned; credentials resolve only from Infisical |
-| AKS demonstration | Azure AKS | Terraform/workflow validate-only; HPA and durability measured on kind; apply is release 0.4 |
+| AKS demonstration | Azure AKS | Applied, measured, and destroyed in one governed session; cluster is ephemeral, evidence is committed |
 | GPU benchmark VM | Temporary RunPod RTX 4090 | 6,000-request benchmark and 100-case application pass completed; Pod and encrypted volume deleted |
 | Data-batch VM | Temporary Azure CPU experiment | 68.2M-source-row aggregate published; resource group destroyed and clean teardown verified |
 | Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
+
+Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a
+$0.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
+subscription scopes and a daily read-only watchdog for leftover resources. See the
+[cost model](docs/reference/cost-model.md) and
+[ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md).
 
 See the [Azure deployment runbook](docs/runbooks/azure-deploy.md), [paid-experiment ledger](docs/reference/experiments/ledger.md),
 and [deployment/rollback runbook](docs/runbooks/deploy-rollback.md). Future inference, retraining,
@@ -425,7 +441,7 @@ or AKS sessions incur new cost and require fresh admission/approval.
 ├── config/                     Layered non-secret app, LLM, and demo configuration
 ├── data/                       Committed synthetic fixtures and regulatory corpus
 ├── alembic/                    Postgres schema migrations
-├── infra/terraform/            Inert Azure infrastructure scaffold
+├── infra/terraform/            Azure IaC: deployed prod + budgets, ephemeral AKS
 ├── supabase/                   Auth-claim setup for optional live-local mode
 ├── scripts/                    Docs, ingest, training, demo, and governance tooling
 ├── tests/                      Unit, integration, security, smoke, and synthetic fixtures

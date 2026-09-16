@@ -1,10 +1,20 @@
 # Azure AKS demonstration
 
-Release 0.4 runs this architecture as one bounded, explicitly confirmed experiment. The committed
-kind report remains local evidence; only the redacted artifact from the governed AKS workflow may
-support an observed-AKS claim.
+> **Status: executed 2026-09-16, torn down and verified clean.** Paid session
+> `aks-demo-20260915-01` applied the Terraform below, deployed the SHA-pinned image, ran
+> authenticated smoke and load, captured
+> [`aks-hpa-scaling.md`](../reference/benchmarks/aks-hpa-scaling.md) — API replicas 1 → 5 → 1, first
+> scale-up 101 s, scale-back 117 s, 100/100 durable runs completed on `v1.35.7` — then destroyed the
+> cluster. `make aks-verify-clean` passed and the
+> [ledger row](../reference/experiments/ledger.md) reads **teardown verified = yes**. The cluster is
+> ephemeral by design: nothing is standing now, and the procedure below is what re-creates it in
+> roughly twelve minutes.
 
-## Validated architecture
+The committed kind report stays local evidence for a separate runtime. Only the redacted artifact
+from a governed AKS session supports an observed-AKS claim, and each is cited from its own file
+(ADR-021).
+
+## Architecture as applied
 
 | Layer | Choice | Bound |
 | --- | --- | --- |
@@ -19,7 +29,10 @@ The compute-only maximum-pool estimate is derived from the dated rates in
 [`budget.yaml`](../../config/experiments/budget.yaml). Disks, load balancer/IP, traffic, and any
 enabled monitoring are excluded and must be added to the approved projection.
 
-## Free release-0.3 validation
+## Free pre-flight validation
+
+Every one of these is read-only and costs nothing. Run them before asking for a session; a failure
+here is a failure that would otherwise surface while the meter is running.
 
 ```bash
 make tf-validate
@@ -31,12 +44,15 @@ pytest -k deploy
 
 `aks-plan` initializes with `-backend=false`, disables refresh, and never applies. It resolves the
 signed-in account, Entra operator object id, public operator CIDR, and budget contact into
-`TF_VAR_*` without committing them. The committed root uses the isolated
-`aks-demo.terraform.tfstate` key when an approved apply later uses remote state.
+`TF_VAR_*` without committing them. An approved apply copies `backend.tf.template` into place and
+uses the isolated `aks-demo.terraform.tfstate` key in the existing state container — which is how
+the executed session ran, and why `aks-verify-clean` can assert after a destroy that the state holds
+no managed resources.
 
 ## Approved bounded lifecycle
 
-Only after a human approves the billable session:
+This is the sequence session `aks-demo-20260915-01` executed, and the sequence any repeat run
+follows. Each line is a separate approval; only after a human approves the billable session:
 
 ```bash
 make aks-plan
