@@ -18,6 +18,7 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from lib.k8s_demo.config import K8sDemoConfig
 from lib.k8s_demo.evidence import (
@@ -57,7 +58,9 @@ def _paid_session_evidence(
         raise ValueError(f"AKS evidence environment lacks {len(missing)} required value(s)")
     github_run_id = os.environ.get("GITHUB_RUN_ID", "")
     local_execution_id = os.environ.get("AKS_EXECUTION_ID", "")
-    execution_source = "github-actions" if github_run_id else "local"
+    execution_source: Literal["github-actions", "local"] = (
+        "github-actions" if github_run_id else "local"
+    )
     execution_id = github_run_id or local_execution_id
     if not execution_id:
         raise ValueError("AKS evidence environment lacks an execution identifier")
