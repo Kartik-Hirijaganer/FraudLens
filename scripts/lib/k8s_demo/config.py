@@ -71,6 +71,9 @@ class AksConfig(BaseModel):
     address_poll_seconds: float = Field(
         ..., ge=0.5, le=30, description="External-address observation interval."
     )
+    load_concurrency: int = Field(
+        ..., ge=1, le=256, description="Authenticated API workers used for the AKS HPA proof."
+    )
 
 
 class K8sDemoConfig(BaseModel):

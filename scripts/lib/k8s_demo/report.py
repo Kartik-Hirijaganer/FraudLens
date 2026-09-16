@@ -68,7 +68,8 @@ def render_markdown(report: HpaEvidenceReport) -> str:
         lines.extend(
             [
                 f"| Paid session run id | {report.run_id} |",
-                f"| GitHub Actions run id | {session.workflow_run_id} |",
+                f"| Execution source | {session.execution_source} |",
+                f"| Execution id | {session.execution_id} |",
                 f"| Rendered manifest SHA-256 | `{session.manifest_sha256}` |",
                 f"| Image digest | `{session.image_digest}` |",
                 f"| Cluster lifetime at capture | {session.elapsed_cluster_seconds} s |",

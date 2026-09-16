@@ -34,7 +34,6 @@ _IDENTITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _PLACEHOLDER_PATTERN = re.compile(r"replace-[A-Za-z0-9_-]+")
 _AKS_SUBSTITUTIONS = (
     "replace-infisical-identity-id",
-    "replace-azure-managed-identity-client-id",
     "replace-infisical-project-slug",
 )
 
@@ -128,15 +127,22 @@ def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command b
         runner=runner,
         kubectl_binary=kubectl.binary,
     )
-    values = (
+    required_values = (
         infisical_identity_id,
         azure_managed_identity_client_id,
         infisical_project_slug,
     )
-    if any(values):
+    if any(required_values):
         if platform != "aks":
             raise ValueError("AKS operator rendering requires the aks platform")
-        rendered = _substitute_aks_inputs(rendered, values)
+        if not all(required_values):
+            raise ValueError("AKS operator rendering requires every managed-identity and scope value")
+        if not all(_IDENTITY_PATTERN.fullmatch(value or "") for value in required_values):
+            raise ValueError("AKS operator input values contain unsupported characters")
+        rendered = _substitute_aks_inputs(
+            rendered,
+            (infisical_identity_id, infisical_project_slug),
+        )
     return RenderedManifest(platform=platform, image=selected_image, yaml_text=rendered)
 
 

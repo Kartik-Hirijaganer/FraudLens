@@ -42,12 +42,11 @@ __all__ = ["build_live_report"]
 def _paid_session_evidence(
     nodes: list[dict[str, object]], generated_at: datetime
 ) -> tuple[str, PaidSessionEvidence]:
-    """Build the AKS-only evidence boundary from masked workflow inputs and node labels."""
+    """Build AKS-only evidence from governed workflow or local-session inputs."""
     required = {
         name: os.environ.get(name, "")
         for name in (
             "AKS_RUN_ID",
-            "GITHUB_RUN_ID",
             "AKS_SESSION_STARTED_AT",
             "AKS_MANIFEST_SHA256",
             "AKS_IMAGE_DIGEST",
@@ -56,6 +55,12 @@ def _paid_session_evidence(
     }
     if missing := sorted(name for name, value in required.items() if not value):
         raise ValueError(f"AKS evidence environment lacks {len(missing)} required value(s)")
+    github_run_id = os.environ.get("GITHUB_RUN_ID", "")
+    local_execution_id = os.environ.get("AKS_EXECUTION_ID", "")
+    execution_source = "github-actions" if github_run_id else "local"
+    execution_id = github_run_id or local_execution_id
+    if not execution_id:
+        raise ValueError("AKS evidence environment lacks an execution identifier")
     started_at = datetime.fromisoformat(required["AKS_SESSION_STARTED_AT"].replace("Z", "+00:00"))
     pools: dict[tuple[str, str], int] = {}
     for node in nodes:
@@ -67,7 +72,8 @@ def _paid_session_evidence(
         vm_size = str(labels.get("node.kubernetes.io/instance-type", "unknown"))
         pools[(name, vm_size)] = pools.get((name, vm_size), 0) + 1
     return required["AKS_RUN_ID"], PaidSessionEvidence(
-        workflow_run_id=required["GITHUB_RUN_ID"],
+        execution_source=execution_source,
+        execution_id=execution_id,
         manifest_sha256=required["AKS_MANIFEST_SHA256"],
         image_digest=required["AKS_IMAGE_DIGEST"],
         node_pools=[
@@ -126,7 +132,8 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
         []
         if paid_session is None
         else [
-            f"Paid session {run_id} ran under GitHub Actions run {paid_session.workflow_run_id}.",
+            f"Paid session {run_id} ran through the governed "
+            f"{paid_session.execution_source} execution {paid_session.execution_id}.",
             "The user pool uses Standard_D2as_v4 instead of the ADR-021 "
             "Standard_D2as_v5 shape because the DASv5 family quota is zero.",
         ]

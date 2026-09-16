@@ -97,7 +97,8 @@ def _report(**updates: object) -> HpaEvidenceReport:
 
 def _paid_session() -> PaidSessionEvidence:
     return PaidSessionEvidence(
-        workflow_run_id="123456",
+        execution_source="github-actions",
+        execution_id="123456",
         manifest_sha256="c" * 64,
         image_digest=f"sha256:{'d' * 64}",
         node_pools=[NodePoolSnapshot(name="user", vm_size="Standard_D2as_v4", node_count=2)],
@@ -234,6 +235,7 @@ def test_secret_loading_requires_core_keys_and_redacts_repr(
     with pytest.raises(ValueError, match="required secret keys"):
         load_secret_sets()
     monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+    monkeypatch.setenv("FRAUDLENS_DEMO_AUTH_PASSWORD", "demo-password")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "role-secret")
     monkeypatch.setenv("OPENROUTER_API_KEY", "llm-secret")
     groups = load_secret_sets()
@@ -243,6 +245,7 @@ def test_secret_loading_requires_core_keys_and_redacts_repr(
 
 def test_secret_sync_applies_values_only_over_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+    monkeypatch.setenv("FRAUDLENS_DEMO_AUTH_PASSWORD", "demo-password")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "role-secret")
     monkeypatch.setenv("OPENROUTER_API_KEY", "llm-secret")
     applied: list[str] = []
@@ -261,4 +264,5 @@ def test_secret_sync_applies_values_only_over_stdin(monkeypatch: pytest.MonkeyPa
     assert names == ["fraudlens-backend-secrets", "fraudlens-llm-secrets"]
     documents = [yaml.safe_load(item) for item in applied]
     assert documents[0]["stringData"]["DATABASE_URL"] == "postgresql://secret"
+    assert documents[0]["stringData"]["FRAUDLENS_DEMO_AUTH_PASSWORD"] == "demo-password"
     assert documents[1]["stringData"] == {"OPENROUTER_API_KEY": "llm-secret"}

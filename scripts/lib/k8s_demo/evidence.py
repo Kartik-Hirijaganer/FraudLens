@@ -94,7 +94,14 @@ class PaidSessionEvidence(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workflow_run_id: str = Field(..., pattern=r"^\d+$", description="GitHub Actions run id.")
+    execution_source: Literal["github-actions", "local"] = Field(
+        ..., description="Governed execution surface used for the paid session."
+    )
+    execution_id: str = Field(
+        ...,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        description="Non-sensitive workflow or local execution identifier.",
+    )
     manifest_sha256: str = Field(
         ..., pattern=r"^[0-9a-f]{64}$", description="Hash of the rendered AKS manifest."
     )

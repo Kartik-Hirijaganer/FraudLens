@@ -94,7 +94,8 @@ def test_aks_render_injects_every_operator_value_or_refuses() -> None:
         infisical_project_slug="fraudlens",
     ).yaml_text
     assert rendered.count("identityId: identity-123") == 2
-    assert rendered.count("azureManagedIdentityClientId: client-456") == 2
+    assert "azureManagedIdentityClientId" not in rendered
+    assert rendered.count("resyncInterval: 60") == 2
     assert rendered.count("projectSlug: fraudlens") == 2
     assert "replace-" not in rendered
     with pytest.raises(ValueError, match="requires every"):

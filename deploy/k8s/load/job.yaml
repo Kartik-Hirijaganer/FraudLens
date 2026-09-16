@@ -14,6 +14,16 @@ spec:
       restartPolicy: Never
       serviceAccountName: fraudlens-runtime
       automountServiceAccountToken: false
+      nodeSelector:
+        fraudlens.io/workload: application
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: fraudlens
+                  app.kubernetes.io/component: api
+              topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

@@ -868,7 +868,8 @@ aks-secrets-operator: ## Verify the approved Infisical operator and its CRD are 
 	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
 	test "$$context" = "$$expected" || { echo "Unexpected kubectl context: $$context"; exit 2; }; \
 	kubectl wait --for=condition=Established crd/infisicalsecrets.secrets.infisical.com --timeout=120s; \
-	kubectl rollout status deployment/infisical-operator-controller-manager \
+	kubectl rollout status deployment \
+		-l app.kubernetes.io/instance=infisical-operator \
 		-n infisical-operator-system --timeout=300s
 
 aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approved AKS only.

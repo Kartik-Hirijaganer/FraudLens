@@ -29,6 +29,7 @@ aks:
   external_port: 8000
   address_timeout_seconds: 300
   address_poll_seconds: 5
+  load_concurrency: 256
 load:
   target_url: http://fraudlens-api:8000/healthz
   mode: healthz

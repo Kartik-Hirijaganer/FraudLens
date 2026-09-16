@@ -21,14 +21,16 @@ resource "azurerm_resource_group" "this" {
 }
 
 module "networking" {
-  source               = "../../modules/networking"
-  name_prefix          = var.name_prefix
-  location             = var.location
-  resource_group_name  = azurerm_resource_group.this.name
-  vnet_address_space   = var.vnet_address_space
-  apps_subnet_prefixes = []
-  aks_subnet_prefixes  = var.aks_subnet_prefixes
-  tags                 = local.tags
+  source                     = "../../modules/networking"
+  name_prefix                = var.name_prefix
+  location                   = var.location
+  resource_group_name        = azurerm_resource_group.this.name
+  vnet_address_space         = var.vnet_address_space
+  apps_subnet_prefixes       = []
+  aks_subnet_prefixes        = var.aks_subnet_prefixes
+  aks_public_api_port        = 8000
+  aks_health_probe_node_port = 30081
+  tags                       = local.tags
 }
 
 module "observability" {

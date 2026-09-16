@@ -136,7 +136,8 @@ def _run_scaling(
         update=(
             {
                 "mode": "authenticated",
-                "target_url": f"http://{config.service}:8000/api/v1/me",
+                "target_url": f"http://{config.service}:8000/api/v1/dashboard/metrics",
+                "concurrency": config.aks.load_concurrency,
                 "auth_required": True,
             }
             if platform == "aks"
