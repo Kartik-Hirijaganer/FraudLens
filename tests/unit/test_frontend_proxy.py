@@ -136,10 +136,15 @@ def test_the_deploy_asserts_the_permanent_domain_now_serves_this_build() -> None
 def test_the_proxy_itself_is_exercised_by_the_authenticated_smoke() -> None:
     # Running the same selection against the gateway proves the API; running it through Vercel
     # is the only thing that proves the /api rewrite forwards auth headers and an SSE stream.
+    steps = _deploy_steps()
+    mint = _deploy_step("Mint short-lived persona tokens")
     step = _deploy_step("survive the proxy")
+    assert steps.index(mint) < steps.index(step)
+    assert "scripts/smoke_auth_token.py" in str(mint["run"])
+    assert "test_production_auth_smoke.py" not in str(mint["run"])
     assert step["env"]["SMOKE_BASE_URL"] == "${{ vars.FRONTEND_URL }}"
     script = str(step["run"])
-    assert "scripts/smoke_auth_token.py" in script
+    assert "scripts/smoke_auth_token.py" not in script
     # Selected by FILE, not by marker: the ops-probe smoke hits unprefixed paths that the SPA
     # fallback would answer with index.html, which would pass while proving nothing.
     assert "pytest tests/smoke/test_production_auth_smoke.py -m smoke" in script

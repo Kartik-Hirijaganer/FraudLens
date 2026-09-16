@@ -159,6 +159,15 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /
+      # `$GITHUB_ENV` is loaded only by later steps. Keep minting separate from pytest so the
+      # short-lived values exist for the proxy smoke without ever becoming step outputs.
+      - name: Mint short-lived persona tokens (masked)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/smoke_auth_token.py \
+            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
       - name: Prove authenticated APIs and SSE survive the proxy
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         env:
@@ -166,7 +175,4 @@ jobs:
           PORTFOLIO_DEMO_SMOKE_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
         run: |
           set -euo pipefail
-          uv sync --all-packages
-          uv run python scripts/smoke_auth_token.py \
-            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
           uv run pytest tests/smoke/test_production_auth_smoke.py -m smoke --no-cov

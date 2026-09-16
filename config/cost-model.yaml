@@ -62,9 +62,9 @@ cold_start:
     `curl -o /dev/null -s -w '%{time_total}' https://<app_fqdn>/healthz` — the first cold,
     the second immediately after it.
   keep_warm_threshold_seconds: "5"
-  measured_at: null
-  cold_seconds: null
-  warm_seconds: null
+  measured_at: "2026-09-16"
+  cold_seconds: "111.798648"
+  warm_seconds: "0.058612"
 
 # Meters resolved against the retail API. `list_price_usd` is present only where the API returns
 # no meter for the resource: the value is then the published list rate and the generated document

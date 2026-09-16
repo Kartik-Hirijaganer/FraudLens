@@ -5,7 +5,7 @@
 > live from the public Azure Retail Prices API. Editing this file by hand detaches the
 > numbers from the configuration they describe.
 
-- **Generated on:** 2026-09-15
+- **Generated on:** 2026-09-16
 - **Currency:** USD
 - **Recurring monthly total:** **$2.72**
 - **Per ephemeral AKS session:** **$0.79** ($1.03 with the ADR-028 0.3 margin)
@@ -68,10 +68,13 @@ and the workspace stops ingesting at its daily quota rather than billing on.
 cost is the first request after an idle period. The keep-warm cron hides that request
 and is worth its own line above only while a cold start exceeds **5 s**.
 
-**Not yet measured.** No figure is printed here, because the only honest
-alternative — deriving one from `cold_start_budget_seconds` — would be a
-configured allowance presented as evidence. Take the measurement against the
-deployed app and record it in `config/cost-model.yaml`:
+| Measurement | Seconds |
+| --- | --- |
+| First request after idle (cold) | 111.798648 |
+| Request immediately after (warm) | 0.058612 |
+| Measured on | 2026-09-16 |
+
+Verdict at the 5 s threshold: **keep-warm earns its cost**.
 
 > Force scale-to-zero by idling past the cooldown, then time two sequential requests: `curl -o /dev/null -s -w '%{time_total}' https://<app_fqdn>/healthz` — the first cold, the second immediately after it.
 
