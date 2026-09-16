@@ -394,7 +394,7 @@ portfolio-demo-reset: ## Delete the demo tenant's operational rows, then rebuild
 # Coverage stays enforced by `make coverage`, which runs the real suite in-process.
 portfolio-demo-smoke: ## Run the smoke suite against a RUNNING demo (SMOKE_BASE_URL=<url> required).
 	@test -n "$(SMOKE_BASE_URL)" || { echo "SMOKE_BASE_URL=<url> is required: this target boots nothing itself"; exit 1; }
-	SMOKE_BASE_URL=$(SMOKE_BASE_URL) PORTFOLIO_DEMO_SMOKE_ENABLED=true $(UV) run pytest -m smoke --no-cov
+	SMOKE_BASE_URL=$(SMOKE_BASE_URL) PORTFOLIO_DEMO_SMOKE_ENABLED=true $(UV) run pytest tests/smoke -m smoke --no-cov
 
 db-migrate: ## Apply database migrations.
 	$(UV) run alembic upgrade head

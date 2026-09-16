@@ -336,7 +336,29 @@ def test_the_smoke_signs_in_as_a_permitted_and_a_refused_persona() -> None:
 def test_the_smoke_targets_the_staged_revision_not_the_promoted_one() -> None:
     step = _step("smoke", "Smoke the staged")
     assert step["env"]["SMOKE_BASE_URL"] == "${{ needs.stage.outputs.revision_fqdn }}"
-    assert "pytest -m smoke" in step["run"]
+    assert "pytest tests/smoke -m smoke" in step["run"]
+
+
+def test_the_smoke_collects_only_the_directory_its_selection_lives_in() -> None:
+    """`-m smoke` deselects, it does not stop pytest IMPORTING what it collects.
+
+    Collecting the whole tree pulls in modules that need the optional `fulldata` group, which the
+    deploy does not install, and collection aborts on ModuleNotFoundError before one smoke test
+    runs. Scoping to the directory is safe precisely because every smoke-marked test lives there.
+    """
+    smoke_dir = REPO_ROOT / "tests" / "smoke"
+    # Matched on real marker syntax, not the bare substring: this module discusses the marker in
+    # prose and would otherwise detect itself.
+    markers = ("pytestmark = pytest.mark.smoke", "@pytest.mark.smoke")
+    this_module = Path(__file__).name
+    marked = {
+        path.name
+        for path in (REPO_ROOT / "tests").rglob("test_*.py")
+        if path.name != this_module
+        and any(marker in path.read_text(encoding="utf-8") for marker in markers)
+    }
+    assert marked, "no smoke-marked module found at all"
+    assert marked == {path.name for path in smoke_dir.glob("test_*.py")}
 
 
 def test_the_smoke_refuses_secret_jwt_phi_or_stack_trace_leakage_in_the_logs() -> None:

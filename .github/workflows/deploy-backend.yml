@@ -453,7 +453,11 @@ jobs:
           curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/healthz"
           curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/readyz"
           uv sync --all-packages
-          uv run pytest -m smoke --no-cov
+          # Scoped to tests/smoke: `-m smoke` deselects the rest but pytest still IMPORTS every
+          # module it collects, including ones that need the optional `fulldata` group this sync
+          # does not install. Collection then aborts on ModuleNotFoundError before a single smoke
+          # test runs. Every smoke-marked test lives here, so the selection is unchanged.
+          uv run pytest tests/smoke -m smoke --no-cov
       # The redaction pipeline is defence in depth that nothing else proves ran in production.
       # Values are read from the environment by NAME, and a finding reports the category or the
       # variable name only — printing the match would turn this gate into the leak it looks for.
