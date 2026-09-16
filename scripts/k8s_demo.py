@@ -138,6 +138,7 @@ def _run_scaling(
                 "mode": "authenticated",
                 "target_url": f"http://{config.service}:8000/api/v1/dashboard/metrics",
                 "concurrency": config.aks.load_concurrency,
+                "duration_seconds": config.aks.load_duration_seconds,
                 "auth_required": True,
             }
             if platform == "aks"
@@ -161,7 +162,12 @@ def _run_scaling(
             load_finished_at = time.monotonic()
         if reached_max and load_finished_at is not None and samples[-1].replicas <= minimum:
             break
-        if not reached_max and time.monotonic() - started > config.scale_up_timeout_seconds:
+        scale_up_timeout = (
+            config.aks.scale_up_timeout_seconds
+            if platform == "aks"
+            else config.scale_up_timeout_seconds
+        )
+        if not reached_max and time.monotonic() - started > scale_up_timeout:
             raise CommandError("HPA did not reach maximum replicas before the scale-up timeout")
         if (
             load_finished_at

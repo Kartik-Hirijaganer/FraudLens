@@ -74,6 +74,18 @@ class AksConfig(BaseModel):
     load_concurrency: int = Field(
         ..., ge=1, le=256, description="Authenticated API workers used for the AKS HPA proof."
     )
+    load_duration_seconds: int = Field(
+        ...,
+        ge=300,
+        le=900,
+        description="AKS load window including the controller CPU-initialization period.",
+    )
+    scale_up_timeout_seconds: int = Field(
+        ...,
+        ge=300,
+        le=1200,
+        description="Maximum AKS scale-up wait including metrics initialization.",
+    )
 
 
 class K8sDemoConfig(BaseModel):

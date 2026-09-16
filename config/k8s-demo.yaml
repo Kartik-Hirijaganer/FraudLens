@@ -30,6 +30,8 @@ aks:
   address_timeout_seconds: 300
   address_poll_seconds: 5
   load_concurrency: 256
+  load_duration_seconds: 420
+  scale_up_timeout_seconds: 480
 load:
   target_url: http://fraudlens-api:8000/healthz
   mode: healthz
