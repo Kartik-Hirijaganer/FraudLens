@@ -126,7 +126,10 @@ def test_the_deploy_asserts_the_permanent_domain_now_serves_this_build() -> None
     step = _deploy_step("aliased to FRONTEND_URL")
     assert step["env"]["FRONTEND_URL"] == "${{ vars.FRONTEND_URL }}"
     assert step["env"]["DEPLOYMENT_URL"] == "${{ steps.deploy.outputs.deployment_url }}"
-    assert "vercel inspect" in str(step["run"])
+    # Asked of the API: `vercel inspect`'s human-readable report does not render the alias in a
+    # form a grep can rely on, and reported a false failure against a correctly aliased deploy.
+    assert "api.vercel.com/v13/deployments" in str(step["run"])
+    assert "vercel inspect" not in str(step["run"])
     assert "exit 1" in str(step["run"])
 
 

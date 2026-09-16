@@ -116,18 +116,27 @@ jobs:
       # A production deploy is aliased to the permanent domain; the URL `vercel deploy` prints is
       # the immutable per-deployment one. Asserting the alias landed is what proves this build is
       # what FRONTEND_URL now serves — the recruiter-facing link, not an orphaned deployment.
+      #
+      # Asked of the API rather than scraped from `vercel inspect`, whose human-readable report
+      # does not render the alias in any form a grep can rely on — it reported a false failure
+      # against a deployment that HAD been aliased correctly.
       - name: Assert the deployment is aliased to FRONTEND_URL
         env:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_ORG_ID }}
         run: |
           set -euo pipefail
           host="${FRONTEND_URL#https://}"; host="${host%/}"
-          # `vercel inspect` renders its report on stderr.
-          if ! vercel inspect "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" 2>&1 | grep -qF "$host"; then
-            echo "::error::${DEPLOYMENT_URL} is not aliased to ${host}; FRONTEND_URL still serves the previous build"
-            exit 1
-          fi
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          aliases=$(curl -fsS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${deployment_host}?teamId=${VERCEL_TEAM_ID}" \
+            | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin).get("alias") or []))')
+          echo "deployment aliases: ${aliases}"
+          case " ${aliases} " in
+            *" ${host} "*) ;;
+            *) echo "::error::${DEPLOYMENT_URL} is not aliased to ${host}; FRONTEND_URL still serves the previous build"; exit 1 ;;
+          esac
       - name: Smoke-test the deployed site
         run: curl -fsS --retry 5 --retry-delay 10 "${{ vars.FRONTEND_URL }}" > /dev/null
       # The only place the PROXY itself is exercised. `deploy-backend.yml` runs this same
