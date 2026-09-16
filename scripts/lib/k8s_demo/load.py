@@ -31,6 +31,7 @@ SUBMITTED_PREFIX = "K8S_DEMO_SUBMITTED="
 _TERMINAL_STATUSES = frozenset({"completed", "failed"})
 _HTTP_OK = 200
 _HTTP_ACCEPTED = 202
+_HTTP_TIMEOUT_SECONDS = 60
 
 
 def _authorization_headers(config: LoadConfig) -> dict[str, str]:
@@ -75,7 +76,7 @@ def _connection(parts: Any) -> http.client.HTTPConnection:
     connection_type = (
         http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
     )
-    return connection_type(parts.hostname, port, timeout=10)
+    return connection_type(parts.hostname, port, timeout=_HTTP_TIMEOUT_SECONDS)
 
 
 def _health_worker(config: LoadConfig, deadline: float) -> tuple[int, int, list[float]]:

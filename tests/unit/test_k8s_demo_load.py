@@ -6,6 +6,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
 import pytest
 from pydantic import HttpUrl, SecretStr
@@ -39,6 +40,21 @@ def _config(*, mode: str = "healthz") -> LoadConfig:
         reconnect_every=5,
         cases=2,
     )
+
+
+def test_connection_allows_for_cloud_database_latency(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeConnection:
+        def __init__(self, host: str, port: int, *, timeout: int) -> None:
+            observed.update(host=host, port=port, timeout=timeout)
+
+    monkeypatch.setattr(load_module.http.client, "HTTPConnection", FakeConnection)
+
+    connection = load_module._connection(urlsplit("http://fraudlens-api:8000"))
+
+    assert isinstance(connection, FakeConnection)
+    assert observed == {"host": "fraudlens-api", "port": 8000, "timeout": 60}
 
 
 def test_health_load_hits_local_server_without_failures() -> None:
