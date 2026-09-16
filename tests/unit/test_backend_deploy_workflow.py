@@ -367,6 +367,10 @@ def test_the_smoke_holds_every_secret_value_the_leak_scan_searches_for() -> None
         if "Infisical" in str(step.get("uses", ""))
     }
     assert "/backend" not in declared
+    # Same absence across every workflow: `/backend` is not a path this project has.
+    workflows = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+    for path in workflows:
+        assert "secret-path: /backend" not in path.read_text(encoding="utf-8"), path.name
     assert set(INJECTED_SECRETS.values()) >= SCANNED_SECRETS
 
 

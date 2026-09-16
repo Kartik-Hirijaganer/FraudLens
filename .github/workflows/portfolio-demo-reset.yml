@@ -49,7 +49,7 @@ jobs:
           domain: https://app.infisical.com
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
-          secret-path: /backend
+          secret-path: /
       # --reset rebuilds through the same ensure path the bootstrap uses and verifies the result,
       # so a rebuild that no longer matches the configured story exits non-zero and fails the run.
       - name: Reset and rebuild the pinned story
