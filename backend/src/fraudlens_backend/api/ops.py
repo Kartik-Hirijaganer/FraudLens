@@ -210,7 +210,10 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             return DependencyCheck(
                 name="infisical", status="down", detail=f"{missing} injected secret(s) missing"
             )
-        return DependencyCheck(name="infisical", status="ok", detail="externally injected")
+        injected = len(settings.infisical_required_env_keys)
+        return DependencyCheck(
+            name="infisical", status="ok", detail=f"{injected} injected secret(s) present"
+        )
 
     infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
     cache = _remote_probe_cache(request)
