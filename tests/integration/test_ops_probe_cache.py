@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from fraudlens_backend.api import ops
@@ -158,6 +159,25 @@ def test_each_app_keeps_its_own_probe_cache(
     _jwks_client(client_factory, tmp_path).get("/readyz")
 
     assert len(calls) == 2
+
+
+def test_the_cache_is_created_on_first_use_when_the_app_never_seeded_one() -> None:
+    """`_remote_probe_cache` must not assume `create_app` ran.
+
+    `main.create_app` seeds `app.state.readiness_probe_cache`, so the lazy branch is unreachable
+    through the factory — but the router is importable on its own, and a probe that raised
+    AttributeError instead of caching would take readiness down rather than degrade it.
+    """
+    app = FastAPI()
+    request = Request({"type": "http", "app": app, "headers": []})
+    assert not hasattr(app.state, "readiness_probe_cache")
+
+    created = ops._remote_probe_cache(request)
+
+    assert created == {}
+    assert app.state.readiness_probe_cache is created
+    # Second call reuses the same object; a fresh dict each time would cache nothing.
+    assert ops._remote_probe_cache(request) is created
 
 
 def _named(response: object, name: str) -> dict[str, str]:
