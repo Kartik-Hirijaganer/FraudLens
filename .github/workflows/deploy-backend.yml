@@ -93,9 +93,9 @@ jobs:
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
           echo "base_image=ghcr.io/${owner}/fraudlens-base:latest" >> "$GITHUB_OUTPUT"
           echo "image=${image_name}:${DEPLOY_SHA}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -103,7 +103,7 @@ jobs:
       # Thin build FROM the prebuilt base, with registry + GHA layer caches so only changed layers
       # rebuild/push. Native linux/amd64 (no emulation). Pushed once, promoted many.
       - name: Build & push (cached, build-once)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: backend/Dockerfile
@@ -146,7 +146,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -155,7 +155,7 @@ jobs:
       # the binary to capture step outputs and does not preserve `-detailed-exitcode`, so
       # terraform's "2 = changes pending" arrives as 0 and the apply below is skipped on a plan
       # that had 14 resources to add -- silently, with the job reporting success.
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
       - name: Terraform plan; apply only if the plan is non-empty
@@ -214,24 +214,16 @@ jobs:
       revision_fqdn: ${{ steps.stage.outputs.revision_fqdn }}
     steps:
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      # Three explicit non-recursive paths, not a recursive root fetch: the job should hold only
-      # the secrets this deployment injects, and the path list is the documented inventory
-      # (docs/runbooks/infisical-secrets.md). Every fetched value is registered as a log mask.
-      - name: Fetch backend runtime secrets from Infisical (OIDC)
-        uses: Infisical/secrets-action@v1.0.16
-        with:
-          method: oidc
-          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
-          oidc-audience: https://github.com/Kartik-Hirijaganer
-          domain: https://app.infisical.com
-          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
-          env-slug: prod
-          secret-path: /backend
+      # Two explicit non-recursive paths, not a recursive fetch: the job should hold only the
+      # secrets this deployment injects. The project keeps its shared service secrets at the ROOT
+      # (DATABASE_URL, SUPABASE_*, FRAUDLENS_DEMO_AUTH_PASSWORD) and only the provider key under
+      # /llm -- there is no /backend folder, whatever the runbook used to claim. Every fetched
+      # value is registered as a log mask.
       - name: Fetch the LLM provider key from Infisical (OIDC)
         uses: Infisical/secrets-action@v1.0.16
         with:
@@ -314,19 +306,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - name: Fetch DATABASE_URL from Infisical (OIDC)
-        uses: Infisical/secrets-action@v1.0.16
-        with:
-          method: oidc
-          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
-          oidc-audience: https://github.com/Kartik-Hirijaganer
-          domain: https://app.infisical.com
-          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
-          env-slug: prod
-          secret-path: /backend
-      # SUPABASE_URL and the public synthetic demo password live at the project root; the demo
-      # persona provisioning below needs both, and the smoke job mints its tokens from the same
-      # pair. Fetched here rather than recursively so the job holds only what it uses.
+      # DATABASE_URL, SUPABASE_URL and the public synthetic demo password all live at the project
+      # ROOT: the migration needs the first, and the demo persona provisioning below needs the
+      # rest. Fetched non-recursively so the job holds only what it uses.
       - name: Fetch the project URL and synthetic demo credential from Infisical (OIDC)
         uses: Infisical/secrets-action@v1.0.16
         with:
@@ -347,8 +329,8 @@ jobs:
       # AZURE_DEPLOY_ENABLED, and this step additionally requires PORTFOLIO_DEMO_BOOTSTRAP_ENABLED
       # — the same shape deploy-frontend.yml uses. Gated on repo `vars`, never `secrets`:
       # enablement is a deployment decision, not a credential. It lives here because this is the
-      # only job already holding the deployed-SHA checkout, uv, and DATABASE_URL from Infisical
-      # /backend, and it runs PRE-PROMOTE, so a story that does not match its configuration fails
+      # only job already holding the deployed-SHA checkout, uv, and DATABASE_URL from the
+      # Infisical root, and it runs PRE-PROMOTE, so a story that does not match its config fails
       # the job, blocks promotion, and lets the existing `abort` job deactivate the revision.
       #
       # The bootstrap is idempotent (it resumes rather than duplicates) and refuses rather than
@@ -395,27 +377,17 @@ jobs:
         with:
           enable-cache: true
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      # The same three Infisical paths the injection reads, fetched for two reasons. Two personas
+      # The same Infisical paths the injection reads, fetched for two reasons. Two personas
       # are signed in with the public synthetic password — an analyst (the permitted path) and an
       # auditor (the refused path) — so the smoke exercises real role separation rather than the
       # unauthenticated subset. And the leakage scan below searches the revision's log for these
       # VALUES: scanning for a name with nothing behind it would report a clean log no matter
       # what leaked, which is why `check_log_leakage.py` refuses an uninjected name.
-      - name: Fetch backend runtime secrets from Infisical (OIDC)
-        uses: Infisical/secrets-action@v1.0.16
-        with:
-          method: oidc
-          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
-          oidc-audience: https://github.com/Kartik-Hirijaganer
-          domain: https://app.infisical.com
-          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
-          env-slug: prod
-          secret-path: /backend
       - name: Fetch the LLM provider key from Infisical (OIDC)
         uses: Infisical/secrets-action@v1.0.16
         with:
@@ -487,7 +459,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -519,7 +491,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}

@@ -32,7 +32,9 @@ INJECTED_SECRETS = {
 }
 # Derived at injection time from SUPABASE_URL rather than stored a second time.
 DERIVED_ENV = ("FRAUDLENS_AUTH_JWKS_URL", "FRAUDLENS_AUTH_JWT_ISSUER")
-INFISICAL_PATHS = ("/backend", "/llm", "/")
+# The project keeps its shared service secrets at the ROOT and only the provider key under
+# /llm. There is no /backend folder: fetching one fails the deploy at its first step.
+INFISICAL_PATHS = ("/llm", "/")
 # The subset whose VALUES the post-deploy log scan searches for. The synthetic demo password
 # is deliberately excluded: it is public by design, so a hit would be noise, not a leak.
 SCANNED_SECRETS = frozenset({"DATABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENROUTER_API_KEY"})
@@ -145,8 +147,9 @@ def test_a_failed_pullability_check_is_not_routed_around_by_a_private_registry()
 # --- secret injection: what reaches the app, from where, and when ----------------------------
 
 
-def test_every_injected_secret_comes_from_infisical_over_oidc() -> None:
-    fetches = [step for step in _steps("stage") if "Infisical" in str(step.get("uses", ""))]
+@pytest.mark.parametrize("job", ["stage", "smoke"])
+def test_every_injected_secret_comes_from_infisical_over_oidc(job: str) -> None:
+    fetches = [step for step in _steps(job) if "Infisical" in str(step.get("uses", ""))]
     assert [step["with"]["secret-path"] for step in fetches] == list(INFISICAL_PATHS)
     for step in fetches:
         assert step["with"]["method"] == "oidc"
@@ -314,6 +317,16 @@ def test_the_smoke_holds_every_secret_value_the_leak_scan_searches_for() -> None
         if "Infisical" in str(step.get("uses", ""))
     }
     assert fetched == set(INFISICAL_PATHS)
+    # A path the project does not have fails the whole deploy at its first fetch. Asserted on the
+    # fetch declarations, not the file text: the comments deliberately name /backend to record
+    # why it is absent.
+    declared = {
+        str(step["with"]["secret-path"])
+        for job in ("stage", "migrate", "smoke")
+        for step in _steps(job)
+        if "Infisical" in str(step.get("uses", ""))
+    }
+    assert "/backend" not in declared
     assert set(INJECTED_SECRETS.values()) >= SCANNED_SECRETS
 
 

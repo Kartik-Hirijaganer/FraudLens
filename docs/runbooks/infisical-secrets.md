@@ -134,7 +134,23 @@ Configure it with OIDC Auth:
 | Issuer | `https://token.actions.githubusercontent.com` |
 | Subject | `repo:Kartik-Hirijaganer/FraudLens:environment:production` |
 | Audience | `https://github.com/Kartik-Hirijaganer` |
-| Project access | read-only, `prod`, path `/ci/vercel` |
+| Project access | read-only, `prod`, paths `/`, `/backend`, `/llm`, `/ci/vercel` |
+
+The backend deploy needs more than the frontend's token. `deploy-backend.yml` injects the four
+allowlisted runtime secrets into Container Apps and mints the smoke's persona tokens, which draws
+on three paths beyond `/ci/vercel`:
+
+| Path | Read by | For |
+| --- | --- | --- |
+| `/backend` | `stage`, `migrate`, `smoke` | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| `/llm` | `stage`, `smoke` | `OPENROUTER_API_KEY` |
+| `/` | `stage`, `migrate`, `smoke` | `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `FRAUDLENS_DEMO_AUTH_PASSWORD` |
+| `/ci/vercel` | `deploy-frontend` | `VERCEL_TOKEN` |
+
+An identity scoped to `/ci/vercel` alone fails the backend deploy at its first fetch with
+`You are not allowed to describeSecret on secrets` / `PermissionDenied` (HTTP 403) — which is
+exactly how the first live apply ended. Grant read-only on the paths above; the identity never
+needs write.
 
 Copy the identity ID and set these GitHub repository variables:
 
