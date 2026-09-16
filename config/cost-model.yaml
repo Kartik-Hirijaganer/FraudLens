@@ -1,0 +1,180 @@
+# FraudLens Azure cost-model policy (non-secret). `make azure-cost-plan` reads this file for
+# the USAGE assumptions and the ceilings it enforces; it reads every SHAPE (replicas, vCPU/memory,
+# node SKUs and counts, log cap) from the committed Terraform sources, and every RATE live from the
+# Azure Retail Prices API. Nothing here is a price — a price copied into config would go stale
+# silently, which is the defect this generator exists to remove.
+#
+# Validated by scripts/lib/azure_cost/config.py (frozen, extra="forbid"), so an unknown or missing
+# key fails the generator rather than being silently ignored.
+
+retail_prices:
+  endpoint: https://prices.azure.com/api/retail/prices
+  api_version: "2023-01-01-preview"
+  currency: USD
+  timeout_seconds: 30
+
+# Where the generator reads each committed shape from. Paths are repository-relative.
+shapes:
+  aca_tfvars: infra/terraform/environments/prod/prod.tfvars
+  gateway_module: infra/terraform/modules/gateway_app/main.tf
+  observability_module: infra/terraform/modules/observability/main.tf
+  aks_tfvars: infra/terraform/environments/aks-demo/aks-demo.tfvars
+
+# The two assertions that make this a gate rather than a report.
+ceilings:
+  aks_session_usd: "5.00"
+  aca_max_replicas: 1
+
+# Container Apps Consumption free monthly grant. Sourced from the same Azure pricing page as the
+# meters; it is an allowance, not a rate, so the retail API does not carry it.
+aca_free_grant:
+  vcpu_seconds: 180000
+  gib_seconds: 360000
+  requests: 2000000
+  source_url: https://azure.microsoft.com/en-us/pricing/details/container-apps/
+
+# The warm window the keep-warm cron holds open, and the demand the model prices.
+aca_usage:
+  warm_hours_per_weekday: "8"
+  weekdays_per_month: 22
+  monthly_requests: 20000
+  log_expected_gb_per_month: "0.5"
+  blob_stored_gb: 5
+  tfstate_stored_gb: 1
+  days_per_month: 30
+
+# One governed ephemeral AKS session (ADR-021/ADR-028). Node SKUs and counts come from the
+# committed aks-demo tfvars; only the durations and the support resources are policy.
+aks_session:
+  hours: "4"
+  scale_out_hours: "1"
+  load_balancers: 1
+  public_ips: 2
+
+# The scale-to-zero cold start. `min_replicas = 0` is what makes the permanent URL ~$1.23/month of
+# compute instead of ~$10.20, and the keep-warm cron is what hides the cold start that buys. Whether
+# that cron earns its own share of the bill is a MEASUREMENT against the deployed app, so the three
+# measured fields stay null — and the generated document prints the commands instead of a figure —
+# until someone takes them. A derived estimate must never be able to masquerade as evidence here.
+cold_start:
+  method: >-
+    Force scale-to-zero by idling past the cooldown, then time two sequential requests:
+    `curl -o /dev/null -s -w '%{time_total}' https://<app_fqdn>/healthz` — the first cold,
+    the second immediately after it.
+  keep_warm_threshold_seconds: "5"
+  measured_at: null
+  cold_seconds: null
+  warm_seconds: null
+
+# Meters resolved against the retail API. `list_price_usd` is present only where the API returns
+# no meter for the resource: the value is then the published list rate and the generated document
+# marks the line `(list)` so the gap is visible rather than implied.
+meters:
+  aca_vcpu_idle:
+    label: Container Apps Standard vCPU Idle
+    service_name: Azure Container Apps
+    meter_name: Standard vCPU Idle Usage
+    unit_of_measure: 1 Second
+    region_source: aca
+  aca_vcpu_active:
+    label: Container Apps Standard vCPU Active
+    service_name: Azure Container Apps
+    meter_name: Standard vCPU Active Usage
+    unit_of_measure: 1 Second
+    region_source: aca
+  aca_memory_idle:
+    label: Container Apps Standard Memory Idle
+    service_name: Azure Container Apps
+    meter_name: Standard Memory Idle Usage
+    unit_of_measure: 1 GiB Second
+    region_source: aca
+  aca_memory_active:
+    label: Container Apps Standard Memory Active
+    service_name: Azure Container Apps
+    meter_name: Standard Memory Active Usage
+    unit_of_measure: 1 GiB Second
+    region_source: aca
+  aca_requests:
+    label: Container Apps Standard Requests
+    service_name: Azure Container Apps
+    meter_name: Standard Requests
+    unit_of_measure: 1M
+    region_source: aca
+  log_ingestion:
+    label: Log Analytics Analytics Logs Data Ingestion
+    service_name: Log Analytics
+    meter_name: Analytics Logs Data Ingestion
+    product_name: Log Analytics
+    unit_of_measure: 1 GB
+    region_source: aca
+    min_retail_price: "0.000001"
+  blob_hot_lrs:
+    label: Blob Storage Hot LRS Data Stored
+    service_name: Storage
+    meter_name: Hot LRS Data Stored
+    product_name: General Block Blob v2
+    unit_of_measure: 1 GB/Month
+    region_source: aca
+    tier_minimum_units: "0"
+  aks_system_node:
+    label: AKS system node pool VM
+    service_name: Virtual Machines
+    arm_sku_name_source: aks_system_vm_size
+    unit_of_measure: 1 Hour
+    region_source: aks
+    exclude_product_substrings: ["Windows"]
+    exclude_meter_substrings: ["Spot", "Low Priority"]
+  aks_user_node:
+    label: AKS user node pool VM
+    service_name: Virtual Machines
+    arm_sku_name_source: aks_user_vm_size
+    unit_of_measure: 1 Hour
+    region_source: aks
+    exclude_product_substrings: ["Windows"]
+    exclude_meter_substrings: ["Spot", "Low Priority"]
+  standard_load_balancer:
+    label: Standard Load Balancer, first 5 rules
+    service_name: Load Balancer
+    meter_name: Standard Included LB Rules and Outbound Rules
+    unit_of_measure: 1 Hour
+    region_source: aks
+    list_price_usd: "0.025000"
+    list_price_source_url: https://azure.microsoft.com/en-us/pricing/details/load-balancer/
+  standard_public_ip:
+    label: Standard IPv4 Static Public IP
+    service_name: Virtual Network
+    meter_name: Standard IPv4 Static Public IP
+    product_name: IP Addresses
+    unit_of_measure: 1 Hour
+    region_source: aks
+
+# Services this model deliberately does NOT price, each with the reason the gap is acceptable.
+# Rendered as its own table so a reader sees what is missing instead of assuming full coverage.
+excluded:
+  - service: Azure Container Registry
+    reason: acr_enabled = false; backend images are pulled from public GHCR at no cost.
+  - service: Container Apps custom-network Load Balancer and public IP
+    reason: Removed by D1; a platform-managed environment provisions neither.
+  - service: Azure bandwidth and egress
+    reason: Synthetic-data traffic is far below the 100 GB/month free allowance.
+  - service: AKS Log Analytics
+    reason: monitoring_enabled = false on the ephemeral demonstration cluster.
+  - service: AKS node OS disks
+    reason: >-
+      Both pools commit os_disk_type = "Managed" at 64 GB, not the ephemeral disk both SKUs
+      support, so each node bills a P6 Premium SSD instead of nothing. Left unpriced rather
+      than assumed to be zero: it cannot move the session past its ceiling. Going ephemeral
+      needs os_disk_size_gb inside each SKU's cache - Standard_B2s 30 GiB, Standard_D2as_v4
+      50 GiB - which Terraform cannot validate before apply.
+  - service: Supabase Postgres
+    reason: Not an Azure meter; the project runs on the free tier (ADR-011).
+  - service: Vercel frontend hosting
+    reason: Not an Azure meter; the SPA is served from the free Hobby tier.
+  - service: Infisical secret management
+    reason: Not an Azure meter; secrets resolve from the free tier (ADR-010).
+  - service: OpenRouter LLM spend
+    reason: Not an Azure meter; capped separately by llm_daily_budget_usd in config/prod.yaml (D4).
+  - service: GitHub Actions minutes
+    reason: Free for public repositories, including the keep-warm and watchdog crons.
+  - service: Azure Automation budget-triggered shutdown
+    reason: Explicitly out of core scope; the hard caps already bound the bill.

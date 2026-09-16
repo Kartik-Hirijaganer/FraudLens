@@ -45,7 +45,23 @@ env:
   TF_VAR_budget_start_date: ${{ vars.AZURE_BUDGET_START_DATE }}
 
 jobs:
+  # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
+  # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
+  # the whole graph before anything billable is touched.
+  identity:
+    if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a non-personal deploy identity
+        run: bash scripts/check_deploy_identity.sh
+
   verify:
+    needs: identity
     if: ${{ vars.AKS_DEPLOY_ENABLED == 'true' }}
     uses: ./.github/workflows/_ci-reusable.yml
 

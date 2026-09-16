@@ -367,7 +367,7 @@ deployment. A human-approved, ephemeral AKS session is a release 0.4 step.
 <!-- AUTOGEN:k8s-benchmark -->
 | Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
 | --- | --- | ---: | ---: | ---: | ---: |
-| kind | 1 → 5 → 1 | 46 s | 91 s | 100/100 | 0 |
+| kind | 1 → 5 → 1 | 46 s | 92 s | 100/100 | 0 |
 <!-- /AUTOGEN:k8s-benchmark -->
 
 Evidence: [HPA and durable-worker report](docs/reference/benchmarks/k8s-hpa-scaling.md),
@@ -474,7 +474,7 @@ is regenerated from its help text.
 | `make local-demo` | Boot the IBM-backed local stack; fetches via Infisical /ml when absent. |
 | `make test` | Run tests for both stacks. |
 | `make coverage` | Run tests with ≥90% coverage gate. |
-| `make pre-pr` | Format, regenerate docs, then run the shared CI umbrella (writes). |
+| `make pre-pr` | Identity gate, format, regenerate docs, then the shared CI umbrella (writes). |
 | `make pr-check` | Complete local PR preflight; mirrors all applicable GitHub PR checks (writes). |
 | `make docs` | Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES). |
 | `make fulldata-pilot` | Run the approved bounded pilot (candidate + row target configurable). |

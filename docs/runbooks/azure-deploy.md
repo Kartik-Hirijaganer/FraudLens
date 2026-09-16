@@ -135,9 +135,11 @@ Steps 1–2 are **done** (2026-09-13). Deploy is intentionally still **off**.
 | 2 | OIDC federation (§5) | ✅ done |
 | 2b | Repo **variables** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | ✅ set |
 | 2c | `FRONTEND_URL`, `INFISICAL_PROJECT_SLUG`, `INFISICAL_GITHUB_ACTIONS_IDENTITY_ID` | ✅ pre-existing |
-| 2d | `VITE_API_BASE_URL` (HTTPS gateway URL) | ⬜ not knowable until the first apply produces `app_fqdn` |
+| 2d | `AZURE_BUDGET_CONTACT_EMAIL`, `AZURE_BUDGET_START_DATE` (`^\d{4}-\d{2}-01T00:00:00Z$`) | ⬜ set before the first apply |
 | 3 | Supabase + Vercel provisioning | ⬜ separate from Azure |
-| 4 | Flip `AZURE_DEPLOY_ENABLED=true` / `VERCEL_DEPLOY_ENABLED=true` | ⬜ **the only switch left** |
+| 4 | Flip `AZURE_DEPLOY_ENABLED=true` | ⬜ the first billable switch |
+| 5 | `AZURE_API_ORIGIN` = the **stable** ingress origin, then `VERCEL_DEPLOY_ENABLED=true` | ⬜ after the backend apply |
+| 6 | `BACKEND_URL` = the same stable origin, then `KEEP_WARM_ENABLED=true` | ⬜ after the cold start is measured |
 
 ```bash
 gh variable set AZURE_DEPLOY_ENABLED --body true --repo Kartik-Hirijaganer/FraudLens
@@ -147,8 +149,38 @@ Until that flip, every Azure job in `deploy-backend.yml` / `deploy-frontend.yml`
 `if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}` and skips — so nothing runs and nothing bills.
 Local development is unaffected either way.
 
-After the first successful apply, read `app_fqdn` from the Terraform outputs and set
-`VITE_API_BASE_URL` (step 2d) so the frontend targets the gateway.
+**Steps 5 and 6 take the STABLE ingress origin, never a revision FQDN.** A revision FQDN changes
+with every deploy, so the public URL would break on the next promotion (D1). The `promote` job
+prints the right value to its run summary; the same value is `app_fqdn` in the Terraform outputs.
+
+Step 6 is a decision, not a formality: measure the real cold start first, record it in
+`config/cost-model.yaml`, and regenerate with `make azure-cost-plan`. The generated
+[cost model](../reference/cost-model.md) names the threshold and returns the verdict — below it,
+keep-warm costs ~$1.25/month to hide something nobody would notice, so leave `KEEP_WARM_ENABLED`
+unset and the URL costs ~$1.25/month instead of ~$2.50.
+
+The SPA receives **no** absolute API base. `frontend/.env.production` pins `VITE_API_BASE_URL`
+empty and `frontend/vercel.json` proxies `/api/*` to `AZURE_API_ORIGIN`, so the browser only ever
+sees one hostname and CORS is a backstop rather than the mechanism.
+
+### Runtime secret injection
+
+Container Apps has no secret store of its own, so `deploy-backend.yml`'s `stage` job is the
+injection mechanism. It fetches from Infisical `prod` over OIDC (`/backend`, `/llm`, `/`) and
+writes **exactly four** values as app-scoped Container Apps secrets, referenced by env vars in the
+same update that stamps the image — so the staged revision boots with them and `/readyz` verifies
+the injection before any traffic shift:
+
+| Container Apps secret | Injected env var | Infisical path |
+| --- | --- | --- |
+| `database-url` | `DATABASE_URL` | `/backend` |
+| `supabase-service-role-key` | `SUPABASE_SERVICE_ROLE_KEY` | `/backend` |
+| `demo-auth-password` | `FRAUDLENS_DEMO_AUTH_PASSWORD` | `/` |
+| `openrouter-api-key` | `OPENROUTER_API_KEY` | `/llm` |
+
+`FRAUDLENS_AUTH_JWKS_URL` and `FRAUDLENS_AUTH_JWT_ISSUER` are **derived** from `SUPABASE_URL`
+rather than stored a second time. No value reaches Terraform state, tfvars, a job output, or an
+artifact, and `ignore_changes = [secret]` on the Container App stops the next apply removing them.
 
 ## 8. Documented switch paths (off by default)
 
@@ -165,6 +197,12 @@ After the first successful apply, read `app_fqdn` from the Terraform outputs and
 ## 9. Verification & rollback
 
 - **Smoke** hits the **staged** revision's `/healthz` + `/readyz` and runs `pytest -m smoke` before
-  any traffic shift; promotion is conditional on green smoke.
+  any traffic shift; promotion is conditional on green smoke. The suite is **authenticated**: two
+  personas are signed in with the public synthetic password, so it exercises real role separation,
+  tenant-safe refusals, one live investigation with grounded citations, and the SSE stream. The job
+  then reads the revision's own log back and fails on any secret, JWT, PHI, or stack-trace leak.
+- **The proxy** is exercised separately: `deploy-frontend.yml` re-runs the same authenticated
+  selection against `FRONTEND_URL`, which is the only thing that proves the `/api` rewrite forwards
+  an `Authorization` header and an unbuffered event stream.
 - **Rollback** is a traffic shift back to the prior revision (seconds) + model-registry pointer
   rollback (no redeploy) + Vercel rollback — see [`deploy-rollback.md`](deploy-rollback.md).

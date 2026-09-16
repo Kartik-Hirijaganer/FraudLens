@@ -124,6 +124,8 @@ endef
 	aks-secrets-sync aks-deploy aks-smoke aks-hpa-demo aks-stop aks-start aks-down \
 	aks-verify-clean
 
+.PHONY: azure-cost-plan cost-guardrails-plan
+
 .PHONY: k8s-tools-check k8s-validate k8s-demo-test kind-image kind-up kind-load \
 	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
 	hpa-evidence-validate
@@ -242,6 +244,20 @@ experiment-budget-check: ## Reconcile the $75 experiment ceiling, ledger, and pu
 	$(UV) run python scripts/experiment_budget.py ledger-check
 attribution-check: ## Fail on AI co-author/attribution trailers in commits (Golden Rule 2).
 	bash scripts/check_no_ai_attribution.sh
+deploy-identity-check: ## Refuse a non-personal repo, commit email, remote, or Azure account.
+	bash scripts/check_deploy_identity.sh
+hooks-install: ## Point git at the tracked .githooks (commit-msg blocks AI trailers; Golden Rule 2).
+	git config core.hooksPath .githooks
+	@printf 'core.hooksPath = %s\n' "$$(git config core.hooksPath)"
+hooks-check: ## Assert the commit-msg hook exists and rejects an AI trailer (Golden Rule 2).
+	@test -x .githooks/commit-msg || { echo ".githooks/commit-msg is missing or not executable"; exit 1; }
+	@msg="$$(mktemp)"; printf 'test\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n' >"$$msg"; \
+	  if bash .githooks/commit-msg "$$msg" >/dev/null 2>&1; then \
+	    rm -f "$$msg"; echo "commit-msg hook did NOT reject an AI trailer"; exit 1; \
+	  fi; rm -f "$$msg"; echo "commit-msg hook rejects AI attribution."
+	@# Wiring is per-clone and cannot hold on a fresh CI checkout, so warn, never fail.
+	@test "$$(git config core.hooksPath)" = ".githooks" \
+	  || echo "note: core.hooksPath is not .githooks in this clone -- run 'make hooks-install' to arm it locally."
 secrets-scan: ## gitleaks (whole repo) + Infisical/config guard (rule 4).
 	gitleaks detect --no-banner --redact --no-git --source . --config .gitleaks.toml
 	$(UV) run python scripts/check_no_secrets.py
@@ -684,9 +700,11 @@ SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
 	tests/integration/test_train_model.py tests/integration/test_train_model_cli.py \
 	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
 	tests/unit/test_study_helpers.py tests/unit/test_quality_config.py \
+	tests/unit/test_azure_cost_model.py tests/unit/test_azure_cost_plan.py \
 	$(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
 scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
 	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
+		--cov=lib.azure_cost --cov=azure_cost_plan \
 		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
 		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
 		--cov=lib.model_training --cov=lib.quality --cov=lib.sar_eval --cov=lib.study \
@@ -807,7 +825,7 @@ aks-init: ## Initialize the next-release AKS remote-state root without applying 
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
 
 aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never applies.
-	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v5_spot"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; disks, IP and traffic excluded)")'
+	@PYTHONPATH=scripts $(UV) run python -c 'from pathlib import Path; from lib.experiments.budget import load_budget_config; c=load_budget_config(Path.cwd()); total=c.rates["azure_b2s_payg"].hourly_rate_usd + 2*c.rates["azure_d2as_v4_payg"].hourly_rate_usd; print(f">> AKS compute-only maximum-pool estimate: $${total:.6f}/hour (control plane Free; ephemeral OS disks, Standard Load Balancer, public IPs and egress traffic excluded)")'
 	@set -euo pipefail; \
 	$(AKS_ENV); \
 	terraform -chdir=$(AKS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
@@ -861,9 +879,11 @@ aks-deploy: ## Deploy an immutable image and operator-backed secret references t
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
 	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
 	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
+	@test -n "$${INFISICAL_PROJECT_SLUG:-}" || { echo "INFISICAL_PROJECT_SLUG is required"; exit 2; }
 	$(K8S_DEMO) deploy --platform aks --confirm-aks \
 		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
 		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
+		--infisical-project-slug "$${INFISICAL_PROJECT_SLUG}" \
 		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
 
 aks-smoke: ## Run probe smoke tests against the approved AKS workload.
@@ -907,6 +927,30 @@ aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget r
 	test "$$failed" = "0" || exit 1; \
 	echo "aks-verify-clean OK: no scoped AKS resources remain"
 
+# ---------------------------------------------------------------------------
+# Cost projection and guardrails (Phase 2). `azure-cost-plan` is read-only: it
+# queries the PUBLIC, unauthenticated Azure Retail Prices API and creates nothing,
+# so Golden Rule 7 does not gate it. `cost-guardrails-plan` is likewise plan-only.
+# ---------------------------------------------------------------------------
+COST_GUARDRAILS_DIR := infra/terraform/environments/cost-guardrails
+
+azure-cost-plan: ## Project Azure cost from committed shapes + live retail prices (WRITES the doc).
+	$(UV) run python scripts/azure_cost_plan.py $(if $(PRICES),--prices-file "$(PRICES)",)
+
+# Fails closed on the notification recipient and budget month rather than inventing either:
+# TF_VAR_budget_contact_emails is human-owned data (Golden Rule 3) and TF_VAR_budget_start_date
+# must be the first UTC day of the current month, which only the operator can assert.
+cost-guardrails-plan: ## Plan the subscription-wide budget root; never applies.
+	@test -n "$${TF_VAR_budget_contact_emails:-}" || { echo 'TF_VAR_budget_contact_emails=["you@example.com"] is required'; exit 2; }
+	@test -n "$${TF_VAR_budget_start_date:-}" || { echo 'TF_VAR_budget_start_date=YYYY-MM-01T00:00:00Z is required'; exit 2; }
+	@set -euo pipefail; \
+	subscription_id="$${TF_VAR_subscription_id:-$$(az account show --query id -o tsv)}"; \
+	tenant_id="$${TF_VAR_tenant_id:-$$(az account show --query tenantId -o tsv)}"; \
+	export TF_VAR_subscription_id="$$subscription_id" TF_VAR_tenant_id="$$tenant_id" \
+		TF_VAR_client_id="$${TF_VAR_client_id:-$$subscription_id}"; \
+	terraform -chdir=$(COST_GUARDRAILS_DIR) init -backend=false -reconfigure -input=false -no-color >/dev/null; \
+	terraform -chdir=$(COST_GUARDRAILS_DIR) plan -refresh=false -input=false -lock=false -no-color
+
 iac-scan: ## Scan Terraform for security and configuration defects (read-only).
 	$(UVX) checkov --config-file .checkov.yaml
 
@@ -924,8 +968,8 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
-pre-pr: fmt docs ci ## Format, regenerate docs, then run the shared CI umbrella (writes).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
+pre-pr: deploy-identity-check fmt docs ci ## Identity gate, format, regenerate docs, then the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).
 	$(MAKE) pr-title-check

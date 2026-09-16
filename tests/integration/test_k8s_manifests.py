@@ -157,11 +157,61 @@ def test_images_are_pinned_and_platform_overlays_are_separated() -> None:
         "InfisicalSecret"
     }
     for deployment in (document for document in aks if document["kind"] == "Deployment"):
-        tolerations = deployment["spec"]["template"]["spec"]["tolerations"]
-        assert any(
-            item["value"] == "spot" and item["effect"] == "NoSchedule" for item in tolerations
-        )
+        pod_spec = deployment["spec"]["template"]["spec"]
+        # The user pool is regular (on-demand) capacity, so neither the Spot toleration nor the
+        # Spot node affinity has anything to match; carrying either would steer scheduling for
+        # a taint and a label that are never applied.
+        assert "tolerations" not in pod_spec
+        assert "affinity" not in pod_spec
         assert deployment["metadata"]["annotations"]["secrets.infisical.com/auto-reload"] == "true"
+
+
+def test_only_the_aks_overlay_publishes_an_external_service() -> None:
+    kind_service = _named(_render("overlays/kind"), "Service", "fraudlens-api")
+    aks_service = _named(_render("overlays/aks-demo"), "Service", "fraudlens-api")
+    assert kind_service["spec"]["type"] == "ClusterIP"
+    assert "externalTrafficPolicy" not in kind_service["spec"]
+    assert aks_service["spec"]["type"] == "LoadBalancer"
+    assert aks_service["spec"]["externalTrafficPolicy"] == "Local"
+    probe_annotation = "service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path"
+    assert aks_service["metadata"]["annotations"][probe_annotation] == "/healthz"
+    assert {port["port"] for port in aks_service["spec"]["ports"]} == {8000}
+
+
+def test_only_the_aks_overlay_admits_ingress_from_outside_the_cluster() -> None:
+    # A LoadBalancer Service with externalTrafficPolicy: Local hands the pod the real client IP,
+    # which matches no namespaceSelector — so without an explicit external rule Cilium drops every
+    # request and the published address never answers.
+    def _api_ingress(overlay: str) -> list[dict[str, Any]]:
+        return _named(_render(overlay), "NetworkPolicy", "api-ingress")["spec"]["ingress"]
+
+    def _external_ports(rules: list[dict[str, Any]]) -> set[int]:
+        return {
+            port["port"]
+            for rule in rules
+            for source in rule["from"]
+            if source.get("ipBlock", {}).get("cidr") == "0.0.0.0/0"
+            for port in rule["ports"]
+        }
+
+    aks_rules = _api_ingress("overlays/aks-demo")
+    assert _external_ports(aks_rules) == {8000}
+    # The in-cluster rule survives the append; the worker and load Job still reach the API.
+    assert {"namespaceSelector": {}} in [source for rule in aks_rules for source in rule["from"]]
+    assert _external_ports(_api_ingress("overlays/kind")) == set()
+
+
+def test_aks_overlay_runs_the_in_cluster_worker_queue() -> None:
+    # The AKS root creates no Container Apps, so a container_apps_jobs backend would enqueue work
+    # to a queue that does not exist; the in-cluster worker claims from Postgres instead.
+    config = next(
+        document
+        for document in _render("overlays/aks-demo")
+        if document["kind"] == "ConfigMap"
+        and document["metadata"]["name"].startswith("fraudlens-backend-config")
+    )
+    assert config["data"]["FRAUDLENS_QUEUE_BACKEND"] == "local"
+    assert config["data"]["FRAUDLENS_RUN_EXECUTION_MODE"] == "worker"
 
 
 def test_env_files_contain_no_secret_like_keys() -> None:

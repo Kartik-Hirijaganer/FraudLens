@@ -1,0 +1,110 @@
+# Daily leftover-resource watchdog (Phase 2). Azure budget data lags by hours and the
+# subscription spending limit is off, so alerts alone cannot catch a forgotten teardown: on a $15
+# AKS budget a surviving cluster could burn for a week before crossing a threshold. This run
+# detects it within 24 hours instead, and fails the workflow so GitHub's normal Actions
+# notification reaches the owner.
+#
+# Every `az` call below is READ-ONLY (exists / list / show / query). The job creates, updates, and
+# deletes nothing, so Golden Rule 7 does not gate it — the paired mutating targets stay behind
+# `make aks-down CONFIRM=yes`. Read-only also means a false alarm costs nothing but a re-read.
+#
+# The cron is the one hardcoded value here: GitHub Actions cannot read a repo variable in
+# `on.schedule.cron`. Thresholds and group names live in env below, not scattered through the run
+# blocks. Scheduled triggers are best-effort and can be delayed under load; a late check costs
+# detection latency, not money.
+name: cost-watchdog
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # daily 13:00 UTC — after overnight sessions, before the US workday
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # GitHub→Azure OIDC only; no stored client secret, no Infisical read
+
+concurrency:
+  group: cost-watchdog
+  cancel-in-progress: false
+
+env:
+  AKS_RESOURCE_GROUPS: "fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg"
+  PROJECT_TAG: "project=FraudLens"
+  MTD_COST_THRESHOLD_USD: "10"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # An ephemeral AKS group that survived its session is the single most expensive failure
+      # this repo can have (~$126/month if left running), so it is checked first and hard-fails.
+      - name: Refuse a surviving ephemeral AKS resource group
+        id: groups
+        run: |
+          set -euo pipefail
+          failed=0
+          for group in $AKS_RESOURCE_GROUPS; do
+            if [ "$(az group exists --name "$group")" != "false" ]; then
+              echo "::error::ephemeral resource group $group still exists — run 'make aks-down CONFIRM=yes'"
+              failed=1
+            fi
+          done
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: List any managed cluster in the subscription
+        run: |
+          set -euo pipefail
+          az aks list --query "[].{name:name,resourceGroup:resourceGroup,state:powerState.code}" -o table
+
+      - name: Inventory every tagged FraudLens resource
+        run: |
+          set -euo pipefail
+          az resource list --tag "$PROJECT_TAG" \
+            --query "[].{name:name,type:type,resourceGroup:resourceGroup,location:location}" -o table
+
+      - name: Show the configured budgets and their thresholds
+        run: |
+          set -euo pipefail
+          az consumption budget list \
+            --query "[].{name:name,amount:amount,timeGrain:timeGrain,notifications:length(keys(notifications))}" \
+            -o table
+
+      # Cost Management reports actual spend, which is what the budgets alert on. `az costmanagement
+      # query` is a read; the threshold is deliberately well below the $25 budget so the signal
+      # arrives before a notification would.
+      - name: Read month-to-date actual cost
+        id: cost
+        run: |
+          set -euo pipefail
+          scope="/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}"
+          mtd="$(az costmanagement query --scope "$scope" \
+            --type ActualCost --timeframe MonthToDate \
+            --dataset-aggregation '{"total":{"name":"Cost","function":"Sum"}}' \
+            --query "properties.rows[0][0]" -o tsv 2>/dev/null || echo "0")"
+          [ -n "$mtd" ] && [ "$mtd" != "None" ] || mtd="0"
+          printf 'month-to-date actual cost: %s USD (threshold %s)\n' "$mtd" "$MTD_COST_THRESHOLD_USD"
+          over="$(awk -v a="$mtd" -v b="$MTD_COST_THRESHOLD_USD" 'BEGIN{print (a+0>b+0)?1:0}')"
+          if [ "$over" = "1" ]; then
+            echo "::error::month-to-date cost $mtd USD exceeds the $MTD_COST_THRESHOLD_USD USD watchdog threshold"
+          fi
+          echo "over=$over" >> "$GITHUB_OUTPUT"
+
+      # One place to fail, so every check above always runs and the whole picture is in the log.
+      - name: Fail on residue or overspend
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.groups.outputs.failed }}" != "0" ] || [ "${{ steps.cost.outputs.over }}" != "0" ]; then
+            echo "cost-watchdog FAILED: see the annotated errors above"
+            exit 1
+          fi
+          echo "cost-watchdog OK: no ephemeral resource group survives and spend is under threshold"

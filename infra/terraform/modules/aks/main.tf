@@ -1,5 +1,8 @@
 # Ephemeral AKS demonstration module (ADR-021) — Entra-only access, OIDC/workload identity,
-# Azure CNI Overlay with Cilium policy, a critical system pool, and a bounded Spot user pool.
+# Azure CNI Overlay with Cilium policy, a critical system pool, and a bounded application user
+# pool. Spot is opt-in (D2): the regional Spot vCPU cap is below what the pool needs, and an
+# eviction mid-demonstration would destroy the autoscaling evidence the session exists to
+# produce, so the pool defaults to regular (on-demand) priority with no Spot taint.
 
 variable "name_prefix" {
   type        = string
@@ -58,19 +61,25 @@ variable "system_vm_size" {
 
 variable "user_pool_enabled" {
   type        = bool
-  description = "Create the bounded Spot user pool used by application workloads."
+  description = "Create the bounded user pool that runs application workloads."
   default     = true
+}
+
+variable "user_pool_spot_enabled" {
+  type        = bool
+  description = "Run the user pool on Spot capacity; false keeps regular, non-evictable nodes."
+  default     = false
 }
 
 variable "user_vm_size" {
   type        = string
-  description = "VM size for Spot application nodes."
-  default     = "Standard_D2as_v5"
+  description = "VM size for application nodes (must have non-zero family quota in the region)."
+  default     = "Standard_D2as_v4"
 }
 
 variable "user_min_count" {
   type        = number
-  description = "Minimum Spot user nodes while the cluster is running."
+  description = "Minimum application nodes while the cluster is running."
   default     = 1
 
   validation {
@@ -81,7 +90,7 @@ variable "user_min_count" {
 
 variable "user_max_count" {
   type        = number
-  description = "Maximum Spot user nodes admitted by the node-pool autoscaler."
+  description = "Maximum application nodes admitted by the node-pool autoscaler."
   default     = 2
 
   validation {
@@ -235,14 +244,15 @@ resource "azurerm_kubernetes_cluster" "this" {
 }
 
 resource "azurerm_kubernetes_cluster_node_pool" "user" {
-  count                  = var.user_pool_enabled ? 1 : 0
-  name                   = "user"
-  kubernetes_cluster_id  = azurerm_kubernetes_cluster.this.id
-  vm_size                = var.user_vm_size
-  mode                   = "User"
-  priority               = "Spot"
-  eviction_policy        = "Delete"
-  spot_max_price         = -1
+  count                 = var.user_pool_enabled ? 1 : 0
+  name                  = "user"
+  kubernetes_cluster_id = azurerm_kubernetes_cluster.this.id
+  vm_size               = var.user_vm_size
+  mode                  = "User"
+  # Spot-only arguments are rejected on a regular pool, so each is null unless Spot is requested.
+  priority               = var.user_pool_spot_enabled ? "Spot" : "Regular"
+  eviction_policy        = var.user_pool_spot_enabled ? "Delete" : null
+  spot_max_price         = var.user_pool_spot_enabled ? -1 : null
   auto_scaling_enabled   = true
   min_count              = var.user_min_count
   max_count              = var.user_max_count
@@ -255,7 +265,9 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   node_labels = {
     "fraudlens.io/workload" = "application"
   }
-  node_taints = ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"]
+  # AKS applies this taint only to Spot nodes; a regular pool must not carry it, or nothing
+  # without a matching toleration would ever schedule.
+  node_taints = var.user_pool_spot_enabled ? ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"] : []
 
   tags = var.tags
 }

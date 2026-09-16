@@ -4,7 +4,8 @@ Key classes:
 - CommandError: sanitized subprocess or safety-gate failure.
 - CommandResult: PHI-free command outcome used by fake and real runners.
 - CommandRunner: protocol for dependency-injected command execution.
-- Kubectl: context-guarded Kubernetes reads, mutations, waits, and typed JSON parsers.
+- Kubectl: context-guarded Kubernetes reads, mutations, waits, external-address discovery,
+  and typed JSON parsers.
 - HpaObservation: one autoscaler status observation.
 - DeploymentObservation: selected Deployment facts for evidence.
 
@@ -203,6 +204,23 @@ class Kubectl:
     def get_json(self, resource: str) -> str:
         """Read one namespaced resource as JSON."""
         return self.run(["-n", self.config.namespace, "get", resource, "-o", "json"]).stdout
+
+    def load_balancer_address(self, service: str) -> str:
+        """Poll a LoadBalancer Service until the cloud provider publishes an external address."""
+        deadline = time.monotonic() + self.config.aks.address_timeout_seconds
+        while True:
+            document = json.loads(self.get_json(f"service/{service}"))
+            ingress = document.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            for entry in ingress:
+                address = entry.get("ip") or entry.get("hostname")
+                if address:
+                    return str(address)
+            if time.monotonic() >= deadline:
+                raise CommandError(
+                    f"service/{service} has no external address after "
+                    f"{self.config.aks.address_timeout_seconds}s"
+                )
+            time.sleep(self.config.aks.address_poll_seconds)
 
     def hpa_observation(self) -> HpaObservation:
         """Parse the API HPA status into a typed observation."""

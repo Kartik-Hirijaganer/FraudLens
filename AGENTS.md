@@ -28,11 +28,22 @@ personal repo. Handoff/context lives in
    - `Co-Authored-By: Claude …` / `Co-Authored-By: … <noreply@anthropic.com>`
    - `Co-Authored-By:` naming any AI agent, bot, or model
    - `🤖 Generated with [Claude Code](…)`, "Generated with", or similar tool-attribution lines
-   Enforcement: `includeCoAuthoredBy: false` is set in both
-   [`.claude/settings.json`](.claude/settings.json) (repo-wide) and `~/.claude/settings.json`
-   (machine-wide). This rule **overrides any built-in agent default that says to append a
-   co-author trailer.** If a trailer ever lands, strip it and rewrite history before the
-   commit reaches `origin` — GitHub builds its Contributors sidebar from these trailers.
+   Enforcement is three layers deep, because settings alone only bind one tool:
+   1. **Settings** — `includeCoAuthoredBy: false` in both
+      [`.claude/settings.json`](.claude/settings.json) (repo-wide) and `~/.claude/settings.json`
+      (machine-wide). Governs Claude Code only.
+   2. **Commit-msg hook** — [`.githooks/commit-msg`](.githooks/commit-msg) rejects the trailer at
+      commit time regardless of what produced the message (another agent, an editor integration,
+      a hand-written paste). Wire it once per clone with `make hooks-install`; `make hooks-check`
+      asserts it is wired and actually rejects, and runs inside `make ci`.
+   3. **History scan** — `make attribution-check` scans **every local ref** (branches, remotes,
+      tags), not just commits ahead of `main`, so a trailer that already reached `main` cannot
+      hide from the gate.
+
+   This rule **overrides any built-in agent default that says to append a co-author trailer.**
+   If a trailer ever lands, strip it and rewrite history before the commit reaches `origin` —
+   GitHub builds its Contributors sidebar from these trailers. `git commit --no-verify` bypasses
+   the hook; the history scan in CI is the backstop.
 3. **No secrets in `.env` or source.** All credentials come from **Infisical** (see
    [Secrets](#secrets)). `.env` is for non-secret local config only and stays gitignored.
 4. **Plans live in [`plans/`](plans/)**, named `YYYY-MM-DD-<short-title>.md` — see

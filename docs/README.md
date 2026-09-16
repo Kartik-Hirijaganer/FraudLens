@@ -12,6 +12,17 @@ repo root) — **Golden Rule 5**.
 | `runbooks/` | Operational procedures, incident response, on-call |
 | `reference/` | Specs, regulatory / AML references, external material |
 
+## Generated documents
+
+Some documents here are **generated artifacts**: they are committed so their numbers are
+reviewable and diffable, but they are produced by a `make` target and must never be hand-edited.
+
+| Document | Regenerate with | Derived from |
+|----------|-----------------|--------------|
+| [`reference/cost-model.md`](reference/cost-model.md) | `make azure-cost-plan` | The committed Terraform shapes plus live Azure Retail Prices |
+| [`reference/generated/api/`](reference/generated/api/) | `make docs` | The live FastAPI app |
+| [`reference/generated/erd/`](reference/generated/erd/) | `make docs` | Live SQLAlchemy metadata |
+
 ## Conventions
 
 - Prefer Markdown for anything that benefits from review and diffing.

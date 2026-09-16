@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsError
 
 from fraudlens_backend.settings import AppSettings, _config_anchored, find_config_dir
 
@@ -132,6 +135,37 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert set(settings.security_headers) >= {"X-Content-Type-Options", "X-Frame-Options"}
 
 
+@pytest.mark.parametrize(
+    "origins",
+    [[], ["https://fraud-lens-amber.vercel.app"], ["https://a.test", "https://b.test"]],
+)
+def test_cors_origins_round_trip_through_the_terraform_encoding(
+    monkeypatch: pytest.MonkeyPatch, origins: list[str]
+) -> None:
+    """Whatever `jsonencode(var.cors_allow_origins)` emits must parse back to the same list."""
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_CORS_ALLOW_ORIGINS", _terraform_jsonencode(origins))
+    assert AppSettings().cors_allow_origins == origins
+
+
+@pytest.mark.parametrize("emitted", ["", "https://a.test,https://b.test"])
+def test_a_comma_joined_cors_value_aborts_the_boot(
+    monkeypatch: pytest.MonkeyPatch, emitted: str
+) -> None:
+    """`join(",", …)` is what the container used to receive; it must fail loudly, not silently."""
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_CORS_ALLOW_ORIGINS", emitted)
+    # pydantic-settings decodes a complex field as JSON before validation runs, so the failure is
+    # a SettingsError at source-parse time — the container never reaches a serving state.
+    with pytest.raises(SettingsError):
+        AppSettings()
+
+
+def _terraform_jsonencode(value: list[str]) -> str:
+    """Reproduce Terraform's jsonencode output: compact JSON with no separator padding."""
+    return json.dumps(value, separators=(",", ":"))
+
+
 def test_dev_overlay_sets_cors_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FRAUDLENS_ENVIRONMENT", raising=False)
     monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
@@ -152,6 +186,25 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.azure_arm_endpoint.startswith("https://")
     assert settings.azure_arm_token_resource.startswith("https://")
     assert settings.azure_storage_token_resource.startswith("https://")
+
+
+def test_prod_caps_one_tenant_day_of_live_llm_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A public URL under llm_mode: live needs a dollar bound, not just a request-rate bound."""
+    monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    settings = AppSettings()
+    assert settings.llm_daily_budget_usd == Decimal("0.25")
+    # The rate limiter alone admits 120 investigations a minute; the ceiling is what bounds the
+    # bill, and it holds even if the layered YAML stops declaring it.
+    assert AppSettings(environment="prod").llm_daily_budget_usd > 0
+
+
+def test_a_non_positive_llm_budget_is_rejected_at_boot() -> None:
+    """A zero or negative ceiling would be silently uncapped rather than fail-closed."""
+    with pytest.raises(ValidationError):
+        AppSettings(llm_daily_budget_usd=Decimal("0"))
+    with pytest.raises(ValidationError):
+        AppSettings(llm_daily_budget_usd=Decimal("-1"))
 
 
 def test_secret_delivery_defaults_to_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,0 +1,12 @@
+# Remote state for the subscription-wide cost guardrail. Copy to backend.tf only for an explicitly
+# approved plan/apply; free validation always initializes with -backend=false.
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "fraudlens-tfstate-rg"
+    storage_account_name = "fraudlenstfstate"
+    container_name       = "tfstate"
+    key                  = "cost-guardrails.terraform.tfstate"
+    use_azuread_auth     = true
+  }
+}

@@ -229,6 +229,38 @@ def test_azure_runtime_backends_receive_required_env() -> None:
         assert "batch_score_job_name" in hcl
 
 
+# --- Deploy identity gate: no deploy runs under the work account -------------------------------
+
+
+def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
+    """The identity guard runs first and every other job descends from it (Golden Rules 2, 7)."""
+    for name in ("deploy-aks.yml", "deploy-backend.yml", "deploy-frontend.yml"):
+        jobs = _load_yaml(WORKFLOWS / name)["jobs"]
+        identity = jobs["identity"]
+        assert "bash scripts/check_deploy_identity.sh" in _job_script(identity)
+        assert identity["env"]["AZURE_SUBSCRIPTION_ID"] == "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+        assert identity["env"]["AZURE_TENANT_ID"] == "${{ vars.AZURE_TENANT_ID }}"
+        # The guard itself must depend on nothing, so it cannot be preceded by a cloud job.
+        assert "needs" not in identity
+        assert jobs["verify"]["needs"] == "identity"
+        # Every remaining job reaches the guard transitively through `verify`.
+        for job_name, job in jobs.items():
+            if job_name in {"identity", "verify"}:
+                continue
+            assert job["needs"], f"{name}:{job_name} has no needs edge to the identity gate"
+
+
+def test_deploy_identity_guard_pins_the_personal_repository_and_azure_account() -> None:
+    guard = (REPO_ROOT / "scripts" / "check_deploy_identity.sh").read_text()
+    assert 'EXPECTED_REPOSITORY="Kartik-Hirijaganer/FraudLens"' in guard
+    assert 'EXPECTED_ORIGIN_URL="git@github-personal:Kartik-Hirijaganer/FraudLens.git"' in guard
+    assert 'EXPECTED_SUBSCRIPTION_ID="01417138-33d6-4b26-a0e2-38090780d0ec"' in guard
+    assert 'EXPECTED_TENANT_ID="057e49df-08cb-4abb-a4ee-469fd4f1954e"' in guard
+    # `make pre-pr` must refuse before it formats, regenerates, or runs the CI umbrella.
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    assert "pre-pr: deploy-identity-check fmt docs ci" in makefile
+
+
 # --- Deferred AKS workflow: dispatch-only, inert, immutable and recoverable ------------------
 
 

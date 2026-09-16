@@ -16,15 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
 import time
-from contextlib import nullcontext, suppress
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
 
 from lib.k8s_demo.cleanup import verify_kind_clean
 from lib.k8s_demo.config import (
@@ -48,10 +44,10 @@ from lib.k8s_demo.load import SUBMITTED_PREFIX, LoadSummary, run_load, summary_f
 from lib.k8s_demo.render import Platform, deploy, render_load_job, render_overlay
 from lib.k8s_demo.report import publish_evidence, render_markdown
 from lib.k8s_demo.secrets import sync_secrets
+from lib.k8s_demo.smoke import run_smoke
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_PATH = REPO_ROOT / "docs/reference/benchmarks/k8s-hpa-scaling.json"
-_HTTP_OK = 200
 
 __all__ = ["build_parser", "main"]
 
@@ -73,57 +69,6 @@ def _tools_check(config: K8sDemoConfig) -> None:
     conform_result = run_command([resolve_tool("kubeconform"), "-v"])
     if config.kubeconform_version not in (conform_result.stdout + conform_result.stderr):
         raise CommandError("kubeconform version does not match config/k8s-demo.yaml")
-
-
-def _smoke(config: K8sDemoConfig, *, platform: str = "kind", confirmed: bool = False) -> None:
-    """Port-forward a guarded Service and require both operational probes to return 200."""
-    kubectl = Kubectl(config)
-    kubectl.assert_mutation_allowed(platform=platform, confirmed=confirmed)
-    base_url = f"{str(config.smoke_base_url).rstrip('/')}:{config.local_port}"
-    process = subprocess.Popen(
-        [
-            kubectl.binary,
-            "-n",
-            config.namespace,
-            "port-forward",
-            f"service/{config.service}",
-            f"{config.local_port}:8000",
-        ],
-        cwd=REPO_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 60
-        pending = {"healthz", "readyz"}
-        while pending and time.monotonic() < deadline:
-            for endpoint in tuple(pending):
-                try:
-                    with urlopen(f"{base_url}/{endpoint}", timeout=2) as response:
-                        if response.status == _HTTP_OK:
-                            pending.remove(endpoint)
-                except (OSError, URLError):
-                    pass
-            if pending:
-                time.sleep(1)
-        if pending:
-            raise CommandError(f"{platform} smoke probes did not become ready")
-        environment = os.environ.copy()
-        environment["SMOKE_BASE_URL"] = base_url
-        completed = subprocess.run(
-            ["uv", "run", "pytest", "-m", "smoke", "--no-cov", "-q"],
-            cwd=REPO_ROOT,
-            env=environment,
-            check=False,
-        )
-        if completed.returncode != 0:
-            raise CommandError("remote smoke tests failed")
-    finally:
-        process.terminate()
-        with suppress(subprocess.TimeoutExpired):
-            process.wait(timeout=5)
-        if process.poll() is None:
-            process.kill()
 
 
 def _job_complete(kubectl: Kubectl) -> bool:
@@ -422,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_parser.add_argument("--confirm-aks", action="store_true")
     deploy_parser.add_argument("--infisical-identity-id")
     deploy_parser.add_argument("--azure-managed-identity-client-id")
+    deploy_parser.add_argument("--infisical-project-slug")
     subparsers.add_parser("load-in-cluster")
     validate_parser = subparsers.add_parser("evidence-validate")
     validate_parser.add_argument("--path", type=Path, default=EVIDENCE_PATH)
@@ -457,10 +403,11 @@ def _dispatch(args: argparse.Namespace, config: K8sDemoConfig) -> None:
             image=args.image,
             infisical_identity_id=args.infisical_identity_id,
             azure_managed_identity_client_id=args.azure_managed_identity_client_id,
+            infisical_project_slug=args.infisical_project_slug,
             confirmed=args.confirm_aks,
         )
     elif args.command == "smoke":
-        _smoke(config, platform=args.platform, confirmed=args.confirm_aks)
+        run_smoke(config, platform=args.platform, confirmed=args.confirm_aks)
     elif args.command == "load-in-cluster":
         summary = run_load(load_config_from_env())
         print(f"K8S_DEMO_SUMMARY={summary.model_dump_json()}", flush=True)

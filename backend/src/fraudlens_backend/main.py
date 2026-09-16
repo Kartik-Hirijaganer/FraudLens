@@ -94,6 +94,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     # Per-scope counters for the per-route rate-limit dependency (api/deps.rate_limit); kept on
     # app.state so the limiter state is process-local and test-isolated (plan §16 Phase 13).
     app.state.route_rate_limiters = {}
+    # /readyz caches its two remote probes (Supabase JWKS, LLM provider) here, so a 30s platform
+    # probe cadence costs at most one outbound call per dependency per 5 minutes (api/ops.py).
+    app.state.readiness_probe_cache = {}
     # The investigation pipeline's heavy singletons (warm model cache + retriever + drafter) and
     # the in-process RunManager that POST owns runs through; the manager needs a sessionmaker for
     # its background runs, so it exists only when the DB is configured (plan §16 Phase 8, ADR-016).

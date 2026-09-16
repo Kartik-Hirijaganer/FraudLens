@@ -8,11 +8,14 @@ Key classes:
 
 Key functions:
 - load_feature_flags: resolve global plus agency feature flags, failing closed.
-- load_llm_daily_budget_usd: resolve the agency's daily LLM budget, failing closed.
+- load_llm_daily_budget_usd: resolve the agency's daily LLM budget under the deployment
+  ceiling, failing closed.
 
 Notes:
 - These readers never accept an agency id from an agent or request body; callers pass
   the JWT-verified tenant scope.
+- The daily budget is the MINIMUM of the tenant's configured value and the caller-supplied
+  deployment ceiling (`AppSettings.llm_daily_budget_usd`), so the ceiling always binds.
 """
 
 from __future__ import annotations
@@ -76,7 +79,9 @@ async def load_feature_flags(session: AsyncSession, *, agency_id: uuid.UUID) -> 
         return RuntimeFeatureFlags()
 
 
-async def load_llm_daily_budget_usd(session: AsyncSession, *, agency_id: uuid.UUID) -> Decimal:
+async def load_llm_daily_budget_usd(
+    session: AsyncSession, *, agency_id: uuid.UUID, ceiling_usd: Decimal
+) -> Decimal:
     """Resolve a positive daily USD cap; missing, malformed, or failed reads deny spend."""
     try:
         values = _overlay(
@@ -88,6 +93,10 @@ async def load_llm_daily_budget_usd(session: AsyncSession, *, agency_id: uuid.UU
         if isinstance(raw, bool):
             return _DENY_SPEND
         parsed = Decimal(str(raw))
-        return parsed if parsed > 0 else _DENY_SPEND
+        if parsed <= 0:
+            return _DENY_SPEND
+        # The deployment ceiling can only lower a tenant's budget, so a `system_config` row —
+        # seeded, hand-edited, or wrong — can never raise live spend above what config admits.
+        return min(parsed, ceiling_usd)
     except Exception:
         return _DENY_SPEND

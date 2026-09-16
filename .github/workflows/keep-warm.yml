@@ -1,0 +1,48 @@
+# Keep-warm ping (Phase 2) — WIRED BUT INERT until the repo variables KEEP_WARM_ENABLED == 'true'
+# and BACKEND_URL name the deployed gateway (both set in Phase 4, after the apply yields the
+# stable FQDN). Switching it off is a one-variable change.
+#
+# Why it exists: the Container App runs at `min_replicas = 0`, so an idle visit pays a 20–75 s
+# cold start. A replica that EXISTS but is not serving bills at the Container Apps *idle* rate —
+# roughly eight times cheaper than an active one — so holding one warm across the hours a visitor
+# would actually click costs ~$1.23/month rather than the ~$10.20 that `min_replicas = 1` would.
+#
+# This job touches no cloud API: no `azure/login`, no OIDC, no Infisical, no secrets. It is one
+# unauthenticated GET against a public health endpoint, and the repo is public so the Actions
+# minutes are free.
+#
+# The cron is the one hardcoded value here: GitHub Actions cannot read a repo variable in
+# `on.schedule.cron`. Scheduled triggers are best-effort and can be delayed under load, so treat
+# the window edges as soft — a missed ping costs one cold start, not money.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/4 13-21 * * 1-5" # every 4 min, weekdays 13:00–21:00 UTC (09:00–17:00 ET)
+  workflow_dispatch: {}
+
+# Nothing is written, and no id-token is requested, so this job holds no cloud identity at all.
+permissions:
+  contents: read
+
+# A slow or delayed run must not stack on top of the next scheduled one.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    if: ${{ vars.KEEP_WARM_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BACKEND_URL: ${{ vars.BACKEND_URL }}
+    steps:
+      # BACKEND_URL is read through env, never interpolated into the script body, so a malformed
+      # variable cannot become shell. /healthz is the unprefixed liveness probe: it makes no
+      # outbound call, so a ping neither costs LLM spend nor perturbs /readyz's cached probes.
+      - name: Hold one replica warm
+        run: |
+          set -euo pipefail
+          test -n "$BACKEND_URL" || { echo "BACKEND_URL is not set"; exit 2; }
+          curl -fsS --max-time 60 "${BACKEND_URL}/healthz"

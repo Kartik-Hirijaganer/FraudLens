@@ -8,6 +8,8 @@ Key functions:
 
 Notes:
 - Locking the tenant's Agency row makes the read-plus-reserve decision atomic on PostgreSQL.
+- Admission fails closed through the `llm_budget_exceeded` catalog code, so an over-budget
+  request returns the standard {code, message, details, requestId} envelope, never a raw error.
 - Terminal runs retain the reservation for audit but are excluded from active reservation totals.
 """
 
@@ -33,6 +35,7 @@ async def reserve_agent_spend(
     run: AnalysisRun,
     agency_id: uuid.UUID,
     maximum_attempt_cost_usd: Decimal,
+    daily_budget_ceiling_usd: Decimal,
 ) -> Decimal:
     """Reserve one run's worst-case attempts under a tenant-row transaction lock."""
     if run.agency_id != agency_id:
@@ -42,7 +45,9 @@ async def reserve_agent_spend(
     ).scalar_one_or_none()
     if agency is None:
         raise AppError("llm_budget_exceeded")
-    limit = await load_llm_daily_budget_usd(session, agency_id=agency_id)
+    limit = await load_llm_daily_budget_usd(
+        session, agency_id=agency_id, ceiling_usd=daily_budget_ceiling_usd
+    )
     spent = await DashboardRepository(session, agency_id).sar_cost_today(as_of=datetime.now(UTC))
     reserved = (
         await session.execute(

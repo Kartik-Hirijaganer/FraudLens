@@ -42,8 +42,24 @@ env:
   REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha }}
 
 jobs:
+  # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
+  # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
+  # the whole graph before anything billable is touched.
+  identity:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a non-personal deploy identity
+        run: bash scripts/check_deploy_identity.sh
+
   # Deploy parity: re-run the identical gate at the exact SHA being deployed.
   verify:
+    needs: identity
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     uses: ./.github/workflows/_ci-reusable.yml
 
@@ -93,6 +109,21 @@ jobs:
           cache-to: |
             type=registry,ref=${{ steps.meta.outputs.image_name }}:buildcache,mode=max
             type=gha,mode=max
+      # `acr_enabled = false` means the Container App pulls this image with NO registry
+      # credential. A package left private fails inside Azure minutes later as an opaque
+      # image-pull error against a revision that already exists, so pullability is proven here,
+      # anonymously, and the deploy stops with the real reason. The fix is to publish the GHCR
+      # package — never to switch the deploy to a private registry.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Assert the image is anonymously pullable from GHCR
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/check_public_image.py "$IMAGE"
 
   # Provision infra ONLY when it actually changed (plan non-empty). The common code deploy skips
   # this entirely — the slow step is not on the hot path (§15.7).
@@ -120,6 +151,11 @@ jobs:
           TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           TF_VAR_tenant_id: ${{ vars.AZURE_TENANT_ID }}
           TF_VAR_client_id: ${{ vars.AZURE_CLIENT_ID }}
+          # The prod root carries its own RG-scoped budget, whose recipient and start month are
+          # human-owned and therefore have NO default (Golden Rule 3) -- without them `plan` stops
+          # at "No value for required variable". Same shape deploy-aks.yml already uses.
+          TF_VAR_budget_contact_emails: '["${{ vars.AZURE_BUDGET_CONTACT_EMAIL }}"]'
+          TF_VAR_budget_start_date: ${{ vars.AZURE_BUDGET_START_DATE }}
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
@@ -141,6 +177,13 @@ jobs:
 
   # Stage the new image as a Container Apps revision at 0% traffic (Multiple revision mode keeps
   # the prior revision serving). A fast `az containerapp update` — no terraform.
+  #
+  # This job also owns SECRET INJECTION (D8). Container Apps has no secret store of its own, so
+  # the four allowlisted runtime values are fetched from Infisical over OIDC, written as
+  # app-scoped Container Apps secrets, and referenced by env vars in the SAME update that stamps
+  # the image — so the staged revision boots with them and `/readyz` verifies the injection
+  # BEFORE any traffic shift. Values never enter terraform state, tfvars, an artifact, a job
+  # output, or another job; `ignore_changes = [secret]` (D7) stops the next apply stripping them.
   stage:
     needs: [build-push, infra]
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
@@ -156,13 +199,81 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Three explicit non-recursive paths, not a recursive root fetch: the job should hold only
+      # the secrets this deployment injects, and the path list is the documented inventory
+      # (docs/runbooks/infisical-secrets.md). Every fetched value is registered as a log mask.
+      - name: Fetch backend runtime secrets from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /backend
+      - name: Fetch the LLM provider key from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /llm
+      - name: Fetch the project URL and synthetic demo credential from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /
+      # The allowlist IS the contract: exactly four values are injected, each read out of the
+      # environment by NAME so no value is ever written into this file, and a missing one fails
+      # the deploy naming only the variable. `secret set` is app-scoped and creates no revision.
+      - name: Inject the four allowlisted runtime secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          pairs=()
+          allow() { # $1 = Container Apps secret name, $2 = injected env var NAME
+            local value="${!2-}"
+            if [ -z "$value" ]; then missing+=("$2"); return 0; fi
+            pairs+=("$1=$value")
+          }
+          allow database-url DATABASE_URL
+          allow supabase-service-role-key SUPABASE_SERVICE_ROLE_KEY
+          allow demo-auth-password FRAUDLENS_DEMO_AUTH_PASSWORD
+          allow openrouter-api-key OPENROUTER_API_KEY
+          if [ -z "${SUPABASE_URL:-}" ]; then missing+=("SUPABASE_URL"); fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Infisical did not supply: ${missing[*]} (names only — never a value)"
+            exit 1
+          fi
+          az containerapp secret set -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --secrets "${pairs[@]}" --output none
       - name: Create revision at 0% traffic
         id: stage
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
+          # The JWKS URL and the issuer are DERIVED from the project URL rather than stored
+          # twice; both are non-secret, so they are plain env, not secret references.
+          supabase_url="${SUPABASE_URL%/}"
           retry az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" \
-            --image "${{ needs.build-push.outputs.image }}" --revision-suffix "$REVISION_SUFFIX"
+            --image "${{ needs.build-push.outputs.image }}" --revision-suffix "$REVISION_SUFFIX" \
+            --set-env-vars \
+              "DATABASE_URL=secretref:database-url" \
+              "SUPABASE_SERVICE_ROLE_KEY=secretref:supabase-service-role-key" \
+              "FRAUDLENS_DEMO_AUTH_PASSWORD=secretref:demo-auth-password" \
+              "OPENROUTER_API_KEY=secretref:openrouter-api-key" \
+              "SUPABASE_URL=${supabase_url}" \
+              "FRAUDLENS_AUTH_JWKS_URL=${supabase_url}/auth/v1/.well-known/jwks.json" \
+              "FRAUDLENS_AUTH_JWT_ISSUER=${supabase_url}/auth/v1"
           fqdn=$(az containerapp revision show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision "${APP_NAME}--${REVISION_SUFFIX}" --query properties.fqdn -o tsv)
           echo "revision_fqdn=https://${fqdn}" >> "$GITHUB_OUTPUT"
@@ -193,6 +304,19 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /backend
+      # SUPABASE_URL and the public synthetic demo password live at the project root; the demo
+      # persona provisioning below needs both, and the smoke job mints its tokens from the same
+      # pair. Fetched here rather than recursively so the job holds only what it uses.
+      - name: Fetch the project URL and synthetic demo credential from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /
       - name: Alembic upgrade head (expand/contract, gated)
         run: |
           set -euo pipefail
@@ -212,6 +336,18 @@ jobs:
       # by config/portfolio-demo.yaml must be reachable at the artifacts root, and the runner's
       # resolved llm_mode / rag_embedding_mode must equal the story's `execution:` block (the
       # default overlay this step runs under already does).
+      #
+      # Persona provisioning runs FIRST and under the same gate: the story records audited
+      # actions under the configured personas, and the smoke job signs in as two of them, so the
+      # Supabase Auth identities and their tenant-scoped `public.users` rows must exist before
+      # either. The script is idempotent (it reconciles rather than duplicates) and refuses to
+      # run when the resolved application environment is `prod`, which is why it runs on the
+      # runner's default overlay against the production database rather than inside the image.
+      - name: Provision the synthetic demo personas (gated, pre-promote)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          uv run python scripts/provision_demo_auth.py
       - name: Bootstrap the portfolio demo story (gated, pre-promote)
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         env:
@@ -221,10 +357,15 @@ jobs:
           uv run python scripts/bootstrap_portfolio_demo.py
 
   # Smoke the STAGED revision (still at 0% traffic) before any traffic shift.
+  #
+  # `environment: production` is required, not decorative: both the Infisical OIDC identity and
+  # the federated Azure subject are registered against that environment, and this job now needs
+  # each — Infisical to mint persona tokens, Azure to read back the revision's own log.
   smoke:
     needs: [stage, migrate]
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -233,14 +374,64 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      # This job already sits exactly where the portfolio-demo story check belongs (plan §16
-      # Phase 10a): AFTER the `migrate` job's gated bootstrap step and BEFORE `promote`, against
-      # a revision still at 0% traffic. PORTFOLIO_DEMO_SMOKE_ENABLED is driven by the SAME repo
-      # variable that gates the bootstrap, so a deployment carrying no demo runs only the generic
-      # ops probes, while one that does bootstrap the story must match config/portfolio-demo.yaml
-      # or it never takes traffic. SMOKE_AUTH_TOKEN is optional here: without it the story's
-      # authenticated assertions FAIL rather than skip, which is the intended signal until a
-      # machine identity for the demo tenant is wired.
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # The same three Infisical paths the injection reads, fetched for two reasons. Two personas
+      # are signed in with the public synthetic password — an analyst (the permitted path) and an
+      # auditor (the refused path) — so the smoke exercises real role separation rather than the
+      # unauthenticated subset. And the leakage scan below searches the revision's log for these
+      # VALUES: scanning for a name with nothing behind it would report a clean log no matter
+      # what leaked, which is why `check_log_leakage.py` refuses an uninjected name.
+      - name: Fetch backend runtime secrets from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /backend
+      - name: Fetch the LLM provider key from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /llm
+      - name: Fetch the project URL and synthetic demo credential from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /
+      # Masked the instant they exist and exported only into this job's environment; never
+      # printed, stored as an artifact, or passed to another job.
+      - name: Mint short-lived persona tokens (masked)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/smoke_auth_token.py \
+            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
+      # This job sits exactly where the portfolio-demo story check belongs (plan §16 Phase 10a):
+      # AFTER the `migrate` job's gated bootstrap step and BEFORE `promote`, against a revision
+      # still at 0% traffic. PORTFOLIO_DEMO_SMOKE_ENABLED is driven by the SAME repo variable
+      # that gates the bootstrap, so a deployment carrying no demo runs only the generic ops
+      # probes, while one that does bootstrap the story must match config/portfolio-demo.yaml or
+      # it never takes traffic. A persona token that failed to mint FAILS the story's
+      # authenticated assertions rather than skipping them.
       #
       # `--no-cov`: the suite drives a REMOTE process, so the repo-wide --cov-fail-under=90 in
       # `addopts` cannot apply to it. Coverage is enforced by the `quality` job's real suite.
@@ -254,6 +445,18 @@ jobs:
           curl -fsS --retry 5 --retry-delay 10 "$SMOKE_BASE_URL/readyz"
           uv sync --all-packages
           uv run pytest -m smoke --no-cov
+      # The redaction pipeline is defence in depth that nothing else proves ran in production.
+      # Values are read from the environment by NAME, and a finding reports the category or the
+      # variable name only — printing the match would turn this gate into the leak it looks for.
+      - name: Refuse secret, JWT, PHI, or stack-trace leakage in the revision log
+        run: |
+          set -euo pipefail
+          az containerapp logs show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --revision "${APP_NAME}--${REVISION_SUFFIX}" --tail 500 --output tsv > revision.log
+          uv run python scripts/check_log_leakage.py revision.log \
+            --secret-env DATABASE_URL \
+            --secret-env SUPABASE_SERVICE_ROLE_KEY \
+            --secret-env OPENROUTER_API_KEY
 
   # Promote: smoke passed -> shift 100% traffic to the new revision (zero-downtime).
   promote:
@@ -275,6 +478,16 @@ jobs:
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
           retry az containerapp ingress traffic set -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision-weight "${APP_NAME}--${REVISION_SUFFIX}=100"
+      # The STABLE ingress FQDN — the one that survives every promotion (D1). It is printed here
+      # so the value pasted into AZURE_API_ORIGIN / BACKEND_URL can never be a revision FQDN,
+      # which would break the recruiter-facing URL on the very next deploy.
+      - name: Report the stable ingress FQDN for AZURE_API_ORIGIN / BACKEND_URL
+        run: |
+          set -euo pipefail
+          fqdn=$(az containerapp show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "stable ingress origin: https://${fqdn}"
+          echo "### Stable ingress origin: \`https://${fqdn}\`" >> "$GITHUB_STEP_SUMMARY"
 
   # Auto-abort: any failure between staging and promotion -> deactivate the staged revision; the
   # PREVIOUS revision keeps serving 100% (it was never shifted). A broken version never goes live.

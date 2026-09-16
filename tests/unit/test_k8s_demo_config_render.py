@@ -15,7 +15,13 @@ from lib.k8s_demo.config import (
     load_config_from_env,
 )
 from lib.k8s_demo.kubectl import CommandResult
-from lib.k8s_demo.render import _split_image, deploy, render_load_job, render_overlay
+from lib.k8s_demo.render import (
+    _render_tree,
+    _split_image,
+    deploy,
+    render_load_job,
+    render_overlay,
+)
 
 
 def test_committed_config_is_strict_and_pinned() -> None:
@@ -76,7 +82,7 @@ def test_overlay_render_is_disposable_and_overrides_every_backend_image() -> Non
     assert Path("deploy/k8s/overlays/kind/kustomization.yaml").read_text(encoding="utf-8") == source
 
 
-def test_aks_render_injects_both_operator_identity_values_or_refuses() -> None:
+def test_aks_render_injects_every_operator_value_or_refuses() -> None:
     config = load_config()
     rendered = render_overlay(
         config,
@@ -84,11 +90,13 @@ def test_aks_render_injects_both_operator_identity_values_or_refuses() -> None:
         image="example.invalid/fraudlens:sha",
         infisical_identity_id="identity-123",
         azure_managed_identity_client_id="client-456",
+        infisical_project_slug="fraudlens",
     ).yaml_text
     assert rendered.count("identityId: identity-123") == 2
     assert rendered.count("azureManagedIdentityClientId: client-456") == 2
-    assert "replace-infisical" not in rendered
-    with pytest.raises(ValueError, match="requires both"):
+    assert rendered.count("projectSlug: fraudlens") == 2
+    assert "replace-" not in rendered
+    with pytest.raises(ValueError, match="requires every"):
         render_overlay(config, "aks", infisical_identity_id="identity-123")
     with pytest.raises(ValueError, match="unsupported"):
         render_overlay(
@@ -96,7 +104,37 @@ def test_aks_render_injects_both_operator_identity_values_or_refuses() -> None:
             "aks",
             infisical_identity_id="identity value",
             azure_managed_identity_client_id="client-456",
+            infisical_project_slug="fraudlens",
         )
+    with pytest.raises(ValueError, match="aks platform"):
+        render_overlay(
+            config,
+            "kind",
+            infisical_identity_id="identity-123",
+            azure_managed_identity_client_id="client-456",
+            infisical_project_slug="fraudlens",
+        )
+
+
+def test_aks_render_refuses_a_manifest_with_a_surviving_placeholder() -> None:
+    # A new operator placeholder that render.py does not know how to substitute must abort the
+    # render rather than reach a cluster as the literal string "replace-...".
+    config = load_config()
+    original = _render_tree
+
+    def leaky_render(*args: object, **kwargs: object) -> str:
+        return original(*args, **kwargs) + "\n# replace-unmapped-operator-input\n"  # type: ignore[arg-type]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("lib.k8s_demo.render._render_tree", leaky_render)
+        with pytest.raises(ValueError, match="1 unresolved placeholder"):
+            render_overlay(
+                config,
+                "aks",
+                infisical_identity_id="identity-123",
+                azure_managed_identity_client_id="client-456",
+                infisical_project_slug="fraudlens",
+            )
 
 
 def test_load_render_uses_validated_overrides() -> None:
@@ -175,6 +213,7 @@ def test_confirmed_aks_deploy_has_no_kind_waits() -> None:
         image="app:sha",
         infisical_identity_id="identity-123",
         azure_managed_identity_client_id="client-456",
+        infisical_project_slug="fraudlens",
         confirmed=True,
         runner=runner,
     )

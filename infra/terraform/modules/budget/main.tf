@@ -1,5 +1,7 @@
-# Paid-experiment budget module (ADR-028) — a monthly subscription budget filtered to the
-# ephemeral resource groups, with escalating actual-spend alerts and a forecast backstop.
+# Monthly subscription budget module (ADR-028) with escalating actual-spend alerts and a forecast
+# backstop. It serves BOTH governed scopes from one implementation: pass resource group names to
+# filter the budget to those groups (the ephemeral paid-experiment scope), or pass none to leave
+# the budget subscription-wide — the only scope that catches spend in an unplanned resource group.
 
 variable "name_prefix" {
   type        = string
@@ -24,11 +26,12 @@ variable "amount_usd" {
 
 variable "resource_group_names" {
   type        = set(string)
-  description = "Resource group names included in the budget filter."
+  description = "Resource groups to filter on; empty leaves the budget subscription-wide."
+  default     = []
 
   validation {
-    condition     = length(var.resource_group_names) > 0
-    error_message = "resource_group_names must not be empty."
+    condition     = alltrue([for name in var.resource_group_names : length(trimspace(name)) > 0])
+    error_message = "resource_group_names must not contain a blank name."
   }
 }
 
@@ -63,11 +66,16 @@ resource "azurerm_consumption_budget_subscription" "this" {
     start_date = var.start_date
   }
 
-  filter {
-    dimension {
-      name     = "ResourceGroupName"
-      operator = "In"
-      values   = sort(tolist(var.resource_group_names))
+  # No names => no filter block => the budget covers the whole subscription.
+  dynamic "filter" {
+    for_each = length(var.resource_group_names) > 0 ? [1] : []
+
+    content {
+      dimension {
+        name     = "ResourceGroupName"
+        operator = "In"
+        values   = sort(tolist(var.resource_group_names))
+      }
     }
   }
 

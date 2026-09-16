@@ -31,6 +31,12 @@ Notes:
   every `infisical_required_env_keys` name is present and non-blank — "down" (503) when a
   secret sync fails — and reports "skipped" while no delivery is declared. Its detail carries
   a COUNT, never key names, because /readyz is unauthenticated.
+- The two REMOTE probes (Supabase JWKS, active LLM provider) are cached for 5 minutes on
+  app.state.readiness_probe_cache, so a 30-second platform probe cadence no longer turns
+  readiness into thousands of outbound provider calls a day. The database and local ChromaDB
+  checks stay per-request: they are cheap and they are the ones that actually fail. Caching
+  changes only HOW OFTEN a remote dependency is asked — a cached "down" is still "down", the
+  aggregate still fails closed, and the response envelope is unchanged.
 - Probes may be sync or async; readyz awaits any awaitable result.
 """
 
@@ -39,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import time
 from collections.abc import Awaitable, Callable
 from typing import Annotated, cast
 from urllib import request as url_request
@@ -56,11 +63,13 @@ from fraudlens_llm import Protocol, get_llm_settings, load_providers, resolve_ba
 
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
+_REMOTE_PROBE_CACHE_SECONDS = 300.0
 _LIVE_REQUIRED_CHECKS = frozenset(
     {"database", "chromadb", "supabaseAuth", "infisical", "llmProvider"}
 )
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
+RemoteProbe = Callable[[], "Awaitable[DependencyCheck]"]
 
 
 class LivenessResponse(CamelModel):
@@ -87,6 +96,30 @@ class ReadinessResponse(CamelModel):
 def _skipped(name: str) -> DependencyCheck:
     """Return a 'skipped' check for a dependency that is not configured/provisioned."""
     return DependencyCheck(name=name, status="skipped", detail="not configured")
+
+
+def _remote_probe_cache(request: Request) -> dict[str, tuple[float, DependencyCheck]]:
+    """Return the process-local remote-probe cache, creating it on first use."""
+    cache = getattr(request.app.state, "readiness_probe_cache", None)
+    if cache is None:
+        cache = {}
+        request.app.state.readiness_probe_cache = cache
+    return cache
+
+
+async def _cached(
+    cache: dict[str, tuple[float, DependencyCheck]],
+    name: str,
+    probe: RemoteProbe,
+) -> DependencyCheck:
+    """Serve a remote dependency result until its entry expires, then probe again."""
+    now = time.monotonic()
+    entry = cache.get(name)
+    if entry is not None and now < entry[0]:
+        return entry[1]
+    result = await probe()
+    cache[name] = (now + _REMOTE_PROBE_CACHE_SECONDS, result)
+    return result
 
 
 async def _probe_llm_provider(settings: AppSettings, timeout: float) -> DependencyCheck:
@@ -180,12 +213,13 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
         return DependencyCheck(name="infisical", status="ok", detail="externally injected")
 
     infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
+    cache = _remote_probe_cache(request)
     return [
         _database,
         _chromadb,
-        _supabase_auth,
+        lambda: _cached(cache, "supabaseAuth", _supabase_auth),
         infisical_probe or _infisical,
-        lambda: _probe_llm_provider(settings, timeout),
+        lambda: _cached(cache, "llmProvider", lambda: _probe_llm_provider(settings, timeout)),
     ]
 
 

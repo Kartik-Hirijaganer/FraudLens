@@ -227,6 +227,7 @@ async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the tra
             run=run,
             agency_id=agency_id,
             maximum_attempt_cost_usd=manager.agent_max_cost_usd * attempt_count,
+            daily_budget_ceiling_usd=settings.llm_daily_budget_usd,
         )
     await audit_writer(tenant, session, request).record(
         actor_id=optional_actor(tenant),

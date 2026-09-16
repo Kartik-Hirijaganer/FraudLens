@@ -25,7 +25,9 @@ variable "resource_group_name" {
 
 variable "infrastructure_subnet_id" {
   type        = string
-  description = "Subnet id for the Container Apps environment."
+  description = "Custom Container Apps infrastructure subnet, or null for the platform-managed network."
+  default     = null
+  nullable    = true
 }
 
 variable "log_analytics_workspace_id" {
@@ -211,7 +213,7 @@ resource "azurerm_container_app" "this" {
       }
       env {
         name  = "FRAUDLENS_CORS_ALLOW_ORIGINS"
-        value = join(",", var.cors_allow_origins)
+        value = jsonencode(var.cors_allow_origins)
       }
       env {
         name  = "FRAUDLENS_AZURE_MANAGED_IDENTITY_CLIENT_ID"
@@ -271,13 +273,28 @@ resource "azurerm_container_app" "this" {
         interval_seconds = 30
       }
 
+      # 30s x 3 consecutive failures: /readyz caches its two remote probes for 5 minutes, so a
+      # tighter cadence would only re-serve the same cached result (D9).
       readiness_probe {
-        transport        = "HTTP"
-        port             = 8000
-        path             = "/readyz"
-        interval_seconds = 10
+        transport               = "HTTP"
+        port                    = 8000
+        path                    = "/readyz"
+        interval_seconds        = 30
+        failure_count_threshold = 3
       }
     }
+  }
+
+  # D7 — the deploy workflow owns the image, the blue/green traffic split, and (via
+  # `az containerapp secret set`) the Infisical-sourced secret values. Terraform owns the app,
+  # its scaling envelope, its non-secret env, and the secret *reference names* only; without
+  # this the next apply would reset traffic to the latest revision and bypass the smoke gate.
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].traffic_weight,
+      secret,
+    ]
   }
 }
 
@@ -292,8 +309,8 @@ output "app_name" {
 }
 
 output "app_fqdn" {
-  description = "Public FQDN of the gateway app ingress."
-  value       = azurerm_container_app.this.latest_revision_fqdn
+  description = "Stable public FQDN of the gateway app ingress (survives revision promotion)."
+  value       = azurerm_container_app.this.ingress[0].fqdn
 }
 
 output "startup_probe_budget_seconds" {

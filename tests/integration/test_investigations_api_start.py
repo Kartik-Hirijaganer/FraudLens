@@ -295,6 +295,9 @@ async def test_live_multi_agent_quota_uses_existing_rate_limited_envelope(
         db_sessionmaker,
         llm_mode="live",
         multi_agent_sar_enabled=True,
+        # The tenant budget above is only half the story: the deployment ceiling clamps it, so
+        # both must clear eleven runs for this test to be about quotas rather than spend.
+        llm_daily_budget_usd=Decimal("5"),
     )
     app.state.run_manager.start = lambda **_kwargs: None
 
@@ -340,6 +343,9 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
         db_sessionmaker,
         llm_mode="live",
         multi_agent_sar_enabled=True,
+        # The tenant budget above is only half the story: the deployment ceiling clamps it, so
+        # both must clear eleven runs for this test to be about quotas rather than spend.
+        llm_daily_budget_usd=Decimal("5"),
     )
     app.state.run_manager.start = lambda **_kwargs: None
     async with _client(app) as client:

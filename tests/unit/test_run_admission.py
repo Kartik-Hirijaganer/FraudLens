@@ -14,6 +14,10 @@ from fraudlens_backend.db.repositories import AnalysisRunRepository
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.runs.admission import reserve_agent_spend
 
+# Above every tenant budget these tests seed, so the tenant value is what binds here; the
+# ceiling's own behavior is exercised separately below.
+_UNBINDING_CEILING = Decimal("1.00")
+
 
 async def _seed_runs(
     sessionmaker: async_sessionmaker[AsyncSession],
@@ -68,6 +72,7 @@ async def test_reservations_deny_overcommit_and_remain_tenant_scoped(db_sessionm
             session,
             run=first,
             agency_id=primary_id,
+            daily_budget_ceiling_usd=_UNBINDING_CEILING,
             maximum_attempt_cost_usd=Decimal("0.6"),
         )
         await session.commit()
@@ -81,6 +86,7 @@ async def test_reservations_deny_overcommit_and_remain_tenant_scoped(db_sessionm
                 session,
                 run=second,
                 agency_id=primary_id,
+                daily_budget_ceiling_usd=_UNBINDING_CEILING,
                 maximum_attempt_cost_usd=Decimal("0.6"),
             )
         await session.rollback()
@@ -92,6 +98,7 @@ async def test_reservations_deny_overcommit_and_remain_tenant_scoped(db_sessionm
             session,
             run=other,
             agency_id=other_id,
+            daily_budget_ceiling_usd=_UNBINDING_CEILING,
             maximum_attempt_cost_usd=Decimal("0.6"),
         )
         await session.commit()
@@ -106,6 +113,7 @@ async def test_reservations_deny_overcommit_and_remain_tenant_scoped(db_sessionm
             session,
             run=second,
             agency_id=primary_id,
+            daily_budget_ceiling_usd=_UNBINDING_CEILING,
             maximum_attempt_cost_usd=Decimal("0.6"),
         )
         await session.commit()
@@ -123,6 +131,7 @@ async def test_reservation_fails_closed_for_mismatched_or_missing_tenant(db_sess
                 session,
                 run=run,
                 agency_id=other_id,
+                daily_budget_ceiling_usd=_UNBINDING_CEILING,
                 maximum_attempt_cost_usd=Decimal("0.1"),
             )
 
@@ -137,5 +146,59 @@ async def test_reservation_fails_closed_for_mismatched_or_missing_tenant(db_sess
                 session,
                 run=missing_run,
                 agency_id=missing_id,
+                daily_budget_ceiling_usd=_UNBINDING_CEILING,
                 maximum_attempt_cost_usd=Decimal("0.1"),
             )
+
+
+async def test_the_deployment_ceiling_binds_below_a_tenants_configured_budget(
+    db_sessionmaker,
+) -> None:
+    # The tenant row says $0.90/day, but this deployment admits only $0.20, so a $0.60 worst case
+    # is refused with the catalog code that renders the standard error envelope.
+    primary_id, _other_id, run_ids = await _seed_runs(db_sessionmaker)
+
+    async with db_sessionmaker() as session:
+        run = await AnalysisRunRepository(session, primary_id).get(run_ids[0])
+        assert run is not None
+        with pytest.raises(AppError, match="llm_budget_exceeded"):
+            await reserve_agent_spend(
+                session,
+                run=run,
+                agency_id=primary_id,
+                maximum_attempt_cost_usd=Decimal("0.60"),
+                daily_budget_ceiling_usd=Decimal("0.20"),
+            )
+        await session.rollback()
+
+
+async def test_a_reservation_at_the_ceiling_is_admitted_and_over_it_is_not(
+    db_sessionmaker,
+) -> None:
+    primary_id, _other_id, run_ids = await _seed_runs(db_sessionmaker)
+
+    async with db_sessionmaker() as session:
+        run = await AnalysisRunRepository(session, primary_id).get(run_ids[0])
+        assert run is not None
+        reserved = await reserve_agent_spend(
+            session,
+            run=run,
+            agency_id=primary_id,
+            maximum_attempt_cost_usd=Decimal("0.25"),
+            daily_budget_ceiling_usd=Decimal("0.25"),
+        )
+        await session.commit()
+    assert reserved == Decimal("0.25")
+
+    async with db_sessionmaker() as session:
+        second = await AnalysisRunRepository(session, primary_id).get(run_ids[1])
+        assert second is not None
+        with pytest.raises(AppError, match="llm_budget_exceeded"):
+            await reserve_agent_spend(
+                session,
+                run=second,
+                agency_id=primary_id,
+                maximum_attempt_cost_usd=Decimal("0.01"),
+                daily_budget_ceiling_usd=Decimal("0.25"),
+            )
+        await session.rollback()

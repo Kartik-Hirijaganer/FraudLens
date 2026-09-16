@@ -1,4 +1,7 @@
-# Networking module — VNet plus independently optional Container Apps and AKS subnets.
+# Networking module — an optional VNet plus independently optional Container Apps and AKS
+# subnets. A root that requests no subnet gets no network at all: a custom-network Container
+# Apps environment provisions a Standard Load Balancer and public IP as fixed infrastructure
+# (~$22/month), which the public-egress-only gateway has no need of (D1).
 
 variable "name_prefix" {
   type        = string
@@ -37,7 +40,12 @@ variable "tags" {
   default     = {}
 }
 
+locals {
+  subnet_prefix_count = length(var.apps_subnet_prefixes) + length(var.aks_subnet_prefixes)
+}
+
 resource "azurerm_virtual_network" "this" {
+  count               = local.subnet_prefix_count > 0 ? 1 : 0
   name                = "${var.name_prefix}-vnet"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -49,7 +57,7 @@ resource "azurerm_subnet" "apps" {
   count                = length(var.apps_subnet_prefixes) > 0 ? 1 : 0
   name                 = "${var.name_prefix}-apps-subnet"
   resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.this.name
+  virtual_network_name = azurerm_virtual_network.this[0].name
   address_prefixes     = var.apps_subnet_prefixes
 
   delegation {
@@ -66,11 +74,16 @@ moved {
   to   = azurerm_subnet.apps[0]
 }
 
+moved {
+  from = azurerm_virtual_network.this
+  to   = azurerm_virtual_network.this[0]
+}
+
 resource "azurerm_subnet" "aks" {
   count                = length(var.aks_subnet_prefixes) > 0 ? 1 : 0
   name                 = "${var.name_prefix}-aks-subnet"
   resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.this.name
+  virtual_network_name = azurerm_virtual_network.this[0].name
   address_prefixes     = var.aks_subnet_prefixes
 }
 
@@ -89,8 +102,8 @@ resource "azurerm_subnet_network_security_group_association" "aks" {
 }
 
 output "vnet_id" {
-  description = "Resource id of the virtual network."
-  value       = azurerm_virtual_network.this.id
+  description = "Resource id of the virtual network, or null when no subnet was requested."
+  value       = try(azurerm_virtual_network.this[0].id, null)
 }
 
 output "apps_subnet_id" {
