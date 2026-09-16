@@ -26,6 +26,19 @@ patches:
         path: /metadata/annotations
         value:
           secrets.infisical.com/auto-reload: "true"
+  # The durability proof measures leases and exactly-once recovery, not external model uptime.
+  # Keep the API's production-mode readiness probe live while making only the worker deterministic.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: fraudlens-worker
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: FRAUDLENS_LLM_MODE
+            value: mock
   - path: service-lb.yaml
   # The base policy admits only in-cluster sources. externalTrafficPolicy: Local preserves the
   # client source IP through DNAT, so Internet traffic matches no namespaceSelector and Cilium

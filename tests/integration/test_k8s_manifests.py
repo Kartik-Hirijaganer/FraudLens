@@ -214,6 +214,12 @@ def test_aks_overlay_runs_the_in_cluster_worker_queue() -> None:
     assert config["data"]["FRAUDLENS_RUN_EXECUTION_MODE"] == "worker"
     assert config["data"]["FRAUDLENS_STORAGE_BACKEND"] == "local"
     assert config["data"]["FRAUDLENS_PORTFOLIO_DEMO_ENABLED"] == "true"
+    documents = _render("overlays/aks-demo")
+    worker = _named(documents, "Deployment", "fraudlens-worker")
+    api = _named(documents, "Deployment", "fraudlens-api")
+    worker_env = worker["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert worker_env == [{"name": "FRAUDLENS_LLM_MODE", "value": "mock"}]
+    assert "env" not in api["spec"]["template"]["spec"]["containers"][0]
 
 
 def test_aks_operator_projects_only_the_actual_secret_paths_and_keys() -> None:
