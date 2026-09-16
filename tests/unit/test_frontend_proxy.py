@@ -138,10 +138,14 @@ def test_the_proxy_itself_is_exercised_by_the_authenticated_smoke() -> None:
     # is the only thing that proves the /api rewrite forwards auth headers and an SSE stream.
     steps = _deploy_steps()
     mint = _deploy_step("Mint short-lived persona tokens")
+    wake = _deploy_step("Wake the scale-to-zero backend")
     step = _deploy_step("survive the proxy")
     assert steps.index(mint) < steps.index(step)
+    assert steps.index(mint) < steps.index(wake) < steps.index(step)
     assert "scripts/smoke_auth_token.py" in str(mint["run"])
     assert "test_production_auth_smoke.py" not in str(mint["run"])
+    assert "--max-time 180" in str(wake["run"])
+    assert "/api/v1/portfolio-demo/config" in str(wake["run"])
     assert step["env"]["SMOKE_BASE_URL"] == "${{ vars.FRONTEND_URL }}"
     script = str(step["run"])
     assert "scripts/smoke_auth_token.py" not in script

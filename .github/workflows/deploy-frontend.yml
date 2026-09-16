@@ -168,6 +168,14 @@ jobs:
           uv sync --all-packages
           uv run python scripts/smoke_auth_token.py \
             --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
+      - name: Wake the scale-to-zero backend through the proxy
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        env:
+          SMOKE_BASE_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 2 --retry-all-errors --retry-delay 5 \
+            --max-time 180 "${SMOKE_BASE_URL}/api/v1/portfolio-demo/config" > /dev/null
       - name: Prove authenticated APIs and SSE survive the proxy
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         env:
