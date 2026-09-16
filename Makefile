@@ -130,10 +130,10 @@ endef
 	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
 	hpa-evidence-validate
 
-.PHONY: help install \
-        backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
+.PHONY: help install backend-install frontend-install \
+        backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci backend-deps-audit \
         postgres-run-test \
-        frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
+        frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci frontend-deps-audit \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
         header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates fulldata-test \
@@ -150,8 +150,12 @@ help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install all dependencies (uv workspace + frontend npm ci).
+install: backend-install frontend-install ## Install all dependencies (uv workspace + frontend npm ci).
+
+backend-install: ## Install backend and workspace Python dependencies.
 	$(UV) sync --all-packages --group fulldata
+
+frontend-install: ## Install locked frontend dependencies.
 	cd $(FRONTEND) && $(NPM) ci
 
 # ---------------------------------------------------------------------------
@@ -276,7 +280,7 @@ dup-check: ## Copy/paste detection (jscpd).
 	npx --yes jscpd@4 backend/src packages frontend/src scripts --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
-deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
+backend-deps-audit: ## Audit resolved Python dependencies (needs network).
 	# --skip-editable: local workspace packages are not on PyPI. The four ChromaDB advisories
 	# affect its unexposed HTTP/auth server, not FraudLens's embedded PersistentClient; no fixes
 	# are published. Each exception is assessed in docs/runbooks/security.md §5.1.
@@ -285,7 +289,11 @@ deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs netw
 		--ignore-vuln CVE-2026-45830 \
 		--ignore-vuln CVE-2026-45831 \
 		--ignore-vuln CVE-2026-45833
+
+frontend-deps-audit: ## Audit production frontend dependencies (needs network).
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
+
+deps-audit: backend-deps-audit frontend-deps-audit ## Audit Python and frontend dependencies. Phase 13 gate.
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run --group fulldata python scripts/update_docs.py --check openapi
 docs: ## Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES).

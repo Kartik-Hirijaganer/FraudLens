@@ -1,20 +1,22 @@
 # Runbook — Deploy & Rollback
 
-> **Status: inert.** Deploy workflows are wired but gated off (`AZURE_DEPLOY_ENABLED`,
-> `VERCEL_DEPLOY_ENABLED` unset). This runbook is the procedure for once the accounts
-> and Terraform state backend exist. No `terraform apply` / push runs until then.
+> **Status: live, manual-only.** Deploy workflows require `workflow_dispatch`; a push or successful
+> CI run never deploys. Cloud jobs remain independently gated by `AZURE_DEPLOY_ENABLED` and
+> `VERCEL_DEPLOY_ENABLED`, plus the protected production environment.
 
 ## Pipeline (parity)
 
-Every path runs the **same gate** (`make ci` + `make docker-build`) via the reusable
-workflow before anything ships:
+The reusable workflow defaults to the full gate for normal CI and releases. A manual deploy selects
+the stack it is about to ship, avoiding unrelated application work while retaining repository-wide
+security and documentation governance:
 
 ```
-push dev/release → ci.yml (make ci + docker-build + tf-validate)
-   → deploy-backend.yml:  verify → build-push (GHCR, build-once SHA) → infra (apply only if changed)
-                          → stage revision @0% → gated migration → smoke → promote-or-abort
-   → deploy-frontend.yml: verify → vercel build (HTTPS API + real-auth demo) → deploy → smoke
-tag v*           → release.yml: verify → git-cliff CHANGELOG → GitHub release
+push dev/release       → ci.yml: full backend + frontend + governance/infra gate (no deploy)
+manual backend dispatch → backend + governance/infra verify → build-push (GHCR, build-once SHA)
+                        → infra (apply only if changed) → stage revision @0%
+                        → gated migration → smoke → promote-or-abort
+manual frontend dispatch → frontend + governance verify → Vercel build → deploy → smoke
+tag v*                 → release.yml: full verify → git-cliff CHANGELOG → GitHub release
 ```
 
 The full fast/reliable-deploy detail (build-once-promote-many, probes, promote-or-abort, switch

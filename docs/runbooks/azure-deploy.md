@@ -1,9 +1,10 @@
 # Runbook — Azure Deploy (fast & reliable)
 
 > **Status: wired, validated, INERT.** The Azure / Vercel / Supabase accounts do not exist yet, so
-> the Terraform is `fmt`/`validate`-checked in CI but **never applied**, and the deploy workflows
-> only run their cloud jobs when the repo variables `AZURE_DEPLOY_ENABLED` / `VERCEL_DEPLOY_ENABLED`
-> are `'true'`. This runbook is the procedure for once the accounts and the Terraform state backend
+> the Terraform is `fmt`/`validate`-checked in CI but **never applied**, and the manual-only deploy
+> workflows run their cloud jobs only when the repo variables `AZURE_DEPLOY_ENABLED` /
+> `VERCEL_DEPLOY_ENABLED` are `'true'`. A push or successful CI run never deploys. This runbook is
+> the procedure for once the accounts and the Terraform state backend
 > exist (Golden Rule 1: no apply/push until then). Rollback lives in
 > [`deploy-rollback.md`](deploy-rollback.md).
 

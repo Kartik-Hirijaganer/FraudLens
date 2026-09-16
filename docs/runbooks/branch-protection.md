@@ -13,16 +13,18 @@ from the current branch's open PR through `gh`.
 | Branch pattern | Purpose | Direct pushes | Deletion | Deploys |
 | --- | --- | --- | --- | --- |
 | `main` | Stable integration / source of truth | Blocked; PR required | Blocked | No |
-| `dev` | Deployment-capable development branch | Blocked; PR required | Blocked | Yes |
-| `release/*` | Deployment-capable release branches | Blocked; PR required | Blocked | Yes |
+| `dev` | Deployment-capable development branch | Blocked; PR required | Blocked | Manual only |
+| `release/*` | Deployment-capable release branches | Blocked; PR required | Blocked | Manual only |
 
-Backend and frontend deploy workflows are allowlisted to post-merge `push` CI runs on
-`dev` and `release/*` only:
+Backend and frontend deploy workflows are `workflow_dispatch`-only:
 [`deploy-backend.yml`](../../.github/workflows/deploy-backend.yml) and
-[`deploy-frontend.yml`](../../.github/workflows/deploy-frontend.yml). CI runs after PR
-merges to `main`, `dev`, and `release/*`, but only `dev` and `release/*` can start deploy
-workflows. A green PR check alone cannot deploy; the deploy gate requires CI to complete on
-the protected-branch push created by the merge. A CI-green push to `main` must not deploy.
+[`deploy-frontend.yml`](../../.github/workflows/deploy-frontend.yml). A push and its CI run never
+start a deployment on any branch. An operator must select the exact `dev` or `release/*` ref in the
+Actions UI or `gh workflow run`; the workflow then re-runs the repository CI gate before any cloud
+job. Backend dispatches run backend, backend-infra, and repository-governance checks; frontend
+dispatches run frontend and repository-governance checks. Full CI and release verification still
+run both stacks. The production environment and enable variables remain independent deployment
+gates.
 
 ## Required status checks
 

@@ -2,7 +2,13 @@
 # PRs are handled by dependency-update.yml, which calls the SAME reusable workflow with the
 # SAME caller job id (`ci`), so the required status-check names match either way:
 #   ci / backend   ·   ci / frontend   ·   ci / docker-build
-name: ci
+#
+# The workflow name intentionally differs from the retired `ci` name. Until this change reaches
+# the default branch, GitHub evaluates the old default-branch deploy files, whose `workflow_run`
+# filters subscribe to a workflow named `ci`. A distinct name prevents release-branch pushes from
+# waking those stale automatic deploy listeners; the caller job id (and required check names) stays
+# `ci`.
+name: ci-gates
 
 on:
   pull_request:

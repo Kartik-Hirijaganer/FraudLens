@@ -72,16 +72,13 @@ def test_image_is_built_exactly_once_and_reused() -> None:
 def test_image_tagged_by_commit_sha() -> None:
     """The single image is immutable, tagged by the deployed commit SHA (build-once identity).
 
-    The tag reads `DEPLOY_SHA` rather than the event field directly, because the deploy now also
-    runs from a `workflow_dispatch` against a release branch, where `github.event.workflow_run` is
-    absent. Both paths must still resolve to the SHA actually being deployed -- a tag that fell
-    back to empty would push `fraudlens-backend:` and break build-once identity outright.
+    The tag reads `DEPLOY_SHA`, which is bound to the manually dispatched ref's commit SHA.
     """
     flat = _deploy_backend_flat()
     assert LOWERCASE_OWNER_SCRIPT in flat
     assert 'image_name="ghcr.io/${owner}/fraudlens-backend"' in flat
     assert "image=${image_name}:${DEPLOY_SHA}" in flat
-    assert "DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}" in flat
+    assert "DEPLOY_SHA: ${{ github.sha }}" in flat
 
 
 def test_ghcr_image_references_are_lowercase() -> None:
@@ -262,6 +259,52 @@ def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
     assert "bash scripts/check_deploy_identity.sh" in guard["run"]
     assert guard["env"]["AZURE_SUBSCRIPTION_ID"] == "${{ vars.AZURE_SUBSCRIPTION_ID }}"
     assert guard["env"]["AZURE_TENANT_ID"] == "${{ vars.AZURE_TENANT_ID }}"
+
+
+def test_application_deploy_workflows_are_manual_only() -> None:
+    for name in ("deploy-backend.yml", "deploy-frontend.yml"):
+        workflow = _load_yaml(WORKFLOWS / name)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        assert set(triggers) == {"workflow_dispatch"}, name
+        assert "workflow_run" not in (WORKFLOWS / name).read_text(encoding="utf-8")
+
+    # GitHub reads workflow_run listeners from the default branch. Main intentionally remains the
+    # final merge, so its stale deploy listeners still subscribe to the old workflow name `ci`.
+    # Release-branch pushes use a distinct workflow name and therefore cannot wake those listeners.
+    assert _load_yaml(WORKFLOWS / "ci.yml")["name"] == "ci-gates"
+
+
+def test_application_deploy_verification_is_stack_scoped() -> None:
+    """Each deploy validates its own app; normal CI/release retain the all-stacks default."""
+    backend = _load_yaml(WORKFLOWS / "deploy-backend.yml")["jobs"]["verify"]
+    frontend = _load_yaml(WORKFLOWS / "deploy-frontend.yml")["jobs"]["verify"]
+    assert backend["with"] == {"scope": "backend"}
+    assert frontend["with"] == {"scope": "frontend"}
+
+    reusable = _load_yaml(WORKFLOWS / "_ci-reusable.yml")
+    triggers = reusable[True] if True in reusable else reusable["on"]
+    assert triggers["workflow_call"]["inputs"]["scope"]["default"] == "all"
+
+    jobs = reusable["jobs"]
+    backend_only = "${{ inputs.scope != 'frontend' }}"
+    for name in ("durable-postgres", "k8s-validate", "docker-build", "tf-validate"):
+        assert jobs[name]["if"] == backend_only, name
+
+    deps = jobs["deps-audit"]
+    assert deps["name"] == "${{ matrix.stack }}-deps-audit"
+    deps_matrix = deps["strategy"]["matrix"]["stack"]
+    assert "inputs.scope" in deps_matrix
+    assert '["backend"]' in deps_matrix and '["frontend"]' in deps_matrix
+
+    # The ordinary CI, dependency-update, and release callers omit `with`, so `all` stays the
+    # default and their established full-repository gate is not weakened.
+    for workflow_name, job_name in (
+        ("ci.yml", "ci"),
+        ("dependency-update.yml", "ci"),
+        ("release.yml", "verify"),
+    ):
+        caller = _load_yaml(WORKFLOWS / workflow_name)["jobs"][job_name]
+        assert "with" not in caller, workflow_name
 
 
 def test_deploy_identity_guard_pins_the_personal_repository_and_azure_account() -> None:

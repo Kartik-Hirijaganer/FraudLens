@@ -1,7 +1,6 @@
-# Backend deploy (plan §15.4 / §15.7 / Phase 14) — WIRED BUT INERT until the Azure account
-# exists. Deploys run only from `dev` / `release/*` after CI succeeds, and the cloud jobs run
-# only when the repo variable AZURE_DEPLOY_ENABLED == 'true'; until then only `verify` runs
-# (re-running the SAME gate at the deployed SHA — deploy parity).
+# Backend deploy (plan §15.4 / §15.7 / Phase 14) — manually dispatched only. The cloud jobs run
+# only when the repo variable AZURE_DEPLOY_ENABLED == 'true'; until then only the scoped
+# backend/governance verification runs at the deployed SHA.
 #
 # Fast & reliable deploy (ADR-013):
 #   build-once-promote-many : ONE immutable image (SHA tag) is built and pushed to GHCR, then
@@ -19,19 +18,11 @@
 # runtime from Infisical, never injected into the image or terraform state.
 name: deploy-backend
 
-# `workflow_run` always executes the workflow file from the DEFAULT branch, whatever ref
-# triggered it -- so a deploy change on a release branch is inert until it is merged.
-# `workflow_dispatch` executes the file from the ref it is dispatched against, which is how a
-# release branch iterates on its own deploy without a merge per attempt. The gates are unchanged
-# either way: `verify` re-runs the full CI suite at the deployed SHA, AZURE_DEPLOY_ENABLED still
+# A push or successful CI run must never deploy. `workflow_dispatch` executes this file from the
+# explicitly selected ref, then re-runs the backend-scoped CI suite at that SHA.
+# AZURE_DEPLOY_ENABLED still
 # gates every cloud job, and `environment: production` still requires human approval.
 on:
-  workflow_run:
-    workflows: ["ci"]
-    types: [completed]
-    branches:
-      - dev
-      - "release/*"
   workflow_dispatch:
 
 permissions:
@@ -46,14 +37,13 @@ concurrency:
 env:
   APP_NAME: fraudlens-prod-api
   RESOURCE_GROUP: fraudlens-prod-rg
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
 
 jobs:
   # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
   # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
   # the whole graph before anything billable is touched.
   identity:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -64,11 +54,14 @@ jobs:
       - name: Refuse a non-personal deploy identity
         run: bash scripts/check_deploy_identity.sh
 
-  # Deploy parity: re-run the identical gate at the exact SHA being deployed.
+  # Deploy parity: re-run the backend, backend-infra, and repository-governance gates at the
+  # exact SHA being deployed. Frontend tests belong to deploy-frontend and are intentionally
+  # omitted here; full CI/release still exercise both stacks together.
   verify:
     needs: identity
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     uses: ./.github/workflows/_ci-reusable.yml
+    with:
+      scope: backend
 
   # Build ONE immutable image (SHA tag) and push to GHCR. The same digest is promoted unchanged.
   build-push:
@@ -83,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Compute image reference (build-once SHA tag)
         id: meta
         shell: bash
@@ -157,7 +150,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Azure login (OIDC)
         uses: azure/login@v3
         with:
@@ -324,7 +317,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -404,7 +397,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
