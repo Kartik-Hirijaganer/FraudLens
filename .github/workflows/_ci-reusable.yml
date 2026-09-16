@@ -1,10 +1,17 @@
 # Reusable CI workflow — the SINGLE definition of the gate, invoked by ci.yml,
-# dependency-update.yml, and the deploy workflows. It runs the SAME `make` targets
-# as the local pre-PR gate, so "if CI passes, deploy won't fail" is structural.
+# dependency-update.yml, release.yml, and the deploy workflows. CI/release default to both
+# stacks; deploy callers select only the stack they are about to ship. Cross-cutting governance
+# always runs, while backend runtime/infra checks are omitted from frontend-only verification.
 name: _ci-reusable
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      scope:
+        description: "Verification scope: all, backend, or frontend"
+        required: false
+        type: string
+        default: all
 
 permissions:
   contents: read
@@ -16,28 +23,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [backend, frontend]
+        stack: ${{ fromJSON(inputs.scope == 'backend' && '["backend"]' || inputs.scope == 'frontend' && '["frontend"]' || '["backend","frontend"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history for changed-file (diff) coverage
       - name: Set up uv (with cache)
-        uses: astral-sh/setup-uv@v5
+        if: ${{ matrix.stack == 'backend' }}
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Set up Node
-        uses: actions/setup-node@v4
+        if: ${{ matrix.stack == 'frontend' }}
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies (uv workspace + npm ci)
-        run: make install
+      - name: Install ${{ matrix.stack }} dependencies
+        run: make ${{ matrix.stack }}-install
       - name: Run ${{ matrix.stack }} CI gate
         run: make ${{ matrix.stack }}-ci
       - name: Upload coverage
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ matrix.stack }}
           path: |
@@ -49,22 +58,22 @@ jobs:
   quality:
     # Cross-cutting checks that `make ci` includes but the per-stack jobs above do not:
     # SUMMARY headers, physical-line ratchet, docs links, experiment budget/ledger, secret scan,
-    # generated-doc freshness, duplication, LLM catalog, portable vLLM harness coverage,
-    # and the portfolio-demo literal guard
-    # (values derived from config/portfolio-demo.yaml must appear nowhere else). Lives here so
-    # every caller (PR, Renovate, release, deploy) enforces them.
+    # generated-doc freshness, duplication, LLM catalog, and the portfolio-demo literal guard.
+    # Backend-only quality/full-data/benchmark harnesses run only when the backend is in scope.
+    # This job stays on every caller because its baseline is repository governance, not a second
+    # application stack.
     name: quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # gitleaks + git-aware checks want history
       - name: Set up uv (with cache)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
       - name: Install Python deps (uv workspace)
@@ -77,10 +86,17 @@ jobs:
           curl -sSfL "$url" | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
       - name: Cross-cutting quality and governance checks
-        run: make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test
+        env:
+          CI_SCOPE: ${{ inputs.scope }}
+        run: |
+          make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check
+          if [[ "$CI_SCOPE" != "frontend" ]]; then
+            make quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test
+          fi
 
   durable-postgres:
     name: durable-postgres
+    if: ${{ inputs.scope != 'frontend' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -100,9 +116,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
       POSTGRES_TEST_DATABASE_URL: postgresql+asyncpg://fraudlens:changeme@localhost:5432/fraudlens
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up uv (with cache)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Install Python dependencies
@@ -112,15 +128,16 @@ jobs:
 
   k8s-validate:
     name: k8s-validate
+    if: ${{ inputs.scope != 'frontend' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up uv (with cache)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Set up pinned kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
         with:
           version: v1.32.8
       - name: Install pinned kubeconform
@@ -141,11 +158,12 @@ jobs:
 
   docker-build:
     name: docker-build
+    if: ${{ inputs.scope != 'frontend' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Build backend image (no push)
         run: make docker-build
 
@@ -153,38 +171,44 @@ jobs:
     # Terraform fmt -check + validate per environment (plan §15.6 / Phase 14). No apply runs until
     # the Azure account exists; the internal service-split module validates but stays inert in v1.
     name: tf-validate
+    if: ${{ inputs.scope != 'frontend' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
       - name: Set up uv for Checkov
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
       - name: Terraform fmt-check + validate (all roots)
         run: make tf-validate
       - name: Scan ephemeral experiment IaC
         run: make iac-scan
 
   deps-audit:
-    # Dependency vulnerability gate (plan §16 Phase 13): pip-audit over the resolved Python
-    # tree + npm audit over the production frontend deps. Separate job (not in the offline
-    # `make ci` umbrella) because both query live advisory databases and need network.
-    name: deps-audit
+    # Dependency vulnerability gate (plan §16 Phase 13), scoped to the selected application.
+    # It stays separate from the offline `make ci` umbrella because advisory queries need network.
+    name: ${{ matrix.stack }}-deps-audit
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJSON(inputs.scope == 'backend' && '["backend"]' || inputs.scope == 'frontend' && '["frontend"]' || '["backend","frontend"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up uv (with cache)
-        uses: astral-sh/setup-uv@v5
+        if: ${{ matrix.stack == 'backend' }}
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Set up Node
-        uses: actions/setup-node@v4
+        if: ${{ matrix.stack == 'frontend' }}
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies (uv workspace + npm ci)
-        run: make install
-      - name: Dependency vulnerability audit (pip-audit + npm audit)
-        run: make deps-audit
+      - name: Install ${{ matrix.stack }} dependencies
+        run: make ${{ matrix.stack }}-install
+      - name: Audit ${{ matrix.stack }} dependencies
+        run: make ${{ matrix.stack }}-deps-audit

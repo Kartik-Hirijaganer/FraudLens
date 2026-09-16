@@ -2,6 +2,73 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.4.0] - 2026-09-16
+
+Release 0.4.0 takes FraudLens from a CI-validated deployment scaffold to a running one: a
+permanent public URL on Azure Container Apps, a measured ephemeral AKS session, and the cost
+controls that bound both. Every deploy remains human-approved.
+
+### Features
+
+- Deploy the backend to Azure Container Apps behind a required production approval, with
+  build-once images, a revision staged at 0% traffic, and gated migration → authenticated smoke →
+  promote-or-abort
+- Serve the application at one public origin: the Vercel SPA proxies `/api/*` same-origin to the
+  Container App, so no second hostname is published and CORS is a backstop rather than the
+  mechanism
+- Inject Container Apps secrets at deploy time from Infisical over OIDC — Terraform owns the app
+  and the secret reference names, the deploy job owns the values, and neither reaches state,
+  tfvars, logs, or artifacts
+- Apply the validated AKS Terraform in one governed session and publish measured HPA and
+  durable-worker evidence, then destroy the cluster and verify it clean
+- Generate a dated Azure cost model from the committed Terraform shapes and live Azure Retail
+  Prices, failing the build when a shape breaches the replica cap or the per-session ceiling
+- Add budget alerts at two scopes — resource-group and an unfiltered subscription-wide guardrail —
+  each notifying at 50 / 80 / 100% actual and 100% forecast
+- Enforce hard spend caps that bound the bill rather than alerting on it: one maximum replica,
+  0.1 GB/day log ingestion, a daily LLM ceiling, and manual-only scheduled jobs
+- Add a daily read-only cost watchdog that fails its run when an AKS group survives or
+  month-to-date cost passes its threshold, and a keep-warm ping that hides the cold start across
+  weekday hours
+- Refuse a deploy from a non-personal repository, commit identity, remote, or Azure account
+
+### Fixes
+
+- Remove the custom VNet from the Container Apps environment, which was provisioning a Standard
+  Load Balancer and public IP as fixed infrastructure — roughly $22/month billed whether or not
+  anyone visited
+- Correct the AKS user-pool SKU to `Standard_D2as_v4` on regular priority: the `DASv5` family quota
+  is zero in the target region and regional Spot capacity is below what the pool needs, so the
+  original shape could not be created at any size
+- Emit the gateway CORS origins as JSON rather than a comma-joined string, which the settings
+  boundary could not decode and which crashed the container before it served a request
+- Stop Terraform reverting blue/green promotion and injected secrets by ignoring the image,
+  traffic weights, and secret collection on subsequent applies
+- Cap Log Analytics ingestion with a daily quota so the workspace stops ingesting instead of
+  billing on
+- Cap live LLM spend with a fail-closed daily budget that returns the standard error envelope
+- Cache the remote readiness probes so platform health checks stop making outbound provider calls
+  on every invocation
+- Consolidate the AKS workflow into one job so a single runner's address can be the API-server
+  allowlist, with a wall-clock deadline, always-on teardown, and evidence uploaded even on failure
+- Publish the AKS demonstration through a `LoadBalancer` Service and a matching network-policy rule
+  so the session has an external path to exercise
+
+### Documentation
+
+- Record the executed AKS session in ADR-021 as a dated amendment covering the SKU and priority
+  change, their causes, and the external-access addition
+- Add ADR-029 for the recurring operational budget: ceiling, both budget scopes, the hard caps,
+  the priced keep-warm window, the watchdog, the review cadence, and why the permanent URL runs on
+  Container Apps while AKS stays ephemeral
+- Move the AKS and deployment-topology claims to `demonstrated` against committed evidence, and
+  register the cost-control claim
+- Replace the "not applied" and "wired, validated, inert" runbook banners with the executed
+  procedures, and document the request path, secret-delivery ownership, budget and cap behavior,
+  and recovery
+- Report both Kubernetes runtimes from their own artifacts, so kind evidence is never presented as
+  an AKS deployment
+
 ## [0.3.0] - 2026-09-15
 
 ### Documentation

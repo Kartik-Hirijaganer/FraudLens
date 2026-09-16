@@ -107,23 +107,48 @@ def test_the_vercel_cli_is_pinned_rather_than_whatever_published_today() -> None
     assert 'npm i -g "vercel@${VERCEL_CLI_VERSION}"' in str(build["run"])
 
 
+def test_the_deploy_names_the_project_it_is_meant_to_deploy() -> None:
+    """`vercel pull --yes` does not fail when unlinked — it CREATES a project and deploys there.
+
+    The build then succeeds against a brand-new project while FRONTEND_URL keeps serving the old
+    one, which is a green deploy that shipped nothing. Naming the project is what prevents it.
+    """
+    build = _deploy_step("Deploy to Vercel")
+    assert build["env"]["VERCEL_ORG_ID"] == "${{ vars.VERCEL_ORG_ID }}"
+    assert build["env"]["VERCEL_PROJECT_ID"] == "${{ vars.VERCEL_PROJECT_ID }}"
+    # Absent variables render as empty strings, so the guard has to be explicit.
+    assert 'test -n "$VERCEL_PROJECT_ID"' in str(build["run"])
+
+
 def test_the_deploy_asserts_the_permanent_domain_now_serves_this_build() -> None:
     # `vercel deploy` prints the immutable per-deployment URL, not the alias. Without this the
     # job reports success for a deployment the recruiter-facing link never points at.
     step = _deploy_step("aliased to FRONTEND_URL")
     assert step["env"]["FRONTEND_URL"] == "${{ vars.FRONTEND_URL }}"
     assert step["env"]["DEPLOYMENT_URL"] == "${{ steps.deploy.outputs.deployment_url }}"
-    assert "vercel inspect" in str(step["run"])
+    # Asked of the API: `vercel inspect`'s human-readable report does not render the alias in a
+    # form a grep can rely on, and reported a false failure against a correctly aliased deploy.
+    assert "api.vercel.com/v13/deployments" in str(step["run"])
+    assert "vercel inspect" not in str(step["run"])
     assert "exit 1" in str(step["run"])
 
 
 def test_the_proxy_itself_is_exercised_by_the_authenticated_smoke() -> None:
     # Running the same selection against the gateway proves the API; running it through Vercel
     # is the only thing that proves the /api rewrite forwards auth headers and an SSE stream.
+    steps = _deploy_steps()
+    mint = _deploy_step("Mint short-lived persona tokens")
+    wake = _deploy_step("Wake the scale-to-zero backend")
     step = _deploy_step("survive the proxy")
+    assert steps.index(mint) < steps.index(step)
+    assert steps.index(mint) < steps.index(wake) < steps.index(step)
+    assert "scripts/smoke_auth_token.py" in str(mint["run"])
+    assert "test_production_auth_smoke.py" not in str(mint["run"])
+    assert "--max-time 180" in str(wake["run"])
+    assert "/api/v1/portfolio-demo/config" in str(wake["run"])
     assert step["env"]["SMOKE_BASE_URL"] == "${{ vars.FRONTEND_URL }}"
     script = str(step["run"])
-    assert "scripts/smoke_auth_token.py" in script
+    assert "scripts/smoke_auth_token.py" not in script
     # Selected by FILE, not by marker: the ops-probe smoke hits unprefixed paths that the SPA
     # fallback would answer with index.html, which would pass while proving nothing.
     assert "pytest tests/smoke/test_production_auth_smoke.py -m smoke" in script

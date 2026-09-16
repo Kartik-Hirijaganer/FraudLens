@@ -24,6 +24,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
+    AgentExecution,
     Alert,
     AlertAction,
     AlertActionType,
@@ -84,6 +85,7 @@ _RESET_ORDER: tuple[type[Any], ...] = (
     AnalysisResult,
     RagRetrieval,
     AnalysisRunEvent,
+    AgentExecution,
     TrainingLabel,
     ModelInferenceLog,
     AnalysisRun,

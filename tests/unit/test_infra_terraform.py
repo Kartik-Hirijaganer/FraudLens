@@ -132,6 +132,22 @@ def test_prod_bounds_replicas_and_starts_no_scheduled_job() -> None:
     assert "retrain_cron" not in _source("environments/prod/variables.tf")
 
 
+def test_the_prod_root_can_delete_the_group_azure_adds_resources_to() -> None:
+    """Azure attaches resources to this group that no Terraform resource owns.
+
+    An Application Insights component always auto-creates an "Application Insights Smart
+    Detection" action group beside itself. With the provider default, its presence refuses the
+    resource group deletion outright, so a location change or a teardown destroys everything
+    Terraform manages and then strands the rest -- which is exactly how the first eastus apply
+    ended. This root owns its group outright, so deleting the group deletes only what this root
+    created plus what Azure attached to it.
+    """
+    providers = _source("environments/prod/providers.tf")
+    assert "prevent_deletion_if_contains_resources = false" in providers
+    block = providers.split("resource_group {")[1].split("}")[0]
+    assert "prevent_deletion_if_contains_resources" in block
+
+
 def test_every_terraform_root_is_security_scanned() -> None:
     scanned = (REPO_ROOT / ".checkov.yaml").read_text(encoding="utf-8")
     roots = {path.parent.name for path in TERRAFORM_ROOT.glob("environments/*/main.tf")}

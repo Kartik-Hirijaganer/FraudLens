@@ -96,11 +96,17 @@ def test_the_unpriced_os_disk_note_matches_what_the_aks_module_actually_commits(
 def test_the_document_states_that_the_cold_start_has_not_been_measured(
     config: CostModelConfig, catalog: PriceCatalog
 ) -> None:
-    # The keep-warm cron is the one recurring line whose value is a measurement, and nothing in
-    # this repository can produce that number. Printing a figure derived from
-    # `cold_start_budget_seconds` would dress a configured allowance up as evidence.
-    assert not config.cold_start.measured
-    document = render_cost_model(_model(config, catalog))
+    # Preserve the pre-deployment branch: a future environment with no observation must print the
+    # operator command, never dress `cold_start_budget_seconds` up as measured evidence.
+    unmeasured = config.model_copy(
+        update={
+            "cold_start": config.cold_start.model_copy(
+                update={"measured_at": None, "cold_seconds": None, "warm_seconds": None}
+            )
+        }
+    )
+    assert not unmeasured.cold_start.measured
+    document = render_cost_model(_model(unmeasured, catalog))
     assert "**Not yet measured.**" in document
     assert "curl -o /dev/null" in document
 
@@ -108,21 +114,11 @@ def test_the_document_states_that_the_cold_start_has_not_been_measured(
 def test_a_recorded_measurement_replaces_the_instructions_with_a_verdict(
     config: CostModelConfig, catalog: PriceCatalog
 ) -> None:
-    measured = config.model_copy(
-        update={
-            "cold_start": config.cold_start.model_copy(
-                update={
-                    "measured_at": "2026-09-20",
-                    "cold_seconds": Decimal("24.5"),
-                    "warm_seconds": Decimal("0.12"),
-                }
-            )
-        }
-    )
-    document = render_cost_model(_model(measured, catalog))
+    assert config.cold_start.measured
+    document = render_cost_model(_model(config, catalog))
     assert "**Not yet measured.**" not in document
-    assert "| First request after idle (cold) | 24.5 |" in document
-    assert "| Request immediately after (warm) | 0.12 |" in document
+    assert "| First request after idle (cold) | 111.798648 |" in document
+    assert "| Request immediately after (warm) | 0.058612 |" in document
     assert "keep-warm earns its cost" in document
 
 
@@ -149,7 +145,7 @@ def test_a_half_recorded_measurement_is_refused(tmp_path: Path) -> None:
     root = stage_repo(tmp_path)
     document = root / "config" / "cost-model.yaml"
     payload = yaml.safe_load(document.read_text(encoding="utf-8"))
-    payload["cold_start"]["measured_at"] = "2026-09-20"
+    payload["cold_start"]["cold_seconds"] = None
     document.write_text(yaml.safe_dump(payload), encoding="utf-8")
     with pytest.raises(CostModelConfigError, match="cold_start"):
         load_cost_model_config(root)
@@ -250,7 +246,7 @@ def test_the_cli_fetches_live_prices_and_can_save_them_as_a_fixture(
         ]
     )
     assert exit_code == 0
-    assert captured["regions"] == {"aca": "eastus", "aks": "westus3"}
+    assert captured["regions"] == {"aca": "eastus2", "aks": "westus3"}
     assert captured["skus"] == {
         "aks_system_vm_size": "Standard_B2s",
         "aks_user_vm_size": "Standard_D2as_v4",

@@ -322,7 +322,7 @@ def test_readyz_infisical_ok_when_injected_secrets_present(
     assert response.status_code == 200
     check = _check(response.json(), "infisical")
     assert check["status"] == "ok"
-    assert check["detail"] == "externally injected"
+    assert check["detail"] == "2 injected secret(s) present"
 
 
 def test_readyz_infisical_down_when_an_injected_secret_is_missing(

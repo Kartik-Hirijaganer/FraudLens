@@ -2,7 +2,7 @@
 
 Key classes:
 - K8sDemoConfigError: safe invalid-configuration failure.
-- LoadConfig: validated request-load parameters shared by host orchestration and the in-cluster Job.
+- LoadConfig: validated probe, authenticated, and durable load parameters for the in-cluster Job.
 - AksConfig: external LoadBalancer discovery parameters used only by the approved AKS session.
 - K8sDemoConfig: immutable tool pins, cluster identity, timeouts, workload names, and load defaults.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "k8s-demo.yaml"
@@ -37,8 +37,8 @@ class LoadConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     target_url: HttpUrl = Field(..., description="HTTP base or endpoint targeted by the load Job.")
-    mode: Literal["healthz", "investigations"] = Field(
-        ..., description="Generate probe traffic or durable investigation work."
+    mode: Literal["healthz", "authenticated", "investigations"] = Field(
+        ..., description="Generate probe, authenticated API, or durable investigation traffic."
     )
     concurrency: int = Field(..., ge=1, le=256, description="Concurrent load workers.")
     duration_seconds: int = Field(..., ge=1, le=3600, description="Health-load duration.")
@@ -46,6 +46,12 @@ class LoadConfig(BaseModel):
         ..., ge=1, description="Requests sent before replacing a persistent HTTP connection."
     )
     cases: int = Field(..., ge=1, le=500, description="Synthetic investigation cases to submit.")
+    auth_required: bool = Field(
+        default=False, description="Fail closed unless a bearer token is injected at runtime."
+    )
+    auth_token: SecretStr | None = Field(
+        default=None, exclude=True, description="Short-lived bearer token supplied by a Secret."
+    )
 
 
 class AksConfig(BaseModel):
@@ -64,6 +70,21 @@ class AksConfig(BaseModel):
     )
     address_poll_seconds: float = Field(
         ..., ge=0.5, le=30, description="External-address observation interval."
+    )
+    load_concurrency: int = Field(
+        ..., ge=1, le=256, description="Authenticated API workers used for the AKS HPA proof."
+    )
+    load_duration_seconds: int = Field(
+        ...,
+        ge=300,
+        le=900,
+        description="AKS load window including the controller CPU-initialization period.",
+    )
+    scale_up_timeout_seconds: int = Field(
+        ...,
+        ge=300,
+        le=1200,
+        description="Maximum AKS scale-up wait including metrics initialization.",
     )
 
 
@@ -138,6 +159,8 @@ def load_config_from_env() -> LoadConfig:
         "duration_seconds": os.environ.get("LOAD_DURATION_SECONDS", ""),
         "reconnect_every": os.environ.get("LOAD_RECONNECT_EVERY", ""),
         "cases": os.environ.get("LOAD_CASES", ""),
+        "auth_required": os.environ.get("LOAD_AUTH_REQUIRED", "false"),
+        "auth_token": os.environ.get("K8S_DEMO_AUTH_TOKEN") or None,
     }
     try:
         return LoadConfig.model_validate(values)

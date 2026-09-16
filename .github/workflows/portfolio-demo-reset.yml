@@ -36,8 +36,8 @@ jobs:
     environment: production
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - name: Fetch DATABASE_URL from Infisical (OIDC)
@@ -49,7 +49,7 @@ jobs:
           domain: https://app.infisical.com
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
-          secret-path: /backend
+          secret-path: /
       # --reset rebuilds through the same ensure path the bootstrap uses and verifies the result,
       # so a rebuild that no longer matches the configured story exits non-zero and fails the run.
       - name: Reset and rebuild the pinned story

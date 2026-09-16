@@ -1,19 +1,12 @@
-# Frontend deploy (plan §15.7 / Phase 14) — WIRED BUT INERT until Vercel exists (gated on
-# VERCEL_DEPLOY_ENABLED). Deploys run only from `dev` / `release/*` after CI succeeds. The Vercel
-# token is fetched short-lived from Infisical via GitHub Actions OIDC, masked, and never persisted.
+# Frontend deploy (plan §15.7 / Phase 14) — manually dispatched only and gated on
+# VERCEL_DEPLOY_ENABLED. The Vercel token is fetched short-lived from Infisical via GitHub Actions
+# OIDC, masked, and never persisted.
 # Vercel deploys are already atomic with instant rollback (see docs/runbooks/deploy-rollback.md).
 # Flow: verify -> build (HTTPS API + real-auth portfolio demo baked in) -> deploy -> smoke.
 name: deploy-frontend
 
-# See deploy-backend.yml: `workflow_run` runs the DEFAULT branch's copy of this file, so a
-# release branch dispatches instead of merging to iterate on its own deploy.
+# A push or successful CI run must never deploy. Select the intended ref when dispatching.
 on:
-  workflow_run:
-    workflows: ["ci"]
-    types: [completed]
-    branches:
-      - dev
-      - "release/*"
   workflow_dispatch:
 
 permissions:
@@ -29,21 +22,21 @@ jobs:
   # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
   # the whole graph before anything billable is touched.
   identity:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Refuse a non-personal deploy identity
         run: bash scripts/check_deploy_identity.sh
 
   verify:
     needs: identity
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     uses: ./.github/workflows/_ci-reusable.yml
+    with:
+      scope: frontend
 
   deploy:
     needs: verify
@@ -52,9 +45,9 @@ jobs:
     environment: production
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Fetch Vercel token from Infisical (OIDC)
         uses: Infisical/secrets-action@v1.0.16
         with:
@@ -65,22 +58,30 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /ci/vercel
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Deploy to Vercel (prod)
         id: deploy
-        working-directory: frontend
         env:
           # Pinned: an unpinned `npm i -g vercel` makes every deploy depend on whatever the CLI
           # published that morning, which is the one moving part a reproducible deploy cannot have.
           VERCEL_CLI_VERSION: "59.17.0"
+          # WHICH project to deploy. `vercel pull --yes` with no link does not fail — it CREATES a
+          # project named after the working directory and deploys there, so the build succeeds
+          # while FRONTEND_URL keeps serving the old one. These are non-secret identifiers, the
+          # same posture as the Azure subscription and client ids.
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           # The SPA is same-origin: frontend/.env.production pins VITE_API_BASE_URL empty and
           # vercel.json proxies /api/* to the gateway, so the browser never learns a second
           # hostname and CORS is not load-bearing. Vercel performs no substitution of its own in
           # vercel.json, so the origin is resolved here, before `vercel build` reads the file.
+          # The CLI runs from the REPOSITORY ROOT: the project declares `frontend` as its
+          # root directory and applies that itself, so invoking it from inside frontend/
+          # makes it look for frontend/frontend and fail with `spawn sh ENOENT`.
           # The explicit demo gate exposes public synthetic personas in production; it never
           # enables the dev bypass, and every login still resolves through Supabase /me.
           AZURE_API_ORIGIN: ${{ vars.AZURE_API_ORIGIN }}
@@ -91,11 +92,15 @@ jobs:
             https://*) ;;
             *) echo "AZURE_API_ORIGIN must be an https:// URL"; exit 1 ;;
           esac
-          python3 -c 'import os, pathlib; p = pathlib.Path("vercel.json"); p.write_text(p.read_text(encoding="utf-8").replace("${AZURE_API_ORIGIN}", os.environ["AZURE_API_ORIGIN"].rstrip("/")), encoding="utf-8")'
-          if grep -q 'AZURE_API_ORIGIN' vercel.json; then
+          python3 -c 'import os, pathlib; p = pathlib.Path("frontend/vercel.json"); p.write_text(p.read_text(encoding="utf-8").replace("${AZURE_API_ORIGIN}", os.environ["AZURE_API_ORIGIN"].rstrip("/")), encoding="utf-8")'
+          if grep -q 'AZURE_API_ORIGIN' frontend/vercel.json; then
             echo "vercel.json still carries an unresolved origin placeholder"
             exit 1
           fi
+          test -n "$VERCEL_ORG_ID" && test -n "$VERCEL_PROJECT_ID" || {
+            echo "::error::VERCEL_ORG_ID and VERCEL_PROJECT_ID are required; without them the CLI creates a new project instead of deploying the existing one"
+            exit 1
+          }
           npm i -g "vercel@${VERCEL_CLI_VERSION}"
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           vercel build --prod --token="$VERCEL_TOKEN"
@@ -104,19 +109,27 @@ jobs:
       # A production deploy is aliased to the permanent domain; the URL `vercel deploy` prints is
       # the immutable per-deployment one. Asserting the alias landed is what proves this build is
       # what FRONTEND_URL now serves — the recruiter-facing link, not an orphaned deployment.
+      #
+      # Asked of the API rather than scraped from `vercel inspect`, whose human-readable report
+      # does not render the alias in any form a grep can rely on — it reported a false failure
+      # against a deployment that HAD been aliased correctly.
       - name: Assert the deployment is aliased to FRONTEND_URL
-        working-directory: frontend
         env:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_ORG_ID }}
         run: |
           set -euo pipefail
           host="${FRONTEND_URL#https://}"; host="${host%/}"
-          # `vercel inspect` renders its report on stderr.
-          if ! vercel inspect "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" 2>&1 | grep -qF "$host"; then
-            echo "::error::${DEPLOYMENT_URL} is not aliased to ${host}; FRONTEND_URL still serves the previous build"
-            exit 1
-          fi
+          deployment_host="${DEPLOYMENT_URL#https://}"
+          aliases=$(curl -fsS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v13/deployments/${deployment_host}?teamId=${VERCEL_TEAM_ID}" \
+            | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin).get("alias") or []))')
+          echo "deployment aliases: ${aliases}"
+          case " ${aliases} " in
+            *" ${host} "*) ;;
+            *) echo "::error::${DEPLOYMENT_URL} is not aliased to ${host}; FRONTEND_URL still serves the previous build"; exit 1 ;;
+          esac
       - name: Smoke-test the deployed site
         run: curl -fsS --retry 5 --retry-delay 10 "${{ vars.FRONTEND_URL }}" > /dev/null
       # The only place the PROXY itself is exercised. `deploy-backend.yml` runs this same
@@ -124,7 +137,7 @@ jobs:
       # the /api rewrite forwards an Authorization header, tenant-safe refusals, and an
       # unbuffered SSE stream. The selection is by FILE, not by marker: the ops-probe smoke
       # tests hit unprefixed paths that the SPA fallback would answer with index.html.
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         with:
           enable-cache: true
@@ -139,6 +152,23 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /
+      # `$GITHUB_ENV` is loaded only by later steps. Keep minting separate from pytest so the
+      # short-lived values exist for the proxy smoke without ever becoming step outputs.
+      - name: Mint short-lived persona tokens (masked)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          uv run python scripts/smoke_auth_token.py \
+            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
+      - name: Wake the scale-to-zero backend through the proxy
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        env:
+          SMOKE_BASE_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 2 --retry-all-errors --retry-delay 5 \
+            --max-time 180 "${SMOKE_BASE_URL}/api/v1/portfolio-demo/config" > /dev/null
       - name: Prove authenticated APIs and SSE survive the proxy
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         env:
@@ -146,7 +176,4 @@ jobs:
           PORTFOLIO_DEMO_SMOKE_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
         run: |
           set -euo pipefail
-          uv sync --all-packages
-          uv run python scripts/smoke_auth_token.py \
-            --export analyst=SMOKE_AUTH_TOKEN --export auditor=SMOKE_AUDITOR_TOKEN
           uv run pytest tests/smoke/test_production_auth_smoke.py -m smoke --no-cov

@@ -1,7 +1,7 @@
 {
   "Items": [
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2022-06-01T00:00:00Z",
       "meterName": "Standard vCPU Idle Usage",
@@ -14,7 +14,7 @@
       "unitOfMeasure": "1 Second"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2022-06-01T00:00:00Z",
       "meterName": "Standard vCPU Active Usage",
@@ -27,7 +27,7 @@
       "unitOfMeasure": "1 Second"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2022-06-01T00:00:00Z",
       "meterName": "Standard Memory Idle Usage",
@@ -40,7 +40,7 @@
       "unitOfMeasure": "1 GiB Second"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2022-06-01T00:00:00Z",
       "meterName": "Standard Memory Active Usage",
@@ -53,7 +53,7 @@
       "unitOfMeasure": "1 GiB Second"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2022-06-01T00:00:00Z",
       "meterName": "Standard Requests",
@@ -66,7 +66,7 @@
       "unitOfMeasure": "1M"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2018-02-01T00:00:00Z",
       "meterName": "Analytics Logs Data Ingestion",
@@ -79,12 +79,12 @@
       "unitOfMeasure": "1 GB"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2018-02-01T00:00:00Z",
       "meterName": "Analytics Logs Data Ingestion",
       "productName": "Log Analytics",
-      "retailPrice": "2.3",
+      "retailPrice": "2.76",
       "serviceName": "Log Analytics",
       "skuName": "Analytics Logs",
       "tierMinimumUnits": "5.0",
@@ -92,12 +92,12 @@
       "unitOfMeasure": "1 GB"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2017-02-03T00:00:00Z",
       "meterName": "Hot LRS Data Stored",
       "productName": "General Block Blob v2",
-      "retailPrice": "0.0208",
+      "retailPrice": "0.0184",
       "serviceName": "Storage",
       "skuName": "Hot LRS",
       "tierMinimumUnits": "0.0",
@@ -105,12 +105,12 @@
       "unitOfMeasure": "1 GB/Month"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2017-02-03T00:00:00Z",
       "meterName": "Hot LRS Data Stored",
       "productName": "General Block Blob v2",
-      "retailPrice": "0.019968",
+      "retailPrice": "0.017664",
       "serviceName": "Storage",
       "skuName": "Hot LRS",
       "tierMinimumUnits": "51200.0",
@@ -118,12 +118,12 @@
       "unitOfMeasure": "1 GB/Month"
     },
     {
-      "armRegionName": "eastus",
+      "armRegionName": "eastus2",
       "armSkuName": "",
       "effectiveStartDate": "2017-02-03T00:00:00Z",
       "meterName": "Hot LRS Data Stored",
       "productName": "General Block Blob v2",
-      "retailPrice": "0.019136",
+      "retailPrice": "0.016928",
       "serviceName": "Storage",
       "skuName": "Hot LRS",
       "tierMinimumUnits": "512000.0",

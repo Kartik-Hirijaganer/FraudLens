@@ -72,16 +72,13 @@ def test_image_is_built_exactly_once_and_reused() -> None:
 def test_image_tagged_by_commit_sha() -> None:
     """The single image is immutable, tagged by the deployed commit SHA (build-once identity).
 
-    The tag reads `DEPLOY_SHA` rather than the event field directly, because the deploy now also
-    runs from a `workflow_dispatch` against a release branch, where `github.event.workflow_run` is
-    absent. Both paths must still resolve to the SHA actually being deployed -- a tag that fell
-    back to empty would push `fraudlens-backend:` and break build-once identity outright.
+    The tag reads `DEPLOY_SHA`, which is bound to the manually dispatched ref's commit SHA.
     """
     flat = _deploy_backend_flat()
     assert LOWERCASE_OWNER_SCRIPT in flat
     assert 'image_name="ghcr.io/${owner}/fraudlens-backend"' in flat
     assert "image=${image_name}:${DEPLOY_SHA}" in flat
-    assert "DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}" in flat
+    assert "DEPLOY_SHA: ${{ github.sha }}" in flat
 
 
 def test_ghcr_image_references_are_lowercase() -> None:
@@ -108,14 +105,16 @@ def test_migration_is_gated_between_stage_and_promote() -> None:
     jobs = _deploy_backend()["jobs"]
     assert "stage" in jobs["migrate"]["needs"]
     assert "migrate" in jobs["smoke"]["needs"]
-    assert jobs["promote"]["needs"] == "smoke"
+    # Containment, not equality: `promote` also needs `build-push` for the revision suffix it
+    # computes. What must hold is that smoke still gates promotion.
+    assert "smoke" in jobs["promote"]["needs"]
     assert "alembic upgrade head" in _job_script(jobs["migrate"])
 
 
 def test_promote_requires_green_smoke() -> None:
     """Promotion to 100% traffic happens only after smoke passes."""
     jobs = _deploy_backend()["jobs"]
-    assert jobs["promote"]["needs"] == "smoke"
+    assert "smoke" in jobs["promote"]["needs"]
     promote_script = _job_script(jobs["promote"])
     assert "ingress traffic set" in promote_script
     assert "=100" in promote_script
@@ -241,7 +240,7 @@ def test_azure_runtime_backends_receive_required_env() -> None:
 
 def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
     """The identity guard runs first and every other job descends from it (Golden Rules 2, 7)."""
-    for name in ("deploy-aks.yml", "deploy-backend.yml", "deploy-frontend.yml"):
+    for name in ("deploy-backend.yml", "deploy-frontend.yml"):
         jobs = _load_yaml(WORKFLOWS / name)["jobs"]
         identity = jobs["identity"]
         assert "bash scripts/check_deploy_identity.sh" in _job_script(identity)
@@ -255,6 +254,57 @@ def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
             if job_name in {"identity", "verify"}:
                 continue
             assert job["needs"], f"{name}:{job_name} has no needs edge to the identity gate"
+    lifecycle = _deploy_aks()["jobs"]["lifecycle"]
+    guard = lifecycle["steps"][1]
+    assert "bash scripts/check_deploy_identity.sh" in guard["run"]
+    assert guard["env"]["AZURE_SUBSCRIPTION_ID"] == "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+    assert guard["env"]["AZURE_TENANT_ID"] == "${{ vars.AZURE_TENANT_ID }}"
+
+
+def test_application_deploy_workflows_are_manual_only() -> None:
+    for name in ("deploy-backend.yml", "deploy-frontend.yml"):
+        workflow = _load_yaml(WORKFLOWS / name)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        assert set(triggers) == {"workflow_dispatch"}, name
+        assert "workflow_run" not in (WORKFLOWS / name).read_text(encoding="utf-8")
+
+    # GitHub reads workflow_run listeners from the default branch. Main intentionally remains the
+    # final merge, so its stale deploy listeners still subscribe to the old workflow name `ci`.
+    # Release-branch pushes use a distinct workflow name and therefore cannot wake those listeners.
+    assert _load_yaml(WORKFLOWS / "ci.yml")["name"] == "ci-gates"
+
+
+def test_application_deploy_verification_is_stack_scoped() -> None:
+    """Each deploy validates its own app; normal CI/release retain the all-stacks default."""
+    backend = _load_yaml(WORKFLOWS / "deploy-backend.yml")["jobs"]["verify"]
+    frontend = _load_yaml(WORKFLOWS / "deploy-frontend.yml")["jobs"]["verify"]
+    assert backend["with"] == {"scope": "backend"}
+    assert frontend["with"] == {"scope": "frontend"}
+
+    reusable = _load_yaml(WORKFLOWS / "_ci-reusable.yml")
+    triggers = reusable[True] if True in reusable else reusable["on"]
+    assert triggers["workflow_call"]["inputs"]["scope"]["default"] == "all"
+
+    jobs = reusable["jobs"]
+    backend_only = "${{ inputs.scope != 'frontend' }}"
+    for name in ("durable-postgres", "k8s-validate", "docker-build", "tf-validate"):
+        assert jobs[name]["if"] == backend_only, name
+
+    deps = jobs["deps-audit"]
+    assert deps["name"] == "${{ matrix.stack }}-deps-audit"
+    deps_matrix = deps["strategy"]["matrix"]["stack"]
+    assert "inputs.scope" in deps_matrix
+    assert '["backend"]' in deps_matrix and '["frontend"]' in deps_matrix
+
+    # The ordinary CI, dependency-update, and release callers omit `with`, so `all` stays the
+    # default and their established full-repository gate is not weakened.
+    for workflow_name, job_name in (
+        ("ci.yml", "ci"),
+        ("dependency-update.yml", "ci"),
+        ("release.yml", "verify"),
+    ):
+        caller = _load_yaml(WORKFLOWS / workflow_name)["jobs"][job_name]
+        assert "with" not in caller, workflow_name
 
 
 def test_deploy_identity_guard_pins_the_personal_repository_and_azure_account() -> None:
@@ -276,33 +326,66 @@ def test_aks_workflow_is_dispatch_only_and_feature_gated() -> None:
     assert "workflow_dispatch:" in text
     assert "\npush:" not in text and "\npull_request:" not in text
     workflow = _deploy_aks()
-    for job in workflow["jobs"].values():
-        assert "AKS_DEPLOY_ENABLED == 'true'" in job["if"]
-    for name, job in workflow["jobs"].items():
-        if name != "verify":
-            assert job["timeout-minutes"] >= 1
+    assert list(workflow["jobs"]) == ["lifecycle"]
+    lifecycle = workflow["jobs"]["lifecycle"]
+    assert "AKS_DEPLOY_ENABLED == 'true'" in lifecycle["if"]
+    assert lifecycle["timeout-minutes"] == 240
+    assert "AKS_OPERATOR_CIDR" not in text
+    assert "api.ipify.org" in text
+    assert "AKS_DEPLOY_OBJECT_ID" in text
 
 
 def test_aks_workflow_builds_one_sha_image_then_smokes_before_evidence() -> None:
     text = (WORKFLOWS / "deploy-aks.yml").read_text()
     flat = _deploy_aks_flat()
-    workflow = _deploy_aks()
+    steps = _deploy_aks()["jobs"]["lifecycle"]["steps"]
+    names = [step.get("name", "") for step in steps]
     assert text.count("docker/build-push-action") == 1
     assert "fraudlens-backend:${GITHUB_SHA}" in flat
-    assert workflow["jobs"]["smoke"]["needs"] == "deploy"
-    assert workflow["jobs"]["hpa-evidence"]["needs"] == "smoke"
+    assert names.index("Run authenticated smoke") < names.index(
+        "Capture and validate authenticated HPA and recovery evidence"
+    )
+    assert names.index("Upload evidence before teardown") < names.index(
+        "Always destroy the paid session and verify zero residue"
+    )
     assert "actions/upload-artifact" in text
+    assert "always() && inputs.action == 'apply-and-verify'" in text
     assert "git commit" not in text and "git push" not in text
 
 
 def test_aks_workflow_uses_exact_root_kubelogin_and_guarded_destroy() -> None:
     flat = _deploy_aks_flat()
-    assert "cp backend.tf.template backend.tf" in flat
-    assert "-var-file=aks-demo.tfvars" in flat
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    assert "cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf" in makefile
+    assert "-var-file=$(AKS_TFVARS)" in makefile
     assert "kubelogin convert-kubeconfig -l azurecli" in flat
-    assert "inputs.confirm_destroy == 'destroy-fraudlens-aks-demo'" in flat
+    assert "deploy-fraudlens-aks-demo-and-destroy" in flat
     assert "make aks-down CONFIRM=yes" in flat
     assert "make aks-verify-clean" in flat
+    assert "terraform -chdir=$(AKS_DIR) state list" in makefile
+
+
+def test_aks_down_removes_workload_pdb_only_on_the_managed_context() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("aks-down:", maxsplit=1)[1].split("aks-verify-clean:", maxsplit=1)[0]
+
+    assert 'current_context="$$(kubectl config current-context' in target
+    assert '[ -n "$$cluster_name" ] && [ "$$current_context" = "$$cluster_name" ]' in target
+    assert (
+        "kubectl delete poddisruptionbudget --all --namespace fraudlens --ignore-not-found"
+        in target
+    )
+    assert target.index("kubectl delete poddisruptionbudget") < target.index(
+        "terraform -chdir=$(AKS_DIR) destroy"
+    )
+
+
+def test_aks_load_token_is_stdin_only_and_deleted_before_teardown() -> None:
+    flat = _deploy_aks_flat()
+    assert "--from-file=token=/dev/stdin" in flat
+    assert "printf '%s' \"$SMOKE_AUTH_TOKEN\"" in flat
+    assert "delete secret fraudlens-load-auth" in flat
+    assert 'PORTFOLIO_DEMO_SMOKE_ENABLED: "true"' in (WORKFLOWS / "deploy-aks.yml").read_text()
 
 
 def test_aks_module_and_tfvars_hold_the_cost_and_security_posture() -> None:

@@ -804,7 +804,7 @@ phase produces is the only thing that upgrades the claim.
 **How.**
 
 1. **Prerequisites.**
-   - Create the Infisical Azure machine identity scoped to `prod` paths `/backend` and `/llm`,
+   - Create the Infisical Azure machine identity scoped to the actual `prod` paths `/` and `/llm`,
      authorized for the cluster's `kubelet_identity_object_id`. Record as
      `INFISICAL_AKS_IDENTITY_ID`. **This is a human action in the Infisical console — no agent may
      create it or invent its id** (ADR-028).

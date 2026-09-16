@@ -8,6 +8,8 @@ Key classes:
 - ScalingSummary: derived scale-up and convergence timings.
 - DurabilityEvidence: submitted/completed counts around the deliberate worker deletion.
 - WorkloadSnapshot: measured API image and resource envelope.
+- NodePoolSnapshot: redacted AKS pool shape observed from node labels.
+- PaidSessionEvidence: paid-run lineage, hashes, lifetime, and projected cost.
 - HpaEvidenceReport: complete publishable Phase 9 evidence envelope.
 
 Key functions:
@@ -25,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -74,6 +77,46 @@ class WorkloadSnapshot(BaseModel):
     memory_request: str = Field(..., description="API memory request.")
     cpu_limit: str = Field(..., description="API CPU limit.")
     memory_limit: str = Field(..., description="API memory limit.")
+
+
+class NodePoolSnapshot(BaseModel):
+    """Redacted AKS node-pool shape captured from live node labels."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(..., min_length=1, description="AKS agent-pool name.")
+    vm_size: str = Field(..., min_length=1, description="Azure VM size reported by Kubernetes.")
+    node_count: int = Field(..., ge=1, description="Observed ready nodes in this pool.")
+
+
+class PaidSessionEvidence(BaseModel):
+    """Publishable, non-sensitive identity and cost facts for one paid AKS session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    execution_source: Literal["github-actions", "local"] = Field(
+        ..., description="Governed execution surface used for the paid session."
+    )
+    execution_id: str = Field(
+        ...,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        description="Non-sensitive workflow or local execution identifier.",
+    )
+    manifest_sha256: str = Field(
+        ..., pattern=r"^[0-9a-f]{64}$", description="Hash of the rendered AKS manifest."
+    )
+    image_digest: str = Field(
+        ..., pattern=r"^sha256:[0-9a-f]{64}$", description="Immutable deployed image digest."
+    )
+    node_pools: list[NodePoolSnapshot] = Field(
+        ..., min_length=1, description="Observed AKS node-pool shapes."
+    )
+    elapsed_cluster_seconds: int = Field(
+        ..., ge=1, description="Elapsed billable cluster lifetime at evidence capture."
+    )
+    projected_cost_usd: Decimal = Field(
+        ..., ge=0, le=5, description="Session cost projection under the approved ceiling."
+    )
 
 
 class ScalingSample(BaseModel):
@@ -132,6 +175,9 @@ class HpaEvidenceReport(BaseModel):
     config_sha256: str = Field(
         ..., pattern=r"^[0-9a-f]{64}$", description="Hash of config/k8s-demo.yaml."
     )
+    run_id: str | None = Field(
+        default=None, pattern=r"^[a-z0-9][a-z0-9-]+$", description="Paid-session ledger run id."
+    )
     cluster: ClusterFacts = Field(..., description="Live cluster facts.")
     hpa: HpaSpecSnapshot = Field(..., description="Live HPA policy snapshot.")
     workload: WorkloadSnapshot = Field(..., description="Live API workload snapshot.")
@@ -139,6 +185,9 @@ class HpaEvidenceReport(BaseModel):
     samples: list[ScalingSample] = Field(..., min_length=2, description="Scaling time series.")
     summary: ScalingSummary = Field(..., description="Derived scaling acceptance values.")
     durability: DurabilityEvidence = Field(..., description="Worker recovery outcome.")
+    paid_session: PaidSessionEvidence | None = Field(
+        default=None, description="AKS-only paid-session provenance and cost evidence."
+    )
     disclosures: list[str] = Field(..., min_length=1, description="Material scope limitations.")
 
 
@@ -162,6 +211,20 @@ def validate_evidence(report: HpaEvidenceReport) -> None:
         not report.cluster.context or report.cluster.context.startswith("kind-")
     ):
         failures.append("AKS evidence does not identify a non-kind context")
+    if report.platform == "aks" and (report.run_id is None or report.paid_session is None):
+        failures.append("AKS evidence lacks paid-session provenance")
+    if report.platform == "aks" and report.load.mode != "authenticated":
+        failures.append("AKS scaling load did not exercise an authenticated API")
+    if report.platform == "aks" and report.load.succeeded == 0:
+        failures.append("AKS authenticated scaling load completed no protected requests")
+    if (
+        report.platform == "aks"
+        and report.paid_session is not None
+        and not report.workload.image.endswith(report.paid_session.image_digest)
+    ):
+        failures.append("AKS workload image does not match the recorded immutable digest")
+    if report.platform == "kind" and (report.run_id is not None or report.paid_session is not None):
+        failures.append("local evidence cannot claim a paid session")
     if report.summary.replicas_min_observed != report.hpa.min_replicas:
         failures.append("minimum replicas were not observed")
     if report.summary.replicas_max_observed < report.hpa.max_replicas:

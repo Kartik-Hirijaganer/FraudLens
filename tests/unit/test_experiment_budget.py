@@ -126,12 +126,14 @@ def test_committed_ledger_covers_all_published_reports() -> None:
     }
     batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")
     assert batch.evidence_run_ids == ("fulldata-b55c4ae63ed8bbae",)
-    # The AKS session is admitted and open: no resource exists yet, so teardown is unverified.
+    # The AKS session is closed and tied to its published paid-cluster evidence.
     aks = next(entry for entry in entries if entry.run_id == "aks-demo-20260915-01")
     assert aks.allocation == "supporting_resources"
-    assert aks.projected_cost_usd == Decimal("5.000000")
-    assert aks.started_at is None and aks.stopped_at is None
-    assert aks.teardown_verified == "no"
+    assert aks.projected_cost_usd == Decimal("0.790000")
+    assert aks.started_at == "2026-09-16T14:05:28Z"
+    assert aks.stopped_at == "2026-09-16T17:19:25Z"
+    assert aks.hours == Decimal("3.232500")
+    assert aks.teardown_verified == "yes"
     assert check_ledger(config, entries, REPO_ROOT / "docs/reference/benchmarks") == []
 
 

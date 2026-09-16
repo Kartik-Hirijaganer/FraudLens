@@ -6,7 +6,7 @@ Key classes:
 Key functions:
 - render_vllm_benchmark: render measured inference evidence or an explicit pending state.
 - render_fulldata_training: render measured training evidence or an explicit pending state.
-- render_k8s_benchmark: render the validated Kubernetes HPA and durability evidence.
+- render_k8s_benchmark: render every published Kubernetes HPA and durability run, one row each.
 - render_make_targets: derive the curated developer-command table from Makefile help text.
 
 Notes:
@@ -26,7 +26,10 @@ from lib.vllm_bench.report_models import FrontendVllmBenchData
 
 _VLLM_PATH = Path("frontend/src/data/vllm-awq-sar-benchmark.json")
 _FULLDATA_PATH = Path("frontend/src/data/ibm-full-data-training.json")
-_K8S_PATH = Path("docs/reference/benchmarks/k8s-hpa-scaling.json")
+_K8S_PATHS = (
+    Path("docs/reference/benchmarks/k8s-hpa-scaling.json"),
+    Path("docs/reference/benchmarks/aks-hpa-scaling.json"),
+)
 _MAKE_TARGETS = (
     "install",
     "run",
@@ -106,23 +109,40 @@ def render_fulldata_training(repo_root: Path) -> str:
     return "\n".join(lines)
 
 
-def render_k8s_benchmark(repo_root: Path) -> str:
-    """Render the strict measured kind evidence used by the release claim."""
-    report = HpaEvidenceReport.model_validate_json(
-        (repo_root / _K8S_PATH).read_text(encoding="utf-8")
-    )
+def _k8s_evidence_row(repo_root: Path, path: Path) -> str | None:
+    """Render one validated HPA run, or None when that platform has published nothing."""
+    parsed = _optional_model(repo_root / path, HpaEvidenceReport)
+    if parsed is None:
+        return None
+    report = HpaEvidenceReport.model_validate(parsed)
     validate_evidence(report)
     summary = report.summary
     durability = report.durability
+    return (
+        f"| {report.platform} | {summary.replicas_min_observed} → "
+        f"{summary.replicas_max_observed} → {summary.replicas_min_observed} | "
+        f"{summary.seconds_to_first_scale_up} s | {summary.seconds_to_scale_back_to_min} s | "
+        f"{durability.runs_completed}/{durability.runs_submitted} | {durability.runs_failed} |"
+    )
+
+
+def render_k8s_benchmark(repo_root: Path) -> str:
+    """Render every published Kubernetes run; an unrun platform contributes no row."""
+    rows = [row for path in _K8S_PATHS if (row := _k8s_evidence_row(repo_root, path))]
+    if not rows:
+        return "\n".join(
+            [
+                "| Status | Evidence |",
+                "| --- | --- |",
+                "| Pending | No Kubernetes HPA evidence has been published. |",
+            ]
+        )
     return "\n".join(
         [
             "| Platform | API replicas | First scale-up | Scale-back | Durable runs | "
             "Failed runs |",
             "| --- | --- | ---: | ---: | ---: | ---: |",
-            f"| {report.platform} | {summary.replicas_min_observed} → "
-            f"{summary.replicas_max_observed} → {summary.replicas_min_observed} | "
-            f"{summary.seconds_to_first_scale_up} s | {summary.seconds_to_scale_back_to_min} s | "
-            f"{durability.runs_completed}/{durability.runs_submitted} | {durability.runs_failed} |",
+            *rows,
         ]
     )
 

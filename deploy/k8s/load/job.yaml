@@ -14,6 +14,16 @@ spec:
       restartPolicy: Never
       serviceAccountName: fraudlens-runtime
       automountServiceAccountToken: false
+      nodeSelector:
+        fraudlens.io/workload: application
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: fraudlens
+                  app.kubernetes.io/component: api
+              topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -29,6 +39,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: fraudlens-load-config
+          env:
+            - name: K8S_DEMO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fraudlens-load-auth
+                  key: token
+                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

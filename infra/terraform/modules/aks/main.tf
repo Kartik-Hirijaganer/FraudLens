@@ -269,6 +269,10 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   # without a matching toleration would ever schedule.
   node_taints = var.user_pool_spot_enabled ? ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"] : []
 
+  upgrade_settings {
+    max_surge = "10%"
+  }
+
   tags = var.tags
 }
 

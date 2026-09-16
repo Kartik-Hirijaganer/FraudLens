@@ -39,7 +39,7 @@ Use these paths:
 
 | Path | Environment | Purpose | Initial secrets |
 | --- | --- | --- | --- |
-| `/backend` | `prod` | Backend runtime secrets | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| `/` | `prod` | Backend runtime and Supabase bootstrap values | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `FRAUDLENS_DEMO_AUTH_PASSWORD` |
 | `/ci/vercel` | `prod` | Frontend deploy job | `VERCEL_TOKEN` |
 | `/ci/supabase` | `prod` | Future Supabase automation | Add only when a workflow consumes it |
 | `/mcp/context7` | `prod` | Local agent/CLI workflows that need Context7 docs access | `CONTEXT7_API_KEY` |
@@ -65,7 +65,7 @@ commit it only after confirming it contains project metadata and no credentials.
 Run local processes with injected secrets:
 
 ```bash
-infisical run --env=prod --path=/backend -- \
+infisical run --env=prod --path=/ --recursive -- \
   uv run uvicorn fraudlens_backend.main:app --reload
 
 infisical run --env=prod --path=/frontend -- \
@@ -104,7 +104,7 @@ after verified teardown. The ledger records that setup was verified, never eithe
 
 ## Supabase Runtime Secrets
 
-Store Supabase backend secrets only in Infisical `prod` at `/backend`:
+Store Supabase backend secrets only in Infisical `prod` at `/`:
 
 | Key | Purpose |
 | --- | --- |
@@ -134,7 +134,22 @@ Configure it with OIDC Auth:
 | Issuer | `https://token.actions.githubusercontent.com` |
 | Subject | `repo:Kartik-Hirijaganer/FraudLens:environment:production` |
 | Audience | `https://github.com/Kartik-Hirijaganer` |
-| Project access | read-only, `prod`, path `/ci/vercel` |
+| Project access | read-only, `prod`, paths `/`, `/llm`, `/ci/vercel` |
+
+The backend deploy needs more than the frontend's token. `deploy-backend.yml` injects the four
+allowlisted runtime secrets into Container Apps and mints the smoke's persona tokens, which draws
+on three paths beyond `/ci/vercel`:
+
+| Path | Read by | For |
+| --- | --- | --- |
+| `/llm` | `stage`, `smoke` | `OPENROUTER_API_KEY` |
+| `/` | `stage`, `migrate`, `smoke` | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `FRAUDLENS_DEMO_AUTH_PASSWORD` |
+| `/ci/vercel` | `deploy-frontend` | `VERCEL_TOKEN` |
+
+An identity scoped to `/ci/vercel` alone fails the backend deploy at its first fetch with
+`You are not allowed to describeSecret on secrets` / `PermissionDenied` (HTTP 403) — which is
+exactly how the first live apply ended. Grant read-only on the paths above; the identity never
+needs write.
 
 Copy the identity ID and set these GitHub repository variables:
 
@@ -157,7 +172,7 @@ When the backend needs real runtime secrets:
 3. Configure Azure Auth with the Azure tenant id, resource/audience
    `https://management.azure.com/`, and the allowed service principal id for the Container
    App managed identity.
-4. Add the identity to the FraudLens project with read-only access to `prod` → `/backend`.
+4. Add the identity to the FraudLens project with read-only access to `prod` → `/`.
 5. Wire the Infisical Agent (or the platform's own secret sync) to inject those values into
    the container's process environment at start. The application itself never calls
    Infisical — see [Readiness verifies the injection](#readiness-verifies-the-injection).
@@ -171,7 +186,7 @@ identity id.
 For the separately approved AKS demonstration, create an Infisical identity named
 `azure-aks-demo` and configure Azure Auth for the AKS kubelet managed identity. Set only its
 non-secret identity identifier as `INFISICAL_AKS_IDENTITY_ID`; grant read-only access to `prod`
-paths `/backend` and `/llm`. The namespaced `InfisicalSecret` resources explicitly project only the
+paths `/` and `/llm`. The namespaced `InfisicalSecret` resources explicitly project only the
 backend database/auth names and `OPENROUTER_API_KEY` into Kubernetes Secrets. They never copy
 `RUNPOD_API_KEY`, `VLLM_API_KEY`, or all recursive values into the workload.
 
@@ -206,7 +221,7 @@ curl -s https://<host>/readyz | jq '.checks[] | select(.name == "infisical")'
 ```
 
 Then confirm the missing names are present in the container (presence only, never the
-value) and that the identity still has read access to `prod` → `/backend` and `/llm`.
+value) and that the identity still has read access to `prod` → `/` and `/llm`.
 Adding a new runtime secret means adding its **name** to `infisical_required_env_keys`;
 declaring `externally_injected` with an empty list is rejected at boot.
 
@@ -215,7 +230,7 @@ declaring `externally_injected` with an empty list is rejected at boot.
 Use these checks after setup:
 
 ```bash
-infisical run --env=prod --path=/backend -- \
+infisical run --env=prod --path=/ -- \
   bash -lc 'test -n "${DATABASE_URL:-}" && echo DATABASE_URL_present'
 make secrets-scan
 ```

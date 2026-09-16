@@ -46,13 +46,18 @@ class _FakeProcess:
 def _passing_pytest(monkeypatch: pytest.MonkeyPatch, urls: list[str]) -> None:
     """Stub the probe fetch and the remote suite, capturing the base URL each reaches."""
     monkeypatch.setattr(smoke, "urlopen", lambda url, **_kwargs: urls.append(url) or _Response())
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command[:4] == ["uv", "run", "pytest", "tests/smoke"]
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        urls.append(str(environment["SMOKE_BASE_URL"]))
+        return subprocess.CompletedProcess([], returncode=0)
+
     monkeypatch.setattr(
         smoke.subprocess,
         "run",
-        lambda *_args, **kwargs: (
-            urls.append(kwargs["env"]["SMOKE_BASE_URL"])
-            or subprocess.CompletedProcess([], returncode=0)
-        ),
+        run,
     )
 
 

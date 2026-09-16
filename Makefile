@@ -130,10 +130,10 @@ endef
 	kind-deploy kind-smoke kind-hpa-demo kind-down kind-demo k8s-secrets-sync \
 	hpa-evidence-validate
 
-.PHONY: help install \
-        backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci \
+.PHONY: help install backend-install frontend-install \
+        backend-lint backend-format-check backend-typecheck backend-test backend-coverage backend-fmt backend-ci backend-deps-audit \
         postgres-run-test \
-        frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci \
+        frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-coverage frontend-fmt frontend-ci frontend-deps-audit \
         lint format-check typecheck test coverage fmt \
         lint-changed format-check-changed ci-changed \
         header-check file-length-check docs-links-check experiment-budget-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check supabase-security-check dup-check deadcode deps-audit docs docs-check skills-check openapi scripts-test quality-gates fulldata-test \
@@ -150,8 +150,12 @@ help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install all dependencies (uv workspace + frontend npm ci).
+install: backend-install frontend-install ## Install all dependencies (uv workspace + frontend npm ci).
+
+backend-install: ## Install backend and workspace Python dependencies.
 	$(UV) sync --all-packages --group fulldata
+
+frontend-install: ## Install locked frontend dependencies.
 	cd $(FRONTEND) && $(NPM) ci
 
 # ---------------------------------------------------------------------------
@@ -276,7 +280,7 @@ dup-check: ## Copy/paste detection (jscpd).
 	npx --yes jscpd@4 backend/src packages frontend/src scripts --config .jscpd.json
 deadcode: ## Dead-code sweep (warn-only; DEADCODE_STRICT=1 to fail).
 	bash scripts/deadcode.sh
-deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs network). Phase 13 gate.
+backend-deps-audit: ## Audit resolved Python dependencies (needs network).
 	# --skip-editable: local workspace packages are not on PyPI. The four ChromaDB advisories
 	# affect its unexposed HTTP/auth server, not FraudLens's embedded PersistentClient; no fixes
 	# are published. Each exception is assessed in docs/runbooks/security.md §5.1.
@@ -285,7 +289,11 @@ deps-audit: ## Dependency vulnerability audit (pip-audit + npm audit; needs netw
 		--ignore-vuln CVE-2026-45830 \
 		--ignore-vuln CVE-2026-45831 \
 		--ignore-vuln CVE-2026-45833
+
+frontend-deps-audit: ## Audit production frontend dependencies (needs network).
 	cd $(FRONTEND) && $(NPM) audit --audit-level=high --omit=dev
+
+deps-audit: backend-deps-audit frontend-deps-audit ## Audit Python and frontend dependencies. Phase 13 gate.
 openapi: ## Fail if the committed OpenAPI is stale.
 	$(UV) run --group fulldata python scripts/update_docs.py --check openapi
 docs: ## Regenerate the skill mirror, headers, OpenAPI, ERD, and architecture AUTOGEN (WRITES).
@@ -394,7 +402,7 @@ portfolio-demo-reset: ## Delete the demo tenant's operational rows, then rebuild
 # Coverage stays enforced by `make coverage`, which runs the real suite in-process.
 portfolio-demo-smoke: ## Run the smoke suite against a RUNNING demo (SMOKE_BASE_URL=<url> required).
 	@test -n "$(SMOKE_BASE_URL)" || { echo "SMOKE_BASE_URL=<url> is required: this target boots nothing itself"; exit 1; }
-	SMOKE_BASE_URL=$(SMOKE_BASE_URL) PORTFOLIO_DEMO_SMOKE_ENABLED=true $(UV) run pytest -m smoke --no-cov
+	SMOKE_BASE_URL=$(SMOKE_BASE_URL) PORTFOLIO_DEMO_SMOKE_ENABLED=true $(UV) run pytest tests/smoke -m smoke --no-cov
 
 db-migrate: ## Apply database migrations.
 	$(UV) run alembic upgrade head
@@ -582,7 +590,7 @@ kind-hpa-demo: ## Run the HPA staircase and forced worker-kill durability proof.
 	$(K8S_DEMO) hpa-demo
 
 hpa-evidence-validate: ## Revalidate the committed Kubernetes scaling evidence.
-	$(K8S_DEMO) evidence-validate
+	$(K8S_DEMO) evidence-validate $(if $(EVIDENCE),--path $(EVIDENCE),)
 
 k8s-secrets-sync: ## Apply allowlisted runtime Secrets to an explicitly confirmed AKS context.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS secret mutation: pass CONFIRM=yes"; exit 2; }
@@ -820,7 +828,7 @@ data-batch-verify-clean: ## Prove no tagged data-batch resource, RG, or budget r
 	test "$$failed" = "0" || exit 1; \
 	echo "data-batch-verify-clean OK: no resource group, tagged resource, or budget remains"
 
-aks-init: ## Initialize the next-release AKS remote-state root without applying resources.
+aks-init: ## Initialize the bounded AKS remote-state root without applying resources.
 	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
 
@@ -832,7 +840,7 @@ aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never
 	terraform -chdir=$(AKS_DIR) plan -refresh=false -input=false -lock=false -no-color \
 		-var-file=$(AKS_TFVARS)
 
-aks-up: ## Apply the reviewed AKS plan in the next release (requires CONFIRM=yes).
+aks-up: ## Apply the reviewed bounded AKS plan (requires CONFIRM=yes).
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS creation: pass CONFIRM=yes after explicit approval"; exit 2; }
 	@set -euo pipefail; \
 	$(AKS_ENV); \
@@ -868,7 +876,8 @@ aks-secrets-operator: ## Verify the approved Infisical operator and its CRD are 
 	expected="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name)"; \
 	test "$$context" = "$$expected" || { echo "Unexpected kubectl context: $$context"; exit 2; }; \
 	kubectl wait --for=condition=Established crd/infisicalsecrets.secrets.infisical.com --timeout=120s; \
-	kubectl rollout status deployment/infisical-operator-controller-manager \
+	kubectl rollout status deployment \
+		-l app.kubernetes.io/instance=infisical-operator \
 		-n infisical-operator-system --timeout=300s
 
 aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approved AKS only.
@@ -877,11 +886,11 @@ aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approv
 
 aks-deploy: ## Deploy an immutable image and operator-backed secret references to approved AKS.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
-	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
+	@test -n "$(IMAGE_TAG)$(IMAGE_REF)" || { echo "IMAGE_TAG=<SHA> or IMAGE_REF=<digest> is required"; exit 2; }
 	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
 	@test -n "$${INFISICAL_PROJECT_SLUG:-}" || { echo "INFISICAL_PROJECT_SLUG is required"; exit 2; }
 	$(K8S_DEMO) deploy --platform aks --confirm-aks \
-		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
+		--image "$(if $(IMAGE_REF),$(IMAGE_REF),ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG))" \
 		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
 		--infisical-project-slug "$${INFISICAL_PROJECT_SLUG}" \
 		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
@@ -890,7 +899,7 @@ aks-smoke: ## Run probe smoke tests against the approved AKS workload.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
 	$(K8S_DEMO) smoke --platform aks --confirm-aks
 
-aks-hpa-demo: ## Capture next-release AKS HPA evidence after an approved deployment.
+aks-hpa-demo: ## Capture paid AKS HPA evidence after an approved deployment.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS load mutation: pass CONFIRM=yes"; exit 2; }
 	$(K8S_DEMO) hpa-demo --platform aks --confirm-aks
 
@@ -910,12 +919,23 @@ aks-down: ## Destroy the approved AKS cluster and all Terraform-managed support 
 	$(AKS_ENV); \
 	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	cluster_name="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name 2>/dev/null || true)"; \
+	current_context="$$(kubectl config current-context 2>/dev/null || true)"; \
+	if [ -n "$$cluster_name" ] && [ "$$current_context" = "$$cluster_name" ]; then \
+		kubectl delete poddisruptionbudget --all --namespace fraudlens --ignore-not-found; \
+	else \
+		echo "Skipping PDB removal: current context '$$current_context' is not '$$cluster_name'"; \
+	fi; \
 	terraform -chdir=$(AKS_DIR) destroy -input=false -no-color -auto-approve \
 		-var-file=$(AKS_TFVARS)
 
 aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget remains.
 	@set -euo pipefail; \
 	failed=0; \
+	if [ -f "$(AKS_DIR)/backend.tf" ]; then \
+		state_count="$$(terraform -chdir=$(AKS_DIR) state list 2>/dev/null | wc -l | tr -d ' ')"; \
+		if [ "$$state_count" != "0" ]; then echo "residue: $$state_count Terraform-managed AKS resources remain"; failed=1; fi; \
+	fi; \
 	for group in fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg; do \
 		if [ "$$(az group exists --name "$$group")" != "false" ]; then echo "residue: resource group $$group exists"; failed=1; fi; \
 	done; \

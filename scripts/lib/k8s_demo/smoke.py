@@ -87,7 +87,7 @@ def _run_remote_tests(base_url: str) -> None:
     environment = os.environ.copy()
     environment["SMOKE_BASE_URL"] = base_url
     completed = subprocess.run(
-        ["uv", "run", "pytest", "-m", "smoke", "--no-cov", "-q"],
+        ["uv", "run", "pytest", "tests/smoke", "-m", "smoke", "--no-cov", "-q"],
         cwd=REPO_ROOT,
         env=environment,
         check=False,

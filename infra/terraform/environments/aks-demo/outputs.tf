@@ -19,7 +19,7 @@ output "cluster_id" {
 }
 
 output "kubelet_identity_object_id" {
-  description = "Kubelet object id allowlisted for the future Infisical operator identity."
+  description = "Kubelet object id allowlisted for the Infisical operator identity."
   value       = module.aks.kubelet_identity_object_id
 }
 

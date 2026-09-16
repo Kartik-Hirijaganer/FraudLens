@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,8 @@ from lib.k8s_demo.evidence import (
     EvidenceError,
     HpaEvidenceReport,
     HpaSpecSnapshot,
+    NodePoolSnapshot,
+    PaidSessionEvidence,
     ScalingSample,
     ScalingSummary,
     WorkloadSnapshot,
@@ -92,6 +95,18 @@ def _report(**updates: object) -> HpaEvidenceReport:
     return HpaEvidenceReport.model_validate(values)
 
 
+def _paid_session() -> PaidSessionEvidence:
+    return PaidSessionEvidence(
+        execution_source="github-actions",
+        execution_id="123456",
+        manifest_sha256="c" * 64,
+        image_digest=f"sha256:{'d' * 64}",
+        node_pools=[NodePoolSnapshot(name="user", vm_size="Standard_D2as_v4", node_count=2)],
+        elapsed_cluster_seconds=1800,
+        projected_cost_usd=Decimal("0.79"),
+    )
+
+
 def test_valid_evidence_hashes_renders_and_publishes(tmp_path: Path) -> None:
     report = _report()
     validate_evidence(report)
@@ -115,10 +130,28 @@ def test_valid_aks_evidence_uses_non_kind_context_and_docs_only(tmp_path: Path) 
         node_count=2,
         architectures=["amd64"],
     )
-    report = _report(platform="aks", cluster=cluster)
+    report = _report(
+        platform="aks",
+        cluster=cluster,
+        run_id="aks-demo-20260915-01",
+        paid_session=_paid_session(),
+        load=_report().load.model_copy(update={"mode": "authenticated"}),
+        workload=_report().workload.model_copy(
+            update={"image": f"ghcr.io/example/fraudlens-backend@sha256:{'d' * 64}"}
+        ),
+    )
     validate_evidence(report)
     paths = publish_evidence(report, root=tmp_path)
     assert [path.name for path in paths] == ["aks-hpa-scaling.json", "aks-hpa-scaling.md"]
+    markdown = paths[1].read_text(encoding="utf-8")
+    assert "Standard_D2as_v4" in markdown
+    assert "Projected session cost | $0.79" in markdown
+    with pytest.raises(EvidenceError, match="immutable digest"):
+        validate_evidence(
+            report.model_copy(
+                update={"workload": report.workload.model_copy(update={"image": "mutable:tag"})}
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -202,6 +235,7 @@ def test_secret_loading_requires_core_keys_and_redacts_repr(
     with pytest.raises(ValueError, match="required secret keys"):
         load_secret_sets()
     monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+    monkeypatch.setenv("FRAUDLENS_DEMO_AUTH_PASSWORD", "demo-password")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "role-secret")
     monkeypatch.setenv("OPENROUTER_API_KEY", "llm-secret")
     groups = load_secret_sets()
@@ -211,6 +245,7 @@ def test_secret_loading_requires_core_keys_and_redacts_repr(
 
 def test_secret_sync_applies_values_only_over_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+    monkeypatch.setenv("FRAUDLENS_DEMO_AUTH_PASSWORD", "demo-password")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "role-secret")
     monkeypatch.setenv("OPENROUTER_API_KEY", "llm-secret")
     applied: list[str] = []
@@ -229,4 +264,5 @@ def test_secret_sync_applies_values_only_over_stdin(monkeypatch: pytest.MonkeyPa
     assert names == ["fraudlens-backend-secrets", "fraudlens-llm-secrets"]
     documents = [yaml.safe_load(item) for item in applied]
     assert documents[0]["stringData"]["DATABASE_URL"] == "postgresql://secret"
+    assert documents[0]["stringData"]["FRAUDLENS_DEMO_AUTH_PASSWORD"] == "demo-password"
     assert documents[1]["stringData"] == {"OPENROUTER_API_KEY": "llm-secret"}

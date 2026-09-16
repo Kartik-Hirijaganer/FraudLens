@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
-from typing import Any
+from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
 import pytest
-from pydantic import HttpUrl
+from pydantic import HttpUrl, SecretStr
 
 from lib.k8s_demo import load as load_module
 from lib.k8s_demo.config import LoadConfig
@@ -16,7 +17,10 @@ from lib.k8s_demo.load import SUMMARY_PREFIX, run_load, summary_from_logs
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
+    authorization_headers: ClassVar[list[str | None]] = []
+
     def do_GET(self) -> None:
+        self.authorization_headers.append(self.headers.get("Authorization"))
         body = b"{}"
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
@@ -38,7 +42,23 @@ def _config(*, mode: str = "healthz") -> LoadConfig:
     )
 
 
+def test_connection_allows_for_cloud_database_latency(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeConnection:
+        def __init__(self, host: str, port: int, *, timeout: int) -> None:
+            observed.update(host=host, port=port, timeout=timeout)
+
+    monkeypatch.setattr(load_module.http.client, "HTTPConnection", FakeConnection)
+
+    connection = load_module._connection(urlsplit("http://fraudlens-api:8000"))
+
+    assert isinstance(connection, FakeConnection)
+    assert observed == {"host": "fraudlens-api", "port": 8000, "timeout": 60}
+
+
 def test_health_load_hits_local_server_without_failures() -> None:
+    _HealthHandler.authorization_headers.clear()
     server = ThreadingHTTPServer(("127.0.0.1", 0), _HealthHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -54,6 +74,30 @@ def test_health_load_hits_local_server_without_failures() -> None:
     assert summary.succeeded == summary.requests
     assert summary.failed == 0
     assert summary.latency_p95_ms >= summary.latency_p50_ms
+    assert set(_HealthHandler.authorization_headers) == {None}
+
+
+def test_authenticated_load_attaches_bearer_and_fails_closed_without_it() -> None:
+    _HealthHandler.authorization_headers.clear()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _HealthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        config = _config(mode="authenticated").model_copy(
+            update={
+                "target_url": HttpUrl(f"http://127.0.0.1:{server.server_port}/api/v1/me"),
+                "auth_required": True,
+                "auth_token": SecretStr("synthetic-auth-token"),
+            }
+        )
+        summary = run_load(config)
+    finally:
+        server.shutdown()
+        thread.join()
+    assert summary.failed == 0
+    assert set(_HealthHandler.authorization_headers) == {"Bearer synthetic-auth-token"}
+    with pytest.raises(ValueError, match="requires an injected bearer token"):
+        run_load(config.model_copy(update={"auth_token": None}))
 
 
 def test_investigation_load_submits_and_polls_every_run(
@@ -70,7 +114,8 @@ def test_investigation_load_submits_and_polls_every_run(
         headers: dict[str, str] | None = None,
     ) -> tuple[int, dict[str, Any], float]:
         nonlocal poll_count
-        del headers
+        assert headers is not None
+        assert headers["Authorization"] == "Bearer synthetic-auth-token"
         if path.endswith("/transactions/batch"):
             assert body is not None
             return (
@@ -91,7 +136,10 @@ def test_investigation_load_submits_and_polls_every_run(
         return 200, {"status": "completed", "attempt": 2}, 0.03
 
     monkeypatch.setattr(load_module, "_request_json", request)
-    summary = run_load(_config(mode="investigations"))
+    config = _config(mode="investigations").model_copy(
+        update={"auth_required": True, "auth_token": SecretStr("synthetic-auth-token")}
+    )
+    summary = run_load(config)
     assert summary.runs_submitted == 2
     assert summary.runs_completed == 2
     assert summary.runs_failed == 0

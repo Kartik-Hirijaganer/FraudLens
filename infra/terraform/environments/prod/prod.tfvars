@@ -1,7 +1,7 @@
 # Non-secret prod values (committed). Use with: terraform apply -var-file=prod.tfvars
 # Account ids (subscription/tenant/client) come from TF_VAR_* via the OIDC pipeline.
 # container_image is stamped (build-once SHA tag) by the deploy job.
-location               = "eastus"
+location               = "eastus2"
 name_prefix            = "fraudlens-prod"
 environment            = "prod"
 acr_enabled            = false # public GHCR image source (free); set true to provision ACR

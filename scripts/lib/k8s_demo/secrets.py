@@ -25,6 +25,7 @@ _SECRET_KEYS = {
     "fraudlens-backend-secrets": (
         "DATABASE_URL",
         "SUPABASE_SERVICE_ROLE_KEY",
+        "FRAUDLENS_DEMO_AUTH_PASSWORD",
         "FRAUDLENS_AUTH_JWKS_URL",
         "FRAUDLENS_AUTH_JWT_ISSUER",
     ),

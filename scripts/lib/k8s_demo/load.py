@@ -4,7 +4,7 @@ Key classes:
 - LoadSummary: PHI-free counts, timings, and durable run outcomes emitted by the load Job.
 
 Key functions:
-- run_load: dispatch health-probe or durable-investigation load from validated config.
+- run_load: dispatch probe, authenticated API, or durable-investigation load from validated config.
 - summary_from_logs: extract the machine-readable final summary from Kubernetes Job logs.
 
 Notes:
@@ -31,6 +31,16 @@ SUBMITTED_PREFIX = "K8S_DEMO_SUBMITTED="
 _TERMINAL_STATUSES = frozenset({"completed", "failed"})
 _HTTP_OK = 200
 _HTTP_ACCEPTED = 202
+_HTTP_TIMEOUT_SECONDS = 60
+
+
+def _authorization_headers(config: LoadConfig) -> dict[str, str]:
+    """Return the runtime bearer header, failing closed when AKS auth is required."""
+    if config.auth_token is None:
+        if config.auth_required:
+            raise ValueError("authenticated load requires an injected bearer token")
+        return {}
+    return {"Authorization": f"Bearer {config.auth_token.get_secret_value()}"}
 
 
 class LoadSummary(BaseModel):
@@ -66,7 +76,7 @@ def _connection(parts: Any) -> http.client.HTTPConnection:
     connection_type = (
         http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
     )
-    return connection_type(parts.hostname, port, timeout=10)
+    return connection_type(parts.hostname, port, timeout=_HTTP_TIMEOUT_SECONDS)
 
 
 def _health_worker(config: LoadConfig, deadline: float) -> tuple[int, int, list[float]]:
@@ -83,7 +93,7 @@ def _health_worker(config: LoadConfig, deadline: float) -> tuple[int, int, list[
             connection = _connection(parts)
         started = time.monotonic()
         try:
-            connection.request("GET", path)
+            connection.request("GET", path, headers=_authorization_headers(config))
             response = connection.getresponse()
             response.read()
             if response.status == _HTTP_OK:
@@ -144,8 +154,13 @@ def _investigation_load(config: LoadConfig) -> LoadSummary:
     started = time.monotonic()
     parts = urlsplit(str(config.target_url))
     transactions = [_synthetic_transaction(index) for index in range(config.cases)]
+    auth_headers = _authorization_headers(config)
     status, response, latency = _request_json(
-        parts, "POST", "/api/v1/transactions/batch", body={"transactions": transactions}
+        parts,
+        "POST",
+        "/api/v1/transactions/batch",
+        body={"transactions": transactions},
+        headers=auth_headers,
     )
     latencies = [latency]
     if status != _HTTP_OK or response.get("accepted") != config.cases:
@@ -167,7 +182,10 @@ def _investigation_load(config: LoadConfig) -> LoadSummary:
             "POST",
             "/api/v1/investigations",
             body={"transactionId": transaction_id},
-            headers={"Idempotency-Key": f"k8s-demo-{index}-{transaction_id}"},
+            headers={
+                **auth_headers,
+                "Idempotency-Key": f"k8s-demo-{index}-{transaction_id}",
+            },
         )
         return request_status, document.get("runId"), elapsed
 
@@ -183,7 +201,10 @@ def _investigation_load(config: LoadConfig) -> LoadSummary:
 
         def poll(run_id: str) -> tuple[str, int, dict[str, Any], float]:
             poll_status, document, elapsed = _request_json(
-                parts, "GET", f"/api/v1/investigations/{run_id}"
+                parts,
+                "GET",
+                f"/api/v1/investigations/{run_id}",
+                headers=auth_headers,
             )
             return run_id, poll_status, document, elapsed
 

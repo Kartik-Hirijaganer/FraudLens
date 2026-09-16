@@ -34,6 +34,36 @@ variable "aks_subnet_prefixes" {
   default     = []
 }
 
+variable "aks_public_api_port" {
+  type        = number
+  description = "AKS backend port exposed through the public demonstration load balancer."
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.aks_public_api_port == null ||
+      (var.aks_public_api_port >= 1 && var.aks_public_api_port <= 65535)
+    )
+    error_message = "aks_public_api_port must be null or a valid TCP port."
+  }
+}
+
+variable "aks_health_probe_node_port" {
+  type        = number
+  description = "Fixed AKS health-check NodePort admitted only from AzureLoadBalancer."
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.aks_health_probe_node_port == null ||
+      (var.aks_health_probe_node_port >= 30000 && var.aks_health_probe_node_port <= 32767)
+    )
+    error_message = "aks_health_probe_node_port must be null or within the Kubernetes NodePort range."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to all resources."
@@ -93,6 +123,36 @@ resource "azurerm_network_security_group" "aks" {
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
+}
+
+resource "azurerm_network_security_rule" "aks_public_api" {
+  count                       = length(var.aks_subnet_prefixes) > 0 && var.aks_public_api_port != null ? 1 : 0
+  name                        = "AllowFraudLensPublicApi"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = tostring(var.aks_public_api_port)
+  source_address_prefix       = "Internet"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.aks[0].name
+}
+
+resource "azurerm_network_security_rule" "aks_health_probe" {
+  count                       = length(var.aks_subnet_prefixes) > 0 && var.aks_health_probe_node_port != null ? 1 : 0
+  name                        = "AllowAzureLoadBalancerHealthProbe"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = tostring(var.aks_health_probe_node_port)
+  source_address_prefix       = "AzureLoadBalancer"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.aks[0].name
 }
 
 resource "azurerm_subnet_network_security_group_association" "aks" {

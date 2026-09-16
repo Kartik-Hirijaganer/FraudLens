@@ -13,9 +13,12 @@ Notes:
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from lib.k8s_demo.config import K8sDemoConfig
 from lib.k8s_demo.evidence import (
@@ -23,6 +26,8 @@ from lib.k8s_demo.evidence import (
     DurabilityEvidence,
     HpaEvidenceReport,
     HpaSpecSnapshot,
+    NodePoolSnapshot,
+    PaidSessionEvidence,
     ScalingSample,
     ScalingSummary,
     WorkloadSnapshot,
@@ -33,6 +38,54 @@ from lib.k8s_demo.load import LoadSummary
 from lib.k8s_demo.render import Platform
 
 __all__ = ["build_live_report"]
+
+
+def _paid_session_evidence(
+    nodes: list[dict[str, object]], generated_at: datetime
+) -> tuple[str, PaidSessionEvidence]:
+    """Build AKS-only evidence from governed workflow or local-session inputs."""
+    required = {
+        name: os.environ.get(name, "")
+        for name in (
+            "AKS_RUN_ID",
+            "AKS_SESSION_STARTED_AT",
+            "AKS_MANIFEST_SHA256",
+            "AKS_IMAGE_DIGEST",
+            "AKS_PROJECTED_COST_USD",
+        )
+    }
+    if missing := sorted(name for name, value in required.items() if not value):
+        raise ValueError(f"AKS evidence environment lacks {len(missing)} required value(s)")
+    github_run_id = os.environ.get("GITHUB_RUN_ID", "")
+    local_execution_id = os.environ.get("AKS_EXECUTION_ID", "")
+    execution_source: Literal["github-actions", "local"] = (
+        "github-actions" if github_run_id else "local"
+    )
+    execution_id = github_run_id or local_execution_id
+    if not execution_id:
+        raise ValueError("AKS evidence environment lacks an execution identifier")
+    started_at = datetime.fromisoformat(required["AKS_SESSION_STARTED_AT"].replace("Z", "+00:00"))
+    pools: dict[tuple[str, str], int] = {}
+    for node in nodes:
+        metadata = node.get("metadata", {}) if isinstance(node, dict) else {}
+        labels = metadata.get("labels", {}) if isinstance(metadata, dict) else {}
+        if not isinstance(labels, dict):
+            continue
+        name = str(labels.get("agentpool", "unknown"))
+        vm_size = str(labels.get("node.kubernetes.io/instance-type", "unknown"))
+        pools[(name, vm_size)] = pools.get((name, vm_size), 0) + 1
+    return required["AKS_RUN_ID"], PaidSessionEvidence(
+        execution_source=execution_source,
+        execution_id=execution_id,
+        manifest_sha256=required["AKS_MANIFEST_SHA256"],
+        image_digest=required["AKS_IMAGE_DIGEST"],
+        node_pools=[
+            NodePoolSnapshot(name=name, vm_size=vm_size, node_count=count)
+            for (name, vm_size), count in sorted(pools.items())
+        ],
+        elapsed_cluster_seconds=max(1, round((generated_at - started_at).total_seconds())),
+        projected_cost_usd=Decimal(required["AKS_PROJECTED_COST_USD"]),
+    )
 
 
 def build_live_report(  # noqa: PLR0913 - binds every measured proof component explicitly.
@@ -75,12 +128,26 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
     commit = command_runner(["git", "rev-parse", "HEAD"]).stdout.strip()
     context = kubectl.current_context()
     is_kind = platform == "kind"
+    run_id, paid_session = (
+        (None, None) if is_kind else _paid_session_evidence(nodes["items"], generated_at)
+    )
+    paid_disclosures = (
+        []
+        if paid_session is None
+        else [
+            f"Paid session {run_id} ran through the governed "
+            f"{paid_session.execution_source} execution {paid_session.execution_id}.",
+            "The user pool uses Standard_D2as_v4 instead of the ADR-021 "
+            "Standard_D2as_v5 shape because the DASv5 family quota is zero.",
+        ]
+    )
     return HpaEvidenceReport(
-        schema_version="1.0",
+        schema_version="1.1",
         generated_at=generated_at,
         platform=platform,
         commit=commit,
         config_sha256=config_sha256(config_path.read_bytes()),
+        run_id=run_id,
         cluster=ClusterFacts(
             name=config.cluster_name if is_kind else context,
             context=context,
@@ -110,6 +177,7 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
             seconds_to_scale_back_to_min=scale_back,
         ),
         durability=durability,
+        paid_session=paid_session,
         disclosures=[
             (
                 "kind uses kindnet, which does not enforce NetworkPolicy; enforcement is "
@@ -125,5 +193,6 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
             "This is a zero-cost local execution. No Azure or RunPod resources were created."
             if is_kind
             else "This is paid AKS evidence and must carry its resource-session ledger record.",
+            *paid_disclosures,
         ],
     )

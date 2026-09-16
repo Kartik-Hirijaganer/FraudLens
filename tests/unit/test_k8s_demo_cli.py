@@ -11,9 +11,14 @@ from types import SimpleNamespace
 import pytest
 
 import k8s_demo
-from lib.k8s_demo.config import load_config
+from lib.k8s_demo.config import LoadConfig, load_config
 from lib.k8s_demo.evidence import ScalingSample
-from lib.k8s_demo.kubectl import CommandError, CommandResult, HpaObservation
+from lib.k8s_demo.kubectl import (
+    CommandError,
+    CommandResult,
+    DeploymentObservation,
+    HpaObservation,
+)
 from lib.k8s_demo.load import SUMMARY_PREFIX, LoadSummary
 from lib.k8s_demo.render import RenderedManifest
 
@@ -116,6 +121,15 @@ class FakeKubectl:
     def wait_for_worker_claim(self, *, platform: str, confirmed: bool) -> str:
         assert platform == "aks" and confirmed is True
         return "worker-old"
+
+    def deployment_observation(self) -> DeploymentObservation:
+        return DeploymentObservation(
+            image="ghcr.io/example/fraudlens-backend:measured",
+            cpu_request="500m",
+            memory_request="512Mi",
+            cpu_limit="1",
+            memory_limit="1536Mi",
+        )
 
 
 def test_main_returns_safe_statuses(
@@ -248,6 +262,41 @@ def test_scaling_state_machine_reaches_max_and_returns_to_min(
     assert finished == 5
 
 
+def test_aks_scaling_uses_controller_aware_load_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config().model_copy(update={"sample_interval_seconds": 5})
+    samples = iter(
+        [
+            ScalingSample(elapsed_seconds=0, replicas=1, desired_replicas=1, cpu_percent=10),
+            ScalingSample(elapsed_seconds=5, replicas=5, desired_replicas=5, cpu_percent=90),
+            ScalingSample(elapsed_seconds=10, replicas=1, desired_replicas=1, cpu_percent=5),
+        ]
+    )
+    kubectl = FakeKubectl(samples)
+    rendered_loads: list[LoadConfig] = []
+
+    def capture_load(_config: object, load: LoadConfig, **_kwargs: object) -> str:
+        rendered_loads.append(load)
+        return "manifest"
+
+    monkeypatch.setattr(k8s_demo, "render_load_job", capture_load)
+    monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(k8s_demo, "_job_complete", lambda _kubectl: True)
+    logs = SUMMARY_PREFIX + _summary(mode="authenticated").model_dump_json()
+    monkeypatch.setattr(k8s_demo, "_job_logs", lambda _kubectl: logs)
+    monkeypatch.setattr(k8s_demo.time, "sleep", lambda _seconds: None)
+    moments = iter((100.0, 100.0, 105.0, 105.0, 105.0, 110.0))
+    monkeypatch.setattr(k8s_demo.time, "monotonic", lambda: next(moments))
+
+    k8s_demo._run_scaling(config, kubectl, platform="aks", confirmed=True)
+
+    assert len(rendered_loads) == 1
+    load = rendered_loads[0]
+    assert load.duration_seconds == config.aks.load_duration_seconds
+    assert load.concurrency == config.aks.load_concurrency
+
+
 def test_scaling_requires_minimum_start(monkeypatch: pytest.MonkeyPatch) -> None:
     samples = iter(
         [ScalingSample(elapsed_seconds=0, replicas=2, desired_replicas=2, cpu_percent=1)]
@@ -297,7 +346,15 @@ def test_aks_durability_uses_claim_marker_without_local_database_barrier(
             f"{SUMMARY_PREFIX}{final.model_dump_json()}\n",
         ]
     )
-    monkeypatch.setattr(k8s_demo, "render_load_job", lambda *_args, **_kwargs: "manifest")
+    rendered_images: list[str | None] = []
+
+    def render(*_args: object, **kwargs: object) -> str:
+        image = kwargs.get("image")
+        assert image is None or isinstance(image, str)
+        rendered_images.append(image)
+        return "manifest"
+
+    monkeypatch.setattr(k8s_demo, "render_load_job", render)
     monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         k8s_demo,
@@ -309,6 +366,7 @@ def test_aks_durability_uses_claim_marker_without_local_database_barrier(
     monkeypatch.setattr(k8s_demo.time, "monotonic", lambda: 100.0)
     evidence = k8s_demo._run_durability(config, kubectl, platform="aks", confirmed=True)
     assert evidence.runs_completed == config.load.cases
+    assert rendered_images == ["ghcr.io/example/fraudlens-backend:measured"]
 
 
 def test_active_claim_wait_times_out_when_no_lease_is_owned(

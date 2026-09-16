@@ -12,3 +12,10 @@ metadata:
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
+  healthCheckNodePort: 30081
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+      nodePort: 30080

@@ -23,9 +23,10 @@ evidence remain the proof. Commit and push restrictions in AGENTS.md apply to ev
 | --- | --- | --- |
 | [2026-09-15 Azure deployment, cost projection, and budget alerts](2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md) | Release 0.4.0 Azure apply, cost controls, and AKS evidence | Active |
 
-## Next release: 0.4.0 first steps
+## Release 0.4.0 scope
 
-Release 0.4 work is explicitly outside the 0.3 closeout:
+Items 1-5 were scoped out of the 0.3 closeout and remain open; the active plan above delivers
+item 6 and the Azure deployment work around it.
 
 1. Add a deterministic `SARQualityGate` over ChromaDB-retrieved source spans.
 2. Route AWQ first, then regenerate with BF16 or GPT-5 mini when the gate fails.
@@ -34,11 +35,16 @@ Release 0.4 work is explicitly outside the 0.3 closeout:
 4. Publish a dedicated AWQ evaluation note that explains the quality gap and the
    FrugalGPT/model-cascade pattern.
 5. Ground the validator in FinCEN SAR narrative field requirements.
-6. Run the human-approved AKS demonstration: apply the validated Terraform, deploy, capture HPA and
-   durability evidence, then stop or destroy and verify clean.
+6. ~~Run the human-approved AKS demonstration~~ — **done 2026-09-16.** Session
+   `aks-demo-20260915-01` applied the validated Terraform, deployed, captured
+   [measured HPA and durability evidence](../docs/reference/benchmarks/aks-hpa-scaling.md), then
+   destroyed the cluster and verified it clean.
 
-Until AKS evidence exists, the supported wording is “deployable to Azure AKS; autoscaling and
-durability proven on Kubernetes using kind.”
+The supported AKS wording is no longer the kind-only phrasing: it is set by
+[ADR-021's amendment](../docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md),
+and every present-tense claim is capped by the
+[claim register](../docs/reference/claims.md). kind evidence is still never cited as an observed AKS
+deployment.
 
 ## Retired plans
 

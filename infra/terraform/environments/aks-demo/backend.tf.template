@@ -1,4 +1,4 @@
-# Remote state for the next-release AKS apply. Copy to backend.tf only for an explicitly approved
+# Remote state for the bounded AKS evidence apply. Copy to backend.tf only for an explicitly approved
 # plan/apply/destroy; free validation always initializes with -backend=false.
 
 terraform {

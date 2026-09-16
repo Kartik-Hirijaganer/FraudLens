@@ -175,6 +175,11 @@ venv.bak/
 # bundles (from `make train-model`) land here too and must NOT be committed.
 /data/models/*
 !/data/models/v0-fixture/
+# The portfolio demo story pins this bundle by version label and calibrates every expected
+# band, alert and SAR state against it, so it is a fixed artifact rather than a candidate: the
+# bootstrap refuses any other model. `COPY data /app/data` bakes it into the image and the
+# deploy runner reads it from the checkout, so tracking it is what makes the demo deployable.
+!/data/models/xgb-ibm-aml-fs2-9d43c5f92a/
 
 # Spyder project settings
 .spyderproject

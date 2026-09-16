@@ -23,7 +23,8 @@ A demonstrated row always links to its committed evidence.
 | The graph-feature study measures the performance/isolation boundary without live tenant reads. | demonstrated | [Published GFP study](benchmarks/gfp-tenant-isolation-study.md) and [bound data](benchmarks/gfp-tenant-isolation-study.json) |
 | The multi-agent SAR study is bounded, synthetic, redacted, and reproducible. | demonstrated | [Published SAR study data](benchmarks/sar-multi-agent-study.json) and [ADR-019](../architecture/adr/ADR-019-multi-agent-sar-drafting.md) |
 | Backend and frontend coverage are gated at 90% and local/CI checks share Make targets. | implemented | [Makefile](../../Makefile) and [reusable CI workflow](../../.github/workflows/_ci-reusable.yml) |
-| Azure Container Apps, Vercel, and Supabase are the deployment topology; automated deploy gates remain inert. | implemented | [Cloud governance](../../AGENTS.md#cloud--deployment) and [Azure deployment runbook](../runbooks/azure-deploy.md) |
+| Azure Container Apps, Vercel, and Supabase serve the live application at one public origin, with every deploy job gated behind required production approval. | demonstrated | Live at [fraud-lens-amber.vercel.app](https://fraud-lens-amber.vercel.app) and the [Azure deployment runbook](../runbooks/azure-deploy.md) |
+| A dated monthly cost projection is generated from the committed deployment shapes, with budget alerts at two scopes and hard caps that bound the bill. | implemented | [Generated cost model](cost-model.md) and [ADR-029](../architecture/adr/ADR-029-recurring-operational-budget.md) |
 
 ## Release 0.3.0 target claims
 
@@ -34,4 +35,4 @@ These are not present-tense claims until their evidence rows can move beyond `pl
 | vLLM + 4-bit AWQ reduces model-weight memory by more than 50% versus BF16 over 1,000 synthetic SAR cases at concurrency 1, 8, and 32. | demonstrated | [Measured benchmark report](benchmarks/vllm-awq-sar-benchmark.md) — 63.5% reduction; acceptance was not met on reference validity, so this is not a quality-parity claim. |
 | Kubernetes manifests include a real HPA and durable worker execution proven on kind. | demonstrated | [Measured HPA and durable-worker evidence](benchmarks/k8s-hpa-scaling.md) |
 | The full-data pipeline processes all 68,228,066 downloaded IBM transactions with temporal evaluation and calibration-derived thresholds. | demonstrated | [Published full-data training study](benchmarks/ibm-full-data-training.md) |
-| AKS Terraform is CI-validated, while the actual AKS apply remains a next-release, human-approved step. | tested | [AKS runbook and validation contract](../runbooks/aks-deploy.md) |
+| A human-approved, ephemeral AKS session applied the validated Terraform and measured HPA scale-out and durable-worker recovery on the cluster. | demonstrated | [Measured AKS HPA and durability evidence](benchmarks/aks-hpa-scaling.md) and the [AKS runbook](../runbooks/aks-deploy.md) |
