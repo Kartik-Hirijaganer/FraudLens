@@ -228,6 +228,19 @@ def test_the_staged_revision_itself_carries_the_secret_references() -> None:
     assert "${SUPABASE_URL%/}" in script
 
 
+def test_the_deployed_app_is_told_whether_it_carries_a_demo_story() -> None:
+    """Bootstrapping the story does not expose it: the route fails closed on the app's own flag.
+
+    Tied to the same variable that gates the bootstrap, so the data and the endpoint cannot
+    disagree — a deployment with no story must not advertise a demo route, and one that has the
+    story must serve it. Defaulted in the shell, because an unset repo variable renders as the
+    empty string and pydantic-settings rejects that as a boolean.
+    """
+    step = _step("stage", "Create revision at 0% traffic")
+    assert step["env"]["DEMO_ENABLED"] == "${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}"
+    assert '"FRAUDLENS_PORTFOLIO_DEMO_ENABLED=${DEMO_ENABLED:-false}"' in step["run"]
+
+
 def test_the_jwks_url_and_issuer_are_derived_rather_than_stored_twice() -> None:
     script = _step("stage", "Create revision at 0% traffic")["run"]
     assert '"FRAUDLENS_AUTH_JWKS_URL=${supabase_url}/auth/v1/.well-known/jwks.json"' in script

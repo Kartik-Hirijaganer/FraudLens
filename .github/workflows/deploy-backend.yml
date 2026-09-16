@@ -285,6 +285,12 @@ jobs:
             --secrets "${pairs[@]}" --output none
       - name: Create revision at 0% traffic
         id: stage
+        env:
+          # The app's portfolio-demo route fails CLOSED on its own setting, so bootstrapping the
+          # story is not enough to expose it — the deployed revision needs the flag too. Bound to
+          # the SAME variable that gates the bootstrap: a deployment carrying no story must not
+          # advertise a demo endpoint, and one that carries it must serve it.
+          DEMO_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
@@ -300,7 +306,8 @@ jobs:
               "OPENROUTER_API_KEY=secretref:openrouter-api-key" \
               "SUPABASE_URL=${supabase_url}" \
               "FRAUDLENS_AUTH_JWKS_URL=${supabase_url}/auth/v1/.well-known/jwks.json" \
-              "FRAUDLENS_AUTH_JWT_ISSUER=${supabase_url}/auth/v1"
+              "FRAUDLENS_AUTH_JWT_ISSUER=${supabase_url}/auth/v1" \
+              "FRAUDLENS_PORTFOLIO_DEMO_ENABLED=${DEMO_ENABLED:-false}"
           fqdn=$(az containerapp revision show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision "${APP_NAME}--${REVISION_SUFFIX}" --query properties.fqdn -o tsv)
           echo "revision_fqdn=https://${fqdn}" >> "$GITHUB_OUTPUT"

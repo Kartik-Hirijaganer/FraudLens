@@ -190,13 +190,25 @@ def test_a_foreign_resource_id_is_a_safe_404(analyst: httpx.Client) -> None:
 # --- the reads the recruiter-facing screens are built on --------------------------------------
 
 
-def _pick_transaction(client: httpx.Client) -> str:
-    """Return one investigable transaction id from the pinned story."""
+def _pick_transaction(client: httpx.Client, *, bands: tuple[str, ...] = ()) -> str:
+    """Return one investigable transaction id, preferring the risk bands asked for.
+
+    Band matters for what an investigation produces. The story places its five UNSCORED rows
+    closest to the anchor, so the newest transaction is the one least likely to draft a SAR or
+    retrieve a regulation — picking it made the citation assertion unsatisfiable by construction.
+    """
+    for band in bands:
+        body = _json(client.get(f"{_API}/transactions", params={"riskBand": band, "limit": 1}))
+        matches = body["transactions"]
+        assert isinstance(matches, list)
+        if matches and isinstance(matches[0], dict):
+            return str(matches[0]["transactionId"])
     body = _json(client.get(f"{_API}/transactions", params={"limit": 1}))
     transactions = body["transactions"]
     assert isinstance(transactions, list) and transactions, "the demo tenant serves no transaction"
     first = transactions[0]
     assert isinstance(first, dict)
+    assert not bands, f"the demo tenant serves no transaction in any of {bands}"
     return str(first["transactionId"])
 
 
@@ -253,9 +265,10 @@ def completed_run(analyst: httpx.Client) -> str:
     """Start one investigation as the analyst and return its id once it is terminal."""
     if not (BASE_URL and STORY_ENABLED):
         pytest.skip("SMOKE_BASE_URL and PORTFOLIO_DEMO_SMOKE_ENABLED=true are required")
-    started = analyst.post(
-        f"{_API}/investigations", json={"transactionId": _pick_transaction(analyst)}
-    )
+    # A critical or high row is the one the story guarantees produces an alert, a SAR draft, and
+    # the regulatory retrieval the citations are grounded against.
+    transaction_id = _pick_transaction(analyst, bands=("critical", "high"))
+    started = analyst.post(f"{_API}/investigations", json={"transactionId": transaction_id})
     assert started.status_code == _ACCEPTED, started.text
     return str(started.json()["runId"])
 
@@ -278,7 +291,9 @@ def test_every_citation_resolves_to_retrieved_regulatory_evidence(
     snapshot = _await_terminal(analyst, completed_run)
     retrieved = snapshot["retrievedRegulations"]
     assert isinstance(retrieved, list) and retrieved, (
-        "no regulation was retrieved: the baked RAG index is missing or empty in this image"
+        "the run persisted no regulatory retrieval. `/readyz` proves the baked index is present "
+        "and non-empty (index_status only reports ready above zero chunks), so suspect the run "
+        "itself — a band that drafts no SAR, or a retrieval step that failed silently."
     )
     available = {str(item["citation"]) for item in retrieved if isinstance(item, dict)}
     citations = snapshot["citations"]
