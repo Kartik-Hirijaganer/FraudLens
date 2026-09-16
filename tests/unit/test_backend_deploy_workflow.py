@@ -75,6 +75,51 @@ def _index(job: str, needle: str) -> int:
     pytest.fail(f"no step matching '{needle}' in job '{job}'")
 
 
+# --- how a release branch deploys its OWN workflow -------------------------------------------
+
+
+def test_the_deploy_can_be_dispatched_against_the_branch_being_released() -> None:
+    """`workflow_run` runs the DEFAULT branch's copy of this file, whatever ref triggered it.
+
+    That makes every deploy change on a release branch inert until it is merged, which turns one
+    fix into one merge to `main`. A dispatch executes the file from the ref it targets, so the
+    branch iterates on its own deploy.
+    """
+    triggers = _workflow()[True] if True in _workflow() else _workflow()["on"]
+    assert isinstance(triggers, dict)
+    assert "workflow_dispatch" in triggers
+    assert "workflow_run" in triggers, "the automatic post-CI deploy must survive"
+
+
+@pytest.mark.parametrize("job", ["identity", "verify"])
+def test_a_dispatch_reaches_the_same_gates_as_a_post_ci_deploy(job: str) -> None:
+    condition = _job(job)["if"]
+    assert "github.event_name == 'workflow_dispatch'" in condition
+    # The post-CI path keeps its original guard: a red or non-push CI run still deploys nothing.
+    assert "github.event.workflow_run.conclusion == 'success'" in condition
+    assert "github.event.workflow_run.event == 'push'" in condition
+
+
+def test_a_dispatch_deploys_the_ref_it_was_dispatched_against() -> None:
+    # On a dispatch `github.event.workflow_run` is absent, so every SHA reference has to fall
+    # back to the dispatched ref or the deploy would build and stage an empty tag.
+    body = _source()
+    assert "${{ github.event.workflow_run.head_sha }}" not in body
+    assert body.count("${{ github.event.workflow_run.head_sha || github.sha }}") >= 1
+    assert "DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}" in body
+
+
+def test_dispatching_does_not_weaken_any_gate() -> None:
+    # A manual trigger must not become a way around CI parity, the feature flag, or approval.
+    jobs = _workflow()["jobs"]
+    assert jobs["verify"]["needs"] == "identity"
+    assert jobs["build-push"]["needs"] == "verify"
+    for name in ("build-push", "infra", "stage", "migrate", "smoke", "promote"):
+        assert jobs[name]["environment"] == "production", name
+        if "if" in jobs[name]:
+            assert "AZURE_DEPLOY_ENABLED" in jobs[name]["if"], name
+
+
 # --- the image the Container App will pull anonymously --------------------------------------
 
 

@@ -5,6 +5,8 @@
 # Flow: verify -> build (HTTPS API + real-auth portfolio demo baked in) -> deploy -> smoke.
 name: deploy-frontend
 
+# See deploy-backend.yml: `workflow_run` runs the DEFAULT branch's copy of this file, so a
+# release branch dispatches instead of merging to iterate on its own deploy.
 on:
   workflow_run:
     workflows: ["ci"]
@@ -12,6 +14,7 @@ on:
     branches:
       - dev
       - "release/*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,7 +29,7 @@ jobs:
   # and the Azure subscription. Every job below descends from `verify`, so this single edge gates
   # the whole graph before anything billable is touched.
   identity:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -39,7 +42,7 @@ jobs:
 
   verify:
     needs: identity
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     uses: ./.github/workflows/_ci-reusable.yml
 
   deploy:
@@ -51,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Fetch Vercel token from Infisical (OIDC)
         uses: Infisical/secrets-action@v1.0.16
         with:
