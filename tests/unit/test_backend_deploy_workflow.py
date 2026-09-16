@@ -213,6 +213,21 @@ def test_the_budget_recipient_reaches_terraform_as_a_list_not_a_bare_string() ->
     assert env["TF_VAR_budget_start_date"] == "${{ vars.AZURE_BUDGET_START_DATE }}"
 
 
+def test_the_apply_decision_cannot_be_silently_rewritten_by_a_wrapper() -> None:
+    """Skipping the apply is the one outcome that looks like success while doing nothing.
+
+    `hashicorp/setup-terraform` wraps the binary by default and does not preserve
+    `-detailed-exitcode`, so terraform's "2 = changes pending" arrived as 0 and a plan with 14
+    resources to add was skipped with the job green. The wrapper is disabled, and the decision is
+    additionally cross-checked against the plan file so no single status can strand the deploy.
+    """
+    setup = next(step for step in _steps("infra") if "setup-terraform" in str(step.get("uses", "")))
+    assert setup["with"]["terraform_wrapper"] is False
+    script = _step("infra", "Terraform plan")["run"]
+    assert "terraform show -json tfplan" in script
+    assert 'if [ "$code" = "2" ] || [ "$changes" != "0" ]; then' in script
+
+
 # --- the authenticated smoke ----------------------------------------------------------------
 
 

@@ -143,7 +143,13 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # `terraform_wrapper: false` is load-bearing, not hygiene. The default wrapper intercepts
+      # the binary to capture step outputs and does not preserve `-detailed-exitcode`, so
+      # terraform's "2 = changes pending" arrives as 0 and the apply below is skipped on a plan
+      # that had 14 resources to add -- silently, with the job reporting success.
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
       - name: Terraform plan; apply only if the plan is non-empty
         working-directory: infra/terraform/environments/prod
         env:
@@ -167,7 +173,13 @@ jobs:
             -var-file=prod.tfvars -var="container_image=${{ needs.build-push.outputs.image }}" -out=tfplan
           code=$?
           set -e
-          if [ "$code" = "2" ]; then
+          echo "terraform plan -detailed-exitcode => $code"
+          # Cross-check the exit code against the plan file itself. "Skip the apply" is the one
+          # outcome that looks like success while doing nothing, so it has to be proven, not
+          # inferred from a status another tool could have rewritten.
+          changes=$(terraform show -json tfplan | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("resource_changes",[])))')
+          echo "planned resource changes: $changes"
+          if [ "$code" = "2" ] || [ "$changes" != "0" ]; then
             echo "infra changed — applying"; retry terraform apply -input=false -lock-timeout=120s -auto-approve tfplan
           elif [ "$code" = "0" ]; then
             echo "no infra changes — skipping apply (fast app-rollout path)"
