@@ -322,6 +322,21 @@ def test_aks_workflow_uses_exact_root_kubelogin_and_guarded_destroy() -> None:
     assert "terraform -chdir=$(AKS_DIR) state list" in makefile
 
 
+def test_aks_down_removes_workload_pdb_only_on_the_managed_context() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("aks-down:", maxsplit=1)[1].split("aks-verify-clean:", maxsplit=1)[0]
+
+    assert 'current_context="$$(kubectl config current-context' in target
+    assert '[ -n "$$cluster_name" ] && [ "$$current_context" = "$$cluster_name" ]' in target
+    assert (
+        "kubectl delete poddisruptionbudget --all --namespace fraudlens --ignore-not-found"
+        in target
+    )
+    assert target.index("kubectl delete poddisruptionbudget") < target.index(
+        "terraform -chdir=$(AKS_DIR) destroy"
+    )
+
+
 def test_aks_load_token_is_stdin_only_and_deleted_before_teardown() -> None:
     flat = _deploy_aks_flat()
     assert "--from-file=token=/dev/stdin" in flat

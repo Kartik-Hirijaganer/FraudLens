@@ -911,6 +911,13 @@ aks-down: ## Destroy the approved AKS cluster and all Terraform-managed support 
 	$(AKS_ENV); \
 	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf; \
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color; \
+	cluster_name="$$(terraform -chdir=$(AKS_DIR) output -raw cluster_name 2>/dev/null || true)"; \
+	current_context="$$(kubectl config current-context 2>/dev/null || true)"; \
+	if [ -n "$$cluster_name" ] && [ "$$current_context" = "$$cluster_name" ]; then \
+		kubectl delete poddisruptionbudget --all --namespace fraudlens --ignore-not-found; \
+	else \
+		echo "Skipping PDB removal: current context '$$current_context' is not '$$cluster_name'"; \
+	fi; \
 	terraform -chdir=$(AKS_DIR) destroy -input=false -no-color -auto-approve \
 		-var-file=$(AKS_TFVARS)
 

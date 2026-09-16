@@ -212,6 +212,7 @@ def test_aks_overlay_runs_the_in_cluster_worker_queue() -> None:
     )
     assert config["data"]["FRAUDLENS_QUEUE_BACKEND"] == "local"
     assert config["data"]["FRAUDLENS_RUN_EXECUTION_MODE"] == "worker"
+    assert config["data"]["FRAUDLENS_RUN_DEADLINE_SECONDS"] == "900"
     assert config["data"]["FRAUDLENS_STORAGE_BACKEND"] == "local"
     assert config["data"]["FRAUDLENS_PORTFOLIO_DEMO_ENABLED"] == "true"
     documents = _render("overlays/aks-demo")
