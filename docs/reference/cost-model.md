@@ -7,7 +7,7 @@
 
 - **Generated on:** 2026-09-15
 - **Currency:** USD
-- **Recurring monthly total:** **$2.50**
+- **Recurring monthly total:** **$2.72**
 - **Per ephemeral AKS session:** **$0.79** ($1.03 with the ADR-028 0.3 margin)
 
 ## Enforced ceilings
@@ -26,7 +26,7 @@ change moves this projection with no second copy to maintain.
 
 | Shape | Value |
 | --- | --- |
-| Container Apps region | eastus |
+| Container Apps region | eastus2 |
 | Container Apps replicas (min / max) | 0 / 1 |
 | Container Apps vCPU / memory per replica | 0.5 vCPU / 1 GiB |
 | Log Analytics daily ingestion cap | 0.1 GB/day |
@@ -37,7 +37,7 @@ change moves this projection with no second copy to maintain.
 
 ## Container Apps — the permanent URL (recurring)
 
-Priced in `eastus` on the Consumption plan. The free monthly grant
+Priced in `eastus2` on the Consumption plan. The free monthly grant
 covers **100 warm replica-hours** at this
 shape; the keep-warm window holds **176 replica-hours/month** warm, so
 **76 hours** are billed — at the *idle*
@@ -48,16 +48,16 @@ cheaper than one that is.
 | --- | --- | --- |
 | Compute — 76 warm replica-hours beyond the free grant, idle rate | 176 warm h/mo (8 h x 22 weekdays) - 100 free h x 3600 s x $0.0000045/replica-second | $1.23 |
 | Requests | 20000 requests/mo - 2000000 free @ $0.4/1M | $0.00 |
-| Log Analytics ingestion — expected | 0.5 GB/mo x $2.3/GB (capped at 0.1 GB/day => max $6.90/mo) | $1.15 |
-| Blob storage — artifacts and SAR PDFs | 5 GB hot LRS x $0.0208/GB-month | $0.10 |
-| Blob storage — Terraform remote state | 1 GB hot LRS x $0.0208/GB-month | $0.02 |
-| **Total** | | **$2.50** |
+| Log Analytics ingestion — expected | 0.5 GB/mo x $2.76/GB (capped at 0.1 GB/day => max $8.28/mo) | $1.38 |
+| Blob storage — artifacts and SAR PDFs | 5 GB hot LRS x $0.0184/GB-month | $0.09 |
+| Blob storage — Terraform remote state | 1 GB hot LRS x $0.0184/GB-month | $0.02 |
+| **Total** | | **$2.72** |
 
 | Scenario | Monthly |
 | --- | --- |
-| As configured (keep-warm window, idle rate) | $2.50 |
-| Every hour billed at the *active* rate, at the 1-replica cap, log ingestion pinned to its daily cap | $41.04 |
-| Log ingestion alone, pinned to the 0.1 GB/day cap | $6.90 |
+| As configured (keep-warm window, idle rate) | $2.72 |
+| Every hour billed at the *active* rate, at the 1-replica cap, log ingestion pinned to its daily cap | $42.41 |
+| Log ingestion alone, pinned to the 0.1 GB/day cap | $8.28 |
 
 The second row is the bound the hard caps enforce: `max_replicas` cannot be exceeded,
 and the workspace stops ingesting at its daily quota rather than billing on.
@@ -100,15 +100,15 @@ expose is marked *(list)* and carries its published source instead.
 
 | Meter | Region | Unit price | Unit | Effective from | Source |
 | --- | --- | --- | --- | --- | --- |
-| Container Apps Standard Memory Active | eastus | $0.000003 | 1 GiB Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Container Apps Standard Memory Idle | eastus | $0.000003 | 1 GiB Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Container Apps Standard Requests | eastus | $0.400000 | 1M | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Container Apps Standard vCPU Active | eastus | $0.000024 | 1 Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Container Apps Standard vCPU Idle | eastus | $0.000003 | 1 Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Container Apps Standard Memory Active | eastus2 | $0.000003 | 1 GiB Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Container Apps Standard Memory Idle | eastus2 | $0.000003 | 1 GiB Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Container Apps Standard Requests | eastus2 | $0.400000 | 1M | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Container Apps Standard vCPU Active | eastus2 | $0.000024 | 1 Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Container Apps Standard vCPU Idle | eastus2 | $0.000003 | 1 Second | 2022-06-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
 | AKS system node pool VM | westus3 | $0.041600 | 1 Hour | 2025-10-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
 | AKS user node pool VM | westus3 | $0.096000 | 1 Hour | 2022-12-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Blob Storage Hot LRS Data Stored | eastus | $0.020800 | 1 GB/Month | 2017-02-03T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
-| Log Analytics Analytics Logs Data Ingestion | eastus | $2.300000 | 1 GB | 2018-02-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Blob Storage Hot LRS Data Stored | eastus2 | $0.018400 | 1 GB/Month | 2017-02-03T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
+| Log Analytics Analytics Logs Data Ingestion | eastus2 | $2.760000 | 1 GB | 2018-02-01T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
 | Standard Load Balancer, first 5 rules *(list)* | westus3 | $0.025000 | 1 Hour | — | [source](https://azure.microsoft.com/en-us/pricing/details/load-balancer/) |
 | Standard IPv4 Static Public IP | westus3 | $0.005000 | 1 Hour | 2021-04-20T00:00:00Z | [source](https://prices.azure.com/api/retail/prices) |
 

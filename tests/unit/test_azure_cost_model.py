@@ -73,7 +73,7 @@ def test_a_missing_config_file_reports_the_path(tmp_path: Path) -> None:
 def test_shapes_come_from_the_committed_terraform_not_from_config(config: CostModelConfig) -> None:
     # A second copy of these values in config would drift silently from the sources that apply.
     shapes = load_shapes(config, REPO_ROOT)
-    assert shapes.aca_region == "eastus"
+    assert shapes.aca_region == "eastus2"
     assert (shapes.aca_min_replicas, shapes.aca_max_replicas) == (0, 1)
     assert shapes.aca_vcpu == Decimal("0.5")
     assert shapes.aca_memory_gib == Decimal("1")
@@ -121,8 +121,8 @@ def test_the_recurring_projection_applies_the_free_grant_before_charging(
     assert aca.free_grant_hours == Decimal("100")
     assert aca.warm_replica_hours == Decimal("176")
     assert aca.billable_hours == Decimal("76")
-    assert aca.monthly_usd == Decimal("2.50")
-    assert aca.log_ceiling_usd == Decimal("6.90")
+    assert aca.monthly_usd == Decimal("2.72")
+    assert aca.log_ceiling_usd == Decimal("8.28")
     # Requests stay inside the 2M grant, so the meter contributes nothing.
     requests_line = next(line for line in aca.lines if line.item == "Requests")
     assert requests_line.amount_usd == Decimal("0.00")
@@ -209,7 +209,7 @@ def test_an_ambiguous_meter_is_an_error_rather_than_a_silent_pick(
     # Dropping the tier selector leaves the three graduated Hot LRS tiers matching at once.
     ambiguous = config.meters["blob_hot_lrs"].model_copy(update={"tier_minimum_units": None})
     with pytest.raises(PriceError, match="retail rows matched"):
-        catalog.resolve("blob_hot_lrs", ambiguous, "eastus", "https://example.test")
+        catalog.resolve("blob_hot_lrs", ambiguous, "eastus2", "https://example.test")
 
 
 def _offline_client() -> httpx.Client:

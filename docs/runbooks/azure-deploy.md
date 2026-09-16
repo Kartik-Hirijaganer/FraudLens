@@ -155,9 +155,11 @@ prints the right value to its run summary; the same value is `app_fqdn` in the T
 
 Step 6 is a decision, not a formality: measure the real cold start first, record it in
 `config/cost-model.yaml`, and regenerate with `make azure-cost-plan`. The generated
-[cost model](../reference/cost-model.md) names the threshold and returns the verdict — below it,
-keep-warm costs ~$1.25/month to hide something nobody would notice, so leave `KEEP_WARM_ENABLED`
-unset and the URL costs ~$1.25/month instead of ~$2.50.
+[cost model](../reference/cost-model.md) names the threshold, returns the verdict, and carries the
+current figures — below the threshold, keep-warm buys nothing anyone would notice, so leave
+`KEEP_WARM_ENABLED` unset and the compute line disappears from the recurring total. No monthly
+figure is repeated here: the generated document owns it, and a second copy would go stale the next
+time a rate or a region moves.
 
 The SPA receives **no** absolute API base. `frontend/.env.production` pins `VITE_API_BASE_URL`
 empty and `frontend/vercel.json` proxies `/api/*` to `AZURE_API_ORIGIN`, so the browser only ever

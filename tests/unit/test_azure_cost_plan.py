@@ -250,7 +250,7 @@ def test_the_cli_fetches_live_prices_and_can_save_them_as_a_fixture(
         ]
     )
     assert exit_code == 0
-    assert captured["regions"] == {"aca": "eastus", "aks": "westus3"}
+    assert captured["regions"] == {"aca": "eastus2", "aks": "westus3"}
     assert captured["skus"] == {
         "aks_system_vm_size": "Standard_B2s",
         "aks_user_vm_size": "Standard_D2as_v4",

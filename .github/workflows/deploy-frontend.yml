@@ -36,7 +36,7 @@ jobs:
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Refuse a non-personal deploy identity
         run: bash scripts/check_deploy_identity.sh
 
@@ -52,7 +52,7 @@ jobs:
     environment: production
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Fetch Vercel token from Infisical (OIDC)
@@ -65,7 +65,7 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /ci/vercel
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -124,7 +124,7 @@ jobs:
       # the /api rewrite forwards an Authorization header, tenant-safe refusals, and an
       # unbuffered SSE stream. The selection is by FILE, not by marker: the ops-probe smoke
       # tests hit unprefixed paths that the SPA fallback would answer with index.html.
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         with:
           enable-cache: true
