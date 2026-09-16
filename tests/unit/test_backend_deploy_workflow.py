@@ -40,6 +40,8 @@ INFISICAL_PATHS = ("/llm", "/")
 SCANNED_SECRETS = frozenset({"DATABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENROUTER_API_KEY"})
 # Azure's own limit on `<app name>--<revision suffix>`.
 _AZURE_REVISION_NAME_LIMIT = 54
+# `az containerapp logs show` accepts --tail between 0 and 300.
+_AZURE_LOG_TAIL_LIMIT = 300
 
 
 def _source() -> str:
@@ -378,6 +380,10 @@ def test_the_smoke_refuses_secret_jwt_phi_or_stack_trace_leakage_in_the_logs() -
     step = _step("smoke", "leakage in the revision log")
     assert "az containerapp logs show" in step["run"]
     assert "scripts/check_log_leakage.py" in step["run"]
+    # `az containerapp logs show` rejects --tail above 300 outright, so an over-large value fails
+    # the gate on its arguments rather than on anything it found.
+    tail = int(re.search(r"--tail (\d+)", str(step["run"])).group(1))
+    assert 0 < tail <= _AZURE_LOG_TAIL_LIMIT
     for env_name in SCANNED_SECRETS:
         assert f"--secret-env {env_name}" in step["run"]
     assert _index("smoke", "leakage in the revision log") > _index("smoke", "Smoke the staged")

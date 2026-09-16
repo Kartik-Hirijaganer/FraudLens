@@ -480,7 +480,7 @@ jobs:
         run: |
           set -euo pipefail
           az containerapp logs show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
-            --revision "${APP_NAME}--${REVISION_SUFFIX}" --tail 500 --output tsv > revision.log
+            --revision "${APP_NAME}--${REVISION_SUFFIX}" --tail 300 --output tsv > revision.log
           uv run python scripts/check_log_leakage.py revision.log \
             --secret-env DATABASE_URL \
             --secret-env SUPABASE_SERVICE_ROLE_KEY \
