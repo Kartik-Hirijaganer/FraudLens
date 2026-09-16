@@ -136,7 +136,9 @@ def render_overlay(  # noqa: PLR0913 - explicit render inputs keep the command b
         if platform != "aks":
             raise ValueError("AKS operator rendering requires the aks platform")
         if not all(required_values):
-            raise ValueError("AKS operator rendering requires every managed-identity and scope value")
+            raise ValueError(
+                "AKS operator rendering requires every managed-identity and scope value"
+            )
         if not all(_IDENTITY_PATTERN.fullmatch(value or "") for value in required_values):
             raise ValueError("AKS operator input values contain unsupported characters")
         rendered = _substitute_aks_inputs(
