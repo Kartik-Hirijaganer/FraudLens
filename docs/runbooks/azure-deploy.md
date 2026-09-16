@@ -166,7 +166,7 @@ means "can be approved", never "runs by itself".
 | 3 | `Production` environment with the owner as required reviewer | ✅ blocking verified on a dispatched run |
 | 4 | `AZURE_DEPLOY_ENABLED=true` | ✅ backend deploys are approvable |
 | 5 | `AZURE_API_ORIGIN` = the **stable** ingress origin, then `VERCEL_DEPLOY_ENABLED=true` | ✅ frontend deploys are approvable |
-| 6 | `BACKEND_URL` = the same stable origin, then `KEEP_WARM_ENABLED=true` | ✅ cold start measured first (§7.1) |
+| 6 | `BACKEND_URL` = the same stable origin, then `KEEP_WARM_ENABLED=true` | ✅ cold start measured first (§7.2) |
 | — | `AKS_DEPLOY_ENABLED` | ⬜ **stays `false`** except during an approved evidence run ([`aks-deploy.md`](aks-deploy.md)) |
 
 Flipping one back off is a single variable and takes effect on the next dispatch:
@@ -185,7 +185,29 @@ prints the right value to its run summary; the same value is `app_fqdn` in the T
 Both variables currently hold that stable origin, which is why promoting a new revision does not
 touch Vercel.
 
-### 7.1 The warm window, and why it is a purchase
+### 7.1 Which Vercel project is authoritative
+
+The team holds two Vercel projects pointed at this repository's history, and only one of them is
+real:
+
+| Project | Root directory | Owns | Git-linked |
+|---|---|---|---|
+| **`fraud-lens`** (`prj_Pm2dTfz7M8lAZHG3BaVdm2HMDr0C`) | `frontend` | `fraud-lens-amber.vercel.app` — the public URL | **yes** |
+| `frontend` (`prj_IUs42n3Kqgg8NnGYGIMO0cxcHzLc`) | *unset* — the repository root | nothing | no — unlinked 2026-09-16 |
+
+The second one was created by accident, exactly as the warning in
+[`deploy-frontend.yml`](../../.github/workflows/deploy-frontend.yml) describes: `vercel pull --yes`
+with no project link does not fail, it **creates** a project named after the working directory. It
+was left Git-connected, so every push rebuilt the repository root — where there is no
+`package.json` — and posted a failing `Vercel – frontend` commit status on every pull request
+(`vite build` exiting 127). Unlinking it stops the noise without deleting anything.
+
+`VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are what keep the deploy on the right project. They are
+non-secret identifiers, the same posture as the Azure subscription and client ids, and
+`deploy-frontend.yml` refuses to run without them — a deploy that silently invents a new project
+would leave `FRONTEND_URL` serving the old one with nothing obviously wrong.
+
+### 7.2 The warm window, and why it is a purchase
 
 Step 6 was a decision, not a formality. `min_replicas = 0` is the single largest saving on the
 recurring bill, and the thing it costs is the first request after an idle period. That request was
@@ -304,7 +326,7 @@ fix; raising the budget is not one of them.
 | Symptom | First check | Action |
 |---|---|---|
 | Public URL returns the SPA but every `/api` call 404s | `AZURE_API_ORIGIN` points at a **revision** FQDN, not the stable one | Reset it to `app_fqdn` and redeploy the frontend |
-| First request takes a minute, later ones are instant | Expected scale-from-zero outside the warm window | Nothing. Widen the window in `keep-warm.yml` only if it matters (§7.1) |
+| First request takes a minute, later ones are instant | Expected scale-from-zero outside the warm window | Nothing. Widen the window in `keep-warm.yml` only if it matters (§7.2) |
 | `/readyz` returns 503 | Which of the five probes is not `ok` — the body names each one | `database`/`supabaseAuth` → upstream; `infisical` → re-run the staged deploy to rewrite secret references; `llmProvider` → check the daily LLM cap before the provider |
 | Smoke fails after a deploy | The staged revision is at 0% traffic and the previous one still serves | Nothing is down. Read the smoke log, fix, redeploy — the auto-abort already protected the live revision |
 | A bad revision was promoted | Traffic weights on the app | Shift back to the prior revision — seconds, no rebuild ([`deploy-rollback.md`](deploy-rollback.md)) |
