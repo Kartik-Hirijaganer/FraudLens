@@ -212,6 +212,31 @@ def test_aks_overlay_runs_the_in_cluster_worker_queue() -> None:
     )
     assert config["data"]["FRAUDLENS_QUEUE_BACKEND"] == "local"
     assert config["data"]["FRAUDLENS_RUN_EXECUTION_MODE"] == "worker"
+    assert config["data"]["FRAUDLENS_STORAGE_BACKEND"] == "local"
+    assert config["data"]["FRAUDLENS_PORTFOLIO_DEMO_ENABLED"] == "true"
+
+
+def test_aks_operator_projects_only_the_actual_secret_paths_and_keys() -> None:
+    secrets = {
+        document["metadata"]["name"]: document
+        for document in _render("overlays/aks-demo")
+        if document["kind"] == "InfisicalSecret"
+    }
+    backend = secrets["fraudlens-backend-secrets"]["spec"]
+    scope = backend["authentication"]["azureAuth"]["secretsScope"]
+    assert scope["envSlug"] == "prod"
+    assert scope["secretsPath"] == "/"
+    assert scope["recursive"] is False
+    projected = backend["managedKubeSecretReferences"][0]["template"]["data"]
+    assert set(projected) == {
+        "DATABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "FRAUDLENS_DEMO_AUTH_PASSWORD",
+        "FRAUDLENS_AUTH_JWKS_URL",
+        "FRAUDLENS_AUTH_JWT_ISSUER",
+    }
+    llm_scope = secrets["fraudlens-llm-secrets"]["spec"]["authentication"]["azureAuth"]
+    assert llm_scope["secretsScope"]["secretsPath"] == "/llm"
 
 
 def test_env_files_contain_no_secret_like_keys() -> None:

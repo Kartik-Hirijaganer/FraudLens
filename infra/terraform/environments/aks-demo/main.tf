@@ -1,5 +1,5 @@
-# AKS demonstration root (ADR-021) — validated in release 0.3, deliberately not applied until the
-# next release. The application remains deployed on Container Apps until human-approved cutover.
+# AKS demonstration root (ADR-021) — applied only for the bounded release-0.4 evidence session.
+# The permanent application remains on Container Apps; this root is always destroyed after proof.
 
 locals {
   node_resource_group = "${var.name_prefix}-nodes-rg"
@@ -7,7 +7,7 @@ locals {
     project     = "FraudLens"
     environment = var.environment
     managed_by  = "terraform"
-    release     = "0.3.0"
+    release     = "0.4.0"
     lifecycle   = "ephemeral"
   }
   acr_id                     = var.acr_enabled ? module.acr[0].id : ""

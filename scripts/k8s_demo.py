@@ -132,8 +132,19 @@ def _run_scaling(
     hpa = json.loads(kubectl.get_json("hpa/fraudlens-api"))["spec"]
     minimum = int(hpa["minReplicas"])
     maximum = int(hpa["maxReplicas"])
-    load_config = config.load.model_copy(update={"mode": "healthz"})
-    manifest = render_load_job(config, load_config)
+    load_config = config.load.model_copy(
+        update=(
+            {
+                "mode": "authenticated",
+                "target_url": f"http://{config.service}:8000/api/v1/me",
+                "auth_required": True,
+            }
+            if platform == "aks"
+            else {"mode": "healthz"}
+        )
+    )
+    load_image = kubectl.deployment_observation().image if platform == "aks" else None
+    manifest = render_load_job(config, load_config, image=load_image)
     started = time.monotonic()
     samples = [_sample(kubectl, started)]
     if samples[0].replicas != minimum:
@@ -187,11 +198,16 @@ def _run_durability(
             "mode": "investigations",
             "target_url": f"http://{config.service}:8000",
             "duration_seconds": config.durability_timeout_seconds,
+            "auth_required": platform == "aks",
         }
     )
     _start_load_job(
         kubectl,
-        render_load_job(config, durable_load),
+        render_load_job(
+            config,
+            durable_load,
+            image=(kubectl.deployment_observation().image if platform == "aks" else None),
+        ),
         platform=platform,
         confirmed=confirmed,
     )
@@ -361,6 +377,9 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--platform", choices=("kind", "aks"), required=True)
     render_parser.add_argument("--image")
     render_parser.add_argument("--output", type=Path)
+    render_parser.add_argument("--infisical-identity-id")
+    render_parser.add_argument("--azure-managed-identity-client-id")
+    render_parser.add_argument("--infisical-project-slug")
     deploy_parser = subparsers.add_parser("deploy")
     deploy_parser.add_argument("--platform", choices=("kind", "aks"), required=True)
     deploy_parser.add_argument("--image")
@@ -391,7 +410,14 @@ def _dispatch(args: argparse.Namespace, config: K8sDemoConfig) -> None:
     elif args.command == "verify-clean":
         verify_kind_clean(config)
     elif args.command == "render":
-        rendered = render_overlay(config, args.platform, image=args.image).yaml_text
+        rendered = render_overlay(
+            config,
+            args.platform,
+            image=args.image,
+            infisical_identity_id=args.infisical_identity_id,
+            azure_managed_identity_client_id=args.azure_managed_identity_client_id,
+            infisical_project_slug=args.infisical_project_slug,
+        ).yaml_text
         if args.output:
             args.output.write_text(rendered, encoding="utf-8")
         else:

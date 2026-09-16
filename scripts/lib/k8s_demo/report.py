@@ -62,16 +62,41 @@ def render_markdown(report: HpaEvidenceReport) -> str:
         "| Durable runs completed | "
         f"{report.durability.runs_completed} / {report.durability.runs_submitted} |",
         f"| Max worker attempt | {report.durability.max_run_attempts} |",
-        "",
-        *_chart(report, "replicas", "API replicas under load", "Replicas"),
-        "",
-        *_chart(report, "cpu_percent", "API CPU utilization", "CPU percent"),
-        "",
-        "## Samples",
-        "",
-        "| Elapsed (s) | Current replicas | Desired replicas | CPU % |",
-        "|---:|---:|---:|---:|",
     ]
+    if report.paid_session is not None:
+        session = report.paid_session
+        lines.extend(
+            [
+                f"| Paid session run id | {report.run_id} |",
+                f"| GitHub Actions run id | {session.workflow_run_id} |",
+                f"| Rendered manifest SHA-256 | `{session.manifest_sha256}` |",
+                f"| Image digest | `{session.image_digest}` |",
+                f"| Cluster lifetime at capture | {session.elapsed_cluster_seconds} s |",
+                f"| Projected session cost | ${session.projected_cost_usd} |",
+                "",
+                "### Node pools",
+                "",
+                "| Pool | VM size | Nodes |",
+                "|---|---|---:|",
+                *(
+                    f"| {pool.name} | {pool.vm_size} | {pool.node_count} |"
+                    for pool in session.node_pools
+                ),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            *_chart(report, "replicas", "API replicas under load", "Replicas"),
+            "",
+            *_chart(report, "cpu_percent", "API CPU utilization", "CPU percent"),
+            "",
+            "## Samples",
+            "",
+            "| Elapsed (s) | Current replicas | Desired replicas | CPU % |",
+            "|---:|---:|---:|---:|",
+        ]
+    )
     for sample in report.samples:
         cpu = "—" if sample.cpu_percent is None else str(sample.cpu_percent)
         lines.append(

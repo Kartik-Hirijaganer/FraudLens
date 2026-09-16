@@ -13,7 +13,12 @@ import pytest
 import k8s_demo
 from lib.k8s_demo.config import load_config
 from lib.k8s_demo.evidence import ScalingSample
-from lib.k8s_demo.kubectl import CommandError, CommandResult, HpaObservation
+from lib.k8s_demo.kubectl import (
+    CommandError,
+    CommandResult,
+    DeploymentObservation,
+    HpaObservation,
+)
 from lib.k8s_demo.load import SUMMARY_PREFIX, LoadSummary
 from lib.k8s_demo.render import RenderedManifest
 
@@ -116,6 +121,15 @@ class FakeKubectl:
     def wait_for_worker_claim(self, *, platform: str, confirmed: bool) -> str:
         assert platform == "aks" and confirmed is True
         return "worker-old"
+
+    def deployment_observation(self) -> DeploymentObservation:
+        return DeploymentObservation(
+            image="ghcr.io/example/fraudlens-backend:measured",
+            cpu_request="500m",
+            memory_request="512Mi",
+            cpu_limit="1",
+            memory_limit="1536Mi",
+        )
 
 
 def test_main_returns_safe_statuses(
@@ -297,7 +311,15 @@ def test_aks_durability_uses_claim_marker_without_local_database_barrier(
             f"{SUMMARY_PREFIX}{final.model_dump_json()}\n",
         ]
     )
-    monkeypatch.setattr(k8s_demo, "render_load_job", lambda *_args, **_kwargs: "manifest")
+    rendered_images: list[str | None] = []
+
+    def render(*_args: object, **kwargs: object) -> str:
+        image = kwargs.get("image")
+        assert image is None or isinstance(image, str)
+        rendered_images.append(image)
+        return "manifest"
+
+    monkeypatch.setattr(k8s_demo, "render_load_job", render)
     monkeypatch.setattr(k8s_demo, "_start_load_job", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         k8s_demo,
@@ -309,6 +331,7 @@ def test_aks_durability_uses_claim_marker_without_local_database_barrier(
     monkeypatch.setattr(k8s_demo.time, "monotonic", lambda: 100.0)
     evidence = k8s_demo._run_durability(config, kubectl, platform="aks", confirmed=True)
     assert evidence.runs_completed == config.load.cases
+    assert rendered_images == ["ghcr.io/example/fraudlens-backend:measured"]
 
 
 def test_active_claim_wait_times_out_when_no_lease_is_owned(

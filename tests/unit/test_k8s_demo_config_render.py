@@ -48,6 +48,7 @@ def test_load_environment_is_validated(monkeypatch: pytest.MonkeyPatch) -> None:
         "LOAD_DURATION_SECONDS": "5",
         "LOAD_RECONNECT_EVERY": "10",
         "LOAD_CASES": "2",
+        "LOAD_AUTH_REQUIRED": "false",
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)
@@ -146,6 +147,7 @@ def test_load_render_uses_validated_overrides() -> None:
         duration_seconds=12,
         reconnect_every=9,
         cases=3,
+        auth_required=True,
     )
     rendered = render_load_job(config, load, image="fraudlens-backend:proof")
     documents = [document for document in yaml.safe_load_all(rendered) if document]
@@ -153,7 +155,14 @@ def test_load_render_uses_validated_overrides() -> None:
     job = next(document for document in documents if document["kind"] == "Job")
     assert config_map["data"]["LOAD_MODE"] == "investigations"
     assert config_map["data"]["LOAD_CONCURRENCY"] == "7"
+    assert config_map["data"]["LOAD_AUTH_REQUIRED"] == "true"
     assert job["spec"]["template"]["spec"]["containers"][0]["image"] == "fraudlens-backend:proof"
+    token_ref = job["spec"]["template"]["spec"]["containers"][0]["env"][0]["valueFrom"]
+    assert token_ref["secretKeyRef"] == {
+        "name": "fraudlens-load-auth",
+        "key": "token",
+        "optional": True,
+    }
 
 
 def test_deploy_applies_kind_in_bootstrap_order() -> None:

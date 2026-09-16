@@ -165,6 +165,7 @@ def render_load_job(
                     f"LOAD_DURATION_SECONDS={load.duration_seconds}",
                     f"LOAD_RECONNECT_EVERY={load.reconnect_every}",
                     f"LOAD_CASES={load.cases}",
+                    f"LOAD_AUTH_REQUIRED={str(load.auth_required).lower()}",
                     "",
                 ]
             ),

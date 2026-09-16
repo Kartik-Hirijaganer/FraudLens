@@ -243,7 +243,7 @@ def test_azure_runtime_backends_receive_required_env() -> None:
 
 def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
     """The identity guard runs first and every other job descends from it (Golden Rules 2, 7)."""
-    for name in ("deploy-aks.yml", "deploy-backend.yml", "deploy-frontend.yml"):
+    for name in ("deploy-backend.yml", "deploy-frontend.yml"):
         jobs = _load_yaml(WORKFLOWS / name)["jobs"]
         identity = jobs["identity"]
         assert "bash scripts/check_deploy_identity.sh" in _job_script(identity)
@@ -257,6 +257,11 @@ def test_every_deploy_workflow_gates_on_the_deploy_identity_guard() -> None:
             if job_name in {"identity", "verify"}:
                 continue
             assert job["needs"], f"{name}:{job_name} has no needs edge to the identity gate"
+    lifecycle = _deploy_aks()["jobs"]["lifecycle"]
+    guard = lifecycle["steps"][1]
+    assert "bash scripts/check_deploy_identity.sh" in guard["run"]
+    assert guard["env"]["AZURE_SUBSCRIPTION_ID"] == "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+    assert guard["env"]["AZURE_TENANT_ID"] == "${{ vars.AZURE_TENANT_ID }}"
 
 
 def test_deploy_identity_guard_pins_the_personal_repository_and_azure_account() -> None:
@@ -278,33 +283,51 @@ def test_aks_workflow_is_dispatch_only_and_feature_gated() -> None:
     assert "workflow_dispatch:" in text
     assert "\npush:" not in text and "\npull_request:" not in text
     workflow = _deploy_aks()
-    for job in workflow["jobs"].values():
-        assert "AKS_DEPLOY_ENABLED == 'true'" in job["if"]
-    for name, job in workflow["jobs"].items():
-        if name != "verify":
-            assert job["timeout-minutes"] >= 1
+    assert list(workflow["jobs"]) == ["lifecycle"]
+    lifecycle = workflow["jobs"]["lifecycle"]
+    assert "AKS_DEPLOY_ENABLED == 'true'" in lifecycle["if"]
+    assert lifecycle["timeout-minutes"] == 240
+    assert "AKS_OPERATOR_CIDR" not in text
+    assert "api.ipify.org" in text
+    assert "AKS_DEPLOY_OBJECT_ID" in text
 
 
 def test_aks_workflow_builds_one_sha_image_then_smokes_before_evidence() -> None:
     text = (WORKFLOWS / "deploy-aks.yml").read_text()
     flat = _deploy_aks_flat()
-    workflow = _deploy_aks()
+    steps = _deploy_aks()["jobs"]["lifecycle"]["steps"]
+    names = [step.get("name", "") for step in steps]
     assert text.count("docker/build-push-action") == 1
     assert "fraudlens-backend:${GITHUB_SHA}" in flat
-    assert workflow["jobs"]["smoke"]["needs"] == "deploy"
-    assert workflow["jobs"]["hpa-evidence"]["needs"] == "smoke"
+    assert names.index("Run authenticated smoke") < names.index(
+        "Capture and validate authenticated HPA and recovery evidence"
+    )
+    assert names.index("Upload evidence before teardown") < names.index(
+        "Always destroy the paid session and verify zero residue"
+    )
     assert "actions/upload-artifact" in text
+    assert "always() && inputs.action == 'apply-and-verify'" in text
     assert "git commit" not in text and "git push" not in text
 
 
 def test_aks_workflow_uses_exact_root_kubelogin_and_guarded_destroy() -> None:
     flat = _deploy_aks_flat()
-    assert "cp backend.tf.template backend.tf" in flat
-    assert "-var-file=aks-demo.tfvars" in flat
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    assert "cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf" in makefile
+    assert "-var-file=$(AKS_TFVARS)" in makefile
     assert "kubelogin convert-kubeconfig -l azurecli" in flat
-    assert "inputs.confirm_destroy == 'destroy-fraudlens-aks-demo'" in flat
+    assert "deploy-fraudlens-aks-demo-and-destroy" in flat
     assert "make aks-down CONFIRM=yes" in flat
     assert "make aks-verify-clean" in flat
+    assert "terraform -chdir=$(AKS_DIR) state list" in makefile
+
+
+def test_aks_load_token_is_stdin_only_and_deleted_before_teardown() -> None:
+    flat = _deploy_aks_flat()
+    assert "--from-file=token=/dev/stdin" in flat
+    assert "printf '%s' \"$SMOKE_AUTH_TOKEN\"" in flat
+    assert "delete secret fraudlens-load-auth" in flat
+    assert 'PORTFOLIO_DEMO_SMOKE_ENABLED: "true"' in (WORKFLOWS / "deploy-aks.yml").read_text()
 
 
 def test_aks_module_and_tfvars_hold_the_cost_and_security_posture() -> None:

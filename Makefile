@@ -582,7 +582,7 @@ kind-hpa-demo: ## Run the HPA staircase and forced worker-kill durability proof.
 	$(K8S_DEMO) hpa-demo
 
 hpa-evidence-validate: ## Revalidate the committed Kubernetes scaling evidence.
-	$(K8S_DEMO) evidence-validate
+	$(K8S_DEMO) evidence-validate $(if $(EVIDENCE),--path $(EVIDENCE),)
 
 k8s-secrets-sync: ## Apply allowlisted runtime Secrets to an explicitly confirmed AKS context.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS secret mutation: pass CONFIRM=yes"; exit 2; }
@@ -820,7 +820,7 @@ data-batch-verify-clean: ## Prove no tagged data-batch resource, RG, or budget r
 	test "$$failed" = "0" || exit 1; \
 	echo "data-batch-verify-clean OK: no resource group, tagged resource, or budget remains"
 
-aks-init: ## Initialize the next-release AKS remote-state root without applying resources.
+aks-init: ## Initialize the bounded AKS remote-state root without applying resources.
 	cp $(AKS_DIR)/backend.tf.template $(AKS_DIR)/backend.tf
 	terraform -chdir=$(AKS_DIR) init -reconfigure -input=false -no-color
 
@@ -832,7 +832,7 @@ aks-plan: experiment-budget-check ## Validate and plan the inert AKS root; never
 	terraform -chdir=$(AKS_DIR) plan -refresh=false -input=false -lock=false -no-color \
 		-var-file=$(AKS_TFVARS)
 
-aks-up: ## Apply the reviewed AKS plan in the next release (requires CONFIRM=yes).
+aks-up: ## Apply the reviewed bounded AKS plan (requires CONFIRM=yes).
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS creation: pass CONFIRM=yes after explicit approval"; exit 2; }
 	@set -euo pipefail; \
 	$(AKS_ENV); \
@@ -877,11 +877,11 @@ aks-secrets-sync: ## Apply the explicit environment-to-Secret fallback on approv
 
 aks-deploy: ## Deploy an immutable image and operator-backed secret references to approved AKS.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS deployment: pass CONFIRM=yes"; exit 2; }
-	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG=<immutable SHA> is required"; exit 2; }
+	@test -n "$(IMAGE_TAG)$(IMAGE_REF)" || { echo "IMAGE_TAG=<SHA> or IMAGE_REF=<digest> is required"; exit 2; }
 	@test -n "$${INFISICAL_AKS_IDENTITY_ID:-}" || { echo "INFISICAL_AKS_IDENTITY_ID is required"; exit 2; }
 	@test -n "$${INFISICAL_PROJECT_SLUG:-}" || { echo "INFISICAL_PROJECT_SLUG is required"; exit 2; }
 	$(K8S_DEMO) deploy --platform aks --confirm-aks \
-		--image "ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG)" \
+		--image "$(if $(IMAGE_REF),$(IMAGE_REF),ghcr.io/kartik-hirijaganer/fraudlens-backend:$(IMAGE_TAG))" \
 		--infisical-identity-id "$${INFISICAL_AKS_IDENTITY_ID}" \
 		--infisical-project-slug "$${INFISICAL_PROJECT_SLUG}" \
 		--azure-managed-identity-client-id "$$(terraform -chdir=$(AKS_DIR) output -raw kubelet_identity_client_id)"
@@ -890,7 +890,7 @@ aks-smoke: ## Run probe smoke tests against the approved AKS workload.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing non-kind access: pass CONFIRM=yes"; exit 2; }
 	$(K8S_DEMO) smoke --platform aks --confirm-aks
 
-aks-hpa-demo: ## Capture next-release AKS HPA evidence after an approved deployment.
+aks-hpa-demo: ## Capture paid AKS HPA evidence after an approved deployment.
 	@test "$(CONFIRM)" = "yes" || { echo "Refusing AKS load mutation: pass CONFIRM=yes"; exit 2; }
 	$(K8S_DEMO) hpa-demo --platform aks --confirm-aks
 
@@ -916,6 +916,10 @@ aks-down: ## Destroy the approved AKS cluster and all Terraform-managed support 
 aks-verify-clean: ## Prove no prefixed AKS resource group, resource, or budget remains.
 	@set -euo pipefail; \
 	failed=0; \
+	if [ -f "$(AKS_DIR)/backend.tf" ]; then \
+		state_count="$$(terraform -chdir=$(AKS_DIR) state list 2>/dev/null | wc -l | tr -d ' ')"; \
+		if [ "$$state_count" != "0" ]; then echo "residue: $$state_count Terraform-managed AKS resources remain"; failed=1; fi; \
+	fi; \
 	for group in fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg; do \
 		if [ "$$(az group exists --name "$$group")" != "false" ]; then echo "residue: resource group $$group exists"; failed=1; fi; \
 	done; \
