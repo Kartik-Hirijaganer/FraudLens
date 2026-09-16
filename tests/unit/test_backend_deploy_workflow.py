@@ -417,12 +417,24 @@ def test_the_personas_are_provisioned_before_the_story_is_bootstrapped() -> None
     # so the Supabase identities and their `public.users` rows must exist before either.
     gate = "${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}"
     provision = _step("migrate", "Provision the synthetic demo personas")
-    bootstrap = _step("migrate", "Bootstrap the portfolio demo story")
+    bootstrap = _step("migrate", "Rebuild the portfolio demo story")
     assert provision["if"] == gate and bootstrap["if"] == gate
     assert "scripts/provision_demo_auth.py" in provision["run"]
     assert _index("migrate", "Provision the synthetic demo personas") < _index(
-        "migrate", "Bootstrap the portfolio demo story"
+        "migrate", "Rebuild the portfolio demo story"
     )
+
+
+def test_the_deploy_rebuilds_the_story_rather_than_resuming_a_drifted_one() -> None:
+    """A deploy must land on the configured distribution, not refuse because the demo was used.
+
+    The smoke starts a real investigation and visitors resolve alerts, so the tenant stops
+    matching `expected` almost immediately. A plain bootstrap refuses on that drift, which would
+    fail every second deploy until someone reset by hand.
+    """
+    step = _step("migrate", "Rebuild the portfolio demo story")
+    assert "scripts/bootstrap_portfolio_demo.py --reset" in step["run"]
+    assert step["env"]["FRAUDLENS_PORTFOLIO_DEMO_ENABLED"] == "true"
 
 
 # --- the URL the operator is told to publish --------------------------------------------------

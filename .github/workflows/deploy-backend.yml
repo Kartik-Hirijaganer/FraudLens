@@ -372,13 +372,21 @@ jobs:
         run: |
           set -euo pipefail
           uv run python scripts/provision_demo_auth.py
-      - name: Bootstrap the portfolio demo story (gated, pre-promote)
+      # `--reset` rather than a plain bootstrap, because "deterministic" has to survive USE. The
+      # smoke below starts a real investigation, and visitors resolve alerts and review SARs, so
+      # by the next deploy the tenant no longer matches `expected` and a plain bootstrap refuses
+      # outright — every second deploy would fail, needing a manual reset to clear. Rebuilding
+      # puts the story back on its pinned baseline and verifies it, so a deploy always lands on
+      # exactly the configured distribution. It deletes only this tenant's operational rows; its
+      # agency, users, identities, rules, model registry and audit log all survive, and the daily
+      # portfolio-demo-reset already does the same thing for the same reason.
+      - name: Rebuild the portfolio demo story to its pinned baseline (gated, pre-promote)
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         env:
           FRAUDLENS_PORTFOLIO_DEMO_ENABLED: "true"
         run: |
           set -euo pipefail
-          uv run python scripts/bootstrap_portfolio_demo.py
+          uv run python scripts/bootstrap_portfolio_demo.py --reset
 
   # Smoke the STAGED revision (still at 0% traffic) before any traffic shift.
   #
