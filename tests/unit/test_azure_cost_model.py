@@ -212,11 +212,24 @@ def test_an_ambiguous_meter_is_an_error_rather_than_a_silent_pick(
         catalog.resolve("blob_hot_lrs", ambiguous, "eastus", "https://example.test")
 
 
+def _offline_client() -> httpx.Client:
+    """Return a client that answers every retail query with no rows and reaches no network.
+
+    The refusal being asserted below is about a MISSING selector, not about the API. The second
+    case still has to walk the region-keyed meters before it reaches a SKU-keyed one, so a live
+    client would issue real requests to prices.azure.com on the way to the assertion -- which
+    made this unit test depend on an external service and eventually got CI rate-limited (429).
+    """
+    return httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"Items": []}))
+    )
+
+
 def test_a_selector_without_a_region_or_sku_is_refused(config: CostModelConfig) -> None:
-    with pytest.raises(PriceError, match="no region supplied"):
-        fetch_price_items(config, {}, {}, client=httpx.Client())
-    with pytest.raises(PriceError, match="no SKU supplied"):
-        fetch_price_items(config, {"aca": "eastus", "aks": "westus3"}, {}, client=httpx.Client())
+    with _offline_client() as client, pytest.raises(PriceError, match="no region supplied"):
+        fetch_price_items(config, {}, {}, client=client)
+    with _offline_client() as client, pytest.raises(PriceError, match="no SKU supplied"):
+        fetch_price_items(config, {"aca": "eastus", "aks": "westus3"}, {}, client=client)
 
 
 def test_the_retail_query_paginates_and_filters_by_region_service_and_sku(
