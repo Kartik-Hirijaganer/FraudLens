@@ -38,6 +38,8 @@ INFISICAL_PATHS = ("/llm", "/")
 # The subset whose VALUES the post-deploy log scan searches for. The synthetic demo password
 # is deliberately excluded: it is public by design, so a hit would be noise, not a leak.
 SCANNED_SECRETS = frozenset({"DATABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENROUTER_API_KEY"})
+# Azure's own limit on `<app name>--<revision suffix>`.
+_AZURE_REVISION_NAME_LIMIT = 54
 
 
 def _source() -> str:
@@ -120,6 +122,34 @@ def test_dispatching_does_not_weaken_any_gate() -> None:
         assert jobs[name]["environment"] == "production", name
         if "if" in jobs[name]:
             assert "AZURE_DEPLOY_ENABLED" in jobs[name]["if"], name
+
+
+def test_the_revision_name_fits_the_limit_azure_actually_enforces() -> None:
+    """Azure caps the revision name at 54 characters COMBINED with the container app name.
+
+    The full commit SHA is 40 characters and the app name spends 20 with its separator, so a
+    suffix built from the whole SHA is rejected outright -- `ContainerAppInvalidRevisionName`,
+    after the secrets have already been injected and the deploy is most of the way through.
+    """
+    app_name = _workflow()["env"]["APP_NAME"]
+    meta = _step("build-push", "Compute image reference")["run"]
+    assert 'echo "revision_suffix=s${DEPLOY_SHA:0:12}"' in meta
+    # Longest possible rendered name: app + "--" + "s" + the truncated SHA.
+    assert len(f"{app_name}--s{'0' * 12}") <= _AZURE_REVISION_NAME_LIMIT
+    # The image tag keeps the FULL sha: that is the build-once identity.
+    assert 'echo "image=${image_name}:${DEPLOY_SHA}"' in meta
+
+
+def test_every_job_that_names_the_revision_reads_one_computed_suffix() -> None:
+    # Four jobs name the revision. Deriving the truncation in each would be four places for the
+    # limit to drift; they all read the value build-push computed.
+    jobs = _workflow()["jobs"]
+    for name in ("stage", "smoke", "promote", "abort"):
+        assert jobs[name]["env"]["REVISION_SUFFIX"] == (
+            "${{ needs.build-push.outputs.revision_suffix }}"
+        ), name
+        assert "build-push" in jobs[name]["needs"], name
+    assert "REVISION_SUFFIX" not in _workflow()["env"]
 
 
 # --- the image the Container App will pull anonymously --------------------------------------

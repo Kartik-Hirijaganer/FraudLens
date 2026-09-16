@@ -47,7 +47,6 @@ env:
   APP_NAME: fraudlens-prod-api
   RESOURCE_GROUP: fraudlens-prod-rg
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-  REVISION_SUFFIX: s${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   # Golden Rules 2 and 7: refuse any deploy that is not the personal identity owning this repo
@@ -80,6 +79,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       image: ${{ steps.meta.outputs.image }}
+      revision_suffix: ${{ steps.meta.outputs.revision_suffix }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -93,6 +93,12 @@ jobs:
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
           echo "base_image=ghcr.io/${owner}/fraudlens-base:latest" >> "$GITHUB_OUTPUT"
           echo "image=${image_name}:${DEPLOY_SHA}" >> "$GITHUB_OUTPUT"
+          # Azure caps the revision name at 54 characters COMBINED with the container app name,
+          # and requires it to start with a letter. `fraudlens-prod-api` + `--` already spends 20,
+          # so the full 40-character SHA cannot fit — it is truncated here, once, rather than in
+          # each of the four jobs that name the revision. The IMAGE tag keeps the full SHA: that
+          # is the build-once identity, and shortening it would weaken the digest it pins.
+          echo "revision_suffix=s${DEPLOY_SHA:0:12}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -206,6 +212,8 @@ jobs:
   # output, or another job; `ignore_changes = [secret]` (D7) stops the next apply stripping them.
   stage:
     needs: [build-push, infra]
+    env:
+      REVISION_SUFFIX: ${{ needs.build-push.outputs.revision_suffix }}
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
@@ -364,7 +372,9 @@ jobs:
   # the federated Azure subject are registered against that environment, and this job now needs
   # each — Infisical to mint persona tokens, Azure to read back the revision's own log.
   smoke:
-    needs: [stage, migrate]
+    needs: [build-push, stage, migrate]
+    env:
+      REVISION_SUFFIX: ${{ needs.build-push.outputs.revision_suffix }}
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
@@ -452,7 +462,9 @@ jobs:
 
   # Promote: smoke passed -> shift 100% traffic to the new revision (zero-downtime).
   promote:
-    needs: smoke
+    needs: [build-push, smoke]
+    env:
+      REVISION_SUFFIX: ${{ needs.build-push.outputs.revision_suffix }}
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
@@ -484,7 +496,9 @@ jobs:
   # Auto-abort: any failure between staging and promotion -> deactivate the staged revision; the
   # PREVIOUS revision keeps serving 100% (it was never shifted). A broken version never goes live.
   abort:
-    needs: [stage, migrate, smoke]
+    needs: [build-push, stage, migrate, smoke]
+    env:
+      REVISION_SUFFIX: ${{ needs.build-push.outputs.revision_suffix }}
     if: ${{ always() && vars.AZURE_DEPLOY_ENABLED == 'true' && needs.stage.result == 'success' && (needs.migrate.result == 'failure' || needs.smoke.result == 'failure') }}
     runs-on: ubuntu-latest
     environment: production

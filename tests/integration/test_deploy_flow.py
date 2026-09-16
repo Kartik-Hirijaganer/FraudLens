@@ -108,14 +108,16 @@ def test_migration_is_gated_between_stage_and_promote() -> None:
     jobs = _deploy_backend()["jobs"]
     assert "stage" in jobs["migrate"]["needs"]
     assert "migrate" in jobs["smoke"]["needs"]
-    assert jobs["promote"]["needs"] == "smoke"
+    # Containment, not equality: `promote` also needs `build-push` for the revision suffix it
+    # computes. What must hold is that smoke still gates promotion.
+    assert "smoke" in jobs["promote"]["needs"]
     assert "alembic upgrade head" in _job_script(jobs["migrate"])
 
 
 def test_promote_requires_green_smoke() -> None:
     """Promotion to 100% traffic happens only after smoke passes."""
     jobs = _deploy_backend()["jobs"]
-    assert jobs["promote"]["needs"] == "smoke"
+    assert "smoke" in jobs["promote"]["needs"]
     promote_script = _job_script(jobs["promote"])
     assert "ingress traffic set" in promote_script
     assert "=100" in promote_script
