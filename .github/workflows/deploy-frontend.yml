@@ -72,7 +72,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Deploy to Vercel (prod)
         id: deploy
-        working-directory: frontend
         env:
           # Pinned: an unpinned `npm i -g vercel` makes every deploy depend on whatever the CLI
           # published that morning, which is the one moving part a reproducible deploy cannot have.
@@ -87,6 +86,9 @@ jobs:
           # vercel.json proxies /api/* to the gateway, so the browser never learns a second
           # hostname and CORS is not load-bearing. Vercel performs no substitution of its own in
           # vercel.json, so the origin is resolved here, before `vercel build` reads the file.
+          # The CLI runs from the REPOSITORY ROOT: the project declares `frontend` as its
+          # root directory and applies that itself, so invoking it from inside frontend/
+          # makes it look for frontend/frontend and fail with `spawn sh ENOENT`.
           # The explicit demo gate exposes public synthetic personas in production; it never
           # enables the dev bypass, and every login still resolves through Supabase /me.
           AZURE_API_ORIGIN: ${{ vars.AZURE_API_ORIGIN }}
@@ -97,8 +99,8 @@ jobs:
             https://*) ;;
             *) echo "AZURE_API_ORIGIN must be an https:// URL"; exit 1 ;;
           esac
-          python3 -c 'import os, pathlib; p = pathlib.Path("vercel.json"); p.write_text(p.read_text(encoding="utf-8").replace("${AZURE_API_ORIGIN}", os.environ["AZURE_API_ORIGIN"].rstrip("/")), encoding="utf-8")'
-          if grep -q 'AZURE_API_ORIGIN' vercel.json; then
+          python3 -c 'import os, pathlib; p = pathlib.Path("frontend/vercel.json"); p.write_text(p.read_text(encoding="utf-8").replace("${AZURE_API_ORIGIN}", os.environ["AZURE_API_ORIGIN"].rstrip("/")), encoding="utf-8")'
+          if grep -q 'AZURE_API_ORIGIN' frontend/vercel.json; then
             echo "vercel.json still carries an unresolved origin placeholder"
             exit 1
           fi
@@ -115,7 +117,6 @@ jobs:
       # the immutable per-deployment one. Asserting the alias landed is what proves this build is
       # what FRONTEND_URL now serves — the recruiter-facing link, not an orphaned deployment.
       - name: Assert the deployment is aliased to FRONTEND_URL
-        working-directory: frontend
         env:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
