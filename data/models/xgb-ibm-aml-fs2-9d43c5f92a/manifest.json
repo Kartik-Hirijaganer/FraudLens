@@ -1,0 +1,33 @@
+{
+  "manifest": {
+    "content_hash": "f34d0bc2062c5f17d11be22c2138778c65405010266f1f3c67e6a13a44d42ad5",
+    "label_window": "ibm-aml",
+    "row_count": 5054380,
+    "snapshot_query": {
+      "datasetVersion": "ealtman2019/ibm-transactions-for-anti-money-laundering-aml:HI-Small_Trans.csv",
+      "files": [
+        {
+          "name": "HI-Small_Trans.csv",
+          "sha256": "b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040"
+        }
+      ],
+      "license": "CDLA-Sharing-1.0",
+      "schema": [
+        "Timestamp",
+        "From Bank",
+        "Account",
+        "To Bank",
+        "Account.1",
+        "Amount Paid",
+        "Payment Currency",
+        "Payment Format",
+        "Is Laundering"
+      ],
+      "source": "ibm-aml",
+      "transformId": "aml-loader-fs2"
+    },
+    "source": "ibm-aml"
+  },
+  "rows": 16000,
+  "seed": 1729
+}
