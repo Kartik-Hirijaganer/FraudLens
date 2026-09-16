@@ -41,8 +41,15 @@ jobs:
       # BACKEND_URL is read through env, never interpolated into the script body, so a malformed
       # variable cannot become shell. /healthz is the unprefixed liveness probe: it makes no
       # outbound call, so a ping neither costs LLM spend nor perturbs /readyz's cached probes.
+      #
+      # The timeout must clear a COLD start, not a warm ping. The first request of the window —
+      # and the first after any deploy restarts the app — pays the full scale-from-zero path, and
+      # the measured figure in docs/reference/cost-model.md is ~112 s. The previous 60 s budget was
+      # below that, so the one ping that actually does the job was the one guaranteed to fail and
+      # email a false alarm. 180 s leaves headroom without letting a genuinely wedged app hold the
+      # runner: the job's own timeout-minutes is the backstop.
       - name: Hold one replica warm
         run: |
           set -euo pipefail
           test -n "$BACKEND_URL" || { echo "BACKEND_URL is not set"; exit 2; }
-          curl -fsS --max-time 60 "${BACKEND_URL}/healthz"
+          curl -fsS --max-time 180 "${BACKEND_URL}/healthz"

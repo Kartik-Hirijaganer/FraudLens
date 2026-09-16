@@ -278,8 +278,24 @@ def test_keep_warm_passes_the_backend_url_through_env_not_the_script_body() -> N
     # Interpolating a repo variable into a run block makes it shell; env keeps it data.
     body = _source(WORKFLOWS / "keep-warm.yml")
     assert "BACKEND_URL: ${{ vars.BACKEND_URL }}" in body
-    assert 'curl -fsS --max-time 60 "${BACKEND_URL}/healthz"' in body
+    assert '"${BACKEND_URL}/healthz"' in body
     assert "${{ vars.BACKEND_URL }}/healthz" not in body
+
+
+def test_keep_warm_allows_longer_than_the_measured_cold_start() -> None:
+    """The ping that does the work is the cold one; a budget below the measured cold start makes
+    exactly that ping fail and email a false alarm."""
+    body = _uncommented(WORKFLOWS / "keep-warm.yml")
+    match = re.search(r"curl -fsS --max-time (\d+)", body)
+    assert match is not None, "keep-warm must bound its ping with an explicit --max-time"
+    budget_seconds = int(match.group(1))
+
+    measured = yaml.safe_load(_source(REPO_ROOT / "config" / "cost-model.yaml"))
+    cold_seconds = float(measured["cold_start"]["cold_seconds"])
+
+    assert budget_seconds > cold_seconds, (
+        f"--max-time {budget_seconds}s is below the measured {cold_seconds}s cold start"
+    )
 
 
 def test_keep_warm_cannot_stack_slow_runs_on_top_of_each_other() -> None:
