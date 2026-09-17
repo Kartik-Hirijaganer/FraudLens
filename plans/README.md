@@ -21,12 +21,13 @@ evidence remain the proof. Commit and push restrictions in AGENTS.md apply to ev
 
 | Plan | Scope | Status |
 | --- | --- | --- |
-| [2026-09-15 Azure deployment, cost projection, and budget alerts](2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md) | Release 0.4.0 Azure apply, cost controls, and AKS evidence | Active |
+| [2026-09-16 SAR quality gate, cascade, and gated benchmark](2026-09-16-sar-quality-gate-cascade-and-gated-benchmark.md) | Release 0.5.0 deterministic `SARQualityGate`, AWQ→BF16→external cascade, and production-path re-benchmark | Active — Phase 1 complete |
 
 ## Release 0.4.0 scope
 
-Items 1-5 were scoped out of the 0.3 closeout and remain open; the active plan above delivers
-item 6 and the Azure deployment work around it.
+Items 1-5 were scoped out of the 0.3 closeout and remain open; the active 0.5.0 plan above is
+what delivers them, tagging backlog items 3 and 5 by name in its Phase 2 scope. Item 6 is done,
+and the Azure deployment work around it shipped under the now-retired 0.4.0 plan.
 
 1. Add a deterministic `SARQualityGate` over ChromaDB-retrieved source spans.
 2. Route AWQ first, then regenerate with BF16 or GPT-5 mini when the gate fails.
@@ -61,6 +62,7 @@ dead Markdown links.
 | `2026-08-17-multi-agent-investigation-and-azure-deployment.md` | `9fac245` | [ADR-019](../docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md) |
 | `2026-09-13-local-pr-check-command.md` | `9fac245` | `make pr-check` in the [Makefile](../Makefile) and [scripts/check_pr_title.sh](../scripts/check_pr_title.sh) |
 | `2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` | `9fac245` | [ADR-020](../docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md) through [ADR-028](../docs/architecture/adr/ADR-028-paid-experiment-governance.md) in the [ADR index](../docs/architecture/adr/README.md), plus the published [vLLM/AWQ benchmark](../docs/reference/benchmarks/vllm-awq-sar-benchmark.md), [full-data training](../docs/reference/benchmarks/ibm-full-data-training.md), and [HPA scaling](../docs/reference/benchmarks/k8s-hpa-scaling.md) reports |
+| `2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` | `TBD` | [ADR-021's amendment](../docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md) and [ADR-029](../docs/architecture/adr/ADR-029-recurring-operational-budget.md) in the [ADR index](../docs/architecture/adr/README.md), plus the [Azure deploy runbook](../docs/runbooks/azure-deploy.md), the [cost model](../docs/reference/cost-model.md), and the published [AKS HPA scaling report](../docs/reference/benchmarks/aks-hpa-scaling.md) |
 
 ## Documentation backlog
 
