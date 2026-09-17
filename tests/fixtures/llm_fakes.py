@@ -1,8 +1,15 @@
-"""Unit tests for private provider adapters with mocked SDK boundaries."""
+"""Shared LLM test doubles: mocked SDK boundaries and the recording client adapter.
+
+`FakeAdapter` is one fake, not two: the governance and guardrail suites both drive the same
+recording adapter, and a second copy would let a capability added to one (a streamed
+`response_schema`, say) silently skip the other.
+"""
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Sequence
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 
@@ -10,11 +17,20 @@ from fraudlens_llm import (
     DataClass,
     GenerationParams,
     Kind,
+    LlmMessage,
+    LlmUsage,
     ModelCard,
     Protocol,
     ProviderConfig,
+    ToolCall,
     ToolDefinition,
 )
+from fraudlens_llm.adapters.base import (
+    AdapterEmbeddingResult,
+    AdapterGenerateChunk,
+    AdapterGenerateResult,
+)
+from fraudlens_llm.exceptions import LlmTimeoutError
 
 
 def _provider_config(protocol: Protocol = Protocol.OPENAI_COMPATIBLE) -> ProviderConfig:
@@ -194,3 +210,94 @@ def _tool() -> ToolDefinition:
             "additionalProperties": False,
         },
     )
+
+
+class FakeAdapter:
+    def __init__(
+        self,
+        *,
+        text: str = "safe response",
+        fail_once: bool = False,
+        embeddings: list[list[float]] | None = None,
+        tool_calls: tuple[ToolCall, ...] = (),
+    ) -> None:
+        self.text = text
+        self.fail_once = fail_once
+        self.embeddings = embeddings or [[0.1, 0.2]]
+        self.tool_calls = tool_calls
+        self.generate_calls: list[Sequence[LlmMessage]] = []
+        self.stream_generate_calls: list[Sequence[LlmMessage]] = []
+        self.stream_response_schemas: list[dict[str, Any] | None] = []
+        self.embed_calls: list[Sequence[str]] = []
+        self.params: list[GenerationParams] = []
+        self.tools: list[Sequence[ToolDefinition]] = []
+        self.tool_choices: list[str | None] = []
+        self.response_schemas: list[dict[str, object] | None] = []
+
+    async def generate(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+        tools: Sequence[ToolDefinition] = (),
+        tool_choice: str | None = None,
+        response_schema: dict[str, object] | None = None,
+    ) -> AdapterGenerateResult:
+        _ = (model_id, card)
+        self.generate_calls.append(messages)
+        self.params.append(params)
+        self.tools.append(tools)
+        self.tool_choices.append(tool_choice)
+        self.response_schemas.append(response_schema)
+        if self.fail_once:
+            self.fail_once = False
+            raise LlmTimeoutError("timeout")
+        return AdapterGenerateResult(
+            text=self.text,
+            served_model="served",
+            finish_reason="stop",
+            usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+            tool_calls=self.tool_calls,
+        )
+
+    async def generate_stream(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        messages: Sequence[LlmMessage],
+        params: GenerationParams,
+        response_schema: dict[str, Any] | None = None,
+    ) -> AsyncIterator[AdapterGenerateChunk]:
+        _ = (model_id, card)
+        self.stream_generate_calls.append(messages)
+        self.params.append(params)
+        self.stream_response_schemas.append(response_schema)
+        if self.fail_once:
+            self.fail_once = False
+            raise LlmTimeoutError("timeout")
+        midpoint = len(self.text) // 2
+        yield AdapterGenerateChunk(text_delta=self.text[:midpoint], served_model="served")
+        yield AdapterGenerateChunk(
+            text_delta=self.text[midpoint:],
+            served_model="served",
+            finish_reason="stop",
+            usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
+        )
+
+    async def embed(
+        self,
+        *,
+        model_id: str,
+        card: ModelCard,
+        inputs: Sequence[str],
+        params: GenerationParams,
+    ) -> AdapterEmbeddingResult:
+        _ = (model_id, card, params)
+        self.embed_calls.append(inputs)
+        return AdapterEmbeddingResult(
+            embeddings=self.embeddings,
+            usage=LlmUsage(input_tokens=3, output_tokens=0, total_tokens=3),
+        )

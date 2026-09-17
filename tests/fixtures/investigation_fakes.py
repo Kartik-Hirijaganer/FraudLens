@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 from portfolio_demo_identity import DEMO_AGENCY_ID
+from sar_inputs import structuring_citation
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -38,6 +39,7 @@ from fraudlens_backend.db.models import (
     Severity,
     TrainingDataset,
     Transaction,
+    TransactionSource,
 )
 from fraudlens_backend.main import create_app
 from fraudlens_backend.pipeline_wiring import RunManager
@@ -82,6 +84,9 @@ async def _seed_demo_transaction(
             country="US",
             features={},
             feature_hash="fh",
+            # An egress-eligible provenance: `unknown` is refused before any model call, so a
+            # seeded transaction without it can never produce a SAR draft.
+            source=TransactionSource.PORTFOLIO_DEMO,
         )
         session.add(transaction)
         await session.commit()
@@ -149,6 +154,9 @@ async def _seed_completed_run(
             country="US",
             features={},
             feature_hash="fh",
+            # An egress-eligible provenance: `unknown` is refused before any model call, so a
+            # seeded transaction without it can never produce a SAR draft.
+            source=TransactionSource.PORTFOLIO_DEMO,
         )
         session.add(transaction)
         await session.flush()
@@ -255,6 +263,9 @@ async def _seed_run_for_regen(
             country="US",
             features={},
             feature_hash="fh",
+            # An egress-eligible provenance: `unknown` is refused before any model call, so a
+            # seeded transaction without it can never produce a SAR draft.
+            source=TransactionSource.PORTFOLIO_DEMO,
         )
         session.add(transaction)
         await session.flush()
@@ -303,14 +314,9 @@ async def _seed_run_for_regen(
                 prompt_hash="h",
                 content="Original SAR",
                 structured={},
-                citations=[
-                    {
-                        "citation": "31 CFR 1010.314",
-                        "title": "CTR aggregation",
-                        "source": "FinCEN",
-                        "snippet": "…",
-                    }
-                ],
+                # Corpus-verified: regeneration rebuilds the SarInput from these rows, and model
+                # egress refuses any snippet whose digest is not a committed chunk.
+                citations=[structuring_citation().model_dump(by_alias=True, mode="json")],
                 status=sar_status,
             )
         )

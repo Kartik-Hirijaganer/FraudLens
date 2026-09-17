@@ -12,12 +12,16 @@ from decimal import Decimal
 
 import pytest
 import yaml
+from quality_gates import production_gate
+from sar_drafts import FABRICATED_CITATION_ID, fabricated_citation_json, gate_passing_json
+from sar_inputs import build_sar_input as _standard_sar_input
 
 from fraudlens_backend.sar.budget import BudgetGuard, SarBudgetExceededError
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
 from fraudlens_backend.sar.drafter_live import LiveSarDrafter, _error_code
 from fraudlens_backend.sar.factory import build_sar_drafter, load_sar_llm_config
 from fraudlens_backend.sar.prompt import SarPromptTemplate
+from fraudlens_backend.sar.quality_gate import SarQualityGate
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.rules.base import AmlRuleType, RuleHit
 from fraudlens_llm import (
@@ -42,28 +46,26 @@ from fraudlens_llm import (
 )
 from fraudlens_llm.adapters.base import AdapterGenerateChunk, AdapterGenerateResult
 from fraudlens_llm.exceptions import LlmTimeoutError
-from fraudlens_ml.sar import SarDraftStatus, SarEventType
-
-SAR_JSON = (
-    '{"subject":"Suspected structuring","narrative":"Narrative text.",'
-    '"sections":[{"heading":"Summary","body":"b"}],'
-    '"citedRegulations":["31 CFR 1010.314","99 FAKE 1"],"recommendedAction":"Escalate"}'
-)
+from fraudlens_ml.sar import SarDraftStatus, SarEventType, SarGateReason
 
 
 class _FakeAdapter:
     def __init__(
         self,
         *,
-        text: str = SAR_JSON,
+        text: str | None = None,
         fail_once: bool = False,
         deltas: tuple[str, ...] | None = None,
     ) -> None:
+        # Default to output the production gate accepts: every other assertion in this module
+        # (masking, cost, cache, fallback) is only meaningful on a draft that was ACCEPTED.
+        text = gate_passing_json(_standard_sar_input()) if text is None else text
         self.text = text
         self.fail_once = fail_once
         self.deltas = deltas or (text[: len(text) // 2], text[len(text) // 2 :])
         self.calls: list[Sequence[LlmMessage]] = []
         self.emitted_deltas: list[str] = []
+        self.stream_response_schemas: list[dict[str, object] | None] = []
 
     async def generate(
         self,
@@ -95,8 +97,10 @@ class _FakeAdapter:
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        response_schema: dict[str, object] | None = None,
     ) -> AsyncIterator[AdapterGenerateChunk]:
         _ = (model_id, card, params)
+        self.stream_response_schemas.append(response_schema)
         self.calls.append(messages)
         if self.fail_once:
             self.fail_once = False
@@ -116,7 +120,7 @@ class _FakeAdapter:
             )
 
 
-def _card() -> ModelCard:
+def _card(*, structured_output: bool = True) -> ModelCard:
     return ModelCard(
         kind=Kind.CHAT,
         context_window=2000,
@@ -127,6 +131,7 @@ def _card() -> ModelCard:
         verified_at="2026-06-10",
         lifecycle=Lifecycle.GA,
         callable=True,
+        structured_output=structured_output,
         pricing_basis="per_million_tokens",
     )
 
@@ -147,8 +152,9 @@ def _provider() -> ProviderConfig:
     )
 
 
-def _catalog() -> Catalog:
-    return Catalog(providers={"primary": {"chat": _card()}, "backup": {"chat": _card()}})
+def _catalog(*, structured_output: bool = True) -> Catalog:
+    card = _card(structured_output=structured_output)
+    return Catalog(providers={"primary": {"chat": card}, "backup": {"chat": card}})
 
 
 def _client(*, primary: _FakeAdapter, backup: _FakeAdapter | None = None) -> LlmClient:
@@ -169,6 +175,8 @@ def _live(
     budget: BudgetGuard | None = None,
     cache: InMemorySarDraftCache | None = None,
     fallbacks: tuple[str, ...] = (),
+    constrained_decoding: bool = False,
+    stage: str = "primary",
 ) -> LiveSarDrafter:
     return LiveSarDrafter(
         client=client,
@@ -176,9 +184,12 @@ def _live(
         prompt=SarPromptTemplate.load(),
         model="primary/chat",
         max_output_tokens=256,
+        gate=production_gate(),
         budget=budget or BudgetGuard(),
         cache=cache or InMemorySarDraftCache(),
         fallbacks=fallbacks,
+        stage=stage,
+        constrained_decoding=constrained_decoding,
     )
 
 
@@ -199,7 +210,8 @@ async def test_live_masks_phi_before_provider_and_grounds_citations(make_sar_inp
     assert "analyst@example.com" not in sent  # PHI masked before the provider saw it
     assert "[REDACTED_EMAIL]" not in sent  # raw RAG context is excluded, not forwarded masked
     assert result.status == SarDraftStatus.DRAFT
-    assert result.structured.cited_regulations == ("31 CFR 1010.314",)  # fabricated id dropped
+    assert result.structured.cited_regulations == ("31 CFR 1010.314",)
+    assert result.quality is not None and result.quality.passed is True
     assert result.cost_usd == Decimal("0.000200")  # 100*1/1e6 + 50*2/1e6
     assert result.token_usage.total_tokens == 150
     assert result.guardrail_decision == "allow"  # guardrail report surfaced (guardrails ran)
@@ -207,8 +219,9 @@ async def test_live_masks_phi_before_provider_and_grounds_citations(make_sar_inp
 
 @pytest.mark.asyncio
 async def test_live_assembles_native_deltas_before_grounded_terminal_event(make_sar_input) -> None:
-    boundaries = (SAR_JSON[:17], SAR_JSON[17:83], SAR_JSON[83:])
-    adapter = _FakeAdapter(deltas=boundaries)
+    sar_json = gate_passing_json(make_sar_input())
+    boundaries = (sar_json[:17], sar_json[17:83], sar_json[83:])
+    adapter = _FakeAdapter(text=sar_json, deltas=boundaries)
 
     events = await _draft(_live(_client(primary=adapter)), make_sar_input())
 
@@ -280,7 +293,9 @@ async def test_live_schema_invalid_output_fails(make_sar_input) -> None:
     )
     assert events[-1].type == SarEventType.FAILED
     result = events[-1].result
-    assert result.error_code == "sar_schema_invalid"
+    assert result.error_code == "sar_quality_gate_failed"
+    assert result.quality is not None
+    assert result.quality.reasons == (SarGateReason.SCHEMA_INVALID,)
     assert result.structured is None
     assert result.token_usage.total_tokens == 150
     assert result.cost_usd == Decimal("0.000200")
@@ -324,6 +339,108 @@ def test_factory_builds_live_drafter_from_config(make_settings) -> None:
         catalog=_catalog(),
     )
     assert isinstance(drafter, LiveSarDrafter)
+
+
+@pytest.mark.asyncio
+async def test_live_rejects_a_fabricated_citation_instead_of_dropping_it(make_sar_input) -> None:
+    """Grounding used to delete the fabricated id and return a clean-looking draft (Phase 2.4)."""
+    sar_input = make_sar_input()
+    adapter = _FakeAdapter(text=fabricated_citation_json(sar_input))
+
+    events = await _draft(_live(_client(primary=adapter)), sar_input)
+    result = events[-1].result
+
+    assert events[-1].type == SarEventType.FAILED
+    assert result.error_code == "sar_quality_gate_failed"
+    assert result.quality is not None
+    assert SarGateReason.CITATION_FABRICATED in result.quality.reasons
+    assert result.quality.fabricated_citation_ids == (FABRICATED_CITATION_ID,)
+    assert result.quality.fallback_required is True  # the cascade above may escalate on this
+
+
+@pytest.mark.asyncio
+async def test_live_constrained_decoding_closes_the_citation_enum(make_sar_input) -> None:
+    """A constrained stage cannot emit an id it was never given — fabrication is structural."""
+    adapter = _FakeAdapter()
+    sar_input = make_sar_input()
+
+    await _draft(_live(_client(primary=adapter), constrained_decoding=True), sar_input)
+
+    schema = adapter.stream_response_schemas[0]
+    assert schema is not None
+    assert schema["properties"]["citedRegulations"]["items"]["enum"] == ["31 CFR 1010.314"]
+    assert schema["$defs"]["SarClaim"]["properties"]["citationIds"]["items"]["enum"] == [
+        "31 CFR 1010.314"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_live_schema_request_raises_on_a_model_without_structured_output(
+    make_sar_input,
+) -> None:
+    """A schema request must fail loudly rather than silently downgrade to free-form JSON."""
+    catalog = _catalog(structured_output=False)
+    adapter = _FakeAdapter()
+    client = LlmClient.from_config(
+        catalog,
+        Providers(providers={"primary": _provider(), "backup": _provider()}),
+        LlmSettings(environment="dev", default_model="primary/chat"),
+    )
+    client._adapters["primary"] = adapter
+    drafter = LiveSarDrafter(
+        client=client,
+        catalog=catalog,
+        prompt=SarPromptTemplate.load(),
+        model="primary/chat",
+        max_output_tokens=256,
+        gate=production_gate(),
+        budget=BudgetGuard(),
+        cache=InMemorySarDraftCache(),
+        constrained_decoding=True,
+    )
+
+    events = await _draft(drafter, make_sar_input())
+
+    assert events[-1].type == SarEventType.FAILED
+    assert adapter.calls == []  # the capability check fails before any provider access
+
+
+@pytest.mark.asyncio
+async def test_live_records_one_attempt_carrying_route_and_verdict(make_sar_input) -> None:
+    result = (await _draft(_live(_client(primary=_FakeAdapter()), stage="awq"), make_sar_input()))[
+        -1
+    ].result
+
+    assert len(result.attempts) == 1
+    attempt = result.attempts[0]
+    assert (attempt.ordinal, attempt.stage, attempt.outcome) == (0, "awq", "passed")
+    assert attempt.served_model == "served"
+    assert attempt.cost_usd == result.cost_usd
+    assert attempt.policy_hash == production_gate().policy_hash
+
+
+@pytest.mark.asyncio
+async def test_live_cache_key_binds_the_quality_policy(make_sar_input) -> None:
+    """A tightened policy must not be bypassed by replaying a draft accepted under the old one."""
+    cache = InMemorySarDraftCache()
+    sar_input = make_sar_input()
+    await _draft(_live(_client(primary=_FakeAdapter()), cache=cache), sar_input)
+
+    stricter = LiveSarDrafter(
+        client=_client(primary=_FakeAdapter(fail_once=True)),
+        catalog=_catalog(),
+        prompt=SarPromptTemplate.load(),
+        model="primary/chat",
+        max_output_tokens=256,
+        gate=SarQualityGate(
+            production_gate().policy.model_copy(update={"policy_version": "sar-gate-v2"})
+        ),
+        budget=BudgetGuard(),
+        cache=cache,
+    )
+    events = [event async for event in stricter.draft(sar_input)]
+
+    assert events[-1].result.cached is False  # the prior entry no longer matches the key
 
 
 def test_load_sar_llm_config_reads_repo_config() -> None:

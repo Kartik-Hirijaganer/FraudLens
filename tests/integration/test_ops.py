@@ -235,7 +235,8 @@ def test_readyz_live_profile_requires_all_dependencies_ok(
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert all(check["status"] == "ok" for check in response.json()["checks"])
-    assert _check(response.json(), "llmProvider")["detail"] == "openrouter"
+    # The detail names the last STAGE probed: a cascade has several, a single route has one.
+    assert _check(response.json(), "llmProvider")["detail"] == "primary"
 
 
 def test_readyz_reports_active_vllm_provider(
@@ -255,15 +256,18 @@ def test_readyz_reports_active_vllm_provider(
         calls.append((url, headers))
         return 200
 
-    monkeypatch.setenv("VLLM_API_KEY", "synthetic-test-value")
-    monkeypatch.setenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")
+    monkeypatch.setenv("VLLM_AWQ_API_KEY", "synthetic-test-value")
+    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
+    monkeypatch.setenv("VLLM_BF16_API_KEY", "synthetic-test-value")
+    monkeypatch.setenv("VLLM_BF16_BASE_URL", "http://127.0.0.1:8001/v1")
     monkeypatch.setattr(ops, "_fetch_status", ok)
     client = client_factory(
         llm_mode="live",
         sar_config_file="llm/sar-vllm.yml",
+        sar_profile="awq-bf16",
         auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
         infisical_secrets_delivery="externally_injected",
-        infisical_required_env_keys=["VLLM_API_KEY"],
+        infisical_required_env_keys=["VLLM_AWQ_API_KEY"],
     )
     client.app.state.db_engine = _OkEngine()
     client.app.state.rag_index_dir = _build_fixture_index(
@@ -276,12 +280,14 @@ def test_readyz_reports_active_vllm_provider(
     assert _check(response.json(), "llmProvider") == {
         "name": "llmProvider",
         "status": "ok",
-        "detail": "vllm",
+        "detail": "bf16",
     }
-    assert (
+    # Both tiers are probed on their OWN injected endpoint: one `vllm` governance entry, two
+    # named connections. Before release 0.5.0 both stages resolved to a single base URL.
+    assert {url for url, _headers in calls} >= {
         "http://127.0.0.1:8000/v1/models",
-        {"Authorization": "Bearer synthetic-test-value"},
-    ) in calls
+        "http://127.0.0.1:8001/v1/models",
+    }
 
 
 @pytest.mark.asyncio
@@ -289,13 +295,38 @@ async def test_vllm_readiness_fails_closed_without_api_key(
     client_factory: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The selected provider is down when its configured key was not injected."""
-    monkeypatch.delenv("VLLM_API_KEY", raising=False)
-    monkeypatch.setenv("VLLM_BASE_URL", "http://127.0.0.1:8000/v1")
-    client = client_factory(llm_mode="live", sar_config_file="llm/sar-vllm.yml")
+    monkeypatch.delenv("VLLM_AWQ_API_KEY", raising=False)
+    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
+    client = client_factory(
+        llm_mode="live", sar_config_file="llm/sar-vllm.yml", sar_profile="awq-bf16"
+    )
 
     check = await ops._probe_llm_provider(client.app.state.settings, timeout=1.0)
 
-    assert check == DependencyCheck(name="llmProvider", status="down", detail="vllm")
+    assert check == DependencyCheck(name="llmProvider", status="down", detail="awq")
+
+
+@pytest.mark.asyncio
+async def test_readiness_fails_closed_when_a_later_cascade_stage_is_unreachable(
+    client_factory: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cascade is ready only when EVERY stage is: a dead BF16 tier is not a healthy service."""
+
+    async def only_awq(url: str, _timeout: float, **_kwargs: object) -> int:
+        return 200 if url.startswith("http://127.0.0.1:8000") else 503
+
+    monkeypatch.setenv("VLLM_AWQ_API_KEY", "synthetic-test-value")
+    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
+    monkeypatch.setenv("VLLM_BF16_API_KEY", "synthetic-test-value")
+    monkeypatch.setenv("VLLM_BF16_BASE_URL", "http://127.0.0.1:8001/v1")
+    monkeypatch.setattr(ops, "_fetch_status", only_awq)
+    client = client_factory(
+        llm_mode="live", sar_config_file="llm/sar-vllm.yml", sar_profile="awq-bf16"
+    )
+
+    check = await ops._probe_llm_provider(client.app.state.settings, timeout=1.0)
+
+    assert check == DependencyCheck(name="llmProvider", status="down", detail="bf16")
 
 
 def test_readyz_infisical_skipped_when_no_delivery_declared(

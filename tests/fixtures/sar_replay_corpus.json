@@ -1,0 +1,1526 @@
+{
+ "cases": [
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, an outbound transaction of $17,956.80 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits several risk factors, including a high velocity score, a large transaction amount, and multiple distinct channels within a 24-hour period. The model indicates a fraud probability of 0.3%, and the transaction is flagged as high risk. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of $17,956.80 USD was initiated from subject-account to counterparty-account via an alternative channel on 2022-09-16.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits a high velocity score (medium severity), a large transaction amount (0.3% model fraud probability), and multiple distinct channels within a 24-hour period. Additional risk drivers include distinct_channels_24h=3, dest_fan_in_24h=0, velocity_24h=100, amount_24h_sum_log=16.5525, dest_inbound_amount_24h_log=9.79578, and hour_of_day=12.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review due to its high risk profile. It may indicate potential money laundering or other illicit activities. The transaction does not appear to have a lawful purpose or normal transaction behavior. This activity should be reported according to 31 U.S.C. 5318(g) and 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 17956.80 USD.\",\n  \"narrative\": \"On 2022-09-16 at 12:05 PM, an outbound transaction of 17,956.80 USD was initiated from subject-account to counterparty-account. This transaction was flagged due to elevated transaction velocity and multiple risk factors identified by the model, including the use of an 'other' channel, a large transaction amount, and frequent channel changes within a 24-hour period. The transaction also involved a high number of distinct channels and a significant amount of inbound funds from the destination within the last 24 hours. These factors collectively suggest potential money laundering or other illicit activities. No apparent lawful purpose or normal customer behavior justifies this transaction pattern.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 12:05 PM, an outbound transaction of 17,956.80 USD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity (velocity severity medium). Additionally, the model identified several risk drivers: channel_risk=0.3, amount_log=9.79578, distinct_channels_24h=3, dest_fan_in_24h=0, velocity_24h=100, amount_24h_sum_log=16.5525, dest_inbound_amount_24h_log=9.79578, and hour_of_day=12. These factors collectively suggest potential money laundering or other illicit activities.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing under 31 U.S.C. 5318(g) and 31 U.S.C. 5311. The transaction exhibits characteristics that are inconsistent with normal customer behavior and may be indicative of efforts to evade reporting requirements or facilitate criminal activity. The transaction also involves a large sum of money and multiple risk factors, which align with the BSA’s purpose to prevent the use of financial institutions for money laundering or terrorist financing.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000010-34931694",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "17956.80",
+    "USD",
+    "2022-09-16",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-15, an outbound transaction of 12,555.71 USD was initiated from subject-account to counterparty-account via card channel. The transaction exhibits high risk due to elevated transaction velocity, as indicated by the velocity rule indicator (medium severity). The model's top risk drivers include velocity_24h, amount_24h_sum_log, distinct_channels_24h, and seconds_since_prev_txn_log, which collectively suggest unusual transaction patterns. No apparent lawful purpose is evident, and the transaction does not align with typical customer behavior.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of 12,555.71 USD was initiated from subject-account to counterparty-account via card channel on 2022-09-15.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the velocity rule indicator (medium severity) due to elevated transaction velocity. The model's top risk drivers include velocity_24h, amount_24h_sum_log, distinct_channels_24h, and seconds_since_prev_txn_log, indicating unusual transaction patterns.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) (Reports of suspicious transactions) and 31 CFR 1010.314 (Prohibiting structuring transactions to evade reporting requirements). The transaction does not appear to have a lawful purpose and does not align with typical customer behavior, potentially indicating an attempt to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 12555.71 USD via card channel.\",\n  \"narrative\": \"On 2022-09-15, an outbound transaction of 12555.71 USD was initiated from subject-account to counterparty-account through the card channel. The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model risk drivers include increased risk from velocity_24h=100, amount_24h_sum_log=15.6578, distinct_channels_24h=3, and amount_log=9.43801, while channel_risk=0.2 and inbound_amount_24h_log=0 decrease risk slightly. This transaction does not meet the $10,000 reporting threshold for Currency Transaction Reports (CTRs) but warrants further scrutiny given the high risk band and model-driven indicators. The transaction exhibits unusual patterns that could indicate potential money laundering or other illicit activities, aligning with the BSA’s purpose to prevent financial institutions from being used to facilitate such activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15, an outbound transaction of 12555.71 USD was initiated from subject-account to counterparty-account through the card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model risk drivers include increased risk from velocity_24h=100, amount_24h_sum_log=15.6578, distinct_channels_24h=3, and amount_log=9.43801, while channel_risk=0.2 and inbound_amount_24h_log=0 decrease risk slightly.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction warrants further scrutiny given the high risk band and model-driven indicators, potentially indicating money laundering or other illicit activities. The transaction aligns with the BSA’s purpose to prevent financial institutions from being used to facilitate such activities, as outlined in 31 U.S.C. 5311, 31 U.S.C. 5318(g), and 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000020-118675ec",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "requiredFacts": [
+    "12555.71",
+    "USD",
+    "2022-09-15",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 04:28 UTC, a high-risk outbound ACH transaction of $9,657.95 was initiated from subject-account to counterparty-account. The transaction was flagged by the model with a 0.3% fraud probability and was categorized in the high risk band. Key risk drivers include channel risk, velocity, amount, and distinct channels, while country and destination inbound amount risks slightly decrease the overall risk score. The transaction occurred in Saudi Arabia (SA) and was flagged due to threshold evasion behavior, indicating potential threshold-evasion activity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 04:28 UTC, a high-risk outbound ACH transaction of $9,657.95 was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the model with a 0.3% fraud probability and was categorized in the high risk band. Key risk drivers include channel risk, velocity, amount, and distinct channels, while country and destination inbound amount risks slightly decrease the overall risk score. The transaction occurred in Saudi Arabia (SA) and was flagged due to threshold evasion behavior, indicating potential threshold-evasion activity.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for $9,657.95.\",\n  \"narrative\": \"On 2022-09-16 at 04:28 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for $9,657.95. The transaction exhibits high risk due to the following factors: threshold evasion behavior, high channel risk, increased velocity, large transaction amount, and recent transaction frequency. The transaction also shows a decrease in risk due to low destination fan-in and country risk. The transaction is flagged as potentially structuring-related, given the high channel risk and large transaction amount, which are consistent with attempts to evade reporting requirements. The transaction does not have an apparent lawful purpose and is not typical for the customer’s usual activities. This activity should be reviewed for potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 04:28 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for $9,657.95.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the threshold evasion rule, indicating potential threshold evasion behavior. The model risk drivers include high channel risk, increased transaction velocity, large transaction amount, and recent transaction frequency. These factors collectively suggest a high risk profile for the transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing based on the following regulations:\\n- 31 U.S.C. 5318(g): The transaction lacks an apparent lawful purpose and may be used to facilitate criminal activity.\\n- 31 CFR 1010.314: The transaction shows characteristics of structuring, such as a large transaction amount and recent transaction frequency, which are indicative of attempts to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000024-d04e1638",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "9657.95",
+    "SAR",
+    "2022-09-16",
+    "threshold evasion"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 910.98 EUR from subject-account to counterparty-account, occurring on 2022-09-14 at 12:23 UTC. The transaction was flagged as high-risk based on model-driven factors such as channel_risk, velocity_24h, seconds_since_prev_txn_log, day_of_week, dest_inbound_amount_24h_log, hour_of_day, amount_log, and dest_fan_in_24h. No specific rule indicators were triggered. The transaction does not meet the criteria for a suspicious activity report based on the model risk drivers alone, but given the high risk band and the model's assessment, further review is warranted.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of 910.98 EUR from subject-account to counterparty-account, occurring on 2022-09-14 at 12:23 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"No specific rule indicators were triggered. However, the transaction was flagged as high-risk based on model-driven factors such as channel_risk, velocity_24h, seconds_since_prev_txn_log, day_of_week, dest_inbound_amount_24h_log, hour_of_day, amount_log, and dest_fan_in_24h.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 910.98 EUR\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for 910.98 EUR on 2022-09-14T12:23:00 is flagged as high risk based on several model risk drivers. The transaction was outbound, occurred via an alternative channel, and involved a significant amount. The risk drivers include channel_risk, velocity_24h, seconds_since_prev_txn_log, day_of_week, dest_inbound_amount_24h_log, hour_of_day, and amount_log. These factors collectively suggest potential money laundering or other suspicious activities. No specific rule indicators were triggered, but the model's assessment indicates a high likelihood of suspicious behavior.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction from subject-account to counterparty-account for 910.98 EUR on 2022-09-14T12:23:00 is flagged as high risk based on several model risk drivers.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was outbound, occurred via an alternative channel, and involved a significant amount. The risk drivers include channel_risk, velocity_24h, seconds_since_prev_txn_log, day_of_week, dest_inbound_amount_24h_log, hour_of_day, and amount_log. These factors collectively suggest potential money laundering or other suspicious activities. No specific rule indicators were triggered, but the model's assessment indicates a high likelihood of suspicious behavior.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000033-0203424e",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "910.98",
+    "EUR",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction of 9030.06 EUR was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated velocity and threshold-evasion behavior, as indicated by the model and regulatory controls. The transaction's risk is further compounded by its occurrence in a high-risk country (DE), involving multiple distinct channels within a 24-hour period, and a large amount log value. No apparent lawful purpose or normal transaction pattern is evident, raising significant suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction of 9030.06 EUR was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity and threshold-evasion behavior, as indicated by the model and regulatory controls. Additionally, the transaction involved multiple distinct channels within a 24-hour period, a large amount log value, and occurred in a high-risk country (DE).\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"Key model risk drivers include channel_risk=0.3, amount_log=9.10843, seconds_since_prev_txn_log=9.21244, distinct_channels_24h=3, dest_inbound_amount_24h_log=10.4017, and country_risk=0.1. These factors significantly increase the risk profile of the transaction.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.410\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 9030.06 EUR.\",\n  \"narrative\": \"On 2022-09-16 at 22:16:00, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 9030.06 EUR. The transaction exhibited elevated velocity and threshold-evasion behavior, as indicated by the rule indicators. The model identified significant risk factors such as the use of an 'other' channel, a large transaction amount, frequent transactions within a 24-hour period, and multiple distinct channels used in a short time frame. These factors, combined with the high risk band and low model fraud probability, suggest potential money laundering or other illicit activities. No apparent lawful purpose or normal customer behavior justifies this transaction pattern.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 22:16:00, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 9030.06 EUR.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity and threshold-evasion behavior, as indicated by the rule indicators. The model identified significant risk factors such as the use of an 'other' channel, a large transaction amount, frequent transactions within a 24-hour period, and multiple distinct channels used in a short time frame.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review due to the high risk band and the presence of risk indicators. The transaction may involve structuring to evade reporting requirements or other illicit activities. The transaction does not have an apparent lawful purpose or is not the sort of transaction the customer would normally be expected to engage in. It also uses the institution to facilitate criminal activity, as per 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.410\",\n    \"31 CFR 1010.311\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000098-ffe94c15",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "9030.06",
+    "EUR",
+    "2022-09-16",
+    "velocity",
+    "threshold evasion"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 10,814.90 EUR from subject-account to counterparty-account, which was flagged as high risk due to its large amount and unusual characteristics. The transaction occurred on 2022-09-16 at 02:49 UTC via an 'other' channel. The model identified several risk drivers including a high channel risk, a significant increase in the logarithm of the transaction amount, and a high velocity of transactions over the past 24 hours. These factors collectively suggest potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction involved an outbound transfer of 10,814.90 EUR from subject-account to counterparty-account on 2022-09-16 at 02:49 UTC. The transaction was flagged as high risk based on the model's risk drivers.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk due to the following model risk drivers: channel_risk=0.3, amount_log=9.28877, seconds_since_prev_txn_log=10.8085, velocity_24h=2, dest_fan_in_24h=6, dest_outbound_amount_24h_log=8.11077, and country_risk=0.1. These factors collectively indicate a heightened risk of money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 10814.90 EUR\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 10814.90 EUR from the subject-account to the counterparty-account on 2022-09-16T02:49:00. The transaction is flagged as high risk due to several model risk drivers: the channel used (other) increases risk by 0.3, the transaction amount (10814.90 EUR) increases risk significantly, the time since the last transaction (10.8085 seconds) also increases risk, and the transaction velocity over the past 24 hours (2) is concerning. Additionally, the destination account has a high fan-in score (6) and a large inbound amount over the past 24 hours (8.11077). These factors collectively suggest potential money laundering or other illicit activities. No specific rule indicators were triggered.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of 10814.90 EUR from the subject-account to the counterparty-account on 2022-09-16T02:49:00.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk due to the following model risk drivers: \\n- channel_risk=0.3\\n- amount_log=9.28877\\n- seconds_since_prev_txn_log=10.8085\\n- velocity_24h=2\\n- dest_fan_in_24h=6\\n- dest_outbound_amount_24h_log=8.11077\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) as it involves a high-risk outbound transaction that could be indicative of money laundering or other violations of federal law. The transaction meets the criteria outlined in 31 U.S.C. 5318(g) for reporting suspicious transactions.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000185-12e9f856",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "10814.90",
+    "EUR",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of $7,108.20 USD from subject-account to counterparty-account, occurring on 2022-09-14 at 12:14 PM. The transaction was flagged as high risk based on model risk drivers such as channel_risk, seconds_since_prev_txn_log, amount_log, velocity_24h, and dest_inbound_amount_24h_log. No specific rule indicators were triggered. This transaction aligns with the criteria for a suspicious activity report as outlined in 31 U.S.C. 5318(g).\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of $7,108.20 USD from subject-account to counterparty-account, occurring on 2022-09-14 at 12:14 PM. The transaction was flagged as high risk based on model risk drivers such as channel_risk, seconds_since_prev_txn_log, amount_log, velocity_24h, and dest_inbound_amount_24h_log. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: channel_risk=0.3, seconds_since_prev_txn_log=8.75794, amount_log=8.86914, velocity_24h=2, dest_inbound_amount_24h_log=10.3377, hour_of_day=12, and dest_fan_in_24h=4. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction aligns with the criteria for a suspicious activity report as outlined in 31 U.S.C. 5318(g). The transaction involves a high-risk outbound transfer and meets the threshold for reporting suspicious transactions relevant to a possible violation of law or regulation.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for $7108.20 USD\",\n  \"narrative\": \"The transaction in question is an outbound transfer of $7108.20 USD from the subject-account to the counterparty-account. This transaction was flagged as high risk based on several model risk drivers, including channel risk, time since previous transaction, transaction amount, and destination inbound amount over the past 24 hours. The transaction occurred on 2022-09-14 at 12:14 PM. While no specific rule indicators were identified, the combination of these risk factors suggests potential money laundering or other suspicious activity. The transaction also involved multiple channels within a short timeframe, which further increases the risk profile.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of $7108.20 USD from the subject-account to the counterparty-account. This transaction was flagged as high risk based on several model risk drivers, including channel risk, time since previous transaction, transaction amount, and destination inbound amount over the past 24 hours. The transaction occurred on 2022-09-14 at 12:14 PM.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following risk drivers: \\n- Channel risk (0.3) \\n- Time since previous transaction (8.75794) \\n- Transaction amount (8.86914) \\n- Destination inbound amount over the past 24 hours (10.3377) \\n- Hour of day (12) \\n- Destination fan-in over the past 24 hours (4) \\n- Velocity over the past 24 hours (2)\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires reporting under the Bank Secrecy Act (BSA). Specifically, the transaction involves a high-risk profile that could indicate money laundering or other illegal activities. The transaction meets the criteria outlined in 31 U.S.C. 5318(g) for filing a Suspicious Activity Report (SAR) as it involves a significant amount of money and multiple risk factors that suggest potential violations of federal law or regulations.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000217-3d0dfbe4",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "7108.20",
+    "USD",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14, a high-risk outbound ACH transaction of 2386.57 EUR was initiated from subject-account to counterparty-account. The transaction exhibits elevated velocity and rapid movement of funds, as indicated by the velocity and rapid_movement rule indicators. The model identifies significant risk factors including channel_risk, seconds_since_prev_txn_log, amount_log, distinct_channels_24h, and inbound_amount_24h_log. While the transaction amount does not meet the $10,000 threshold for Currency Transaction Reporting, the rapid movement and high velocity suggest potential money laundering activities. No apparent lawful purpose or normal transaction behavior is evident.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, a high-risk outbound ACH transaction of 2386.57 EUR was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity and rapid movement of funds, as indicated by the velocity and rapid_movement rule indicators. The model identified significant risk factors including channel_risk, seconds_since_prev_txn_log, amount_log, distinct_channels_24h, and inbound_amount_24h_log.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires further investigation due to the high risk band, elevated velocity, and rapid movement of funds. The transaction does not meet the $10,000 threshold for Currency Transaction Reporting but still warrants scrutiny. The transaction may be indicative of money laundering activities and should be reported according to 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 2386.57 EUR\",\n  \"narrative\": \"On 2022-09-14 at 11:43 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for 2386.57 EUR. This transaction was flagged by the system due to high velocity and rapid movement of funds, both of which are indicative of potential money laundering or other illicit activities. The transaction also exhibits several risk factors according to the fraud detection model, including high channel risk, recent transaction history, large transaction amount, and multiple distinct channels within a 24-hour period. No apparent lawful purpose or normal customer behavior can be discerned from the transaction details.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 11:43 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for 2386.57 EUR.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the system due to high velocity and rapid movement of funds. Additionally, the fraud detection model identified several risk factors, including high channel risk, recent transaction history, large transaction amount, and multiple distinct channels within a 24-hour period.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review to determine if it meets the criteria for a Suspicious Activity Report (SAR). The transaction exhibits behaviors that could indicate structuring to evade reporting requirements, as well as rapid movement of funds, which are potential indicators of money laundering or other illicit activities. The transaction does not have an apparent lawful purpose or is not the sort of transaction the customer would normally be expected to engage in, and it uses the institution to facilitate criminal activity. Therefore, this transaction should be reported in accordance with 31 U.S.C. 5318(g) and 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000231-58e30474",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "2386.57",
+    "EUR",
+    "2022-09-14",
+    "velocity",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound ACH transfer of 28,054.54 INR from subject-account to counterparty-account. The transaction exhibits high risk based on model-driven factors such as channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and amount_24h_sum_log. While no specific rule indicators were triggered, the combination of these risk drivers suggests potential money laundering or other illicit activities. The transaction occurred on 2022-09-16 at 08:09 UTC.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound ACH transfer of 28,054.54 INR from subject-account to counterparty-account. The transaction exhibits high risk based on model-driven factors such as channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and amount_24h_sum_log. While no specific rule indicators were triggered, the combination of these risk drivers suggests potential money laundering or other illicit activities. The transaction occurred on 2022-09-16 at 08:09 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following model risk drivers: channel_risk=0.3, velocity_24h=0, amount_log=10.2419, seconds_since_prev_txn_log=11.3668, amount_24h_sum_log=10.2419, dest_fan_in_24h=3. These factors collectively suggest a high likelihood of money laundering or other illicit activities. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction must be reported as it involves a high-risk outbound ACH transfer and exhibits multiple risk drivers that could indicate money laundering or other illicit activities. The transaction meets the criteria for a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) and 31 CFR 1010.314, which mandate the reporting of suspicious transactions and prohibit structuring transactions to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 28054.54 INR\",\n  \"narrative\": \"The transaction in question is an outbound ACH transfer of 28,054.54 INR from the subject-account to the counterparty-account on 2022-09-16. The transaction was flagged as high risk based on several model risk drivers, including channel risk, velocity, and amount. Notably, the transaction amount and its logarithmic value contribute significantly to the risk assessment. While no specific rule indicators were triggered, the combination of factors suggests potential money laundering or other suspicious activities. The transaction occurred within a short time frame since the previous transaction, which also adds to the risk profile.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound ACH transfer of 28,054.54 INR from the subject-account to the counterparty-account on 2022-09-16.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: \\n- channel_risk=0.3\\n- velocity_24h=0\\n- amount_log=10.2419\\n- seconds_since_prev_txn_log=11.3668\\n- amount_24h_sum_log=10.2419\\n- dest_outbound_amount_24h_log=13.9907\\n- country_risk=0.15\\n- dest_fan_in_24h=3\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000258-42b6caf2",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "28054.54",
+    "INR",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound ACH transaction of 6478.03 EUR was initiated from subject-account to counterparty-account via the channel ach. The transaction exhibits elevated velocity and rapid movement of funds, as indicated by the rule indicators velocity and rapid_movement. The model risk drivers include channel_risk, amount_log, inbound_amount_24h_log, dest_outbound_velocity_24h, and distinct_channels_24h. The transaction occurred in Germany (DE) and has a high risk band. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound ACH transaction of 6478.03 EUR was initiated from subject-account to counterparty-account via the channel ach. The transaction exhibits elevated velocity and rapid movement of funds, as indicated by the rule indicators velocity and rapid_movement. The model risk drivers include channel_risk, amount_log, inbound_amount_24h_log, dest_outbound_velocity_24h, and distinct_channels_24h. The transaction occurred in Germany (DE) and has a high risk band.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the velocity (medium severity) and rapid_movement (medium severity) rule indicators. The model risk drivers include channel_risk, amount_log, inbound_amount_24h_log, dest_outbound_velocity_24h, and distinct_channels_24h. These factors contribute to the high risk band of the transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report due to the high risk band and the presence of elevated velocity and rapid movement of funds. The transaction does not appear to have a lawful purpose or normal transaction behavior, which aligns with the provisions of 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction must be reported to comply with the requirements of the Bank Secrecy Act and to prevent structuring to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 6478.03 EUR\",\n  \"narrative\": \"On 2022-09-16 at 10:55 AM, an outbound ACH transaction of 6478.03 EUR was initiated from subject-account to counterparty-account. This transaction was flagged as high risk due to multiple factors including rapid movement of funds and elevated transaction velocity. The transaction also exhibits increased risk based on the model's SHAP values, particularly the channel risk, amount, and distinct channels used within 24 hours. No apparent lawful purpose or normal customer behavior justifies this transaction pattern, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 10:55 AM, an outbound ACH transaction of 6478.03 EUR was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the following rule indicators: \\n- Velocity (medium severity): Elevated transaction velocity.\\n- Rapid Movement (medium severity): Rapid movement of funds.\\n\\nThe model's top risk drivers include:\\n- Channel risk (0.3)\\n- Amount (0.4%)\\n- Inbound amount over 24 hours (0.4%)\\n- Distinct channels over 24 hours (0.3)\\n- Hour of day (0.2)\\n- Destination outbound velocity over 24 hours (0.2)\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing under the following regulations:\\n- 31 U.S.C. 5318(g): Reports of suspicious transactions (Suspicious Activity Report)\\n- 31 CFR 1010.314: Structuring transactions to evade reporting requirements is prohibited\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000260-00fd741c",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "6478.03",
+    "EUR",
+    "2022-09-16",
+    "velocity",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-19 at 06:41 UTC, a high-risk outbound ACH transaction of 9,456.16 EUR was initiated from subject-account to counterparty-account. The transaction exhibits several risk factors, including a rapid movement of funds and an unusually high model fraud probability. The transaction's channel (ACH) and amount (9,456.16 EUR) are both flagged as increasing risk. Additionally, the transaction shows signs of threshold evasion and rapid movement, which are indicative of potential money laundering activities. The transaction summary, risk indicators, and model drivers support the need for further investigation.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-19 at 06:41 UTC, a high-risk outbound ACH transaction of 9,456.16 EUR was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the following risk indicators: threshold evasion (severity high) and rapid movement (severity medium). The model risk drivers include channel_risk=0.3, amount_log=9.15453, velocity_24h=1, inbound_amount_24h_log=9.15453, seconds_since_prev_txn_log=10.7408, amount_24h_sum_log=9.84762, dest_inbound_amount_24h_log=9.15453, and dest_fan_in_24h=0, all of which increase the risk profile.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 9456.16 EUR.\",\n  \"narrative\": \"On 2022-09-19 at 06:41 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for 9456.16 EUR. The transaction was flagged by the system due to high risk, with a model fraud probability of 5.5%. The transaction exhibited several risk factors, including a high channel risk, large transaction amount, rapid movement of funds, and unusual transaction timing. The deterministic controls identified threshold-evasion behavior and rapid movement of funds. These factors, along with the high risk band, suggest potential money laundering or other illicit activities. The transaction does not align with typical customer behavior and may be used to facilitate criminal activity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-19 at 06:41 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for 9456.16 EUR.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the system due to high risk, with a model fraud probability of 5.5%. The deterministic controls identified threshold-evasion behavior and rapid movement of funds. The top model risk drivers included channel risk, large transaction amount, rapid movement of funds, and unusual transaction timing.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing pursuant to 31 U.S.C. 5318(g). The transaction does not align with typical customer behavior and may be used to facilitate criminal activity. Additionally, the transaction must comply with recordkeeping requirements under 31 CFR 1010.410, which mandates the retention of records for funds transfers and the passing of originator and beneficiary information through the payment chain.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000279-5837508c",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410"
+   ],
+   "requiredFacts": [
+    "9456.16",
+    "EUR",
+    "2022-09-19",
+    "threshold evasion",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, an outbound ACH transaction of $2743.75 was initiated from subject-account to counterparty-account. The transaction was flagged by the model with a 0.7% fraud probability and falls within the high risk band. Key risk indicators include rapid movement of funds, high velocity over 24 hours, and multiple distinct channels used in the last 24 hours. The transaction originates from Saudi Arabia and occurred at 11:06 AM. Deterministic controls identified rapid movement of funds, which is a medium severity indicator.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, an outbound ACH transaction of $2743.75 was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"Key risk indicators include rapid movement of funds (medium severity), high velocity over 24 hours (2), multiple distinct channels used in the last 24 hours (3), and a model fraud probability of 0.7%. The transaction originates from Saudi Arabia and occurred at 11:06 AM.\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"The top model risk drivers include channel_risk=0.3, seconds_since_prev_txn_log=11.0021, velocity_24h=2, amount_log=7.91745, country_risk=0.15, distinct_channels_24h=3, amount_24h_sum_log=10.049, and hour_of_day=11.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for $2743.75\",\n  \"narrative\": \"On 2022-09-16 at 11:06 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for $2743.75. The transaction was flagged by the system due to rapid movement of funds and was deemed high risk based on multiple model risk drivers including channel risk, seconds since previous transaction, velocity over 24 hours, and amount log. The transaction involved three distinct channels within 24 hours and had a high model fraud probability of 0.7%. No PII/PHI is included in this report.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 11:06 UTC, an outbound ACH transaction was initiated from subject-account to counterparty-account for $2743.75.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the system due to rapid movement of funds (rule indicator: rapid_movement). The model risk drivers include channel risk (0.3), seconds since previous transaction (11.0021), velocity over 24 hours (2), amount log (7.91745), distinct channels over 24 hours (3), and amount sum log over 24 hours (10.049).\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction must be reported as it involves a high-risk outbound ACH transaction and meets the criteria for a suspicious transaction as defined by 31 U.S.C. 5318(g). The transaction involves rapid movement of funds and multiple risk factors, indicating potential money laundering activity or a violation of the Bank Secrecy Act.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000296-ea9fa82c",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "2743.75",
+    "SAR",
+    "2022-09-16",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14, an outbound ACH transaction of 16,646.49 CNY was initiated from subject-account to counterparty-account. The transaction exhibits high risk due to its channel (ACH) and velocity characteristics, with significant increases in risk driven by the transaction’s log amount and time since previous transaction. While no specific rule indicators were triggered, the model identified several risk factors including channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and dest_inbound_amount_24h_log. These factors collectively suggest potential money laundering activity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, an outbound ACH transaction of 16,646.49 CNY was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited high risk due to its channel (ACH) and velocity characteristics. The model identified several risk factors including channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and dest_inbound_amount_24h_log. No specific rule indicators were triggered.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 16646.49 CNY\",\n  \"narrative\": \"The transaction in question is an outbound ACH transfer of 16646.49 CNY from subject-account to counterparty-account on 2022-09-14. The transaction exhibits several risk factors including an ACH channel risk, high velocity, large transaction amount, and recent transaction frequency. While no specific rule indicators were triggered, the model identified significant risk drivers such as channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and dest_inbound_amount_24h_log. These factors collectively suggest potential money laundering or other illicit activities. Given the high risk band and the nature of the transaction, this activity warrants further review and potential filing of a SAR.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound ACH transfer of 16646.49 CNY from subject-account to counterparty-account on 2022-09-14.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited the following risk factors: ACH channel risk, high transaction velocity, large transaction amount, and recent transaction frequency. No specific rule indicators were triggered, but the model identified significant risk drivers such as channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, and dest_inbound_amount_24h_log.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This activity warrants a SAR filing based on the potential for money laundering or other illicit activities. The transaction involves a high-risk band and significant model risk drivers, which align with the criteria for filing a SAR as outlined in 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000307-5535d351",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "16646.49",
+    "CNY",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction of 16,154.20 EUR was initiated from subject-account to counterparty-account. The transaction exhibits elevated velocity, a high model fraud probability, and multiple risk drivers such as velocity_24h, amount_log, channel_risk, distinct_channels_24h, and amount_24h_sum_log. The transaction also shows a pattern of rapid aggregation of funds, which is concerning given the high risk band. No apparent lawful purpose or normal transaction behavior is evident.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction of 16,154.20 EUR was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity (medium severity), a high model fraud probability (0.6%), and multiple risk drivers such as velocity_24h, amount_log, channel_risk, distinct_channels_24h, and amount_24h_sum_log. The transaction also showed a pattern of rapid aggregation of funds, which is concerning given the high risk band.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review due to the high risk band, elevated velocity, and multiple risk drivers. It may indicate potential structuring or other illegal activities. The transaction does not have an apparent lawful purpose or is not the sort of transaction the customer would normally be expected to engage in. It also uses the institution to facilitate criminal activity, which is prohibited under 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 16154.20 EUR.\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 16154.20 EUR. The transaction exhibits elevated velocity, with 100 transactions within 24 hours, and a significant amount log value of 9.69, indicating a large sum. The transaction also shows increased risk due to the use of an 'other' channel, distinct channels over 24 hours, and aggregated inbound amounts. While the seconds since previous transaction is relatively low, the overall risk profile is high. No apparent lawful purpose or normal customer behavior justifies this transaction, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 16154.20 EUR.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity (100 transactions within 24 hours), a large amount log value of 9.69, increased risk from the 'other' channel, distinct channels over 24 hours, and aggregated inbound amounts. The seconds since previous transaction was relatively low, but the overall risk profile remains high.\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"Key risk drivers included velocity_24h=100, amount_log=9.69, channel_risk=0.3, distinct_channels_24h=3, amount_24h_sum_log=15.9234, and dest_inbound_amount_24h_log=10.0793. The seconds_since_prev_txn_log=4.11087 and hour_of_day=12 were less significant in terms of increasing risk.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000316-fab895ae",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 CFR 1010.410"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 CFR 1010.410"
+   ],
+   "requiredFacts": [
+    "16154.20",
+    "EUR",
+    "2022-09-16",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction of 9627.32 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated velocity and threshold-evasion behavior, as well as high model fraud probability. Key risk drivers include channel risk, transaction amount, seconds since previous transaction, distinct channels within 24 hours, destination inbound amount, and country risk. This transaction aligns with suspicious activity patterns and should be reviewed further.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction of 9627.32 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity and threshold-evasion behavior, as well as a high model fraud probability. Key risk drivers include channel risk, transaction amount, seconds since previous transaction, distinct channels within 24 hours, destination inbound amount, and country risk.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.410\",\n    \"31 CFR 1010.311\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 9627.32 USD\",\n  \"narrative\": \"On 2022-09-16, an outbound transaction of 9627.32 USD was initiated from subject-account to counterparty-account via an alternative channel. This transaction was flagged as high risk due to multiple factors, including elevated transaction velocity and threshold-evasion behavior. The transaction also exhibits increased risk based on the model's SHAP values, particularly due to the use of an alternative channel, the large transaction amount, and the number of distinct channels used within 24 hours. No apparent lawful purpose or normal customer behavior can be discerned from the available data, raising concerns about potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, an outbound transaction of 9627.32 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity (velocity rule) and threshold-evasion behavior (threshold_evasion rule). Additionally, the model identified several risk drivers, including the use of an alternative channel (channel_risk = 0.3), the large transaction amount (amount_log = 9.17246), the frequency of distinct channels used within 24 hours (seconds_since_prev_txn_log = 9.38773), and the number of distinct channels (distinct_channels_24h = 3).\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing under 31 U.S.C. 5318(g) (Reports of suspicious transactions) and 31 U.S.C. 5311 (Purpose of the Bank Secrecy Act and required reports and records). The transaction does not appear to have a lawful purpose or is not consistent with typical customer behavior, and there is a risk of facilitating criminal activity.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000331-46907b68",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "9627.32",
+    "USD",
+    "2022-09-16",
+    "velocity",
+    "threshold evasion"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, an outbound ACH transaction of 2772.13 AUD was initiated from subject-account to counterparty-account. The transaction exhibits high risk due to its channel (ACH) and model-driven factors such as velocity, amount, and destination inbound amount. No specific rule indicators were triggered. This transaction should be reviewed to determine if it meets the criteria for a Suspicious Activity Report (SAR) filing.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, an outbound ACH transaction of 2772.13 AUD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction is flagged as high risk based on model-driven factors including channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, dest_inbound_amount_24h_log, dest_fan_in_24h, country_risk, and distinct_channels_24h. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction should be reviewed to determine if it meets the criteria for a Suspicious Activity Report (SAR) filing under 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for 2772.13 AUD\",\n  \"narrative\": \"The transaction in question is an outbound ACH transfer of 2772.13 AUD from subject-account to counterparty-account on 2022-09-16. The transaction was flagged as high risk based on several model risk drivers, including channel risk, velocity, amount, and destination inbound amount. Despite no specific rule indicators being triggered, the transaction exhibits characteristics that warrant further scrutiny. The transaction occurred via ACH, which inherently carries some risk, and the amount is significant. Additionally, the transaction shows unusual velocity and destination inbound activity within a 24-hour period, which could indicate potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound ACH transfer of 2772.13 AUD from subject-account to counterparty-account on 2022-09-16.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: channel_risk=0.3, velocity_24h=0, amount_log=7.92773, seconds_since_prev_txn_log=11.3668, dest_inbound_amount_24h_log=8.73286, dest_fan_in_24h=1, country_risk=0.1. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) of the Bank Secrecy Act, as it involves a high-risk outbound ACH transaction and exhibits characteristics that could indicate potential money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000372-654ed8f6",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "2772.13",
+    "AUD",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 03:35 UTC, a high-risk outbound transaction of 6952.41 AUD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated velocity, with five transactions within a 24-hour period, and a high model fraud probability of 0.5%. The transaction also shows increased risk due to distinct channels used in the last 24 hours (3), destination fan-in (0), and seconds since previous transaction (10.4312). While the velocity indicator slightly decreases risk, the overall profile suggests potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 03:35 UTC, a high-risk outbound transaction of 6952.41 AUD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits elevated velocity, with five transactions within a 24-hour period, and a high model fraud probability of 0.5%. The transaction also shows increased risk due to distinct channels used in the last 24 hours (3), destination fan-in (0), and seconds since previous transaction (10.4312). While the velocity indicator slightly decreases risk, the overall profile suggests potential money laundering or other illicit activities.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction meets the criteria for a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction exhibits characteristics that suggest it may be part of a larger pattern of activity designed to evade reporting requirements, potentially indicating money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 6952.41 AUD\",\n  \"narrative\": \"On 2022-09-16 at 03:35 UTC, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 6952.41 AUD. The transaction exhibits several risk factors including elevated transaction velocity, high model fraud probability, and multiple distinct channels used within a 24-hour period. The transaction also involves an unusual channel (other) and a significant amount relative to typical customer behavior. No apparent lawful purpose or normal transaction pattern is evident, raising concerns about potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 03:35 UTC, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 6952.41 AUD.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the following risk indicators: \\n- Velocity (medium severity): Elevated transaction velocity.\\n- Model risk drivers: \\n  - channel_risk=0.3\\n  - amount_log=8.84699\\n  - distinct_channels_24h=3\\n  - dest_fan_in_24h=0\\n  - seconds_since_prev_txn_log=10.4312\\n  - inbound_amount_24h_log=7.96838\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000386-dc15abe9",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "6952.41",
+    "AUD",
+    "2022-09-16",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 14,123.02 ILS from subject-account to counterparty-account via an alternative channel. The transaction exhibits several risk factors including a high risk band, increased model fraud probability, and significant velocity and amount-related risk drivers. No specific rule indicators were triggered. This transaction should be reviewed carefully given its high risk profile.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of 14,123.02 ILS was made from subject-account to counterparty-account on 2022-09-14 at 08:00 UTC. The transaction was flagged as high risk due to various model risk drivers.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged based on the following model risk drivers: channel_risk=0.3, velocity_24h=0, amount_log=9.55563, seconds_since_prev_txn_log=11.3668, day_of_week=2, dest_inbound_amount_24h_log=9.62953, and distinct_channels_24h=1. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction must be reported as it involves a high-risk outbound transfer and exhibits multiple risk factors. According to 31 U.S.C. 5318(g), a financial institution must file a Suspicious Activity Report (SAR) when it detects a suspicious transaction related to money laundering activity or a violation of the Bank Secrecy Act, and the transaction involves or aggregates to the applicable dollar threshold.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 14123.02 ILS\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for 14123.02 ILS on 2022-09-14T08:00:00 is flagged as high risk based on several model risk drivers. The transaction exhibits increased risk due to the outbound channel, high amount, recent transaction frequency, and destination country risk factors. While no specific rule indicators were triggered, the combination of these risk factors warrants further review to ensure compliance with the Bank Secrecy Act and potential money laundering activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction from subject-account to counterparty-account for 14123.02 ILS on 2022-09-14T08:00:00 is flagged as high risk.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction is flagged due to the following risk drivers: \\n- Outbound channel risk (channel_risk=0.3)\\n- Recent transaction frequency (seconds_since_prev_txn_log=11.3668)\\n- High transaction amount (amount_log=9.55563)\\n- Destination country risk (country_risk=0.15)\\n- High destination inbound amount (dest_inbound_amount_24h_log=9.62953)\\n- Low velocity (velocity_24h=0)\\n- Day of week (day_of_week=2)\\n- Distinct channels used (distinct_channels_24h=1)\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000394-662052c0",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "14123.02",
+    "ILS",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 17:09, an outbound transaction of 8517.34 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits high risk due to a 0.9% model fraud probability, elevated transaction velocity, and multiple risk drivers such as channel risk, amount, and distinct channels. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 17:09, an outbound transaction of 8517.34 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction velocity rule (severity medium) identified elevated transaction velocity. Top model risk drivers include channel_risk=0.3, amount_log=9.04998, seconds_since_prev_txn_log=8.47658, distinct_channels_24h=4, hour_of_day=17, and country_risk=0.05. These factors contribute to the high risk band of the transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) for a Suspicious Activity Report (SAR). The transaction exhibits characteristics that may indicate money laundering or other illicit activities, and no apparent lawful purpose or normal transaction behavior is evident. Additionally, the transaction does not meet the $10,000 threshold for Currency Transaction Reporting (31 CFR 1010.311), but the high risk level necessitates further investigation. The transaction also does not appear to be structured to evade reporting requirements (31 CFR 1010.314).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.311\",\n    \"31 CFR 1010.314\",\n    \"31 USC 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 8517.34 USD.\",\n  \"narrative\": \"On 2022-09-14 at 17:09, an outbound transaction of 8517.34 USD was initiated from subject-account to counterparty-account. This transaction was flagged due to high velocity and elevated risk factors as determined by the AML model. Key risk indicators include a high channel risk score, a large transaction amount, and a relatively short time since the previous transaction. The transaction also occurred late in the day and on a weekday, which may indicate unusual behavior. No apparent lawful purpose or normal transaction pattern was observed, raising suspicion of potential money laundering or other illicit activities. The transaction does not meet the $10,000 threshold for Currency Transaction Reporting (CTR) but still warrants further scrutiny given the high risk profile.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 17:09, an outbound transaction of 8517.34 USD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to high velocity and elevated risk factors as determined by the AML model. Key risk indicators include a high channel risk score (channel_risk=0.3), a large transaction amount (amount_log=9.04998), and a relatively short time since the previous transaction (seconds_since_prev_txn_log=8.47658). The transaction also occurred late in the day (hour_of_day=17) and on a weekday (day_of_week=2), which may indicate unusual behavior. No apparent lawful purpose or normal transaction pattern was observed.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review under the Bank Secrecy Act (BSA) and its implementing regulations. Specifically, the transaction may be indicative of structuring transactions to evade reporting requirements (31 U.S.C. 5324) and may not have a lawful purpose or be consistent with the customer’s normal behavior (31 U.S.C. 5318(g)). Additionally, the transaction does not meet the $10,000 threshold for Currency Transaction Reporting (CTR) but still warrants further scrutiny given the high risk profile.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5324\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000414-7e729018",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "8517.34",
+    "USD",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 12:10 PM, a high-risk outbound transaction of 365.57 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibited a velocity anomaly, with 100 transactions within 24 hours, and was flagged by the model due to increased risk factors such as distinct channels used, time of day, and day of week. No apparent lawful purpose or normal transaction behavior was observed.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 12:10 PM, a high-risk outbound transaction of 365.57 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited a velocity anomaly, with 100 transactions within 24 hours. Top model risk drivers included velocity_24h=100, channel_risk=0.3, distinct_channels_24h=3, amount_24h_sum_log=15.6023, hour_of_day=12, and day_of_week=2.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) for potential money laundering or terrorist financing. The transaction also aligns with the prohibitions set forth in 31 CFR 1010.314 against structuring transactions to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 12:10 PM, an outbound transaction of 365.57 USD was initiated from subject-account to counterparty-account. This transaction was flagged due to elevated transaction velocity and multiple risk factors identified by the AML model. The transaction exhibits unusual characteristics such as high velocity, use of an 'other' channel, and frequent changes in channels over the past 24 hours. These factors, combined with the low model fraud probability, suggest potential money laundering or other illicit activities. The transaction occurred on a weekday at a time when similar transactions are typically infrequent, further raising suspicion.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 12:10 PM, an outbound transaction of 365.57 USD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity (velocity rule) and multiple risk factors identified by the AML model, including high velocity, use of an 'other' channel, frequent changes in channels over the past 24 hours, and the time of day and day of week. The model fraud probability is 0.3%, indicating a low likelihood of legitimate activity.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review to ensure compliance with the Bank Secrecy Act (BSA). Specifically, the transaction may indicate attempts to evade reporting requirements or engage in money laundering activities. The transaction velocity and the unusual pattern of behavior are indicative of potential violations of 31 U.S.C. 5318(g), 31 CFR 1010.314, and 31 U.S.C. 5311. The BSA requires financial institutions to establish and maintain a risk-based AML program to prevent the institution from being used to facilitate money laundering or the financing of terrorism.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000424-d9987467",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "365.57",
+    "USD",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 13:39, an outbound transaction of 8614.30 EUR was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits high risk due to a combination of factors including rapid movement of funds and unusual transaction velocity. The model indicates a fraud probability of 0.3%, and the top risk drivers include channel risk, amount log, velocity, seconds since previous transaction, destination inbound amount, hour of day, and destination outbound amount. No apparent lawful purpose or normal transaction behavior is evident.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 13:39, an outbound transaction of 8614.30 EUR was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered two rule indicators: velocity (medium severity) and rapid movement (medium severity). The model's top risk drivers include channel_risk, amount_log, velocity_24h, seconds_since_prev_txn_log, dest_inbound_amount_24h_log, hour_of_day, and dest_outbound_amount_24h_log.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) for potential structuring or other illegal activities. Additionally, the transaction may require a Currency Transaction Report (CTR) under 31 CFR 1010.311 if it exceeds $10,000 in a single business day. The prohibition against structuring to evade reporting requirements is covered under 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.311\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 8614.30 EUR\",\n  \"narrative\": \"On 2022-09-16 at 13:39, an outbound transaction of 8614.30 EUR was initiated from subject-account to counterparty-account via an alternative channel. The transaction was flagged by the system due to high velocity and rapid movement of funds. The transaction also exhibits elevated risk based on the model's SHAP values, particularly the channel risk, amount, and destination outbound amount. No apparent lawful purpose or normal transaction behavior was observed. This activity warrants further review to ensure it does not involve structuring or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 13:39, an outbound transaction of 8614.30 EUR was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged by the system due to high velocity and rapid movement of funds. The model's SHAP values indicate increased risk due to the channel risk, amount, and destination outbound amount. The transaction does not appear to have a lawful purpose or normal transaction behavior.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This activity may involve structuring or other illicit activities, which could violate 31 U.S.C. 5324 and 31 CFR 1010.314. The transaction does not meet the $10,000 reporting threshold for Currency Transaction Reports (CTRs) under 31 CFR 1010.311, but it still requires scrutiny to ensure compliance with the Bank Secrecy Act and FinCEN regulations.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5324\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000428-0ba3453e",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "8614.30",
+    "EUR",
+    "2022-09-16",
+    "velocity",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 17:33, an outbound transaction of 56.50 USD was initiated from subject-account to counterparty-account via card channel. The transaction was flagged due to elevated transaction velocity, with a model fraud probability of 0.3%. The velocity_24h risk driver indicates a high risk, while the distinct_channels_24h and seconds_since_prev_txn_log drivers also contribute to the overall risk assessment. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 17:33, an outbound transaction of 56.50 USD was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity (velocity_24h=100). The distinct_channels_24h and seconds_since_prev_txn_log drivers also contribute to the overall risk assessment. No apparent lawful purpose or normal transaction behavior is evident.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction does not meet the $10,000 reporting threshold but exhibits characteristics indicative of potential money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 17:33, an outbound transaction of 56.50 USD was initiated from subject-account to counterparty-account via card channel. The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model risk drivers include high transaction velocity within 24 hours, distinct channels used, and the time elapsed since the previous transaction. While the transaction amount is below the $10,000 reporting threshold, the pattern of activity raises concerns about potential money laundering or structuring activities. No apparent lawful purpose or normal customer behavior justifies this level of transaction frequency and diversity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 17:33, an outbound transaction of 56.50 USD was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model risk drivers include high transaction velocity within 24 hours, distinct channels used, and the time elapsed since the previous transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction may be indicative of structuring activities to evade reporting requirements, as per 31 U.S.C. 5324. Additionally, the transaction pattern suggests a need for further scrutiny to ensure compliance with the Bank Secrecy Act (BSA) and its implementing regulations, particularly 31 U.S.C. 5318(g) and 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000462-003273f8",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "requiredFacts": [
+    "56.50",
+    "USD",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 15:19, an outbound transaction of 28.17 USD was initiated from subject-account to counterparty-account via card channel. The transaction exhibits elevated velocity, with 100 transactions within 24 hours, and a log-transformed sum of 24-hour amounts of 16.587, indicating increased risk. Despite the low dollar amount, the high velocity and the model's risk drivers suggest potential suspicious activity. No apparent lawful purpose or normal transaction behavior is evident.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 15:19, an outbound transaction of 28.17 USD was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction velocity indicator (severity medium) identified elevated transaction velocity. Top model risk drivers include velocity_24h=100, amount_24h_sum_log=16.587, distinct_channels_24h=3, and seconds_since_prev_txn_log=4.11087, all of which increase risk. The channel_risk=0.2 slightly decreases risk.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction exhibits characteristics that could indicate structuring or other forms of money laundering, which are prohibited under the Bank Secrecy Act.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 15:19, an outbound transaction of 28.17 USD was initiated from subject-account to counterparty-account via card channel. The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model identified several risk factors, including high transaction velocity within 24 hours, significant 24-hour sum of transaction amounts, and distinct channels used over the past 24 hours. These factors collectively suggest potential money laundering or other illicit activities. No apparent lawful purpose or normal customer behavior justifies this transaction pattern.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 15:19, an outbound transaction of 28.17 USD was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity, as indicated by the rule indicator 'velocity' with medium severity. The model identified several risk factors, including high transaction velocity within 24 hours, significant 24-hour sum of transaction amounts, and distinct channels used over the past 24 hours.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing under 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction exhibits characteristics that are inconsistent with normal customer behavior and may indicate an attempt to evade reporting requirements or facilitate criminal activity.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000474-c9a23e59",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.311"
+   ],
+   "requiredFacts": [
+    "28.17",
+    "USD",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"Outbound crypto transaction from subject-account to counterparty-account with high risk band and model-driven indicators.\",\n  \"narrative\": \"On 2022-09-14, an outbound crypto transaction of 0.38 XBT was made from subject-account to counterparty-account through the crypto channel. The transaction exhibits several high-risk drivers including velocity_24h, seconds_since_prev_txn_log, channel_risk, amount_log, distinct_channels_24h, day_of_week, and dest_inbound_amount_24h_log. No specific rule indicators were triggered. Given the high risk band and model-driven indicators, this transaction warrants further review.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, an outbound crypto transaction of 0.38 XBT was made from subject-account to counterparty-account through the crypto channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits several high-risk drivers including velocity_24h, seconds_since_prev_txn_log, channel_risk, amount_log, distinct_channels_24h, day_of_week, and dest_inbound_amount_24h_log. No specific rule indicators were triggered.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"Outbound crypto transaction from subject-account to counterparty-account for 0.38 XBT\",\n  \"narrative\": \"On 2022-09-14 at 15:32 UTC, an outbound crypto transaction was made from subject-account to counterparty-account for 0.38 XBT through the crypto channel. The transaction exhibits several risk factors including high velocity, recent transaction history, and increased channel risk. The model indicates a 0.5% fraud probability, but the high risk band and multiple risk drivers suggest potential money laundering or other illicit activities. No specific rule indicators were triggered, but the combination of risk factors warrants further review.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 15:32 UTC, an outbound crypto transaction was made from subject-account to counterparty-account for 0.38 XBT through the crypto channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits several risk factors:\\n- Velocity 24h = 0\\n- Seconds since previous transaction log = 11.3668\\n- Channel risk = 0.9\\n- Amount log = 0.322083\\n- Distinct channels 24h = 1\\n- Day of week = 2\\n- Destination inbound amount 24h log = 0.322083\\n- Inbound amount 24h log = 0\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"The model identified the following risk drivers:\\n- Velocity 24h = 0 increases risk\\n- Seconds since previous transaction log = 11.3668 increases risk\\n- Channel risk = 0.9 increases risk\\n- Amount log = 0.322083 increases risk\\n- Distinct channels 24h = 1 increases risk\\n- Day of week = 2 increases risk\\n- Destination inbound amount 24h log = 0.322083 increases risk\\n- Inbound amount 24h log = 0 increases risk\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction should be reported as it involves a high-risk band and multiple risk drivers, which could indicate potential money laundering or other illicit activities. The transaction meets the criteria for a suspicious transaction as outlined in 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000480-1d71da1c",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "0.38",
+    "XBT",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction of 5927.14 CAD was detected from subject-account to counterparty-account. The transaction exhibits significant risk factors including a high model fraud probability (0.8%), rapid movement of funds, and elevated transaction velocity. The channel used for this transaction is 'other', and the transaction occurred at 11:05 AM. The transaction also shows unusual characteristics such as distinct channels within 24 hours and a high amount log value, which contribute to the overall risk assessment.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction of 5927.14 CAD was detected from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the velocity rule (medium severity) due to elevated transaction velocity and the rapid_movement rule (medium severity) due to rapid movement of funds. The top model risk drivers include channel_risk=0.3, amount_log=8.68747, seconds_since_prev_txn_log=7.70571, and dest_inbound_amount_24h_log=9.38053, which all increase the risk score.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) for a Suspicious Activity Report (SAR). The transaction also meets the criteria for a Currency Transaction Report (CTR) under 31 CFR 1010.311, as it exceeds the $10,000 threshold. Additionally, the transaction could potentially involve structuring activities under 31 CFR 1010.314, which prohibits structuring transactions to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.311\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 5927.14 CAD\",\n  \"narrative\": \"On 2022-09-16 at 11:05 UTC, an outbound transaction of 5927.14 CAD was initiated from subject-account to counterparty-account via an alternative channel. This transaction was flagged as high risk due to multiple factors including rapid movement of funds, elevated transaction velocity, and unusual channel usage. The transaction also exhibits characteristics that may indicate an attempt to evade reporting requirements, such as the use of an alternative channel and the presence of multiple transactions within a 24-hour period. The model indicates a 0.8% probability of fraud, driven by factors like the channel used, the amount, and the frequency of recent transactions.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 11:05 UTC, an outbound transaction of 5927.14 CAD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged based on the following risk indicators:\\n- Velocity (medium severity): Elevated transaction velocity.\\n- Rapid Movement (medium severity): Rapid movement of funds.\\n\\nModel risk drivers include:\\n- Channel risk (0.3 increase)\\n- Amount (increase)\\n- Seconds since previous transaction (increase)\\n- Distinct channels in 24 hours (increase)\\n- Hour of day (increase)\\n- Inbound amount in 24 hours (increase)\\n- Destination inbound amount in 24 hours (increase)\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing under 31 U.S.C. 5318(g) due to the high risk profile and potential for structuring to evade reporting requirements. Additionally, the rapid movement of funds and the use of an alternative channel could indicate an attempt to evade detection, which is prohibited under 31 CFR 1010.314. The transaction does not meet the $10,000 threshold for a Currency Transaction Report (CTR) under 31 CFR 1010.311, but the overall risk profile warrants further investigation.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000489-f10f0efa",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "5927.14",
+    "CAD",
+    "2022-09-16",
+    "velocity",
+    "rapid movement"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 17,814.21 USD from subject-account to counterparty-account via an alternative channel. The transaction exhibits several risk factors, including a high model fraud probability, significant amounts involved, and a high number of distinct channels within a 24-hour period. These characteristics suggest potential money laundering or other illicit activities. No specific rule indicators were triggered, but the model risk drivers indicate heightened concern.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of 17,814.21 USD was made from subject-account to counterparty-account through an alternative channel on 2022-09-15 at 06:33 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction is flagged due to its high model fraud probability (0.6%), large amount ($17,814.21), and multiple distinct channels within a 24-hour period (3). Additionally, the destination received a significant inbound amount ($17,814.21) within the same timeframe, which further increases the risk profile.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires reporting under 31 U.S.C. 5318(g) and 31 U.S.C. 5311 of the Bank Secrecy Act (BSA). The BSA mandates that financial institutions report suspicious transactions involving money laundering or violations of federal law, particularly when the transaction involves or aggregates to the applicable dollar threshold. The transaction in question meets these criteria and should be reviewed for potential money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction of 17814.21 USD from subject-account to counterparty-account.\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 17814.21 USD from subject-account to counterparty-account, which was flagged as high risk by the AML model. The transaction exhibits several risk factors, including an unusually high amount, multiple distinct channels used within 24 hours, and a significant number of inbound transactions from the destination. These factors collectively suggest potential money laundering or other illicit activities. No specific rule indicators were triggered, but the model's risk assessment indicates a 0.6% probability of fraud, which is concerning given the high dollar value involved. The transaction occurred on 2022-09-15T06:33:00 and involved the use of an 'other' channel, further complicating the transaction's legitimacy.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of 17814.21 USD from subject-account to counterparty-account, which was flagged as high risk by the AML model.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits several risk factors, including an unusually high amount, multiple distinct channels used within 24 hours, and a significant number of inbound transactions from the destination. The model's risk assessment indicates a 0.6% probability of fraud, which is concerning given the high dollar value involved. No specific rule indicators were triggered, but the model's top risk drivers include: \\n- channel_risk=0.3\\n- amount_log=9.78781\\n- seconds_since_prev_txn_log=10.6469\\n- distinct_channels_24h=3\\n- dest_inbound_amount_24h_log=10.1706\\n- country_risk=0.05\\n- amount_24h_sum_log=9.87549\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) of the Bank Secrecy Act, as it involves a high-risk outbound transaction that could be indicative of money laundering or other illicit activities. Additionally, the transaction aligns with the purpose of the Bank Secrecy Act as outlined in 31 U.S.C. 5311, requiring financial institutions to establish and maintain a risk-based AML program to prevent the institution from being used to facilitate money laundering or the financing of terrorism.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000514-2b582796",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "17814.21",
+    "USD",
+    "2022-09-15"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account involving structuring and elevated velocity.\",\n  \"narrative\": \"On 2022-09-14, a high-risk outbound transaction of 19,461.67 CNY was detected from subject-account to counterparty-account. The transaction exhibits a structuring pattern and elevated velocity, with a model fraud probability of 0.3%. The velocity indicator shows 100 transactions in 24 hours, while the distinct channels used in 24 hours is 3. The transaction also involves an unusual channel risk and a large sum log value, indicating potential money laundering activities. No apparent lawful purpose is evident, and the transaction may be facilitating criminal activity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, a high-risk outbound transaction of 19,461.67 CNY was detected from subject-account to counterparty-account. The transaction exhibits a structuring pattern and elevated velocity.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the structuring rule with a high severity and the velocity rule with a medium severity. The top model risk drivers include velocity_24h=100, channel_risk=0.3, distinct_channels_24h=3, amount_log=9.87625, and amount_24h_sum_log=18.1903. These factors suggest potential money laundering activities.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires immediate attention due to the presence of structuring and elevated velocity. It is in violation of 31 CFR 1010.314, which prohibits structuring transactions to evade reporting requirements, and 31 CFR 1010.311, which mandates the filing of Currency Transaction Reports (CTRs) for transactions exceeding $10,000. Additionally, the transaction meets the criteria for filing a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 CFR 1010.314\",\n    \"31 CFR 1010.311\",\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account involving structuring and elevated velocity.\",\n  \"narrative\": \"On 2022-09-14, a high-risk outbound transaction of 19,461.67 CNY was initiated from subject-account to counterparty-account. The transaction exhibits a structuring pattern, as identified by deterministic controls, and shows elevated transaction velocity, also flagged by deterministic controls. The transaction's risk is further compounded by its occurrence on a weekday (day_of_week=2), the use of an 'other' channel (channel_risk=0.3), and the involvement of multiple distinct channels within 24 hours (distinct_channels_24h=3). The transaction amount and the sum of amounts over the past 24 hours also contribute significantly to the risk assessment. While the transaction does not exceed the $10,000 reporting threshold, the structuring behavior and the overall risk profile warrant a detailed review and potential filing of a Suspicious Activity Report (SAR) to comply with the Bank Secrecy Act (BSA) and FinCEN regulations.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, a high-risk outbound transaction of 19,461.67 CNY was initiated from subject-account to counterparty-account. The transaction exhibits a structuring pattern and shows elevated transaction velocity.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following risk indicators: structuring (severity high) and velocity (severity medium). The model risk drivers include: velocity_24h=100, channel_risk=0.3, distinct_channels_24h=3, amount_log=9.87625, amount_24h_sum_log=18.1903, and dest_inbound_amount_24h_log=10.1355.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is subject to the following regulations: 31 CFR 1010.314 (prohibiting structuring transactions to evade reporting requirements), 31 CFR 1010.311 (requiring reports of currency transactions exceeding $10,000), 31 U.S.C. 5318(g) (requiring reports of suspicious transactions), and 31 CFR 1010.410 (requiring recordkeeping and the Travel Rule for funds and wire transfers).\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 CFR 1010.314\",\n    \"31 CFR 1010.311\",\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000535-189deb85",
+   "expectedCitationIds": [
+    "31 CFR 1010.314",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410"
+   ],
+   "offeredCitationIds": [
+    "31 CFR 1010.314",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.410"
+   ],
+   "requiredFacts": [
+    "19461.67",
+    "CNY",
+    "2022-09-14",
+    "structuring",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"Outbound transaction from subject-account to counterparty-account for $41,818.20 USD with high risk band and multiple model risk drivers.\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for $41,818.20 USD on 2022-09-15T16:47:00 exhibits several risk factors. The transaction occurred via an 'other' channel, which carries a risk score increase of 0.3. Additionally, the transaction involved two distinct countries within 24 hours, contributing to increased risk. The transaction also occurred at 16:47, which is associated with a higher risk due to the hour of day. Furthermore, the transaction involved a large amount, with a log value of 10.6411, and was part of a series of transactions within 24 hours, indicated by a velocity score of 4. These factors collectively suggest potential money laundering activity or a violation of federal law.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of $41,818.20 USD from subject-account to counterparty-account was flagged as high risk. The transaction occurred via an 'other' channel and involved two distinct countries within 24 hours. The transaction time of 16:47 and its large amount contribute to the overall risk assessment.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited several risk indicators. The 'other' channel carries a risk score increase of 0.3. The transaction involved two distinct countries within 24 hours, contributing to increased risk. The transaction time of 16:47 is associated with a higher risk due to the hour of day. The transaction amount, with a log value of 10.6411, and its velocity score of 4 within 24 hours further increase the risk.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) and 31 U.S.C. 5311. The transaction involves a large amount and multiple risk factors, suggesting potential money laundering activity or a violation of federal law. The Bank Secrecy Act (BSA) mandates that financial institutions establish and maintain a risk-based AML program to prevent the institution from being used to facilitate money laundering or the financing of terrorism. The transaction meets the criteria for reporting under the BSA.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"Outbound transaction of 41818.20 USD from subject-account to counterparty-account with high risk band.\",\n  \"narrative\": \"On 2022-09-15 at 16:47, an outbound transaction of 41818.20 USD was initiated from subject-account to counterparty-account through an alternative channel. The transaction exhibits several risk factors, including a high risk band, increased channel risk due to the use of an alternative channel, distinct countries and channels within a 24-hour period, and a high amount log value. These factors, along with the transaction occurring at 16:00, contribute to a heightened suspicion of potential money laundering or other illicit activities. No specific rule indicators were triggered, but the model identified significant risk drivers such as channel risk, distinct countries and channels, and the transaction amount. Given the high risk band and the model's assessment, this transaction warrants further review and potential reporting under the Bank Secrecy Act (BSA).\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15 at 16:47, an outbound transaction of 41818.20 USD was initiated from subject-account to counterparty-account through an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits several risk factors, including a high risk band, increased channel risk due to the use of an alternative channel, distinct countries and channels within a 24-hour period, and a high amount log value. These factors, along with the transaction occurring at 16:00, contribute to a heightened suspicion of potential money laundering or other illicit activities. No specific rule indicators were triggered, but the model identified significant risk drivers such as channel risk, distinct countries and channels, and the transaction amount.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000544-197dd869",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "41818.20",
+    "USD",
+    "2022-09-15"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14, an outbound transaction of 17,227.98 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits high risk due to a combination of factors including a high model fraud probability (0.9%), elevated transaction velocity, and unusual transaction patterns such as distinct channels used within 24 hours and aggregated amounts. The transaction also involves a significant amount and occurred in the United States.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, an outbound transaction of 17,227.98 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the velocity rule with medium severity, indicating elevated transaction velocity. The model risk drivers include channel_risk=0.3, amount_log=9.75435, seconds_since_prev_txn_log=10.0052, distinct_channels_24h=3, amount_24h_sum_log=9.89217, and country_risk=0.05. These factors collectively contribute to the high risk band of the transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report under 31 U.S.C. 5318(g) for a Suspicious Activity Report (SAR). The transaction also meets the criteria for filing a Currency Transaction Report (CTR) under 31 CFR 1010.311, as it exceeds the $10,000 threshold. Additionally, the transaction aligns with the purpose of the Bank Secrecy Act (BSA) under 31 U.S.C. 5311, requiring financial institutions to establish and maintain AML programs to prevent the institution from being used to facilitate money laundering or the financing of terrorism. Furthermore, the transaction could potentially involve structuring to evade reporting requirements under 31 CFR 1010.314.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.311\",\n    \"31 U.S.C. 5311\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 17227.98 USD.\",\n  \"narrative\": \"On 2022-09-14, an outbound transaction of 17,227.98 USD was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits several risk factors, including high velocity, large transaction amount, and frequent use of different channels within a 24-hour period. The model indicates a 0.9% fraud probability, with significant contributions from the channel risk, transaction amount, and distinct channels used. The transaction also shows a high velocity score, though this is partially offset by a lower score for the number of transactions in the last 24 hours. No apparent lawful purpose is evident, and the transaction does not align with typical customer behavior. These factors, combined with the high risk band, suggest potential money laundering or structuring activity, which may be in violation of the Bank Secrecy Act (BSA).\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, an outbound transaction of 17,227.98 USD was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited the following risk indicators:\\n- High velocity (medium severity)\\n- Large transaction amount (0.9% model fraud probability)\\n- Frequent use of different channels within a 24-hour period\\n- High transaction amount over the past 24 hours\\n- Low transaction count over the past 24 hours\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and may indicate potential violations of the Bank Secrecy Act (BSA), specifically 31 U.S.C. 5318(g) and 31 U.S.C. 5311, as well as 31 CFR 1010.314. The transaction does not appear to have a lawful purpose and does not align with typical customer behavior, which could suggest money laundering or structuring to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000568-77b2fce5",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 U.S.C. 5311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "17227.98",
+    "USD",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16, a high-risk outbound transaction of 12,394.64 GBP was detected from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated velocity, a high model fraud probability, and significant risk drivers such as channel risk, amount, and distinct channels. No apparent lawful purpose is evident, and the transaction aligns with potential money laundering activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, a high-risk outbound transaction of 12,394.64 GBP was detected from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated velocity, a high model fraud probability, and significant risk drivers such as channel risk, amount, and distinct channels.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction triggered the velocity rule with medium severity due to elevated transaction velocity. The top model risk drivers include channel_risk=0.3, amount_log=9.4251, seconds_since_prev_txn_log=10.675, country_risk=0.1, inbound_amount_24h_log=9.34307, hour_of_day=11, and distinct_channels_24h=5. These factors collectively suggest a high likelihood of money laundering or other illicit activities.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires immediate attention. It does not meet the criteria for reporting under 31 CFR 1010.311 as the amount does not exceed $10,000. However, it meets the criteria for filing a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g). Additionally, the transaction could potentially violate 31 CFR 1010.314 if it is part of a series of transactions designed to evade reporting requirements. Compliance with 31 CFR 1010.410 is also necessary to ensure proper recordkeeping and transmission of relevant information.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction of 12,394.64 GBP from subject-account to counterparty-account.\",\n  \"narrative\": \"On 2022-09-16, an outbound transaction of 12,394.64 GBP was initiated from subject-account to counterparty-account. This transaction exhibits several risk factors, including a high fraud probability of 0.8%, a high transaction amount, and a high transaction velocity. The transaction was flagged due to elevated transaction velocity, which suggests potential money laundering or structuring activities. The model also indicates increased risk based on the channel used, the time of day, and the number of distinct channels involved in the transaction over the past 24 hours. These factors collectively raise concerns about the legitimacy of the transaction and warrant further investigation to ensure compliance with AML regulations.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16, an outbound transaction of 12,394.64 GBP was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to elevated transaction velocity (severity medium). The model also indicated increased risk based on the following factors: channel_risk=0.3, amount_log=9.4251, seconds_since_prev_txn_log=10.675, country_risk=0.1, inbound_amount_24h_log=9.34307, hour_of_day=11, and distinct_channels_24h=5.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 CFR 1010.311\",\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\",\n    \"31 CFR 1010.410\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000590-17df93e2",
+   "expectedCitationIds": [
+    "31 CFR 1010.311",
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 CFR 1010.410"
+   ],
+   "offeredCitationIds": [
+    "31 CFR 1010.311",
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 CFR 1010.410"
+   ],
+   "requiredFacts": [
+    "12394.64",
+    "GBP",
+    "2022-09-16",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-15, a high-risk outbound transaction of 44.04 EUR was initiated from subject-account to counterparty-account via card channel. The transaction exhibits elevated velocity, with 100 transactions in the last 24 hours, and is flagged as high risk by the model. The velocity_24h, dest_inbound_amount_24h_log, and distinct_channels_24h_24h risk drivers significantly contribute to the transaction's risk profile. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15, a high-risk outbound transaction of 44.04 EUR was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits elevated velocity, with 100 transactions in the last 24 hours, and is flagged as high risk by the model. The velocity_24h, dest_inbound_amount_24h_log, and distinct_channels_24h_24h risk drivers significantly contribute to the transaction's risk profile.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed report due to its high risk level and lack of apparent lawful purpose. It may indicate potential money laundering or other illicit activities, which are prohibited under 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction does not meet the $10,000 reporting threshold for CTRs under 31 CFR 1010.311, but it still requires scrutiny due to its high risk and unusual nature.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-15, a high-risk outbound transaction of 44.04 EUR was initiated from subject-account to counterparty-account via card channel. The transaction exhibits elevated velocity, with 100 transactions within 24 hours, and involves multiple distinct channels over the same period. The transaction also shows a significant increase in risk due to the sum of 24-hour amounts and the number of distinct channels used. While the transaction amount is below the $10,000 reporting threshold, the pattern of activity raises concerns about potential money laundering or structuring activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15, a high-risk outbound transaction of 44.04 EUR was initiated from subject-account to counterparty-account via card channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity, with 100 transactions within 24 hours, and involved multiple distinct channels over the same period. The model risk drivers included a significant increase in risk due to the sum of 24-hour amounts and the number of distinct channels used.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction may indicate potential money laundering or structuring activities, which could be in violation of 31 U.S.C. 5318(g) and 31 CFR 1010.314. The transaction does not meet the $10,000 reporting threshold for Currency Transaction Reports (CTRs) under 31 CFR 1010.311, but the pattern of activity warrants further review to ensure compliance with the Bank Secrecy Act and FinCEN regulations.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000635-e86332f3",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 CFR 1010.311",
+    "31 CFR 1010.410"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.314",
+    "31 CFR 1010.311",
+    "31 CFR 1010.410"
+   ],
+   "requiredFacts": [
+    "44.04",
+    "EUR",
+    "2022-09-15",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 03:18 UTC, a high-risk outbound transaction of 206.12 USD was detected from subject-account to counterparty-account via an unknown channel. The transaction exhibits elevated velocity, with 100 transactions within 24 hours, and a model risk score indicating increased likelihood of fraud due to velocity, amount, and channel risk factors. No apparent lawful purpose or normal transaction behavior is evident, raising suspicion of potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 03:18 UTC, a high-risk outbound transaction of 206.12 USD was detected from subject-account to counterparty-account via an unknown channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited elevated velocity (velocity_24h=100), which increases risk. Additionally, the model risk drivers include amount_24h_sum_log=15.5965, channel_risk=0.3, distinct_channels_24h=3, inbound_amount_24h_log=5.0981, dest_inbound_amount_24h_log=6.61632, amount_log=5.3333, and inbound_velocity_24h=1, all of which contribute to the overall risk assessment.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a detailed review under 31 U.S.C. 5318(g) for reporting suspicious transactions, as well as 31 CFR 1010.314 to ensure no structuring of transactions to evade reporting requirements. The transaction does not appear to have a lawful purpose or normal transaction behavior, and thus may be indicative of money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 USC 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 03:18 UTC, an outbound transaction of 206.12 USD was initiated from subject-account to counterparty-account. This transaction was flagged due to elevated transaction velocity and other risk factors. The transaction exhibits unusual behavior, including high transaction frequency within 24 hours, large cumulative amounts over the past 24 hours, and the use of an 'other' channel. These factors, combined with the high risk band and low model fraud probability, suggest potential money laundering or other illicit activities. The transaction does not appear to have a lawful purpose and may be structured to evade reporting requirements.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 03:18 UTC, an outbound transaction of 206.12 USD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following risk indicators:\\n- Velocity (medium severity): Elevated transaction velocity.\\n- Model risk drivers: \\n  - velocity_24h=100\\n  - amount_24h_sum_log=15.5965\\n  - channel_risk=0.3\\n  - distinct_channels_24h=3\\n  - inbound_amount_24h_log=5.0981\\n  - dest_inbound_amount_24h_log=6.61632\\n  - amount_log=5.3333\\n  - inbound_velocity_24h=1\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction is suspicious and requires a SAR filing based on the following regulations:\\n- 31 U.S.C. 5318(g): Reports of suspicious transactions (Suspicious Activity Report)\\n- 31 U.S.C. 5324: Prohibition on structuring transactions to evade reporting requirements\\n- 31 U.S.C. 5311: Purpose of the Bank Secrecy Act and required reports and records\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5324\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": false,
+     "expectedReasons": [
+      "citation_fabricated"
+     ],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000699-62d08cca",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "206.12",
+    "USD",
+    "2022-09-16",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-15, a high-risk outbound transaction of 26,178.55 CNY was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated risk factors including high velocity, large amount, and frequent destination activity, despite a slight decrease in risk due to the hour of day. The model assigns a fraud probability of 0.7%, and the transaction falls within a high risk band.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15, a high-risk outbound transaction of 26,178.55 CNY was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits elevated risk factors including high velocity, large amount, and frequent destination activity, despite a slight decrease in risk due to the hour of day. The model assigns a fraud probability of 0.7%, and the transaction falls within a high risk band.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction is flagged as high risk based on the following model risk drivers: channel_risk=0.3, velocity_24h=0, seconds_since_prev_txn_log=11.3668, amount_log=10.1727, dest_inbound_amount_24h_log=11.121, dest_fan_in_24h=1, and amount_24h_sum_log=10.1727. While the hour of day slightly mitigates risk, the overall profile remains concerning.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 26,178.55 CNY\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for 26,178.55 CNY on 2022-09-15T23:31:00 is flagged as high risk due to its outbound nature, the use of an alternative channel, and several model risk drivers including high amounts, recent transaction frequency, and destination inbound transaction volume. While no specific rule indicators were triggered, the combination of these factors suggests potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction from subject-account to counterparty-account for 26,178.55 CNY on 2022-09-15T23:31:00 is flagged as high risk.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged based on the following model risk drivers: channel_risk=0.3, velocity_24h=0, seconds_since_prev_txn_log=11.3668, amount_log=10.1727, dest_inbound_amount_24h_log=11.121, dest_fan_in_24h=1, and amount_24h_sum_log=10.1727. No specific rule indicators were triggered.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000706-097800d5",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "26178.55",
+    "CNY",
+    "2022-09-15"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound ACH transfer of $4,746.95 USD from subject-account to counterparty-account on 2022-09-16 at 07:54 UTC. The transaction was flagged as high risk based on model-driven factors such as channel risk, velocity, and amount, but no specific rule indicators were triggered. The transaction exhibits unusual characteristics including a high velocity and large amount, which align with potential money laundering activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction is an outbound ACH transfer of $4,746.95 USD from subject-account to counterparty-account on 2022-09-16 at 07:54 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on model-driven factors such as channel risk (0.3 increase), velocity (1 increase), amount (8.46547 increase), and destination inbound amount (10.2509 increase). No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) and 31 U.S.C. 5311 due to its high risk profile and potential for money laundering activities. The transaction involves a large amount and unusual velocity, which are indicative of suspicious activity.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 07:54 UTC, an outbound ACH transaction of $4,746.95 USD was initiated from subject-account to counterparty-account. This transaction was flagged as high risk based on several model risk drivers: channel risk, velocity over 24 hours, time since last transaction, and destination inbound amount over 24 hours. While no specific rule indicators were triggered, the combination of these factors suggests potential money laundering or other suspicious activity. The transaction involved multiple channels and a high destination inbound amount over 24 hours, which mitigated some risk but did not fully offset the elevated risk profile.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 07:54 UTC, an outbound ACH transaction of $4,746.95 USD was initiated from subject-account to counterparty-account.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk due to the following model risk drivers:\\n- channel_risk=0.3\\n- velocity_24h=1\\n- seconds_since_prev_txn_log=10.2058\\n- amount_log=8.46547\\n- dest_inbound_amount_24h_log=10.2509\\n- inbound_velocity_24h=1\\n- dest_fan_in_24h=8\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) of the Bank Secrecy Act (FinCEN). The transaction involves or aggregates to the applicable dollar threshold and exhibits characteristics that suggest a possible violation of federal law or a suspicious transaction related to money laundering activity. Additionally, the transaction aligns with the purpose of the Bank Secrecy Act as outlined in 31 U.S.C. 5311, requiring financial institutions to establish and maintain a risk-based AML program to prevent the institution from being used to facilitate money laundering or the financing of terrorism.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000803-55e72142",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "4746.95",
+    "USD",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 16,318.76 EUR from subject-account to counterparty-account, which was flagged as high risk due to its channel, amount, and time of occurrence. The transaction occurred on 2022-09-15 at 11:20 UTC. The model identified several risk factors including a high channel risk score, a large amount, and a high destination outbound amount over 24 hours. These factors collectively suggest potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction involved an outbound transfer of 16,318.76 EUR from subject-account to counterparty-account on 2022-09-15 at 11:20 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: channel_risk=0.3, amount_log=9.70013, seconds_since_prev_txn_log=10.5744, dest_fan_in_24h=5, dest_outbound_amount_24h_log=6.61467, hour_of_day=11, and country_risk=0.1. These factors collectively indicate a potential for money laundering or other illegal activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction of 16318.76 EUR from subject-account to counterparty-account.\",\n  \"narrative\": \"On 2022-09-15 at 11:20 UTC, an outbound transaction of 16318.76 EUR was initiated from subject-account to counterparty-account through an alternative channel. The transaction was flagged as high risk based on several model risk drivers: channel_risk, amount_log, seconds_since_prev_txn_log, dest_fan_in_24h, dest_outbound_amount_24h_log, and hour_of_day. While no specific rule indicators were triggered, the combination of these factors suggests potential money laundering or other illicit activities. The transaction involved a significant amount and occurred during a period of increased activity, which further raises suspicion.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-15 at 11:20 UTC, an outbound transaction of 16318.76 EUR was initiated from subject-account to counterparty-account through an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: \\n- channel_risk=0.3\\n- amount_log=9.70013\\n- seconds_since_prev_txn_log=10.5744\\n- dest_fan_in_24h=5\\n- dest_outbound_amount_24h_log=6.61467\\n- hour_of_day=11\\nWhile no specific rule indicators were triggered, the combination of these factors suggests potential money laundering or other illicit activities.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000805-cb11d4a0",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "16318.76",
+    "EUR",
+    "2022-09-15"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 67891.35 ILS\",\n  \"narrative\": \"On 2022-09-14, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 67891.35 ILS. The transaction exhibits elevated risk due to its outbound nature, the use of an 'other' channel, and the involvement of multiple countries within a 24-hour period. The transaction velocity, while initially flagged as medium, does not significantly mitigate the overall risk profile. The model identifies several risk drivers including distinct countries and channels, high transaction amount, and specific hours of the day. This transaction aligns with potential money laundering activities and requires further investigation.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, a high-risk outbound transaction was initiated from subject-account to counterparty-account for 67891.35 ILS.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits elevated risk due to its outbound nature, the use of an 'other' channel, and the involvement of multiple countries within a 24-hour period. The model identifies several risk drivers including distinct countries and channels, high transaction amount, and specific hours of the day. The transaction velocity, while initially flagged as medium, does not significantly mitigate the overall risk profile.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction aligns with potential money laundering activities and requires further investigation. It is subject to the provisions of 31 U.S.C. 5318(g) for reporting suspicious transactions and 31 CFR 1010.314 for prohibiting structuring transactions to evade reporting requirements.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 67891.35 ILS\",\n  \"narrative\": \"On 2022-09-14 at 10:03 AM, an outbound transaction of 67891.35 ILS was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits several risk factors, including high transaction velocity, multiple distinct countries and channels within 24 hours, and a large transaction amount. The model indicates a 2.9% fraud probability, with significant contributions from channel risk, distinct countries, and amount. Notably, the transaction velocity, while elevated, does not reach the threshold for immediate concern. This transaction should be reviewed carefully due to the combination of risk factors and the potential for money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 10:03 AM, an outbound transaction of 67891.35 ILS was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited the following risk indicators:\\n- Velocity (medium severity): Elevated transaction velocity.\\n- Channel risk: Increased risk due to the use of an alternative channel.\\n- Distinct countries and channels: Increased risk due to transactions involving multiple distinct countries and channels within 24 hours.\\n- Large transaction amount: Increased risk due to the substantial amount of the transaction.\\n- Hour of day: Increased risk due to the transaction occurring at 10 AM, a time when such transactions might be unusual.\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"The model identified the following risk drivers:\\n- channel_risk=0.3\\n- distinct_countries_24h=2\\n- amount_log=11.1257\\n- seconds_since_prev_txn_log=10.0958\\n- distinct_channels_24h=4\\n- hour_of_day=10\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 CFR 1010.314\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000815-32e9057e",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 CFR 1010.311",
+    "31 CFR 1010.314"
+   ],
+   "requiredFacts": [
+    "67891.35",
+    "ILS",
+    "2022-09-14",
+    "velocity"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-16 at 15:00 UTC, an outbound ACH transaction of $4,892.96 USD was initiated from subject-account to counterparty-account. The transaction was flagged as high risk due to its model fraud probability of 0.7%, and several risk drivers were identified, including channel risk, velocity, amount, seconds since previous transaction, destination inbound amount, hour of day, and country risk. No specific rule indicators were triggered.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 15:00 UTC, an outbound ACH transaction of $4,892.96 USD was initiated from subject-account to counterparty-account. The transaction was flagged as high risk due to its model fraud probability of 0.7%, and several risk drivers were identified, including channel risk, velocity, amount, seconds since previous transaction, destination inbound amount, hour of day, and country risk. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibited several risk factors: channel_risk=0.3, velocity_24h=0, amount_log=8.49576, seconds_since_prev_txn_log=11.3668, dest_inbound_amount_24h_log=8.49576, hour_of_day=15, and country_risk=0.05. These factors collectively contributed to the high risk banding of the transaction.\"\n    },\n    {\n      \"heading\": \"Regulatory Basis\",\n      \"body\": \"This transaction requires a Suspicious Activity Report (SAR) under 31 U.S.C. 5318(g) and 31 U.S.C. 5311. The BSA mandates that financial institutions report any suspicious transaction relevant to a possible violation of law or regulation. Given the high risk profile of this transaction, it meets the criteria for reporting as a suspicious transaction.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound ACH transaction from subject-account to counterparty-account for $4892.96 USD.\",\n  \"narrative\": \"On 2022-09-16 at 15:00:00, an outbound ACH transaction was initiated from subject-account to counterparty-account for $4892.96 USD. The transaction was flagged as high risk based on the model's assessment, which identified several risk factors including channel risk, amount, and time of day. The transaction's model fraud probability is 0.7%, and the risk band is high. No specific rule indicators were triggered. The transaction involved the use of ACH, occurred in the afternoon, and involved a significant amount of money, which aligns with potential money laundering or other illicit activities. Given the high risk profile and the model's assessment, this transaction warrants further review and potential reporting as a suspicious activity.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-16 at 15:00:00, an outbound ACH transaction was initiated from subject-account to counterparty-account for $4892.96 USD. The transaction was flagged as high risk based on the model's assessment, which identified several risk factors including channel risk, amount, and time of day.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following risk factors:\\n- Channel risk (channel_risk=0.3)\\n- Amount ($4892.96 USD, amount_log=8.49576)\\n- Time of day (hour_of_day=15)\\n- Recent transaction frequency (seconds_since_prev_txn_log=11.3668)\\n- Destination inbound amount (dest_inbound_amount_24h_log=8.49576)\\n- Country risk (country_risk=0.05)\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"The transaction's model fraud probability is 0.7%. The top model risk drivers include:\\n- Channel risk (channel_risk=0.3)\\n- Velocity 24-hour period (velocity_24h=0)\\n- Amount (amount_log=8.49576)\\n- Seconds since previous transaction (seconds_since_prev_txn_log=11.3668)\\n- Destination inbound amount 24-hour period (dest_inbound_amount_24h_log=8.49576)\\n- Hour of day (hour_of_day=15)\\n- Country risk (country_risk=0.05)\\n- Distinct channels 24-hour period (distinct_channels_24h=1)\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000883-39b7e4f9",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "4892.96",
+    "USD",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"Outbound transaction from subject-account to counterparty-account with high risk band and model-driven factors.\",\n  \"narrative\": \"An outbound transaction of $4409.58 USD was conducted from subject-account to counterparty-account on 2022-09-16 at 08:36 UTC. The transaction exhibits several risk drivers: channel_risk, velocity_24h, amount_log, seconds_since_prev_txn_log, dest_inbound_amount_24h_log, dest_fan_in_24h, country_risk, and hour_of_day. These factors collectively suggest a high risk profile for this transaction.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"An outbound transaction of $4409.58 USD was conducted from subject-account to counterparty-account on 2022-09-16 at 08:36 UTC.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits several risk drivers: channel_risk (0.3), velocity_24h (0), amount_log (8.39176), seconds_since_prev_txn_log (11.3668), dest_inbound_amount_24h_log (8.51206), dest_fan_in_24h (1), country_risk (0.05), and hour_of_day (8). These factors collectively suggest a high risk profile for this transaction.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision.\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"Outbound transaction from subject-account to counterparty-account for 4409.58 USD with high risk band.\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for 4409.58 USD on 2022-09-16T08:36:00 is flagged as high risk based on several model risk drivers. The transaction exhibits increased risk due to the channel being 'other', the transaction occurring at 8 AM, and the destination account having a high fan-in count within 24 hours. Additionally, the transaction amount and the time since the previous transaction also contribute to the elevated risk profile. While no specific rule indicators were triggered, the combination of these factors suggests potential money laundering or other suspicious activity. This transaction should be reviewed by a compliance reviewer to determine if a SAR needs to be filed.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction from subject-account to counterparty-account for 4409.58 USD on 2022-09-16T08:36:00 is flagged as high risk.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction exhibits increased risk due to the following model risk drivers: \\n- channel_risk=0.3\\n- velocity_24h=0\\n- amount_log=8.39176\\n- seconds_since_prev_txn_log=11.3668\\n- dest_inbound_amount_24h_log=8.51206\\n- dest_fan_in_24h=1\\n- country_risk=0.05\\n- hour_of_day=8\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\",\n    \"31 U.S.C. 5311\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000885-704cdfb3",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)",
+    "31 U.S.C. 5311"
+   ],
+   "requiredFacts": [
+    "4409.58",
+    "USD",
+    "2022-09-16"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14 at 22:03, an outbound transaction of 1115.61 EUR was initiated from subject-account to counterparty-account via an alternative channel. The transaction exhibits high risk due to its unusual characteristics, including a high velocity, recent activity, and a large amount. The model indicates a 1.0% fraud probability, but the risk drivers suggest significant irregularities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14 at 22:03, an outbound transaction of 1115.61 EUR was initiated from subject-account to counterparty-account via an alternative channel.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction is flagged as high risk based on several model risk drivers: channel_risk=0.3, velocity_24h=0, seconds_since_prev_txn_log=11.3668, day_of_week=2, amount_log=7.01805, dest_inbound_amount_24h_log=7.05698, dest_fan_in_24h=2. These factors collectively indicate potential irregularities and suspicious behavior.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 1115.61 EUR\",\n  \"narrative\": \"The transaction in question is an outbound transfer of 1115.61 EUR from subject-account to counterparty-account, which was flagged as high risk based on several model risk drivers. The transaction occurred on 2022-09-14 at 22:03:00. Key risk factors include the channel used (other), the time of day (22:00), the day of the week (Tuesday), and the amount involved. The transaction also shows unusual velocity and recent activity patterns, contributing to its classification as high risk. No specific rule indicators were triggered, but the overall profile suggests potential money laundering or other illicit activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction in question is an outbound transfer of 1115.61 EUR from subject-account to counterparty-account, which was flagged as high risk based on several model risk drivers.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"Key risk factors include the channel used (other), the time of day (22:00), the day of the week (Tuesday), and the amount involved. The transaction also shows unusual velocity and recent activity patterns, contributing to its classification as high risk. No specific rule indicators were triggered.\"\n    },\n    {\n      \"heading\": \"Model Risk Drivers\",\n      \"body\": \"The model identified the following risk drivers: channel_risk=0.3, velocity_24h=0, seconds_since_prev_txn_log=11.3668, day_of_week=2, amount_log=7.01805, dest_inbound_amount_24h_log=7.05698, and dest_fan_in_24h=2. These factors collectively contributed to the high risk classification of the transaction.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000896-65439353",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "1115.61",
+    "EUR",
+    "2022-09-14"
+   ]
+  },
+  {
+   "arms": {
+    "awq": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account\",\n  \"narrative\": \"On 2022-09-14, an outbound transaction of 2363.59 EUR was made from subject-account to counterparty-account via an alternative channel. The transaction was flagged as high risk due to elevated model risk drivers such as channel_risk, velocity_24h, amount_log, day_of_week, seconds_since_prev_txn_log, dest_fan_in_24h, country_risk, and dest_inbound_amount_24h_log. No specific rule indicators were triggered. The transaction occurred in Germany and involved a relatively large amount for the channel used.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"On 2022-09-14, an outbound transaction of 2363.59 EUR was made from subject-account to counterparty-account via an alternative channel. The transaction was flagged as high risk due to elevated model risk drivers such as channel_risk, velocity_24h, amount_log, day_of_week, seconds_since_prev_txn_log, dest_fan_in_24h, country_risk, and dest_inbound_amount_24h_log. No specific rule indicators were triggered. The transaction occurred in Germany and involved a relatively large amount for the channel used.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged as high risk based on the following model risk drivers: channel_risk=0.3, velocity_24h=0, amount_log=7.76836, day_of_week=2, seconds_since_prev_txn_log=11.3668, dest_fan_in_24h=0, country_risk=0.1, and dest_inbound_amount_24h_log=7.76836. No specific rule indicators were triggered.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    },
+    "bf16": {
+     "content": "{\n  \"subject\": \"High-risk outbound transaction from subject-account to counterparty-account for 2363.59 EUR\",\n  \"narrative\": \"The transaction from subject-account to counterparty-account for 2363.59 EUR on 2022-09-14T06:43:00 is flagged as high risk due to several model risk drivers. The transaction was outbound, occurred on a weekday (day_of_week=2), and involved a channel with increased risk (channel_risk=0.3). Additionally, the transaction amount (amount_log=7.76836) and the time since the previous transaction (seconds_since_prev_txn_log=11.3668) contributed to the risk assessment. No specific rule indicators were triggered, but the overall risk profile suggests potential money laundering or other suspicious activities.\",\n  \"sections\": [\n    {\n      \"heading\": \"Activity Summary\",\n      \"body\": \"The transaction from subject-account to counterparty-account for 2363.59 EUR on 2022-09-14T06:43:00 is flagged as high risk.\"\n    },\n    {\n      \"heading\": \"Risk Indicators\",\n      \"body\": \"The transaction was flagged due to the following risk drivers: channel_risk=0.3, velocity_24h=0, amount_log=7.76836, day_of_week=2, seconds_since_prev_txn_log=11.3668, dest_fan_in_24h=0, country_risk=0.1, and dest_inbound_amount_24h_log=7.76836. No specific rule indicators were triggered.\"\n    }\n  ],\n  \"citedRegulations\": [\n    \"31 U.S.C. 5318(g)\"\n  ],\n  \"recommendedAction\": \"Escalate to a compliance reviewer for SAR filing decision\"\n}",
+     "expectedPassed": true,
+     "expectedReasons": [],
+     "finishReason": "stop"
+    }
+   },
+   "availableEvidenceRefs": [
+    "case-evidence-transaction",
+    "case-evidence-rules",
+    "case-evidence-model"
+   ],
+   "caseId": "ibm-hi-medium-000929-94145033",
+   "expectedCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "offeredCitationIds": [
+    "31 U.S.C. 5318(g)"
+   ],
+   "requiredFacts": [
+    "2363.59",
+    "EUR",
+    "2022-09-14"
+   ]
+  }
+ ],
+ "concurrency": 32,
+ "policyVersion": "sar-gate-replay-v1",
+ "population": {
+  "awqPassRate": 0.736,
+  "awqRecallMean": 0.9289,
+  "bf16PassRate": 0.938,
+  "bf16RecallMean": 0.908,
+  "cascadePassRate": 0.958,
+  "cases": 1000
+ },
+ "runId": "vllm-bench-f810b57a7b8ae05a",
+ "sample": {
+  "awqRecallMean": 0.902299,
+  "bf16RecallMean": 0.844595
+ }
+}

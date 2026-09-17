@@ -21,11 +21,18 @@ def _messages(sar_input):
 def test_load_records_version_and_stable_hash() -> None:
     first = SarPromptTemplate.load()
     second = SarPromptTemplate.load()
-    assert first.template_id == "v1"
-    assert first.prompt_version == "v1@1.0.0"
+    assert first.template_id == "v2"  # v2 is the first prompt the production gate can accept
+    assert first.prompt_version == "v2@2.0.0"
     assert len(first.prompt_hash) == 64
     assert first.prompt_hash == second.prompt_hash  # deterministic for the same template bytes
     assert first.system_text  # body present
+
+
+def test_v1_remains_loadable_and_distinct_from_the_default() -> None:
+    """v1 stays on disk: the published vLLM benchmark's promptSha256 binds to its exact bytes."""
+    legacy = SarPromptTemplate.load("v1")
+    assert legacy.prompt_version == "v1@1.0.0"
+    assert legacy.prompt_hash != SarPromptTemplate.load().prompt_hash
 
 
 def test_build_messages_masks_phi_and_fences_regulations(make_sar_input) -> None:
@@ -56,6 +63,24 @@ def test_build_messages_lists_citations_without_rag_block(make_sar_input) -> Non
     user = _messages(make_sar_input(rag_context=""))[1]["content"]
     assert "31 CFR 1010.314: Structuring transactions to evade" in user
     assert "<<" not in user
+
+
+def test_build_messages_offers_the_closed_evidence_catalog(make_sar_input) -> None:
+    """The prompt must name every ref a claim may cite, or the gate can only ever reject."""
+    user = _messages(make_sar_input())[1]["content"]
+    assert "Evidence catalog (ref | value | as written):" in user
+    assert "- txn.amount | 9500 | 9500.00 USD" in user
+    assert "- risk.band | high | high" in user
+    assert "- rule.1.type | structuring | structuring" in user
+    assert "- regulation.31 CFR 1010.314 |" in user
+
+
+def test_build_messages_reports_an_empty_catalog_explicitly(make_sar_input) -> None:
+    user = _messages(make_sar_input(rule_hits=(), top_features=(), citations=(), rag_context=""))[
+        1
+    ]["content"]
+    assert "Evidence catalog (ref | value | as written):" in user  # transaction facts always exist
+    assert "regulation." not in user
 
 
 def test_split_front_matter_requires_opening_fence() -> None:

@@ -20,6 +20,7 @@ from agent_security_fakes import (
     _graph_outcomes,
     _sar_input,
 )
+from quality_gates import grounding_gate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -118,6 +119,7 @@ async def test_forged_refs_force_one_revision_and_final_claims_resolve_to_persis
         config=config,
         prompts=prompts,
         budget=BudgetGuard(session_limit_usd=Decimal("1")),
+        gate=grounding_gate(),
     )
 
     events = [event async for event in drafter.draft(_sar_input(transaction_id))]

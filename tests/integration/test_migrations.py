@@ -228,7 +228,7 @@ def test_transaction_text_migration_matches_and_restores_request_bounds(tmp_path
 def test_transaction_source_and_sar_quality_migration_backfill_and_downgrade(
     tmp_path: Path,
 ) -> None:
-    """Known IBM rows backfill while SARs evaluate; both additive fields reverse cleanly."""
+    """Known IBM rows backfill while SAR quality resets to `not_run`; both reverse cleanly."""
     db_path = tmp_path / "egress-provenance.db"
     cfg = _config(f"sqlite+aiosqlite:///{db_path}")
     command.upgrade(cfg, "0007_transaction_text_lengths")
@@ -266,10 +266,14 @@ def test_transaction_source_and_sar_quality_migration_backfill_and_downgrade(
             assert connection.execute(text("SELECT source FROM transactions")).scalar_one() == (
                 "ibm-aml-synthetic"
             )
+            # Revision 0012 retires the dishonest `evaluated` backfill: no evaluator existed
+            # before release 0.5.0, so every historical narrative is `not_run`.
             assert (
                 connection.execute(text("SELECT quality_status FROM sar_drafts")).scalar_one()
-                == "evaluated"
+                == "not_run"
             )
+            assert connection.execute(text("SELECT quality FROM sar_drafts")).scalar_one() == "{}"
+            assert "sar_generation_attempts" in inspect(engine).get_table_names()
         assert any(
             "source" in str(item["sqltext"])
             for item in inspect(engine).get_check_constraints("transactions")
@@ -286,6 +290,7 @@ def test_transaction_source_and_sar_quality_migration_backfill_and_downgrade(
         assert "quality_status" not in {
             column["name"] for column in inspect(engine).get_columns("sar_drafts")
         }
+        assert "sar_generation_attempts" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()
 

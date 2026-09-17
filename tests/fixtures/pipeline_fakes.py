@@ -12,8 +12,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from sar_inputs import structuring_citation
+
 from fraudlens_core import RiskBand, RuleContext, RuleEvaluation, RuleHit
 from fraudlens_core.rules.base import AmlRuleType
+from fraudlens_ml.evaluation import CitationMetrics
 from fraudlens_ml.pipeline import (
     AlertRecord,
     InferenceRecord,
@@ -27,15 +30,41 @@ from fraudlens_ml.pipeline import (
     StreamMessage,
 )
 from fraudlens_ml.sar import (
-    SarCitation,
+    DeterministicReviewChecks,
     SarDraftContent,
     SarDraftResult,
     SarDraftStatus,
     SarEventType,
     SarFeature,
     SarInput,
+    SarQualityGateResult,
     SarStreamEvent,
 )
+
+_TEST_POLICY_HASH = "0" * 64
+
+
+def passing_quality() -> SarQualityGateResult:
+    """Return a passing deterministic verdict for fakes that stand in for a real drafter."""
+    return SarQualityGateResult(
+        passed=True,
+        policy_version="sar-gate-test",
+        policy_hash=_TEST_POLICY_HASH,
+        checks=DeterministicReviewChecks(
+            passed=True,
+            every_claim_has_evidence=True,
+            cited_ids_are_available=True,
+            evidence_refs_are_available=True,
+        ),
+        citation_metrics=CitationMetrics(
+            precision=1.0,
+            recall=1.0,
+            produced_count=0,
+            valid_count=0,
+            expected_count=0,
+            recalled_count=0,
+        ),
+    )
 
 
 class FakeRulesPort:
@@ -107,18 +136,9 @@ class FakeRetrieverPort:
     def retrieve(self, query: str, *, top_k: int) -> RagResult:
         if self._error:
             raise RuntimeError("retriever boom")
-        citations = (
-            (
-                SarCitation(
-                    citation="31 CFR 1010.314",
-                    title="Structuring",
-                    source="FinCEN",
-                    snippet="No person shall structure a transaction.",
-                ),
-            )
-            if self._citations
-            else ()
-        )
+        # The corpus-verified citation: model egress rejects any snippet whose digest is not a
+        # committed chunk, so a hand-written one would fail before any drafter ran.
+        citations = (structuring_citation(),) if self._citations else ()
         return RagResult(
             citations=citations,
             rag_context="<<REGS>>\n[31 CFR 1010.314] Structuring\nsafe text\n<<END>>"
@@ -191,6 +211,7 @@ class FakeSarDrafter:
             prompt_version=self._prompt_version,
             prompt_hash="hash-test",
             error_code=None if self._status is SarDraftStatus.DRAFT else "sar_failed",
+            quality=passing_quality() if self._status is SarDraftStatus.DRAFT else None,
         )
         event_type = (
             SarEventType.COMPLETED if self._status is SarDraftStatus.DRAFT else SarEventType.FAILED

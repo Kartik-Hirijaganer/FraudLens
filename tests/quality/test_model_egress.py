@@ -15,12 +15,15 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import Callable
+from typing import cast
 
 import httpx
 import pytest
 from openai import AsyncOpenAI
 from openai_compatible_fake import CapturedOpenAiEndpoint
 from pydantic import ValidationError
+from quality_gates import production_gate
+from sar_drafts import gate_passing_content
 
 from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
@@ -49,21 +52,26 @@ from fraudlens_llm import (
     Providers,
 )
 from fraudlens_llm.adapters.openai_compatible import OpenAiCompatibleAdapter
-from fraudlens_ml.sar import SarDraftStatus
+from fraudlens_ml.sar import SarDraftStatus, SarInput
 
 pytestmark = pytest.mark.quality
 _LOG_PROMPT_SENTINEL = "log-prompt-sentinel"
 _LOG_RESPONSE_SENTINEL = "log-response-sentinel"
-_SAR_JSON = json.dumps(
-    {
-        "subject": "Synthetic activity",
-        "narrative": f"The supplied synthetic facts warrant review. {_LOG_RESPONSE_SENTINEL}",
-        "sections": [],
-        "claims": [],
-        "citedRegulations": ["31 CFR 1010.314"],
-        "recommendedAction": "Escalate for human review.",
-    }
-)
+
+
+def _sar_json(sar_input: object) -> str:
+    """Return gate-accepted model output for THIS case, carrying the response sentinel.
+
+    The egress assertions are about what crosses the wire and what reaches the logs, so the
+    output has to be a draft the production gate actually accepts — otherwise the drafter would
+    reject it and the test would prove nothing about a served SAR.
+    """
+    content = gate_passing_content(cast(SarInput, sar_input))
+    return content.model_copy(
+        update={"narrative": f"{content.narrative} {_LOG_RESPONSE_SENTINEL}"}
+    ).model_dump_json(by_alias=True)
+
+
 _FORBIDDEN_SENTINELS = (
     b"tenant-private-id",
     b"database-row-id",
@@ -142,6 +150,7 @@ def _live(client: LlmClient, *, primary: str, fallbacks: tuple[str, ...] = ()) -
         prompt=SarPromptTemplate.load(),
         model=f"{primary}/chat",
         max_output_tokens=256,
+        gate=production_gate(),
         budget=BudgetGuard(),
         cache=InMemorySarDraftCache(),
         fallbacks=tuple(f"{name}/chat" for name in fallbacks),
@@ -169,9 +178,6 @@ async def test_serialized_request_retry_and_fallback_contain_only_allowlisted_by
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(socket.socket, "connect", _no_socket)
-    primary = CapturedOpenAiEndpoint(_SAR_JSON, failures=1)
-    backup = CapturedOpenAiEndpoint(_SAR_JSON)
-    client, transports = _client({"primary": (primary, 0), "backup": (backup, 0)})
     sar_input = make_sar_input(
         agency_id="tenant-private-id",
         transaction_id="database-row-id",
@@ -183,6 +189,10 @@ async def test_serialized_request_retry_and_fallback_contain_only_allowlisted_by
             "CLIENT_SECRET=client-secret-value private transfer memo"
         ),
     )
+    sar_json = _sar_json(sar_input)
+    primary = CapturedOpenAiEndpoint(sar_json, failures=1)
+    backup = CapturedOpenAiEndpoint(sar_json)
+    client, transports = _client({"primary": (primary, 0), "backup": (backup, 0)})
     try:
         result = await _draft(_live(client, primary="primary", fallbacks=("backup",)), sar_input)
     finally:
@@ -207,10 +217,11 @@ async def test_sdk_retry_reuses_the_same_safe_projection(
     make_sar_input: Callable[..., object], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(socket.socket, "connect", _no_socket)
-    endpoint = CapturedOpenAiEndpoint(_SAR_JSON, failures=1)
+    sar_input = make_sar_input()
+    endpoint = CapturedOpenAiEndpoint(_sar_json(sar_input), failures=1)
     client, transports = _client({"primary": (endpoint, 1)})
     try:
-        result = await _draft(_live(client, primary="primary"), make_sar_input())
+        result = await _draft(_live(client, primary="primary"), sar_input)
     finally:
         await _close(transports)
 
@@ -224,7 +235,7 @@ async def test_disallowed_source_and_bad_regulation_fail_before_transport(
     make_sar_input: Callable[..., object], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(socket.socket, "connect", _no_socket)
-    endpoint = CapturedOpenAiEndpoint(_SAR_JSON)
+    endpoint = CapturedOpenAiEndpoint(_sar_json(make_sar_input()))
     client, transports = _client({"primary": (endpoint, 0)})
     bad_citation = make_sar_input().citations[0].model_copy(update={"snippet": "altered"})
     try:

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
-
 import pytest
+from llm_fakes import FakeAdapter
 
 from fraudlens_llm import (
     CapabilityMismatchError,
@@ -18,7 +17,6 @@ from fraudlens_llm import (
     LlmClient,
     LlmMessage,
     LlmSettings,
-    LlmUsage,
     ModelCard,
     PhiMaskingMode,
     Protocol,
@@ -30,100 +28,6 @@ from fraudlens_llm import (
     ToolCall,
     ToolDefinition,
 )
-from fraudlens_llm.adapters.base import (
-    AdapterEmbeddingResult,
-    AdapterGenerateChunk,
-    AdapterGenerateResult,
-)
-from fraudlens_llm.exceptions import LlmTimeoutError
-
-
-class _FakeAdapter:
-    def __init__(
-        self,
-        *,
-        text: str = "safe response",
-        fail_once: bool = False,
-        embeddings: list[list[float]] | None = None,
-        tool_calls: tuple[ToolCall, ...] = (),
-    ) -> None:
-        self.text = text
-        self.fail_once = fail_once
-        self.embeddings = embeddings or [[0.1, 0.2]]
-        self.tool_calls = tool_calls
-        self.generate_calls: list[Sequence[LlmMessage]] = []
-        self.stream_generate_calls: list[Sequence[LlmMessage]] = []
-        self.embed_calls: list[Sequence[str]] = []
-        self.params: list[GenerationParams] = []
-        self.tools: list[Sequence[ToolDefinition]] = []
-        self.tool_choices: list[str | None] = []
-        self.response_schemas: list[dict[str, object] | None] = []
-
-    async def generate(
-        self,
-        *,
-        model_id: str,
-        card: ModelCard,
-        messages: Sequence[LlmMessage],
-        params: GenerationParams,
-        tools: Sequence[ToolDefinition] = (),
-        tool_choice: str | None = None,
-        response_schema: dict[str, object] | None = None,
-    ) -> AdapterGenerateResult:
-        _ = (model_id, card)
-        self.generate_calls.append(messages)
-        self.params.append(params)
-        self.tools.append(tools)
-        self.tool_choices.append(tool_choice)
-        self.response_schemas.append(response_schema)
-        if self.fail_once:
-            self.fail_once = False
-            raise LlmTimeoutError("timeout")
-        return AdapterGenerateResult(
-            text=self.text,
-            served_model="served",
-            finish_reason="stop",
-            usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
-            tool_calls=self.tool_calls,
-        )
-
-    async def generate_stream(
-        self,
-        *,
-        model_id: str,
-        card: ModelCard,
-        messages: Sequence[LlmMessage],
-        params: GenerationParams,
-    ) -> AsyncIterator[AdapterGenerateChunk]:
-        _ = (model_id, card)
-        self.stream_generate_calls.append(messages)
-        self.params.append(params)
-        if self.fail_once:
-            self.fail_once = False
-            raise LlmTimeoutError("timeout")
-        midpoint = len(self.text) // 2
-        yield AdapterGenerateChunk(text_delta=self.text[:midpoint], served_model="served")
-        yield AdapterGenerateChunk(
-            text_delta=self.text[midpoint:],
-            served_model="served",
-            finish_reason="stop",
-            usage=LlmUsage(input_tokens=10, output_tokens=5, total_tokens=15),
-        )
-
-    async def embed(
-        self,
-        *,
-        model_id: str,
-        card: ModelCard,
-        inputs: Sequence[str],
-        params: GenerationParams,
-    ) -> AdapterEmbeddingResult:
-        _ = (model_id, card, params)
-        self.embed_calls.append(inputs)
-        return AdapterEmbeddingResult(
-            embeddings=self.embeddings,
-            usage=LlmUsage(input_tokens=3, output_tokens=0, total_tokens=3),
-        )
 
 
 def _model_card(
@@ -249,7 +153,7 @@ def _tool() -> ToolDefinition:
 @pytest.mark.asyncio
 async def test_generate_masks_phi_before_fake_adapter_and_excludes_raw_by_default() -> None:
     client = _client()
-    fake = _FakeAdapter()
+    fake = FakeAdapter()
     client._adapters["openai"] = fake
 
     result = await client.generate(
@@ -272,7 +176,7 @@ async def test_generate_masks_phi_before_fake_adapter_and_excludes_raw_by_defaul
 @pytest.mark.asyncio
 async def test_generate_round_trips_tools_schema_and_masks_tool_surfaces() -> None:
     client = _client()
-    fake = _FakeAdapter(
+    fake = FakeAdapter(
         text="",
         tool_calls=(
             ToolCall(
@@ -327,7 +231,7 @@ async def test_undeclared_tool_calls_require_explicit_capture_for_refusal_workfl
         name="other",
         arguments={"contact": "analyst@example.com"},
     )
-    fake = _FakeAdapter(text="", tool_calls=(undeclared,))
+    fake = FakeAdapter(text="", tool_calls=(undeclared,))
     client._adapters["openai"] = fake
 
     with pytest.raises(GuardrailError, match="undeclared tool"):
@@ -373,7 +277,7 @@ async def test_undeclared_tool_calls_require_explicit_capture_for_refusal_workfl
 @pytest.mark.asyncio
 async def test_tool_arguments_fail_closed_before_provider_access() -> None:
     client = _client()
-    fake = _FakeAdapter()
+    fake = FakeAdapter()
     client._adapters["openai"] = fake
 
     for arguments in (
@@ -407,7 +311,7 @@ async def test_tool_arguments_fail_closed_before_provider_access() -> None:
 @pytest.mark.asyncio
 async def test_tool_and_structured_capabilities_include_fallbacks() -> None:
     client = _client()
-    fake = _FakeAdapter()
+    fake = FakeAdapter()
     client._adapters["openai"] = fake
 
     with pytest.raises(CapabilityMismatchError, match="openrouter/chat"):
@@ -425,7 +329,7 @@ async def test_tool_and_structured_capabilities_include_fallbacks() -> None:
 @pytest.mark.asyncio
 async def test_primary_model_capability_mismatch_fails_before_provider_access() -> None:
     client = _client()
-    fake = _FakeAdapter()
+    fake = FakeAdapter()
     client._adapters["openrouter"] = fake
 
     with pytest.raises(CapabilityMismatchError, match="tool calling"):
@@ -448,7 +352,7 @@ async def test_primary_model_capability_mismatch_fails_before_provider_access() 
 @pytest.mark.asyncio
 async def test_generate_stream_assembles_ordered_deltas_before_output_guardrails() -> None:
     client = _client()
-    fake = _FakeAdapter(text='Analysis: safe <img onerror="x"> response')
+    fake = FakeAdapter(text='Analysis: safe <img onerror="x"> response')
     client._adapters["openai"] = fake
 
     result = await client.generate_stream(
