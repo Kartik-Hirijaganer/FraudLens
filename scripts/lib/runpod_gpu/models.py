@@ -131,6 +131,10 @@ class RunpodSession(BaseModel):
     )
     hourly_rate_usd: Decimal = Field(..., gt=0, description="Provider-reported hourly rate.")
     created_at: datetime = Field(..., description="UTC session creation time.")
+    volume_encrypted: bool | None = Field(
+        default=None,
+        description="Volume encryption the provider reported at creation; None when unreported.",
+    )
     cases_sha256: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$", description="Synced case bundle hash."
     )

@@ -21,6 +21,12 @@ pod:
   container_disk_gb: 50
   volume_gb: 50
   volume_mount_path: /workspace
+  # RunPod removed volume encryption from BOTH the create schema and the Pod response
+  # (observed 2026-09-17); their storage documentation describes persistent volumes as
+  # optionally encrypted at rest. The benchmark corpus is the public IBM AML synthetic dataset
+  # (CDLA-Sharing-1.0, published on Kaggle) and carries no PHI and no production data, so an
+  # UNREPORTED state is accepted and disclosed in the session evidence. A Pod that reports
+  # `false` outright is still refused.
   volume_encrypted: true
   ports: [22/tcp]
   global_networking: false

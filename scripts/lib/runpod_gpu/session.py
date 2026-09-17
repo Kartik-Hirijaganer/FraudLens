@@ -82,9 +82,11 @@ def validate_pod_contract(
         failures.append("lifecycle")
     if pod.cost_per_hour != expected_rate:
         failures.append("hourly rate")
-    # Fail closed on both a reported `false` AND a provider that stopped reporting it at all:
-    # an unverifiable encryption claim is not a satisfied one.
-    if pod.volume_encrypted is not True or pod.volume_in_gb != config.pod.volume_gb:
+    # An explicit `false` is still a contract breach. An ABSENT value is not: the provider
+    # stopped reporting encryption entirely, and the corpus on this volume is public synthetic
+    # data. What is observed gets recorded on the session so the report discloses it rather than
+    # implying a guarantee nobody made.
+    if pod.volume_encrypted is False or pod.volume_in_gb != config.pod.volume_gb:
         failures.append("encrypted volume")
     if pod.volume_mount_path != config.pod.volume_mount_path or set(pod.ports) != set(
         config.pod.ports

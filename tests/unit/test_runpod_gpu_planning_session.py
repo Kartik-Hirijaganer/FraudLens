@@ -171,9 +171,6 @@ def test_session_round_trip_status_and_ssh_commands(sandbox, monkeypatch) -> Non
         ({"interruptible": True}, "lifecycle"),
         ({"costPerHr": "0.75"}, "hourly rate"),
         ({"volumeEncrypted": False}, "encrypted volume"),
-        # A provider that stops reporting encryption leaves the claim unverifiable, which is a
-        # contract failure rather than a pass by omission.
-        ({"volumeEncrypted": None}, "encrypted volume"),
         ({"ports": ["22/tcp", "8000/http"]}, "network/storage"),
         ({"machine": {"secureCloud": False}}, "Secure Cloud"),
     ),
@@ -216,3 +213,25 @@ def test_ssh_refuses_unready_pod_or_missing_key(sandbox, monkeypatch) -> None:
     monkeypatch.delenv(config.ssh.private_key_path_env, raising=False)
     with pytest.raises(ValueError, match="is required"):
         ssh_argv(config, ready)
+
+
+def test_an_unreported_volume_encryption_state_is_accepted_and_recorded() -> None:
+    """The provider stopped reporting encryption; the evidence says so rather than assuming it.
+
+    A Pod that reports `false` is still a contract breach — only silence is tolerated, and only
+    because the corpus on that volume is public synthetic data.
+    """
+    config = load_config()
+    unreported = pod(config).model_copy(update={"volume_encrypted": None})
+
+    validate_pod_contract(
+        config, unreported, pod_name=unreported.name, expected_rate=unreported.cost_per_hour
+    )
+
+    with pytest.raises(ValueError, match="encrypted volume"):
+        validate_pod_contract(
+            config,
+            pod(config).model_copy(update={"volume_encrypted": False}),
+            pod_name=unreported.name,
+            expected_rate=unreported.cost_per_hour,
+        )

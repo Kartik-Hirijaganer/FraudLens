@@ -59,6 +59,7 @@ def create_session(  # noqa: PLR0913 - explicit boundaries prevent ambient autho
         RunpodSession(
             run_id=plan.run_id,
             role=plan.role,
+            volume_encrypted=pod.volume_encrypted,
             pod_id=pod.pod_id,
             pod_name=plan.pod_name,
             config_sha256=config.config_sha256,
