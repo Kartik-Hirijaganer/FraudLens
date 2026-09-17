@@ -57,7 +57,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:23:43Z | 2026-09-17T15:42:01Z | 0.305000 | 0.740000 | 0.750000 | — | vllm-bench-4c656331f7ce9466 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:56:48Z | 2026-09-17T16:23:32Z | 0.572404 | 0.740000 | 2.000000 | — | vllm-bench-5de63d0b0fe17634 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:16:14Z | 2026-09-17T17:46:58Z | 0.828652 | 0.740000 | 5.282763 | — | vllm-bench-ff008c8fe1668e25 | vllm-bench-cf06c21fa6cb425d | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | up to 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5 | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:55:32Z | 2026-09-17T18:45:10Z | 1.523099 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5, vllm-bench-3133fb4b74e9a053 | current-plan | gpu_benchmark | yes |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -90,6 +90,17 @@ locally from the AWQ Pod even though BF16 load telemetry and startup logs were r
 driver mismatch (`580.126.20` recorded versus BF16's actual `580.159.04`) proved the evidence would
 have been mislabeled. Both Pods and volumes were deleted and verified absent. Their summed active
 interval of 0.828652 hours estimates $0.613202 at the quoted rate; provider billing is pending.
-The open final run temporarily raises the production-path per-tenant LLM ceiling from $0.25 to
-$22.00 so the harness exercises the same `BudgetGuard` as production without bypassing the Phase 4
-matrix. The ceiling must be restored to $0.25 after teardown, before any release commit or deploy.
+The final validation session passed the previous provenance stop condition and produced three live
+checkpoints from commit `aaf903114131f74e8b2bffc859427b1ec511d896`: a 32-generation raw smoke
+matrix with zero serving errors, a same-GPU 40-case-per-arm development comparison, and an 8-case
+production constrained-cascade smoke. The raw development pilot reproduced the 63.5% AWQ model
+weight-memory reduction and measured 47.2% higher request throughput plus 25.7% lower p95 at c32,
+but BF16 aggregate schema and reference validity were each 0.95. In the production cascade all
+eight cases escalated and all eight final BF16 attempts failed the gate; no serving error was
+omitted. Scaling only the two constrained scenarios' measured endpoint occupancy to their declared
+1,000-case c32 workloads projected $23.130794 before overhead and external API spend, or $30.070032
+with the required 30% margin. `experiment_budget.py admit` therefore returned
+`projection_exceeds_allocation` against $28.00 and the full matrix was not run. The summed
+1.523099-hour Pod interval estimates $1.127093 at the quoted rate; provider billing is pending.
+Both Pods and matching volumes were verified absent after deletion. The temporary production-path
+LLM ceiling was restored from $22.00 to $0.25 immediately after teardown.

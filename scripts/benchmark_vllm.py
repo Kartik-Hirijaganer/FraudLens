@@ -281,6 +281,9 @@ async def _run(args: argparse.Namespace, config: VllmBenchConfig) -> None:
             provenance=provenance,
             client=client,
             sampler=build_sampler(config.telemetry),
+            git_commit=resolve_git_commit(
+                REPO_ROOT, injected=os.environ.get("VLLM_BENCH_GIT_COMMIT")
+            ),
         )
     finally:
         await client.close()

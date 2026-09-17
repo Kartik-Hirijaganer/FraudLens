@@ -196,6 +196,7 @@ async def test_scenario_resume_keeps_completed_levels_and_remeasures_nothing(
     second = await run_scenario(**arguments, drafter=resumed_drafter)
 
     assert set(first.levels) == {"awq-bf16:1", "awq-bf16:2"}
+    assert first.completed_at is not None
     assert load_run(run_path).levels.keys() == first.levels.keys()
     assert second.levels["awq-bf16:1"] == first.levels["awq-bf16:1"]
     assert resumed_drafter.calls == 0

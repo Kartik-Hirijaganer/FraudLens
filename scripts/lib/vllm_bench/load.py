@@ -177,6 +177,7 @@ async def run_arm(  # noqa: PLR0913 - explicit inputs keep external IO injectabl
     provenance: ServerProvenance,
     client: OpenAiCompatibleStreamClient,
     sampler: GpuSampler,
+    git_commit: str | None = None,
 ) -> RunManifest:
     """Resume completed levels and atomically checkpoint each newly completed level."""
     manifest = initialize_run(
@@ -186,6 +187,7 @@ async def run_arm(  # noqa: PLR0913 - explicit inputs keep external IO injectabl
         profile=profile,
         cases_sha256=cases_sha256,
         started_at=datetime.now(UTC),
+        git_commit=git_commit,
     )
     manifest = bind_server(manifest, provenance)
     write_run(run_path, manifest)

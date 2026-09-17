@@ -18,8 +18,8 @@ multi_agent_sar_enabled: false
 
 # Hard ceiling on one tenant-day of live LLM spend. The normal 0.25 value caps theoretical
 # exposure at $7.50/month; each tenant's `system_config` budget is clamped to this value.
-# Temporary Phase-4 benchmark ceiling. Restore to 0.25 after the governed live run and before deploy.
-llm_daily_budget_usd: 22.00
+# The governed Phase-4 benchmark raise has been restored; release and deploy keep the normal cap.
+llm_daily_budget_usd: 0.25
 
 # Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,
 # job names, storage account, managed-identity client id) are injected by Terraform as env vars.

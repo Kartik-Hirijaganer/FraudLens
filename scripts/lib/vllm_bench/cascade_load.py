@@ -343,4 +343,6 @@ async def run_scenario(  # noqa: PLR0913 - explicit inputs keep external IO inje
         write_run(run_path, manifest)
         if index < len(selected) - 1 and config.load.cooldown_s:
             await asyncio.sleep(config.load.cooldown_s)
+    manifest = manifest.model_copy(update={"completed_at": datetime.now(UTC)})
+    write_run(run_path, manifest)
     return manifest

@@ -21,6 +21,7 @@ from vllm_bench_fakes import complete_benchmark, measurement
 from lib.vllm_bench.config import load_config
 from lib.vllm_bench.report import build_report, load_report, write_report
 from lib.vllm_bench.report_models import VllmBenchReport, mechanical_headline
+from lib.vllm_bench.state import case_artifact_sha256
 
 
 def test_complete_matrix_produces_accepted_mechanical_report(sandbox) -> None:
@@ -41,6 +42,34 @@ def test_complete_matrix_produces_accepted_mechanical_report(sandbox) -> None:
     write_report(sandbox, report)
     assert load_report(sandbox / "report.json") == report
     assert (sandbox / "report.md").is_file()
+
+
+def test_development_report_counts_the_selected_partition() -> None:
+    """A pilot report must not mislabel the full measured partition as its case count."""
+    config, artifact, manifest = complete_benchmark(load_config())
+    development = config.profiles["development"].model_copy(
+        update={"cases_count": 2, "concurrency_levels": (1, 2)}
+    )
+    config = config.model_copy(update={"profiles": {**config.profiles, "development": development}})
+    cases = tuple(
+        case.model_copy(update={"case_set": "development"}) if case.case_set == "measured" else case
+        for case in artifact.cases
+    )
+    artifact = artifact.model_copy(update={"cases": cases})
+    cases_sha = case_artifact_sha256(artifact)
+    levels = {
+        key: checkpoint.model_copy(update={"cases_sha256": cases_sha})
+        for key, checkpoint in manifest.levels.items()
+    }
+    manifest = manifest.model_copy(
+        update={"profile": "development", "cases_sha256": cases_sha, "levels": levels}
+    )
+
+    report = build_report(manifest, artifact, config)
+
+    case_count = next(item for item in report.acceptance if item.name == "case_count")
+    assert report.measured_cases == 2
+    assert case_count.passed
 
 
 def test_failures_and_slower_awq_are_disclosed_mechanically() -> None:

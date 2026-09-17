@@ -624,20 +624,44 @@ per case, and the two-endpoint aggregate footprint are all derived rather than a
 operator is keyed by run AND endpoint role, so two endpoints get independent Pods, sessions,
 watchdogs, telemetry, and `verify-clean` evidence.
 
-**Gated, not executed.** No pod was created, no endpoint provisioned, no `prod.yaml`
-`llm_daily_budget_usd` raise applied, and no ledger resource row opened: the live matrix, its
-export, reconciliation, and teardown all require explicit owner approval under Golden Rule 7 and
-remain outstanding, as does the 4.10 budget raise (its procedure is now in the `benchmark-vllm`
-skill; the committed value is untouched at 0.25). Run-level provenance still to capture at run
-time: the git SHA, the CUDA version, and the OpenRouter ZDR eligibility snapshot — the per-attempt
-route, served model, policy hash, and provider cost are recorded, and the run manifest records the
-`gitCommit` it was produced from (a dirty worktree fails rather than recording an innocent SHA).
-Assembling and publishing the gated-cascade report is Phase 5 scope, so `build_report` is still the
-two-arm builder. Every open item is tabulated in Phase 5 under "Carried into Phase 5 from the
-Phase 3 and Phase 4 risk registers". The acceptance criteria
-that depend on measured live data — `reference_validity == 1.0` under constrained decoding, cascade
-pass ≥ BF16 and ≥ 0.99, the AWQ memory floor, and reproduction of the published percentages — are
-therefore not yet evidenced.
+**State when this verification record was first committed.** No Pod had yet been created and the
+live gates remained owner-gated. That state was superseded by the approved 2026-09-17 execution
+below; it is retained only to explain why the replay artifact predates the paid evidence.
+
+### Live validation addendum — 2026-09-17
+
+The final session `vllm-bench-ba468433f6fd893a`, bound to commit
+`aaf903114131f74e8b2bffc859427b1ec511d896`, passed the infrastructure/provenance failure that
+stopped the previous attempt. Both pinned models served successfully, both roles recorded their
+own startup logs, GPU telemetry, immutable driver identity, token usage, and zero serving errors.
+The client ran on the AWQ Pod and reached loopback-only BF16 through a private SSH tunnel; this
+topology is part of the measured method.
+
+| Live checkpoint | Result |
+|---|---|
+| Raw smoke, `vllm-bench-cf06c21fa6cb425d` | 32/32 generations across AWQ/BF16 c1/c2; zero serving errors; token usage and telemetry complete |
+| Same-GPU development, `vllm-bench-c041bc70ff0d4de5` | 40 cases per arm at c32 on driver `580.159.04`; AWQ weight memory −63.5%, request throughput +47.2%, p95 −25.7%; AWQ schema/reference validity 1.0, BF16 aggregate schema/reference validity 0.95 |
+| Production constrained cascade, `vllm-bench-3133fb4b74e9a053` | 8/8 escalated AWQ→BF16; 0/8 final pass; 16 attempts, zero serving errors, 16/16 token usage, 1,309 telemetry samples |
+
+The cascade divergence is material: replay predicted 26.4% escalation and 95.8% final pass, while
+the live constrained smoke observed 100% escalation and 0% final pass. Gate reasons were
+`unmapped_narrative_fact` ×16, `asserted_fact_mismatch` ×13,
+`claim_missing_evidence` ×1, and `evidence_ref_unresolved` ×1. This is adverse live evidence, not a
+transport failure and not a selectively rerun sample.
+
+Budget admission also failed independently of quality. The two declared constrained scenarios
+(`awq-bf16` and `awq-bf16-external`) share the measured self-hosted path. Scaling the smoke's
+captured c32 endpoint occupancy to 2×1,000 cases projected $23.130794 before session overhead,
+the external API stage, or scenarios 1–3. The committed 30% margin raises that strict lower bound
+to $30.070032, so `scripts/experiment_budget.py admit --allocation gpu_benchmark` returned
+`projection_exceeds_allocation` against $28.00. The full matrix was therefore correctly not run.
+
+The session consumed 1.523099 summed endpoint-hours (about $1.127093 pending provider settlement).
+Both Pods and matching volumes were deleted and independently verified absent. The temporary
+production `llm_daily_budget_usd` raise was restored to $0.25. Phase 4's live execution is complete
+as a **failed acceptance test**: it supports the 40-case raw-development figures above, but it does
+not support the original full-matrix or gated-cascade resume claim. Phase 5 may remediate and
+re-admit the benchmark; it must not publish the replay projection as though this live result passed.
 
 ### Dependencies
 Phases 2 and 3.
@@ -662,15 +686,16 @@ work for whoever implements Phase 5.
 | 3 | `escalation_tier` is reconstructable but not surfaced | P3 risk 3 | Decide whether the analyst surface needs the field. It is persisted on the draft and derivable from `sar_generation_attempts`; if the UI is to show "this draft came from tier 2", expose it through the alert/SAR read model and the frontend type rather than making clients join attempts. If not, record the decision in ADR-030 so it is not re-litigated. |
 | 4 | Tier-3 pilot set is 88 both-tier failures plus 12 AWQ-only | P3 risk 4 | The composition is declared in `config/experiments/sar-tier3-pilot.yaml` and asserted by `test_sar_tier3_pilot.py`. Before the pilot is RUN, the owner confirms the top-up is acceptable, since the both-tier population is genuinely smaller than the fixed set of 100. Record the confirmation in the ledger row for the pilot's spend. |
 | 5 | `citation_recall_min` bound to a recorded number | P3 risk 5 | **Closed in Phase 4.** The committed replay pilot now derives `armRecallMean` and `armPassRate` from the full 1,000-case run, and `test_citation_quality.py` plus `test_sar_cascade_quality.py` assert the corpus's provenance block equals those derived values. The floor still binds at the population where it was measured; nothing is typed into the fixture unchecked. |
-| 6 | Reserve draw applied with no ledger row open | P4 risk 1 | Open the `gpu_benchmark` resource-session row BEFORE `runpod-gpu-up`, carrying the pilot's projected $5.28 (or the re-projected figure), then reconcile actual spend after teardown. `ledger-check` is green today only because no session has been opened. |
-| 7 | Live escalation may diverge from the replayed 26.4% | P4 risk 2 | Compare the dev-40 pilot's escalation and final-pass rates against `docs/reference/benchmarks/vllm-cascade-replay-pilot.json` BEFORE admitting the full matrix. Prompt v2 and constrained decoding both change generation, so divergence is expected to some degree; the plan treats it as a finding to report, not a failure to hide. |
+| 6 | Reserve draw applied with no ledger row open | P4 risk 1 | **Closed.** Every paid session has a ledger row. Final session `vllm-bench-ba468433f6fd893a` is reconciled at 1.523099 estimated endpoint-hours with provider billing pending and clean teardown. |
+| 7 | Live escalation may diverge from the replayed 26.4% | P4 risk 2 | **Observed and blocking.** The constrained smoke diverged to 100% escalation and 0% final pass. Preserve the adverse artifact, remediate prompt/gate compatibility, and repeat smoke plus admission before any full matrix. |
 | 8 | Two-endpoint p95 can read as a same-resource loss/gain | P4 risk 4 | In the published cascade report, p95 must appear next to `gpuHoursPerCase` and `aggregateMemoryPeakMib`, and the report must state which comparison each figure describes (AD-4.3, AD-4.4). |
 | 9 | `awq-bf16-unconstrained` exists only to isolate scenario 3 vs 4 | P4 risk 5 | Decide its disposition: keep it as a shipped production profile, or mark it benchmark-only in `config/llm/sar-vllm.yml` and the ADR. Do not delete it before the constrained-versus-unconstrained comparison is published. |
-| 10 | Run-level provenance still partly manual | P4 gap | The run manifest now records `gitCommit`, and every attempt records its connection, served model, policy hash, tokens, and provider cost. Still to capture at run time: the CUDA version and the OpenRouter ZDR eligibility snapshot taken at readiness. Add both to the published report's provenance block. |
+| 10 | Run-level provenance still partly manual | P4 gap | The live manifests capture `gitCommit`, role-specific driver identity, connection, served model, policy hash, tokens, and provider cost. Still to capture at run time: the CUDA version and the OpenRouter ZDR eligibility snapshot taken at readiness. Add both to the published report's provenance block. |
 | 11 | No report builder for protocol-v2 scenarios | P4 gap | `build_report` is still the two-arm builder. Publishing the gated-cascade report needs a scenario-shaped report, acceptance checks, and Markdown rendering built on the level metrics Phase 4 already derives (`cascade`, `stageTotals`, `telemetryByRole`, `gpuHoursPerCase`, `aggregateMemoryPeakMib`). The v1 report and its lineage entry stay untouched. |
 | 13 | RunPod REST v1 is drifting under us | P4 live run | Three breakages surfaced on 2026-09-17: `volumeEncrypted` rejected on create, `publicIp: ""` before placement crashing response parsing AFTER the Pod existed (a billing orphan), and encryption no longer reported at all. Each is patched on `/v1`, but the v2 shape nests GPU and mount settings entirely differently (`gpu.{id,count}`, `mounts.persistent.{size,path}`) and drops `interruptible`, `locked`, `computeType`, `gpuTypePriority` and `minDownloadMbps`. Migrate the operator to REST v2 — the `runpod:migrate` skill inventories and rewrites — before the next paid session, or expect the next drift to land mid-run. |
 | 14 | Volume encryption is no longer obtainable | P4 live run | The frozen contract required an encrypted Pod volume AND its verification; the provider supplies neither. Accepted for this run because the corpus is the public IBM AML synthetic dataset, with the observed value recorded on each session. ADR-030 must state this as a judged exception with reconsideration criteria, and the published report must disclose it. Rotating `VLLM_API_KEY` after teardown is prudent: it is written to an unencrypted volume at `/workspace/.fraudlens/vllm-api-key`. |
-| 12 | `prod.yaml` app-path budget | P4 4.10 | The committed `llm_daily_budget_usd` is untouched at 0.25. The temporary raise is owner-approved, recorded in the ledger row, and restored afterwards — release-checklist item 18 verifies the restore. |
+| 12 | `prod.yaml` app-path budget | P4 4.10 | **Closed for this session.** The approved temporary ceiling was raised to $22.00 for the production-path run and restored to $0.25 immediately after teardown; release-checklist item 18 keeps verifying the restored value. |
+| 15 | Live production cascade fails quality and cost admission | P4 live validation | Treat 0/8 final pass and `projection_exceeds_allocation` as release blockers. Diagnose constrained-generation compatibility, reduce measured latency/cost without changing the frozen comparison after seeing results, then repeat smoke → development → admission. Do not use the replayed 95.8% as a live claim. |
 
 ### Changes required
 

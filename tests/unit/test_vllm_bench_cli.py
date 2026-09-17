@@ -250,7 +250,7 @@ async def test_run_with_injected_endpoint_executes_and_closes_client(sandbox, mo
         "server_provenance",
         lambda *_args, **_kwargs: server(config, "bf16"),
     )
-    seen = {"closed": False, "run_id": ""}
+    seen = {"closed": False, "run_id": "", "git_commit": None}
 
     class Client:
         def __init__(self, **_kwargs) -> None:
@@ -261,11 +261,13 @@ async def test_run_with_injected_endpoint_executes_and_closes_client(sandbox, mo
 
     async def run_arm(**_kwargs):
         seen["run_id"] = _kwargs["run_id"]
+        seen["git_commit"] = _kwargs["git_commit"]
 
     monkeypatch.setattr(benchmark_vllm, "OpenAiCompatibleStreamClient", Client)
     monkeypatch.setattr(benchmark_vllm, "run_arm", run_arm)
     monkeypatch.setattr(benchmark_vllm, "build_sampler", lambda _config: object())
     monkeypatch.setenv(config.server.api_key_env, "test-key")
+    monkeypatch.setenv("VLLM_BENCH_GIT_COMMIT", "a" * 40)
     args = argparse.Namespace(
         profile="full",
         source="ibm-final-test",
@@ -278,6 +280,7 @@ async def test_run_with_injected_endpoint_executes_and_closes_client(sandbox, mo
     assert seen["closed"] is True
     assert str(seen["run_id"]).startswith("vllm-bench-")
     assert len(str(seen["run_id"])) == len("vllm-bench-") + 16
+    assert seen["git_commit"] == "a" * 40
 
 
 def test_report_builds_from_hash_bound_local_inputs(sandbox, monkeypatch) -> None:
@@ -441,6 +444,7 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
     assert manifest.git_commit == "a" * 40
     assert set(manifest.servers) == {"awq", "bf16"}
     assert list(manifest.levels) == [f"awq-bf16:{config.load.concurrency_levels[-1]}"]
+    assert manifest.completed_at is not None
     assert drafter.calls > 0
 
 
@@ -461,6 +465,6 @@ def test_scenario_runtime_binds_the_production_overlay_and_daily_budget(monkeypa
     assert result == "drafter"
     assert observed["settings"].environment == "prod"
     assert observed["settings"].sar_profile == "awq-bf16"
-    observed["budget"].record(Decimal("22.00"))
+    observed["budget"].record(Decimal("0.25"))
     with pytest.raises(SarBudgetExceededError, match="daily budget"):
         observed["budget"].ensure_within_budget()

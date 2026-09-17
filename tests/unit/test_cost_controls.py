@@ -166,7 +166,7 @@ def test_every_hard_cap_is_committed_where_it_is_enforced() -> None:
     observability = _source(TERRAFORM_ROOT / "modules" / "observability" / "main.tf")
     assert _assignment(observability, "daily_quota_gb") == "0.1"
     prod_yaml = yaml.safe_load(_source(REPO_ROOT / "config" / "prod.yaml"))
-    assert prod_yaml["llm_daily_budget_usd"] == 22.00
+    assert prod_yaml["llm_daily_budget_usd"] == 0.25
     cost_model = yaml.safe_load(_source(REPO_ROOT / "config" / "cost-model.yaml"))
     assert cost_model["ceilings"]["aks_session_usd"] == "5.00"
     assert cost_model["ceilings"]["aca_max_replicas"] == 1

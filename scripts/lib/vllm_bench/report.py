@@ -22,7 +22,7 @@ from pathlib import Path
 
 from fraudlens_backend.sar.quality_gate import SarQualityGate, load_sar_gate_policy
 from lib.study import atomic_write_model, atomic_write_text, sha256_hex
-from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_profile
+from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_case_set, resolve_profile
 from lib.vllm_bench.load import ordered_cases
 from lib.vllm_bench.metrics import build_level_metrics
 from lib.vllm_bench.quality import QualitySummary, summarize_quality
@@ -354,7 +354,8 @@ def build_report(
     _validate_provenance(manifest, config)
     cases = {case.case_id: case for case in artifact.cases}
     requested, levels, warmups = resolve_profile(config, manifest.profile)
-    measured = sum(case.case_set == "measured" for case in artifact.cases)
+    selected_case_set = resolve_case_set(config, manifest.profile)
+    measured = sum(case.case_set == selected_case_set for case in artifact.cases)
     abstention = sum(case.case_set == "abstention" for case in artifact.cases)
     for concurrency in levels:
         left = manifest.levels.get(f"bf16:{concurrency}")
