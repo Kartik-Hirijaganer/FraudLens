@@ -61,7 +61,8 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T20:44:13Z | 2026-09-17T20:55:11Z | 0.182778 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T21:29:01Z | 2026-09-17T22:00:55Z | 0.906908 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | vllm-bench-75fb4e0c6dfd6884 | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T22:42:03Z | 2026-09-17T23:00:03Z | 0.299929 | 0.740000 | 1.000000 | — | vllm-bench-82cddfec5c550250 | — | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 0.650000 | — | vllm-bench-39007a09a3c83bcb | — | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T23:12:23Z | 2026-09-17T23:41:40Z | 0.841213 | 0.740000 | 0.650000 | — | vllm-bench-39007a09a3c83bcb | vllm-bench-2499598f2617bc6b | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 2.873566 | — | vllm-bench-be12675628805a53 | — | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -137,7 +138,19 @@ responses; they are retained in the exported run but must not be reported. Run a
 `34634cf87b3e4c487dc931708237ed0544824fa5f7b29866eeb9f83dcfbf5b18`. The 0.299929-hour
 session estimates $0.221947 at the quoted rate pending settlement. The Pod and matching volume
 were deleted and independently verified absent.
-Protocol-v5 cache-isolated AWQ smoke `vllm-bench-39007a09a3c83bcb` is opened with a $0.65
-projection. It repeats the compact unconstrained c1/c8/c32 levels from commit `9476e2f` with one
-fresh production drafter/cache per level; its sole purpose is to replace the prior run's
-disqualified cache-hit concurrency checkpoints before any BF16 Pod is provisioned.
+Protocol-v5 cache-isolated session `vllm-bench-39007a09a3c83bcb` completed smoke plus the
+40-case development evidence run `vllm-bench-2499598f2617bc6b` from commit `e096589`. AWQ and
+BF16 each completed c1/c8/c32 with zero serving errors; the live c32 cascade passed 40/40 with
+zero escalation because AWQ passed every c32 case. AWQ c32 p95 was 13.7104 seconds versus
+16.62465 for BF16, and cascade p95 was 13.4459 seconds. The development projection for the seven
+admitted 1,000-case levels is $2.210435, or $2.873566 with the required margin. Smoke artifact
+SHA-256: `6d9801ae1233adaf2aabffedc51525237ab676237c2cc4b2a4617e40669fcc57`;
+development artifact SHA-256:
+`de39efdd4d3fd19b48222f415d2870f48429a6eabbfc237a1290dcaaa087c102`. The session consumed
+0.841213 summed endpoint-hours, about $0.622497 pending settlement, and clean teardown found no
+matching Pod or volume for either role.
+Full-run session `vllm-bench-be12675628805a53` is opened at the admitted $2.873566 margin-bound
+projection. Four dollars move from unused `supporting_resources` to `gpu_benchmark`, leaving the
+overall $75 ceiling and $2 reserve unchanged. Guided-decoding scenarios are excluded because their
+live canary failed latency acceptance; the admitted matrix is AWQ and BF16 c1/c8/c32 plus the
+unconstrained production cascade at c32.

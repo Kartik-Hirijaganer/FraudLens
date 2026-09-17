@@ -795,6 +795,29 @@ level and has regression coverage proving resume builds no drafter for completed
 AWQ smoke from a new commit before BF16 provisioning. The session estimated $0.221947 and ended
 with zero matching Pods or volumes.
 
+### Phase 4 remediation protocol v5 — cache-isolated development and admission 2026-09-17
+
+Commit `e0965892abe262727c6d7c549a3c06e45c2753a9` repeated the unconstrained route with one
+fresh production drafter/cache per level. Session `vllm-bench-39007a09a3c83bcb` produced 24/24
+AWQ and 24/24 BF16 smoke generations across c1/c8/c32 with zero serving errors. At smoke c32,
+AWQ p95 was 4.53185 seconds versus 8.0249 for BF16, request throughput was 1.7523 versus 0.9845,
+and the two-endpoint cascade passed 8/8 at 4.38-second p95.
+
+Development run `vllm-bench-2499598f2617bc6b` then completed the same six raw levels plus the
+40-case `awq-bf16-unconstrained` c32 production cascade. The cascade passed 40/40 with zero
+serving errors, p95 13.4459 seconds, reference validity 1.0, and zero escalation because AWQ
+passed every c32 case. Equal-contract AWQ c32 p95 was 13.7104 seconds versus 16.62465 for BF16
+(17.5% lower), and request throughput was 2.3615 versus 1.8526 requests/second (27.5% higher).
+The absence of a development escalation is disclosed; only the 1,000-case cascade may establish a
+non-zero live escalation rate.
+
+Scaling the seven passed levels to 1,000 cases projects $2.210435 of compute, or $2.873566 with
+the required 30% margin. `experiment_budget.py admit` returned `projection_within_allocation`.
+The constrained-decoding scenarios are not expanded because their live canary failed latency
+acceptance at 441.57035-second p95; they remain adverse evidence rather than part of the admitted
+full matrix. The pilot consumed 0.841213 summed endpoint-hours (~$0.622497 pending settlement),
+and both Pods plus volumes were verified absent before the full-run ledger row opened.
+
 ### Dependencies
 Phases 2 and 3.
 
