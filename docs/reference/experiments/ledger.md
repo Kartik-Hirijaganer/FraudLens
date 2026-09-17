@@ -54,6 +54,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-16 | Azure | Standard_B2s + 2×Standard_D2as_v4 | pay-as-you-go | 2026-09-16T14:05:28Z | 2026-09-16T17:19:25Z | 3.232500 | 0.233600 | 0.790000 | — | aks-demo-20260915-01 | — | current-plan | supporting_resources | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T11:49:15Z | 2026-09-17T13:24:42Z | 3.108600 | 0.740000 | 11.840000 | 2.300000 | vllm-bench-042a265fdc42c9d4 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T14:20:51Z | 2026-09-17T14:50:45Z | 0.498108 | 0.740000 | 5.280000 | — | vllm-bench-445a5c1f412a96c8 | — | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 0.750000 | — | vllm-bench-4c656331f7ce9466 | — | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
