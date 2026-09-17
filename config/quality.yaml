@@ -24,10 +24,38 @@ file_length:
     - "alembic/versions/*.py"
 
 sar_quality:
+  # Benchmark acceptance thresholds (offline, ground-truth bearing).
   citation_precision_min: 1.0
   citation_recall_min: 0.9
   unsupported_claim_recall_min: 0.95
   clean_draft_false_positive_max: 0.05
   required_fact_coverage_min: 0.95
+  # Production SARQualityGate rule switches (runtime, no ground truth required).
+  # `require_asserted_fact_match` governs BOTH typed asserted-fact equality and the
+  # narrative-mapping rule: they decide the same question (is the prose traceable to
+  # declared facts?) and are enabled together.
+  runtime_gate:
+    policy_version: sar-gate-v1
+    require_citation: true
+    allow_duplicate_citations: false
+    require_claim_evidence: true
+    require_asserted_fact_match: true
+    require_fincen_elements: true
+    fail_on_truncation: true
+    max_tiers: 3
+  # The citation-membership subset the PERSISTED prompt-v1 benchmark output is judged under, by
+  # the offline replay pilot and the offline cascade-quality suite. Prompt v1 never asked for
+  # claims or asserted facts, so the claim-evidence, fact-matching, and FinCEN rules would reject
+  # all 1,000 recorded drafts and measure the old prompt instead of the gate. Same schema, same
+  # file, one source: no replay policy is written in source.
+  replay_gate:
+    policy_version: sar-gate-replay-v1
+    require_citation: true
+    allow_duplicate_citations: false
+    require_claim_evidence: false
+    require_asserted_fact_match: false
+    require_fincen_elements: false
+    fail_on_truncation: true
+    max_tiers: 3
 
 egress_policy_file: config/llm/egress.yml

@@ -1,59 +1,29 @@
 """Summary: Deterministic grounding gates for the bounded multi-agent SAR workflow.
 The checks run before compliance review so claim support and citation membership
-are decided by code rather than delegated to a model.
+are decided by code rather than delegated to a model. The production `SarQualityGate`
+(release 0.5.0) composes this evaluator rather than reimplementing it, so the multi-agent
+graph and the single-writer cascade decide claim support with identical code.
 
 Key classes:
-- DeterministicReviewChecks: immutable result supplied to the reviewer and router.
+- (none)
 
 Key functions:
 - evaluate_draft_checks: verify claim evidence and citation membership.
 
 Notes:
 - These checks do not ground or mutate the draft; fabricated ids remain visible to the reviewer.
+- `DeterministicReviewChecks` is defined in `fraudlens_ml.sar.quality` because it is embedded
+verbatim in `SarQualityGateResult`, which travels on `SarDraftResult`; ml may not import the
+backend, so the type lives there and is re-exported here to keep this import path stable.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic.alias_generators import to_camel
+from fraudlens_ml.sar import DeterministicReviewChecks, SarCitation, SarDraftContent
 
-from fraudlens_ml.sar import SarCitation, SarDraftContent
-
-
-class DeterministicReviewChecks(BaseModel):
-    """Immutable deterministic findings used by review routing and the reviewer prompt."""
-
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        extra="forbid",
-        frozen=True,
-    )
-
-    passed: bool = Field(..., description="Whether every deterministic grounding gate passed.")
-    every_claim_has_evidence: bool = Field(
-        ..., description="Whether every narrative claim carries an evidence reference."
-    )
-    cited_ids_are_available: bool = Field(
-        ..., description="Whether every draft citation id exists in the supplied corpus evidence."
-    )
-    evidence_refs_are_available: bool = Field(
-        ...,
-        description="Whether every claim evidence reference resolves to trusted persisted data.",
-    )
-    unsupported_claim_indexes: tuple[int, ...] = Field(
-        default=(),
-        description="Zero-based indexes of claims without resolvable evidence references.",
-    )
-    unresolved_evidence_refs: tuple[str, ...] = Field(
-        default=(),
-        description="Ordered claim evidence references absent from trusted persisted data.",
-    )
-    fabricated_citation_ids: tuple[str, ...] = Field(
-        default=(), description="Ordered draft citation ids absent from supplied corpus evidence."
-    )
+__all__ = ["DeterministicReviewChecks", "evaluate_draft_checks"]
 
 
 def evaluate_draft_checks(

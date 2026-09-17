@@ -519,6 +519,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `local_retrain_command` | `list` | `['uv', 'run', 'python', 'scripts/retrain.py']` | Command the local job backend runs for a retrain submission. |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
 | `sar_config_file` | `str` | `'llm/sar.yml'` | SAR model-routing config resolved below the config directory. |
+| `sar_profile` | `str` | `''` | Named cascade profile to run when the routing config declares profiles; empty selects the config's single-model route. |
 | `multi_agent_sar_enabled` | `bool` | `False` | Process-level gate for bounded multi-agent SAR drafting; the feature is active only when the tenant-scoped system_config flag is also enabled. |
 | `multi_agent_config_file` | `str` | `'llm/agents.yml'` | Multi-agent configuration filename resolved below the config directory; absolute paths and upward traversal are rejected by the loader. |
 | `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
@@ -777,6 +778,7 @@ erDiagram
         string pdf_blob_url
         string prompt_hash
         string prompt_version
+        json quality
         enum quality_status
         uuid reviewed_by FK
         integer revision_count
@@ -787,6 +789,28 @@ erDiagram
         datetime updated_at
         integer version
         string workflow
+    }
+    sar_generation_attempts {
+        uuid id PK
+        uuid agency_id FK
+        string connection
+        numeric cost_usd
+        datetime created_at
+        uuid draft_id FK
+        string error_code
+        integer latency_ms
+        string model_id
+        integer ordinal
+        string outcome
+        string policy_hash
+        string prompt_hash
+        json quality
+        json reason_codes
+        integer retry_count
+        uuid run_id FK
+        string served_model
+        string stage
+        json token_usage
     }
     system_config {
         uuid id PK
@@ -856,6 +880,7 @@ erDiagram
     agencies ||--o{ model_inference_logs : "agency_id"
     agencies ||--o{ rag_retrievals : "agency_id"
     agencies ||--o{ sar_drafts : "agency_id"
+    agencies ||--o{ sar_generation_attempts : "agency_id"
     agencies ||--o{ system_config : "agency_id"
     agencies ||--o{ training_labels : "agency_id"
     agencies ||--o{ transactions : "agency_id"
@@ -869,6 +894,7 @@ erDiagram
     analysis_runs ||--o{ model_inference_logs : "run_id"
     analysis_runs ||--o{ rag_retrievals : "run_id"
     analysis_runs ||--o{ sar_drafts : "run_id"
+    analysis_runs ||--o{ sar_generation_attempts : "run_id"
     analysis_runs ||--o{ training_labels : "run_id"
     model_training_runs ||--o{ model_versions : "training_run_id"
     model_versions ||--o{ drift_reports : "model_version_id"
@@ -878,6 +904,7 @@ erDiagram
     model_versions ||--o{ model_evaluations : "baseline_version_id"
     model_versions ||--o{ model_evaluations : "model_version_id"
     model_versions ||--o{ model_inference_logs : "model_version_id"
+    sar_drafts ||--o{ sar_generation_attempts : "draft_id"
     training_datasets ||--o{ model_training_runs : "dataset_id"
     transactions ||--o{ alerts : "transaction_id"
     transactions ||--o{ analysis_runs : "transaction_id"

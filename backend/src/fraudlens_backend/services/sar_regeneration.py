@@ -81,6 +81,7 @@ def sar_draft_to_view(
         version=draft.version,
         status=draft.status,
         quality_status=draft.quality_status,
+        quality=dict(draft.quality or {}),
         model_input=model_input,
         content=draft.content,
         structured=dict(draft.structured or {}),

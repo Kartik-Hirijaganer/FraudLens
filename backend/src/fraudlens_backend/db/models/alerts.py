@@ -9,6 +9,7 @@ Key classes:
 - Alert: a tenant-scoped alert raised from an analysis run.
 - AlertAction: one append-only triage action recorded against an alert.
 - SarDraft: a draft Suspicious Activity Report (masked content + citations + status).
+- SarGenerationAttempt: one cascade stage's attempt behind a draft (route, verdict, spend).
 
 Key functions:
 - (none)
@@ -19,6 +20,9 @@ Notes:
 - `sar_drafts.citations` are grounded regulatory references; `structured` holds the typed
   SAR body. `workflow` / `revision_count` identify how that artifact was produced, while
   `cost_usd` / `token_usage` capture LLM spend for the audit trail (plan §7.4).
+- `quality_status` + `quality` record the deterministic `SarQualityGate` verdict for the exact
+  stored narrative; `sar_generation_attempts` records one PHI-free row per cascade stage, so the
+  route, spend, and reason codes behind an escalation are reconstructable per tenant.
 """
 
 from __future__ import annotations
@@ -101,6 +105,34 @@ class AlertAction(AgencyScopedMixin, CreatedAtMixin, Base):
     to_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class SarGenerationAttempt(AgencyScopedMixin, CreatedAtMixin, Base):
+    """One immutable, tenant-scoped record of a single cascade stage's generation attempt."""
+
+    __tablename__ = "sar_generation_attempts"
+    __table_args__ = (
+        Index("ix_sar_generation_attempts_agency_id_run_id", "agency_id", "run_id"),
+        UniqueConstraint("draft_id", "ordinal", name="uq_sar_generation_attempts_draft_id_ordinal"),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("sar_drafts.id"), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    connection: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    served_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason_codes: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
+    quality: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    token_usage: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False, default=Decimal("0"))
+    prompt_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    policy_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+
 class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     """A draft Suspicious Activity Report — masked content, citations, review status."""
 
@@ -128,9 +160,10 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     quality_status: Mapped[SarQualityStatus] = mapped_column(
         str_enum(SarQualityStatus, create_constraint=True),
         nullable=False,
-        default=SarQualityStatus.EVALUATED,
-        server_default=SarQualityStatus.EVALUATED.value,
+        default=SarQualityStatus.NOT_RUN,
+        server_default=SarQualityStatus.NOT_RUN.value,
     )
+    quality: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     status: Mapped[SarStatus] = mapped_column(
         str_enum(SarStatus), nullable=False, default=SarStatus.DRAFT
     )

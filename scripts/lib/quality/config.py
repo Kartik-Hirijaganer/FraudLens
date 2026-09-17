@@ -3,7 +3,7 @@ existing physical-file policy with SAR citation, hallucination, and required-fac
 the model-egress policy reference used by the named CI gate.
 
 Key classes:
-- SarQualityThresholds: deterministic acceptance thresholds for SAR quality metrics.
+- SarQualityThresholds: deterministic acceptance thresholds plus the runtime gate policy.
 - QualityConfig: complete repository quality policy.
 - QualityConfigError: safe configuration-load failure.
 
@@ -13,6 +13,9 @@ Key functions:
 Notes:
 - Thresholds are data, not source constants, so tightening the committed or test policy changes
   gate behavior without modifying the metric implementations.
+- `runtime_gate` and `replay_gate` reuse the backend `SarRuntimeGatePolicy` type rather than
+  mirroring its fields, so the offline gates, the replay pilot, and the production drafter
+  validate one schema over one file.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from fraudlens_backend.sar.quality_gate import SarRuntimeGatePolicy
 from lib.file_length import FileLengthSettings
 
 DEFAULT_QUALITY_CONFIG = Path(__file__).resolve().parents[3] / "config" / "quality.yaml"
@@ -47,6 +51,12 @@ class SarQualityThresholds(BaseModel):
     )
     required_fact_coverage_min: float = Field(
         ..., ge=0, le=1, description="Minimum required case-fact coverage in rendered drafts."
+    )
+    runtime_gate: SarRuntimeGatePolicy = Field(
+        ..., description="Production SARQualityGate rule switches (same file, one source)."
+    )
+    replay_gate: SarRuntimeGatePolicy = Field(
+        ..., description="Gate policy the persisted prompt-v1 benchmark output is replayed under."
     )
 
 

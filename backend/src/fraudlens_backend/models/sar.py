@@ -49,8 +49,12 @@ class SarDraftView(CamelModel):
     version: int = Field(..., ge=1, description="Monotonic draft version for the run.")
     status: SarStatus = Field(..., description="Human-review lifecycle status.")
     quality_status: SarQualityStatus = Field(
-        default=SarQualityStatus.EVALUATED,
-        description="Quality evaluation state for this exact narrative version.",
+        default=SarQualityStatus.NOT_RUN,
+        description="Deterministic quality-gate outcome for this exact narrative version.",
+    )
+    quality: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The deterministic gate verdict recorded for this narrative (PHI-free).",
     )
     model_input: dict[str, Any] | None = Field(
         default=None,

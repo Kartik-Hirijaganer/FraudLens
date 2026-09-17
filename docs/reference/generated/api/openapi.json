@@ -2461,10 +2461,16 @@
             "title": "Promptversion",
             "type": "string"
           },
+          "quality": {
+            "additionalProperties": true,
+            "description": "The deterministic gate verdict recorded for this narrative (PHI-free).",
+            "title": "Quality",
+            "type": "object"
+          },
           "qualityStatus": {
             "$ref": "#/components/schemas/SarQualityStatus",
-            "default": "evaluated",
-            "description": "Quality evaluation state for this exact narrative version."
+            "default": "not_run",
+            "description": "Deterministic quality-gate outcome for this exact narrative version."
           },
           "revisionCount": {
             "description": "Number of agent-writer revisions completed for this artifact.",
@@ -2580,10 +2586,11 @@
         "type": "object"
       },
       "SarQualityStatus": {
-        "description": "Evaluation state for the exact current SAR narrative.",
+        "description": "Deterministic gate outcome for the exact current SAR narrative (release 0.5.0 Phase 2.9).\n\nTri-state, because the pre-0.5.0 pair could not tell \"the gate passed\" from \"no gate ran\":\nevery machine draft was hardcoded to `evaluated` although no evaluator existed. `not_run` is\nthe honest state for a human-edited narrative and for backfilled historical rows.",
         "enum": [
-          "evaluated",
-          "unevaluated"
+          "not_run",
+          "passed",
+          "failed"
         ],
         "title": "SarQualityStatus",
         "type": "string"

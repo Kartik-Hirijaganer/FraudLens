@@ -126,6 +126,7 @@ class AgentGraph:
             review_status=raw["review_status"],
             revision_count=raw.get("revision_count", 0),
             executions=executions,
+            available_evidence_refs=_available_evidence_refs(raw),
         )
 
 

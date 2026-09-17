@@ -246,6 +246,13 @@ class AppSettings(
         default="llm/sar.yml",
         description="SAR model-routing config resolved below the config directory.",
     )
+    sar_profile: str = Field(
+        default="",
+        description=(
+            "Named cascade profile to run when the routing config declares profiles; empty "
+            "selects the config's single-model route."
+        ),
+    )
     multi_agent_sar_enabled: bool = Field(
         default=False,
         description=(

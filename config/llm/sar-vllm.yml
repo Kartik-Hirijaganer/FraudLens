@@ -1,10 +1,45 @@
 # =====================================================================
-# FraudLens self-hosted vLLM SAR route (NON-SECRET).
+# FraudLens self-hosted vLLM SAR routes + quality-gated cascade (NON-SECRET).
 # =====================================================================
-# Endpoint and API-key values arrive through VLLM_BASE_URL and VLLM_API_KEY.
-# No governed fallback may leave the self-hosted provider.
+# Every stage names a CONNECTION from config/llm/providers.yml; endpoint and key
+# values arrive only through that route's runtime-injected env vars. No URL and
+# no secret appears here.
+#
+# `FRAUDLENS_SAR_PROFILE` selects the ordered profile the drafter runs. A profile
+# with one stage behaves exactly like a single-model route; a profile with more
+# than one stage is a quality-gated cascade — a stage's draft is served only when
+# the deterministic SARQualityGate passes, otherwise the next stage is tried and
+# an exhausted cascade fails explicitly.
+#
+# No governed transport fallback may leave the self-hosted provider, so stages
+# carry no `fallbacks`: quality escalation is the cascade's job, not the client's.
 # =====================================================================
 
-model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ
-fallbacks: []
+profiles:
+  # Always-on deployed shape: hosted route only, unchanged single-stage behaviour.
+  deployed-openrouter:
+    - {name: external, model: openrouter/openai/gpt-5-mini, connection: openrouter-zdr}
+  bf16-baseline:
+    - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16}
+  awq-raw:
+    - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq}
+  # The same cascade without the closed citation schema. It exists so the benchmark can isolate
+  # what constrained decoding changes (scenario 3 versus scenario 4) by comparing two real routes
+  # rather than a route against a benchmark-only switch; the gate is identical on both.
+  awq-bf16-unconstrained:
+    - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq}
+    - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16}
+  awq-bf16:
+    - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq,
+       constrained_decoding: true}
+    - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16,
+       constrained_decoding: true}
+  awq-bf16-external:
+    - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq,
+       constrained_decoding: true}
+    - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16,
+       constrained_decoding: true}
+    - {name: external, model: openrouter/openai/gpt-5-mini, connection: openrouter-zdr,
+       constrained_decoding: true, requires_egress_class: synthetic}
+
 max_output_tokens: 3000

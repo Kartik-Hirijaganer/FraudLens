@@ -81,6 +81,10 @@ class AgentGraphResult(BaseModel):
     executions: tuple[AgentExecutionRecord, ...] = Field(
         default=(), description="All agent attempts in stable workflow order."
     )
+    available_evidence_refs: frozenset[str] = Field(
+        default=frozenset(),
+        description="Trusted evidence ids harvested from completed agent tool results.",
+    )
 
 
 class AgentGraphState(TypedDict, total=False):

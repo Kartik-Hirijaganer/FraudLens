@@ -1,7 +1,7 @@
 """Summary: The SAR draft replay cache (plan §7.6 "SAR/RAG/embedding caches", §16 Phase 7).
-A successful, schema-valid draft is keyed by a deterministic fingerprint of tenant, prompt hash,
-model reference, exact egress evidence, and generation settings, so an identical investigation
-replays the stored
+A successful, GATE-PASSING draft is keyed by a deterministic fingerprint of tenant, prompt hash +
+version, model reference, connection route, quality-policy hash, exact egress evidence, and
+generation settings, so an identical investigation replays the stored
 `SarDraftResult` with NO new provider spend and NO new tokens (`cached=True`) — the cost-control
 "replay, no spend" path. `SarDraftCache` is a small protocol so a process-memory cache (the v1
 default here) can be swapped for a persistent/shared backend later without touching the drafter.
@@ -17,6 +17,10 @@ Key functions:
 Notes:
 - The fingerprint hashes the canonical JSON of the `SarInput`, so any change to the rules, SHAP
 drivers, citations, or risk band produces a different key (no stale-input replay).
+- Since release 0.5.0 it ALSO binds the cascade stage, connection route, constrained-decoding mode,
+prompt version, and the quality-policy hash: a cached pre-gate draft replaying past a tightened
+policy or a changed prompt would bypass the gate entirely, which is the one way a replay could
+serve an artifact the current rules would reject.
 - Only successful drafts are cached by the drafter; failures are never stored, so a transient
 provider failure is retried on the next request rather than replayed.
 """
@@ -41,6 +45,17 @@ class SarCacheGenerationSettings(BaseModel):
     reasoning_effort: str | None = Field(default=None, description="Reasoning effort hint.")
     fallbacks: tuple[str, ...] = Field(default=(), description="Ordered governed fallback refs.")
     task_type: str = Field(..., min_length=1, description="Guardrail task classification.")
+    profile_stage: str = Field(
+        default="", description="Cascade profile stage that produced the draft."
+    )
+    connection: str | None = Field(default=None, description="Named connection route used.")
+    constrained_decoding: bool = Field(
+        default=False, description="Whether the stage requested a closed structured-output schema."
+    )
+    prompt_version: str = Field(default="", description="Versioned prompt id that was rendered.")
+    quality_policy_hash: str = Field(
+        default="", description="Hash of the runtime quality policy the draft was accepted under."
+    )
 
 
 def sar_cache_key(

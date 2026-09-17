@@ -9,6 +9,8 @@ Key functions:
 Notes:
 - Only machine drafts in `draft` state are eligible; failed or human-reviewed versions are never
   treated as a provider-call replay.
+- The persisted deterministic verdict is replayed with the draft rather than re-synthesised, so a
+  resumed run can be re-persisted through the gate-enforcing repository boundary unchanged.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from fraudlens_ml.sar import (
     SarDraftStatus,
     SarEventType,
     SarInput,
+    SarQualityGateResult,
     SarStreamEvent,
     SarTokenUsage,
 )
@@ -49,6 +52,7 @@ class PersistedSarDrafter:
             cached=True,
             workflow=draft.workflow,
             revision_count=draft.revision_count,
+            quality=(SarQualityGateResult.model_validate(draft.quality) if draft.quality else None),
         )
 
     async def draft(self, _sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:

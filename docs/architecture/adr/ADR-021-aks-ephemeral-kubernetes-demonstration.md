@@ -84,7 +84,7 @@ kind.”
 ## Amendment — 2026-09-16 (release 0.4.0)
 
 Release 0.4.0 executed the apply this record deferred, under
-[`plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md`](../../../plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md).
+`plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see plans/README.md).
 The decision is unchanged in substance: AKS remains the ephemeral demonstration runtime, ADR-007
 keeps Container Apps as the application target, and the cluster is still created and destroyed per
 session. Three specifics moved, each because the subscription would not create what this record

@@ -254,7 +254,8 @@ export interface SarDraftView {
   alertId: string | null;
   version: number;
   status: SarStatus;
-  qualityStatus: "evaluated" | "unevaluated";
+  qualityStatus: "not_run" | "passed" | "failed";
+  quality: Record<string, unknown>;
   modelInput: SarModelInputView | null;
   content: string;
   structured: Record<string, unknown>;

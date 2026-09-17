@@ -95,6 +95,8 @@ class OpenAiCompatibleAdapter:
         if card.kind != Kind.CHAT:
             raise CapabilityMismatchError(f"Model '{model_id}' is not a chat model")
         provider_params = _validated_params(params, _CHAT_PARAMS)
+        if self._config.request_options:
+            provider_params["extra_body"] = dict(self._config.request_options)
         if "response_format" in provider_params:
             provider_params["response_format"] = {"type": provider_params["response_format"]}
         if response_schema is not None:
@@ -154,13 +156,18 @@ class OpenAiCompatibleAdapter:
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncIterator[AdapterGenerateChunk]:
         """Yield native chat deltas through an OpenAI-compatible SDK stream."""
         if card.kind != Kind.CHAT:
             raise CapabilityMismatchError(f"Model '{model_id}' is not a chat model")
         provider_params = _validated_params(params, _CHAT_PARAMS)
+        if self._config.request_options:
+            provider_params["extra_body"] = dict(self._config.request_options)
         if "response_format" in provider_params:
             provider_params["response_format"] = {"type": provider_params["response_format"]}
+        if response_schema is not None:
+            provider_params["response_format"] = _structured_response_format(response_schema)
         try:
             stream = cast(
                 Any,

@@ -117,6 +117,12 @@ async def _drive_drafter(deps: PipelineDeps, sar_input: SarInput) -> SarDraftRes
                     await deps.emit(StreamMessage(event_type=AGENT_TOOL_EVENT, data=payload))
                 else:
                     await persist_and_emit(deps, PipelineEventType(event.type.value), payload)
+            elif event.stage is not None:
+                await persist_and_emit(
+                    deps,
+                    PipelineEventType(event.type.value),
+                    event.stage.model_dump(mode="json", by_alias=True),
+                )
             elif event.result is not None:
                 terminal = event.result
     except Exception:

@@ -297,7 +297,7 @@ describe("AlertDetail", () => {
       getAlert: vi.fn(() =>
         Promise.resolve(
           alertDetail({
-            sarDraft: { ...alertDetail().sarDraft!, qualityStatus: "unevaluated" },
+            sarDraft: { ...alertDetail().sarDraft!, qualityStatus: "not_run" },
           }),
         ),
       ),
@@ -307,7 +307,7 @@ describe("AlertDetail", () => {
     expect(await screen.findByRole("meter")).toHaveAttribute("aria-valuenow", "73");
     expect(getInvestigation).toHaveBeenCalledWith("run-1");
     expect(screen.getByText("Transaction amount (log scale)")).toBeInTheDocument();
-    expect(screen.getByText("Quality Unevaluated")).toBeInTheDocument();
+    expect(screen.getByText("Quality Not Run")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /What the model saw/i }));
     expect(screen.getByText("case · subject · counterparty")).toBeInTheDocument();
     expect(screen.getAllByText("31 CFR 1020.320")).toHaveLength(2);

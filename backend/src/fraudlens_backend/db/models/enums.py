@@ -126,10 +126,16 @@ class SarStatus(StrEnum):
 
 
 class SarQualityStatus(StrEnum):
-    """Evaluation state for the exact current SAR narrative."""
+    """Deterministic gate outcome for the exact current SAR narrative (release 0.5.0 Phase 2.9).
 
-    EVALUATED = "evaluated"
-    UNEVALUATED = "unevaluated"
+    Tri-state, because the pre-0.5.0 pair could not tell "the gate passed" from "no gate ran":
+    every machine draft was hardcoded to `evaluated` although no evaluator existed. `not_run` is
+    the honest state for a human-edited narrative and for backfilled historical rows.
+    """
+
+    NOT_RUN = "not_run"
+    PASSED = "passed"
+    FAILED = "failed"
 
 
 class TransactionSource(StrEnum):
@@ -152,6 +158,10 @@ class AnalysisRunEventType(StrEnum):
     STEP_SHAP_COMPLETED = "step.shap.completed"
     STEP_RAG_COMPLETED = "step.rag.completed"
     SAR_STARTED = "sar.started"
+    SAR_STAGE_STARTED = "sar.stage.started"
+    SAR_STAGE_REJECTED = "sar.stage.rejected"
+    SAR_ESCALATED = "sar.escalated"
+    SAR_CASCADE_FAILED = "sar.cascade.failed"
     AGENT_STARTED = "agent.started"
     AGENT_COMPLETED = "agent.completed"
     AGENT_REVISION_REQUESTED = "agent.revision.requested"

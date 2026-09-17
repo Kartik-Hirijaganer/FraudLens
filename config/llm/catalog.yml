@@ -297,12 +297,17 @@ vllm:
     speed: fast
     reasoning_capable: false
     intelligence: medium
+    structured_output: true
     source_url: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
-    verified_at: 2026-09-13
+    verified_at: 2026-09-16
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
-    notes: Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
+    notes: >-
+      Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
+      structured_output records the guided-decoding support of the pinned serving image
+      vllm/vllm-openai:v0.10.2 (digest sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6),
+      which the SAR cascade uses to close the citation-id enum.
 
   Qwen/Qwen2.5-7B-Instruct-AWQ:
     kind: chat
@@ -315,12 +320,17 @@ vllm:
     speed: fast
     reasoning_capable: false
     intelligence: medium
+    structured_output: true
     source_url: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-AWQ
-    verified_at: 2026-09-13
+    verified_at: 2026-09-16
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
-    notes: Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
+    notes: >-
+      Benchmark evidence is published in docs/reference/benchmarks/vllm-awq-sar-benchmark.md.
+      structured_output records the guided-decoding support of the pinned serving image
+      vllm/vllm-openai:v0.10.2 (digest sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6),
+      which the SAR cascade uses to close the citation-id enum.
 
   Qwen/Qwen3-8B:
     kind: chat
