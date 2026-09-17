@@ -21,12 +21,13 @@ Key classes:
 Key functions:
 - load_config: parse YAML and bind its exact byte SHA-256.
 - resolve_profile: apply one named workload profile without changing the frozen protocol.
+- resolve_case_set:
 
 Notes:
 - Secrets are represented only by environment-variable names and never parsed from YAML.
 - `protocol_lineage` records the exact config hash each SUPERSEDED protocol version was published
-  under, so bumping the protocol cannot orphan already-published evidence: a report produced under
-  an earlier protocol is still validated against a committed hash, just the historical one.
+under, so bumping the protocol cannot orphan already-published evidence: a report produced under
+an earlier protocol is still validated against a committed hash, just the historical one.
 """
 
 from __future__ import annotations
@@ -306,13 +307,17 @@ class AcceptanceConfig(BaseModel):
 
 
 class BenchmarkProfile(BaseModel):
-    """A bounded workload override for smoke or full execution."""
+    """A bounded workload override for smoke, development-pilot, or full execution."""
 
     model_config = _MODEL_CONFIG
 
     cases_count: int | None = Field(default=None, gt=0, description="Measured case cap override.")
     concurrency_levels: tuple[int, ...] | None = Field(default=None, description="Level override.")
     warmup_requests: int | None = Field(default=None, ge=0, description="Warm-up override.")
+    case_set: Literal["measured", "development"] | None = Field(
+        default=None,
+        description="Corpus partition selected by this profile; measured when omitted.",
+    )
 
 
 class BenchmarkPaths(BaseModel):
@@ -405,7 +410,7 @@ def load_config(path: Path = DEFAULT_VLLM_BENCH_CONFIG) -> VllmBenchConfig:
 
 
 def resolve_profile(config: VllmBenchConfig, profile: str) -> tuple[int, tuple[int, ...], int]:
-    """Return effective measured cases, concurrency levels, and warm-up requests."""
+    """Return effective case count, concurrency levels, and warm-up requests."""
     selected = config.profiles.get(profile)
     if selected is None:
         raise ValueError(f"unknown benchmark profile '{profile}'")
@@ -416,3 +421,11 @@ def resolve_profile(config: VllmBenchConfig, profile: str) -> tuple[int, tuple[i
         if selected.warmup_requests is not None
         else config.load.warmup_requests,
     )
+
+
+def resolve_case_set(config: VllmBenchConfig, profile: str) -> Literal["measured", "development"]:
+    """Return the corpus partition selected by one declared workload profile."""
+    selected = config.profiles.get(profile)
+    if selected is None:
+        raise ValueError(f"unknown benchmark profile '{profile}'")
+    return selected.case_set or "measured"

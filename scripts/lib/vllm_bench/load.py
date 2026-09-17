@@ -22,7 +22,7 @@ from pathlib import Path
 
 from lib.study import sha256_hex
 from lib.vllm_bench.client import OpenAiCompatibleStreamClient
-from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_profile
+from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_case_set, resolve_profile
 from lib.vllm_bench.state import (
     BenchmarkCase,
     CaseArtifact,
@@ -44,12 +44,15 @@ def ordered_cases(
     profile: str,
     concurrency: int,
 ) -> tuple[BenchmarkCase, ...]:
-    """Return the seeded measured-case order shared by both arms for one level."""
+    """Return the seeded profile-selected case order shared by both arms for one level."""
     requested, _levels, _warmups = resolve_profile(config, profile)
-    measured = [case for case in artifact.cases if case.case_set == "measured"]
-    if len(measured) < requested:
-        raise ValueError(f"case artifact has {len(measured)} measured cases; {requested} required")
-    selected = measured[:requested]
+    case_set = resolve_case_set(config, profile)
+    candidates = [case for case in artifact.cases if case.case_set == case_set]
+    if len(candidates) < requested:
+        raise ValueError(
+            f"case artifact has {len(candidates)} {case_set} cases; {requested} required"
+        )
+    selected = candidates[:requested]
     random.Random(config.seed + concurrency).shuffle(selected)
     return tuple(selected)
 

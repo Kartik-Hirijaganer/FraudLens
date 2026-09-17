@@ -121,6 +121,9 @@ def test_log_sources_cover_file_docker_and_kubectl(sandbox: Path, monkeypatch) -
     process_log.write_text(_LOGS)
     monkeypatch.setenv("VLLM_BENCH_RUNTIME", "process")
     assert read_startup_logs(config, repo_root=sandbox) == _LOGS
+    assert read_startup_logs(
+        config, repo_root=sandbox, command_prefix=("ssh", "bf16-host", "--")
+    ).startswith("ssh bf16-host -- cat ")
 
 
 def test_local_lifecycle_and_image_digest_are_checked(monkeypatch) -> None:

@@ -67,6 +67,11 @@ def _parser() -> argparse.ArgumentParser:
 
     egress = commands.add_parser("egress-check")
     _run_argument(egress)
+    egress.add_argument(
+        "--arm",
+        choices=("bf16", "awq"),
+        help="Pinned model arm to probe when this Pod will serve both arms sequentially",
+    )
 
     ssh = commands.add_parser("ssh")
     _run_argument(ssh)
@@ -148,6 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     api,
                     run_id=args.run,
                     role=args.role,
+                    arm=args.arm,
                     repo_root=REPO_ROOT,
                 )
             )

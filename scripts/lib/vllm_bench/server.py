@@ -181,10 +181,15 @@ def _command_output(command: Sequence[str]) -> str:
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout
 
 
-def read_startup_logs(config: VllmBenchConfig, *, repo_root: Path) -> str:
-    """Read configured startup logs from a file, Docker container, or Kubernetes pod."""
+def read_startup_logs(
+    config: VllmBenchConfig, *, repo_root: Path, command_prefix: Sequence[str] = ()
+) -> str:
+    """Read startup logs locally or through one runtime-only remote-command prefix."""
     if _runtime() == "process":
-        return (repo_root / config.paths.output_dir / _PROCESS_LOG_NAME).read_text(encoding="utf-8")
+        path = repo_root / config.paths.output_dir / _PROCESS_LOG_NAME
+        if command_prefix:
+            return _command_output((*command_prefix, "cat", str(path)))
+        return path.read_text(encoding="utf-8")
     source = config.server.log_source
     if source.kind == "file":
         path = Path(source.target)

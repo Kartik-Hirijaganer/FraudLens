@@ -45,6 +45,7 @@ def _artifact(config) -> CaseArtifact:
         cases=(
             benchmark_case("case-0"),
             benchmark_case("case-1"),
+            benchmark_case("dev-0").model_copy(update={"case_set": "development"}),
             benchmark_case("warmup-0", "warmup"),
             benchmark_case("abstention-0", "abstention"),
         ),
@@ -60,6 +61,17 @@ def test_order_is_deterministic_and_fails_on_case_deficiency() -> None:
     deficient = artifact.model_copy(update={"cases": artifact.cases[1:]})
     with pytest.raises(ValueError, match="required"):
         ordered_cases(deficient, config, profile="full", concurrency=2)
+
+
+def test_development_profile_selects_only_the_sequestered_pilot_partition() -> None:
+    """The paid 40-case admission pilot must never consume the measured release partition."""
+    config = small_config(load_config())
+    development = config.profiles["development"].model_copy(update={"cases_count": 1})
+    config = config.model_copy(update={"profiles": {**config.profiles, "development": development}})
+
+    selected = ordered_cases(_artifact(config), config, profile="development", concurrency=32)
+
+    assert tuple(case.case_id for case in selected) == ("dev-0",)
 
 
 @pytest.mark.asyncio

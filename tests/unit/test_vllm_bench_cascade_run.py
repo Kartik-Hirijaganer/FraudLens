@@ -33,6 +33,7 @@ from fraudlens_backend.sar.factory import load_sar_llm_config
 from lib.experiments.budget import load_budget_config
 from lib.vllm_bench.cascade_load import (
     prepared_inputs,
+    role_command_prefix,
     role_telemetry,
     run_scenario,
     run_scenario_level,
@@ -302,24 +303,20 @@ def test_the_pilot_refuses_to_cost_a_scenario_level_the_run_never_measured() -> 
 def test_a_role_samples_its_own_endpoint_through_env_indirection(monkeypatch) -> None:
     """Two provisioned endpoints must be sampled independently, with no address in config."""
     config = load_config()
-    role = config.cascade.endpoints["awq"].model_copy(
-        update={"telemetry_prefix_env": "VLLM_AWQ_TELEMETRY_PREFIX"}
-    )
-    bound = config.model_copy(
-        update={
-            "cascade": config.cascade.model_copy(
-                update={"endpoints": {**config.cascade.endpoints, "awq": role}}
-            )
-        }
-    )
+    assert config.cascade.endpoints["awq"].telemetry_prefix_env == ("VLLM_AWQ_TELEMETRY_PREFIX")
+    assert config.cascade.endpoints["bf16"].telemetry_prefix_env == ("VLLM_BF16_TELEMETRY_PREFIX")
 
     monkeypatch.delenv("VLLM_AWQ_TELEMETRY_PREFIX", raising=False)
-    assert role_telemetry(bound, "awq").command_prefix == config.telemetry.command_prefix
-    assert role_telemetry(bound, "bf16").command_prefix == config.telemetry.command_prefix
+    monkeypatch.delenv("VLLM_BF16_TELEMETRY_PREFIX", raising=False)
+    assert role_telemetry(config, "awq").command_prefix == config.telemetry.command_prefix
+    assert role_telemetry(config, "bf16").command_prefix == config.telemetry.command_prefix
 
     monkeypatch.setenv("VLLM_AWQ_TELEMETRY_PREFIX", "ssh awq-host --")
-    assert role_telemetry(bound, "awq").command_prefix == ("ssh", "awq-host", "--")
-    assert role_telemetry(bound, "bf16").command_prefix == config.telemetry.command_prefix
+    monkeypatch.setenv("VLLM_BF16_TELEMETRY_PREFIX", "ssh bf16-host --")
+    assert role_command_prefix(config, "awq") == ("ssh", "awq-host", "--")
+    assert role_command_prefix(config, "bf16") == ("ssh", "bf16-host", "--")
+    assert role_telemetry(config, "awq").command_prefix == ("ssh", "awq-host", "--")
+    assert role_telemetry(config, "bf16").command_prefix == ("ssh", "bf16-host", "--")
 
 
 async def test_scenario_provenance_is_bound_per_role_and_fails_closed_on_drift(

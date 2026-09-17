@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,17 @@ def test_egress_check_requests_the_pinned_role_revision_from_the_pod(sandbox, mo
     assert remote_command[:2] == ["python3", "-c"]
     assert selected.model in remote_command[-1]
     assert selected.revision in remote_command[-1]
+    bf16 = check_session_egress(
+        config,
+        vllm,
+        typed_api(api),
+        run_id=RUN_ID,
+        role=role,
+        arm="bf16",
+        repo_root=sandbox,
+    )
+    assert bf16.model == vllm.arms["bf16"].model
+    assert bf16.revision == vllm.arms["bf16"].revision
     with pytest.raises(ValueError, match="requires an endpoint role"):
         check_session_egress(
             config,
@@ -159,7 +171,10 @@ def test_sync_streams_secret_only_on_stdin_and_records_case_hash(sandbox, monkey
     assert any(value == b"synthetic-vllm-token" for _, value in ssh_calls)
     assert all("synthetic-vllm-token" not in command for command, _ in ssh_calls)
     commands = [command for command, _input in ssh_calls]
-    assert any("UV_LINK_MODE=copy uv sync" in command for command in commands)
+    setup_command = next(command for command in commands if "uv sync" in command)
+    assert "UV_PROJECT_ENVIRONMENT=/root/.fraudlens/venv" in setup_command
+    assert "UV_LINK_MODE=copy uv sync" in setup_command
+    assert "ln -s /root/.fraudlens/venv .venv" in setup_command
     assert any(
         config.remote.git_commit_path in command and GIT_SHA in command for command in commands
     )
@@ -272,7 +287,13 @@ def test_remote_wrapper_maps_single_scenario_connection_to_local_server(
     observed = []
 
     def dispatch(_args) -> int:
-        observed.append((os.environ["VLLM_AWQ_BASE_URL"], os.environ["VLLM_AWQ_API_KEY"]))
+        observed.append(
+            (
+                os.environ["VLLM_AWQ_BASE_URL"],
+                os.environ["VLLM_AWQ_API_KEY"],
+                os.environ["FRAUDLENS_ENVIRONMENT"],
+            )
+        )
         return 0
 
     monkeypatch.delenv("VLLM_AWQ_BASE_URL", raising=False)
@@ -280,9 +301,48 @@ def test_remote_wrapper_maps_single_scenario_connection_to_local_server(
     monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", dispatch)
 
     assert runpod_bench.main(["run-scenario", "--scenario", "awq-raw"]) == 0
-    assert observed == [(str(vllm_config.server.base_url), "synthetic-vllm-token")]
+    assert observed == [(str(vllm_config.server.base_url), "synthetic-vllm-token", "prod")]
     assert "VLLM_AWQ_BASE_URL" not in os.environ
     assert "VLLM_AWQ_API_KEY" not in os.environ
+    assert "FRAUDLENS_ENVIRONMENT" not in os.environ
+
+
+def test_remote_wrapper_maps_real_cli_argv_when_main_receives_none(sandbox, monkeypatch) -> None:
+    """The executable entrypoint must route scenarios even though main receives no argv."""
+    runpod_config = load_config()
+    vllm_config = load_vllm_config()
+    token_path = sandbox / "vllm-token"
+    token_path.write_text("synthetic-vllm-token")
+    token_path.chmod(0o600)
+    commit_path = sandbox / "git-commit"
+    commit_path.write_text(GIT_SHA)
+    remote = runpod_config.remote.model_copy(
+        update={"api_key_path": str(token_path), "git_commit_path": str(commit_path)}
+    )
+    monkeypatch.setattr(
+        runpod_bench,
+        "load_runpod_config",
+        lambda _path: runpod_config.model_copy(update={"remote": remote}),
+    )
+    monkeypatch.setattr(runpod_bench, "load_vllm_config", lambda _path: vllm_config)
+    observed = []
+
+    def dispatch(args) -> int:
+        observed.append((tuple(args), os.environ["VLLM_AWQ_BASE_URL"]))
+        return 0
+
+    monkeypatch.delenv("VLLM_AWQ_BASE_URL", raising=False)
+    monkeypatch.delenv("VLLM_AWQ_API_KEY", raising=False)
+    monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", dispatch)
+    monkeypatch.setattr(sys, "argv", ["runpod_bench.py", "run-scenario", "--scenario", "awq-raw"])
+
+    assert runpod_bench.main() == 0
+    assert observed == [
+        (
+            ("run-scenario", "--scenario", "awq-raw"),
+            str(vllm_config.server.base_url),
+        )
+    ]
 
 
 class _Client:

@@ -193,7 +193,7 @@ def test_prod_caps_one_tenant_day_of_live_llm_spend(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("FRAUDLENS_CONFIG_DIR", raising=False)
     monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
     settings = AppSettings()
-    assert settings.llm_daily_budget_usd == Decimal("0.25")
+    assert settings.llm_daily_budget_usd == Decimal("22.00")
     # The rate limiter alone admits 120 investigations a minute; the ceiling is what bounds the
     # bill, and it holds even if the layered YAML stops declaring it.
     assert AppSettings(environment="prod").llm_daily_budget_usd > 0

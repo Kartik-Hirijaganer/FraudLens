@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+import sys
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -57,7 +58,7 @@ def _scenario_runtime(
         raise ValueError("--scenario requires a value")
     scenario = config.cascade.scenario(arguments[scenario_index])
     registry = load_providers(LlmSettings().providers_path)
-    runtime: dict[str, str] = {}
+    runtime: dict[str, str] = {"FRAUDLENS_ENVIRONMENT": "prod"}
     for role in scenario.endpoints:
         endpoint = config.cascade.endpoints[role]
         connection = registry.connection(endpoint.connection)
@@ -76,6 +77,7 @@ def _scenario_runtime(
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Inject runtime-only values and dispatch an ordinary benchmark command."""
+    arguments = tuple(sys.argv[1:] if argv is None else argv)
     runpod = load_runpod_config(DEFAULT_RUNPOD_CONFIG)
     vllm = load_vllm_config(DEFAULT_VLLM_BENCH_CONFIG)
     token_path = Path(runpod.remote.api_key_path)
@@ -89,17 +91,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         vllm.server.image_digest_env: runpod.pod.image_digest,
         "VLLM_BENCH_RUNTIME": "process",
     }
-    runtime.update(_scenario_runtime(argv, vllm, token))
+    runtime.update(_scenario_runtime(arguments, vllm, token))
     commit_path = Path(runpod.remote.git_commit_path)
     if commit_path.is_file():
         commit = commit_path.read_text(encoding="utf-8").strip()
         if _GIT_COMMIT_PATTERN.fullmatch(commit) is None:
             raise ValueError("session Git commit must be 40 lowercase hexadecimal characters")
         runtime[_GIT_COMMIT_ENV] = commit
-    elif argv and "run-scenario" in argv:
+    elif "run-scenario" in arguments:
         raise ValueError("session Git commit is required for a remote scenario run")
     with _runtime_environment(runtime):
-        return benchmark_vllm.main(argv)
+        return benchmark_vllm.main(arguments)
 
 
 if __name__ == "__main__":

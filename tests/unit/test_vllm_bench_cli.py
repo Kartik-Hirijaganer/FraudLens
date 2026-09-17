@@ -16,6 +16,7 @@ import argparse
 import gzip
 import subprocess
 from contextlib import nullcontext
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,7 +39,9 @@ from vllm_bench_fakes import (
 )
 
 import benchmark_vllm
+from fraudlens_backend.sar.budget import SarBudgetExceededError
 from fraudlens_backend.sar.factory import load_sar_llm_config
+from lib.vllm_bench import scenario_runtime
 from lib.vllm_bench.config import load_config
 from lib.vllm_bench.state import CaseArtifact, load_run, write_case_bundle, write_run
 
@@ -389,16 +392,18 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
     artifact = cascade_artifact(config)
     root = sandbox / config.paths.output_dir
     write_case_bundle(root / "cases-ibm-final-test-full.json", artifact)
-    built: list[str] = []
+    startup_prefixes: list[tuple[str, ...]] = []
     drafter = ScriptedCascadeDrafter()
 
-    def _drafter(settings):
-        built.append(settings.sar_profile)
-        return drafter
-
     monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
-    monkeypatch.setattr(benchmark_vllm, "build_sar_drafter", _drafter)
-    monkeypatch.setattr(benchmark_vllm, "read_startup_logs", lambda *_a, **_k: "logs")
+    monkeypatch.setattr(benchmark_vllm, "build_scenario_drafter", lambda *_args: drafter)
+
+    def _startup_logs(_config, *, repo_root, command_prefix=()):
+        del repo_root
+        startup_prefixes.append(tuple(command_prefix))
+        return "logs"
+
+    monkeypatch.setattr(benchmark_vllm, "read_startup_logs", _startup_logs)
     monkeypatch.setattr(benchmark_vllm, "image_digest", lambda _config: f"sha256:{'b' * 64}")
     monkeypatch.setattr(
         benchmark_vllm,
@@ -406,6 +411,8 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
         lambda _config, **kwargs: server(config, kwargs["arm"]),
     )
     monkeypatch.setattr(benchmark_vllm, "build_sampler", lambda _telemetry: FakeSampler())
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    monkeypatch.setenv("VLLM_BF16_TELEMETRY_PREFIX", "ssh bf16-host --")
     monkeypatch.setenv("VLLM_BENCH_GIT_COMMIT", "a" * 40)
     arguments = argparse.Namespace(
         scenario="awq-bf16",
@@ -420,8 +427,30 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
     await benchmark_vllm._run_scenario(arguments, config)
 
     manifest = load_run(root / "vllm-bench-0123456789abcdef" / "run.json")
-    assert built == ["awq-bf16"]
+    assert startup_prefixes == [(), ("ssh", "bf16-host", "--")]
     assert manifest.git_commit == "a" * 40
     assert set(manifest.servers) == {"awq", "bf16"}
     assert list(manifest.levels) == [f"awq-bf16:{config.load.concurrency_levels[-1]}"]
     assert drafter.calls > 0
+
+
+def test_scenario_runtime_binds_the_production_overlay_and_daily_budget(monkeypatch) -> None:
+    """The live harness must use the production profile and BudgetGuard rather than bypassing it."""
+    observed = {}
+
+    def _drafter(settings, *, budget, client):
+        observed.update(settings=settings, budget=budget, client=client)
+        return "drafter"
+
+    monkeypatch.setenv("FRAUDLENS_ENVIRONMENT", "prod")
+    monkeypatch.setattr(scenario_runtime, "build_sar_drafter", _drafter)
+    monkeypatch.setattr(scenario_runtime, "_scenario_client", object)
+
+    result = scenario_runtime.build_scenario_drafter(load_config(), "awq-bf16")
+
+    assert result == "drafter"
+    assert observed["settings"].environment == "prod"
+    assert observed["settings"].sar_profile == "awq-bf16"
+    observed["budget"].record(Decimal("22.00"))
+    with pytest.raises(SarBudgetExceededError, match="daily budget"):
+        observed["budget"].ensure_within_budget()

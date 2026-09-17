@@ -55,7 +55,8 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T11:49:15Z | 2026-09-17T13:24:42Z | 3.108600 | 0.740000 | 11.840000 | 2.300000 | vllm-bench-042a265fdc42c9d4 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T14:20:51Z | 2026-09-17T14:50:45Z | 0.498108 | 0.740000 | 5.280000 | — | vllm-bench-445a5c1f412a96c8 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:23:43Z | 2026-09-17T15:42:01Z | 0.305000 | 0.740000 | 0.750000 | — | vllm-bench-4c656331f7ce9466 | — | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | up to 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 2.000000 | — | vllm-bench-5de63d0b0fe17634 | — | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:56:48Z | 2026-09-17T16:23:32Z | 0.572404 | 0.740000 | 2.000000 | — | vllm-bench-5de63d0b0fe17634 | — | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | up to 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 5.282763 | — | vllm-bench-ff008c8fe1668e25 | vllm-bench-1d95768035df9bc0 | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -76,3 +77,11 @@ but its first production-gated warm-up was rejected for `asserted_fact_mismatch`
 so no measured level started. Its 0.305000-hour active interval estimates $0.23 at the quoted rate;
 the exported failure artifact is local, provider billing is pending, and clean teardown found no
 matching Pod or volume.
+The final-validation attempt completed and exported the AWQ smoke matrix with zero serving errors,
+token usage on every attempt, and GPU telemetry. It stopped before the two-endpoint smoke because
+the frozen config omitted the BF16 remote-telemetry command, which would have mislabeled AWQ GPU
+samples as BF16 evidence. Both Pods were deleted and verified absent. Their summed 0.572404-hour
+active interval estimates $0.423579 at the quoted rate; provider billing is pending.
+The open final run temporarily raises the production-path per-tenant LLM ceiling from $0.25 to
+$22.00 so the harness exercises the same `BudgetGuard` as production without bypassing the Phase 4
+matrix. The ceiling must be restored to $0.25 after teardown, before any release commit or deploy.

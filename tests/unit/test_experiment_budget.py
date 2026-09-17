@@ -35,10 +35,10 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     # and the exact-sum contract below exist to prove.
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "gpu_benchmark": Decimal("18.00"),
+        "gpu_benchmark": Decimal("22.00"),
         "e2e_application_pass": Decimal("5.00"),
         "supporting_resources": Decimal("20.00"),
-        "reserve": Decimal("17.00"),
+        "reserve": Decimal("13.00"),
     }
     assert sum(config.allocations.values()) == config.ceiling_usd
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
@@ -129,6 +129,7 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "vllm-bench-445a5c1f412a96c8",
         "vllm-bench-4c656331f7ce9466",
         "vllm-bench-5de63d0b0fe17634",
+        "vllm-bench-ff008c8fe1668e25",
         "vllm-bench-f810b57a7b8ae05a",
     }
     batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")

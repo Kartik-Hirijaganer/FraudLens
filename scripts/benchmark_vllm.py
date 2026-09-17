@@ -30,9 +30,8 @@ from typing import cast
 
 import httpx
 
-from fraudlens_backend.sar.factory import build_sar_drafter, load_sar_llm_config
+from fraudlens_backend.sar.factory import load_sar_llm_config
 from fraudlens_backend.sar.quality_gate import SarQualityGate, load_sar_gate_policy
-from fraudlens_backend.settings import AppSettings
 from lib.experiments.budget import DEFAULT_LEDGER, load_budget_config, load_ledger
 from lib.study import (
     atomic_write_model,
@@ -41,7 +40,7 @@ from lib.study import (
     resolve_git_commit,
     sha256_hex,
 )
-from lib.vllm_bench.cascade_load import role_telemetry, run_scenario
+from lib.vllm_bench.cascade_load import role_command_prefix, role_telemetry, run_scenario
 from lib.vllm_bench.cascade_pilot import CascadeReplayPilot, project_replay_pilot
 from lib.vllm_bench.cases_fixture import build_fixture_cases
 from lib.vllm_bench.cases_ibm import build_ibm_cases
@@ -58,6 +57,7 @@ from lib.vllm_bench.e2e import run_e2e
 from lib.vllm_bench.load import run_arm
 from lib.vllm_bench.publish import publish_report, validate_published_artifacts
 from lib.vllm_bench.report import build_report, load_report, write_report
+from lib.vllm_bench.scenario_runtime import build_scenario_drafter
 from lib.vllm_bench.server import (
     image_digest,
     read_startup_logs,
@@ -79,6 +79,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOCS_REPORT = REPO_ROOT / "docs/reference/benchmarks/vllm-awq-sar-benchmark.json"
 _FRONTEND_REPORT = REPO_ROOT / "frontend/src/data/vllm-awq-sar-benchmark.json"
 _DOCS_PILOT = REPO_ROOT / "docs/reference/benchmarks/vllm-cascade-replay-pilot.json"
+_RUN_PROFILES = ("smoke", "development", "full")
 
 
 def _paths(config: VllmBenchConfig, *, profile: str, source: str) -> tuple[Path, Path]:
@@ -105,7 +106,7 @@ def _parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         command.add_argument("--arm", choices=("bf16", "awq"), required=True)
         if name == "run":
-            command.add_argument("--profile", choices=("smoke", "full"), required=True)
+            command.add_argument("--profile", choices=_RUN_PROFILES, required=True)
             command.add_argument("--source", choices=("sar-eval", "ibm-final-test"), required=True)
             command.add_argument("--cases", type=Path)
             command.add_argument("--run")
@@ -131,7 +132,7 @@ def _parser() -> argparse.ArgumentParser:
 
     scenario = commands.add_parser("run-scenario")
     scenario.add_argument("--scenario", required=True)
-    scenario.add_argument("--profile", choices=("smoke", "full"), required=True)
+    scenario.add_argument("--profile", choices=_RUN_PROFILES, required=True)
     scenario.add_argument("--source", choices=("sar-eval", "ibm-final-test"), required=True)
     scenario.add_argument("--cases", type=Path)
     scenario.add_argument("--run")
@@ -297,7 +298,6 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
     run_id = args.run or derive_run_id(
         "vllm-bench", f"{config.config_sha256}:{cases_sha}:{args.profile}"
     )
-    logs = read_startup_logs(config, repo_root=REPO_ROOT)
     digest = os.environ.get(config.server.image_digest_env) or image_digest(config)
     provenance = {
         role: server_provenance(
@@ -305,7 +305,11 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
             arm=cast(ArmName, config.cascade.endpoints[role].arm),
             host_key=args.host,
             purchase_option=args.purchase_option,
-            startup_logs=logs,
+            startup_logs=read_startup_logs(
+                config,
+                repo_root=REPO_ROOT,
+                command_prefix=role_command_prefix(config, role),
+            ),
             digest=digest,
         )
         for role in selected.endpoints
@@ -318,21 +322,12 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
         cases_sha256=cases_sha,
         config=config,
         profile=args.profile,
-        drafter=build_sar_drafter(_scenario_settings(config, selected.profile)),
+        drafter=build_scenario_drafter(config, selected.profile),
         samplers={role: build_sampler(role_telemetry(config, role)) for role in selected.endpoints},
         provenance=provenance,
         git_commit=resolve_git_commit(REPO_ROOT, injected=os.environ.get("VLLM_BENCH_GIT_COMMIT")),
     )
     print(f"vllm-bench scenario OK: {run_id} {selected.name}")
-
-
-def _scenario_settings(config: VllmBenchConfig, profile: str) -> AppSettings:
-    """Bind the production settings a scenario drafts under: live mode, this SAR profile."""
-    return AppSettings(
-        llm_mode="live",
-        sar_config_file=config.cascade.sar_config_file,
-        sar_profile=profile,
-    )
 
 
 def _report(config: VllmBenchConfig, run_id: str, case_path: Path) -> None:

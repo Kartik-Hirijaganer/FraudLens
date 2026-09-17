@@ -129,7 +129,7 @@ def test_the_hosted_connection_carries_mandatory_zero_data_retention() -> None:
 
     assert route.request_options == {"provider": {"zdr": True, "data_collection": "deny"}}
     assert providers.get("openrouter").request_options == {}  # only the named route enforces it
-    assert set(connection.allowed_upstreams) == {"openai", "anthropic"}
+    assert set(connection.allowed_upstreams) == {"openai", "anthropic", "azure"}
 
 
 def test_an_unknown_or_mismatched_connection_fails_closed() -> None:

@@ -76,16 +76,18 @@ def check_session_egress(  # noqa: PLR0913 - identity inputs are explicit govern
     *,
     run_id: str,
     role: str | None,
+    arm: ArmName | None = None,
     repo_root: Path,
 ) -> EgressEvidence:
-    """Require a successful request for the role's pinned model config from inside the Pod."""
+    """Require the role's or an explicitly selected arm's pinned model config from the Pod."""
     validated_role = config.validate_role(role)
     if validated_role is None:
         raise ValueError("RunPod egress check requires an endpoint role")
     if validated_role not in vllm_config.cascade.endpoints:
         raise ValueError("RunPod egress role is not declared by the cascade protocol")
     endpoint = vllm_config.cascade.endpoints[validated_role]
-    selected = vllm_config.arms[cast(ArmName, endpoint.arm)]
+    selected_arm = arm or cast(ArmName, endpoint.arm)
+    selected = vllm_config.arms[selected_arm]
     registry = str(config.model_registry_base_url).rstrip("/")
     url = f"{registry}/{selected.model}/resolve/{selected.revision}/config.json"
     status = pod_status(config, api, run_id=run_id, role=validated_role, repo_root=repo_root)
@@ -140,11 +142,16 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
         capture_output=True,
     ).stdout
     _run_ssh(ssh, _remote_sync_command(config, state.git_commit), input_bytes=archive)
+    venv_path = f"{config.remote.secret_root}/venv"
     setup_command = " ".join(
         (
             "set -Eeuo pipefail;",
             f"cd {shlex.quote(config.remote.source_link)};",
-            "UV_LINK_MODE=copy uv sync --all-packages --group fulldata --frozen",
+            f"install -d -m 0700 {shlex.quote(config.remote.secret_root)};",
+            f"UV_PROJECT_ENVIRONMENT={shlex.quote(venv_path)} UV_LINK_MODE=copy "
+            "uv sync --all-packages --group fulldata --frozen;",
+            "rm -rf -- .venv;",
+            f"ln -s {shlex.quote(venv_path)} .venv",
         )
     )
     _run_ssh(ssh, setup_command)

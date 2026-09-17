@@ -158,9 +158,11 @@ cascade:
     awq:
       arm: awq
       connection: runpod-awq
+      telemetry_prefix_env: VLLM_AWQ_TELEMETRY_PREFIX
     bf16:
       arm: bf16
       connection: runpod-bf16
+      telemetry_prefix_env: VLLM_BF16_TELEMETRY_PREFIX
   scenarios:
     - name: bf16-baseline
       profile: bf16-baseline
@@ -193,4 +195,9 @@ profiles:
     cases_count: 8
     concurrency_levels: [1, 2]
     warmup_requests: 1
+  development:
+    cases_count: 40
+    concurrency_levels: [32]
+    warmup_requests: 1
+    case_set: development
   full: {}

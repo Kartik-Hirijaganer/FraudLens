@@ -19,7 +19,12 @@ from pydantic import ValidationError
 from vllm_bench_fakes import HASH, NOW, RUN_ID, benchmark_case, complete_benchmark
 
 from lib.study import canonical_json
-from lib.vllm_bench.config import VllmBenchConfig, load_config, resolve_profile
+from lib.vllm_bench.config import (
+    VllmBenchConfig,
+    load_config,
+    resolve_case_set,
+    resolve_profile,
+)
 from lib.vllm_bench.state import (
     CaseArtifact,
     LevelCheckpoint,
@@ -45,6 +50,9 @@ def test_config_pins_full_protocol_and_profiles() -> None:
     config = load_config()
     assert resolve_profile(config, "full") == (1000, (1, 8, 32), 10)
     assert resolve_profile(config, "smoke") == (8, (1, 2), 1)
+    assert resolve_profile(config, "development") == (40, (32,), 1)
+    assert resolve_case_set(config, "development") == "development"
+    assert resolve_case_set(config, "full") == "measured"
     assert config.arms["bf16"].dtype == "bfloat16"
     assert config.arms["awq"].quantization == "awq_marlin"
     assert config.server.enable_prefix_caching is False
@@ -53,6 +61,8 @@ def test_config_pins_full_protocol_and_profiles() -> None:
     assert config.request.temperature == 0
     with pytest.raises(ValueError, match="unknown benchmark profile"):
         resolve_profile(config, "missing")
+    with pytest.raises(ValueError, match="unknown benchmark profile"):
+        resolve_case_set(config, "missing")
 
 
 @pytest.mark.parametrize(

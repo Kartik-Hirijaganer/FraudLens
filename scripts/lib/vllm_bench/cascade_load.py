@@ -14,6 +14,7 @@ Key classes:
 - (none)
 
 Key functions:
+- role_command_prefix: resolve one endpoint role's optional remote-command prefix.
 - role_telemetry: resolve one endpoint role's GPU sampler settings from env indirection.
 - prepared_inputs: return the seeded per-level case order with its production SAR inputs.
 - run_scenario_level: execute one complete scenario/concurrency level and collect telemetry.
@@ -81,13 +82,21 @@ def prepared_inputs(
     return tuple((case, case.sar_input) for case in ordered if case.sar_input is not None)
 
 
-def role_telemetry(config: VllmBenchConfig, role: str) -> TelemetryConfig:
-    """Resolve one endpoint role's sampler, whose command prefix arrives only through the env."""
+def role_command_prefix(config: VllmBenchConfig, role: str) -> tuple[str, ...]:
+    """Resolve one role's runtime-only command prefix for remote telemetry and startup logs."""
     declared = config.cascade.endpoints[role].telemetry_prefix_env
     prefix = os.environ.get(declared, "").strip() if declared else ""
-    if not prefix:
-        return config.telemetry
-    return config.telemetry.model_copy(update={"command_prefix": tuple(prefix.split())})
+    return tuple(prefix.split()) if prefix else ()
+
+
+def role_telemetry(config: VllmBenchConfig, role: str) -> TelemetryConfig:
+    """Resolve one endpoint role's sampler, whose command prefix arrives only through the env."""
+    prefix = role_command_prefix(config, role)
+    return (
+        config.telemetry.model_copy(update={"command_prefix": prefix})
+        if prefix
+        else config.telemetry
+    )
 
 
 def _usage(attempt: SarGenerationAttempt) -> TokenUsage | None:
