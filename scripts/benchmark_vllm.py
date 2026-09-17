@@ -73,7 +73,7 @@ from lib.vllm_bench.state import (
     load_run,
     write_case_bundle,
 )
-from lib.vllm_bench.telemetry import build_sampler
+from lib.vllm_bench.telemetry import build_sampler, query_host_facts
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOCS_REPORT = REPO_ROOT / "docs/reference/benchmarks/vllm-awq-sar-benchmark.json"
@@ -311,6 +311,7 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
                 command_prefix=role_command_prefix(config, role),
             ),
             digest=digest,
+            gpu=query_host_facts(role_command_prefix(config, role)),
         )
         for role in selected.endpoints
     }

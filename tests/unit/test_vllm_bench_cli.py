@@ -393,6 +393,7 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
     root = sandbox / config.paths.output_dir
     write_case_bundle(root / "cases-ibm-final-test-full.json", artifact)
     startup_prefixes: list[tuple[str, ...]] = []
+    gpu_prefixes: list[tuple[str, ...]] = []
     drafter = ScriptedCascadeDrafter()
 
     monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
@@ -404,6 +405,14 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
         return "logs"
 
     monkeypatch.setattr(benchmark_vllm, "read_startup_logs", _startup_logs)
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "query_host_facts",
+        lambda prefix: (
+            gpu_prefixes.append(tuple(prefix))
+            or SimpleNamespace(gpu_name="NVIDIA GeForce RTX 4090", driver_version="test")
+        ),
+    )
     monkeypatch.setattr(benchmark_vllm, "image_digest", lambda _config: f"sha256:{'b' * 64}")
     monkeypatch.setattr(
         benchmark_vllm,
@@ -428,6 +437,7 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
 
     manifest = load_run(root / "vllm-bench-0123456789abcdef" / "run.json")
     assert startup_prefixes == [(), ("ssh", "bf16-host", "--")]
+    assert gpu_prefixes == [(), ("ssh", "bf16-host", "--")]
     assert manifest.git_commit == "a" * 40
     assert set(manifest.servers) == {"awq", "bf16"}
     assert list(manifest.levels) == [f"awq-bf16:{config.load.concurrency_levels[-1]}"]

@@ -1,7 +1,7 @@
 {
   "admitted": true,
   "allocation": "gpu_benchmark",
-  "allocationUsd": "22.00",
+  "allocationUsd": "28.00",
   "billedHours": "6.045556",
   "casesSha256": "b3367d9e742a73f0cad90c6388fb587f96838a2c8830a8d098e9dd99e9fcee0b",
   "costWithMarginUsd": "6.867590740080634311559532930",
