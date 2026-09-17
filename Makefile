@@ -117,7 +117,7 @@ endef
 .PHONY: iac-scan data-batch-quota data-batch-plan data-batch-up data-batch-upload \
 	data-batch-download data-batch-ssh data-batch-start data-batch-down \
 	data-batch-verify-clean data-batch-watchdog runpod-gpu-plan runpod-gpu-up \
-	runpod-gpu-status runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
+	runpod-gpu-status runpod-gpu-egress-check runpod-gpu-ssh runpod-gpu-sync runpod-gpu-start runpod-gpu-stop \
 	runpod-gpu-export runpod-gpu-down runpod-gpu-verify-clean runpod-gpu-test
 
 .PHONY: aks-init aks-plan aks-up aks-credentials aks-operator-install aks-secrets-operator \
@@ -523,6 +523,10 @@ runpod-gpu-up: ## Create the admitted RunPod Pod (requires CONFIRM=yes and RUN=.
 runpod-gpu-status: ## Show redacted status for an existing RunPod session.
 	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
 	$(RUNPOD_GPU) status --run "$(RUN)" $(RUNPOD_ROLE)
+runpod-gpu-egress-check: ## Prove a ready role can reach its pinned model revision before setup.
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	@test -n "$(ROLE)" || { echo "ROLE=awq|bf16 is required"; exit 2; }
+	$(RUNPOD_GPU) egress-check --run "$(RUN)" $(RUNPOD_ROLE)
 runpod-gpu-ssh: ## Open full SSH to a ready identity-matched RunPod Pod.
 	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
 	$(RUNPOD_GPU) ssh --run "$(RUN)" $(RUNPOD_ROLE)

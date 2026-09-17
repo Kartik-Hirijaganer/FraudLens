@@ -2,6 +2,7 @@
 # Secret values are injected at runtime; only environment-variable names live here.
 
 api_base_url: https://rest.runpod.io/v1
+model_registry_base_url: https://huggingface.co
 api_key_env: RUNPOD_API_KEY
 name_prefix: fraudlens
 state_dir: .local/runpod-gpu

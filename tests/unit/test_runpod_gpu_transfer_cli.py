@@ -25,7 +25,7 @@ import runpod_gpu
 from lib.runpod_gpu.config import load_config
 from lib.runpod_gpu.models import CleanupEvidence
 from lib.runpod_gpu.session import load_session, state_path, write_session
-from lib.runpod_gpu.transfer import export_session, sync_session
+from lib.runpod_gpu.transfer import check_session_egress, export_session, sync_session
 from lib.vllm_bench.config import load_config as load_vllm_config
 from lib.vllm_bench.state import case_manifest_path, write_case_bundle
 
@@ -34,6 +34,48 @@ def _private_key(config, sandbox, monkeypatch) -> None:
     path = sandbox / "operator-key"
     path.write_text("synthetic-private-key")
     monkeypatch.setenv(config.ssh.private_key_path_env, str(path))
+
+
+def test_egress_check_requests_the_pinned_role_revision_from_the_pod(sandbox, monkeypatch) -> None:
+    config = load_config()
+    vllm = load_vllm_config()
+    role = "awq"
+    write_session(config, sandbox, session(config, role=role))
+    api = FakeApi(pod(config, name=config.pod_name(RUN_ID, role)))
+    _private_key(config, sandbox, monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        "lib.runpod_gpu.transfer.subprocess.run",
+        lambda command, **kwargs: (
+            calls.append((command, kwargs)) or subprocess.CompletedProcess(command, 0)
+        ),
+    )
+
+    evidence = check_session_egress(
+        config,
+        vllm,
+        typed_api(api),
+        run_id=RUN_ID,
+        role=role,
+        repo_root=sandbox,
+    )
+
+    selected = vllm.arms["awq"]
+    assert evidence.model == selected.model
+    assert evidence.revision == selected.revision
+    command = calls[0][0]
+    assert command[-3:-1] == ("python3", "-c")
+    assert selected.model in command[-1]
+    assert selected.revision in command[-1]
+    with pytest.raises(ValueError, match="requires an endpoint role"):
+        check_session_egress(
+            config,
+            vllm,
+            typed_api(api),
+            run_id=RUN_ID,
+            role=None,
+            repo_root=sandbox,
+        )
 
 
 def test_sync_requires_confirmation_matching_git_config_and_token(sandbox, monkeypatch) -> None:
@@ -232,6 +274,11 @@ def test_cli_dispatches_every_operator_stage(sandbox, monkeypatch) -> None:
         runpod_gpu, "create_session", lambda *_args, **_kwargs: calls.append("create") or state
     )
     monkeypatch.setattr(runpod_gpu, "pod_status", lambda *_args, **_kwargs: clean)
+    monkeypatch.setattr(
+        runpod_gpu,
+        "check_session_egress",
+        lambda *_args, **_kwargs: calls.append("egress") or clean,
+    )
     monkeypatch.setattr(runpod_gpu, "ssh_argv", lambda *_args: ("ssh", "synthetic"))
     monkeypatch.setattr(runpod_gpu.os, "execvp", lambda *_args: calls.append("ssh"))
     monkeypatch.setattr(runpod_gpu, "load_vllm_config", lambda _path: load_vllm_config())
@@ -254,6 +301,7 @@ def test_cli_dispatches_every_operator_stage(sandbox, monkeypatch) -> None:
         ["plan", "--run", RUN_ID],
         ["create", "--run", RUN_ID, "--confirm-create"],
         ["status", "--run", RUN_ID],
+        ["egress-check", "--run", RUN_ID, "--role", "awq"],
         ["ssh", "--run", RUN_ID],
         ["sync", "--run", RUN_ID, "--cases", str(sandbox / "cases"), "--confirm-sync"],
         ["start", "--run", RUN_ID, "--confirm-start"],
@@ -264,7 +312,7 @@ def test_cli_dispatches_every_operator_stage(sandbox, monkeypatch) -> None:
     )
     for command in commands:
         assert runpod_gpu.main(command) == 0
-    assert calls == ["create", "ssh", "sync", "start", "stop", "export", "delete"]
+    assert calls == ["create", "egress", "ssh", "sync", "start", "stop", "export", "delete"]
 
 
 def test_cli_client_plan_and_json_output_are_typed(monkeypatch, capsys) -> None:

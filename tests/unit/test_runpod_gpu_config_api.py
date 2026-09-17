@@ -36,6 +36,7 @@ def test_config_pins_secure_single_gpu_and_bounded_paths() -> None:
     assert config.pod.gpu_count == 1
     assert config.pod.volume_encrypted is True
     assert config.pod.ports == ("22/tcp",)
+    assert str(config.model_registry_base_url) == "https://huggingface.co/"
     assert "@sha256:" in config.pod.image_reference
     assert config.pod_name(RUN_ID) == f"fraudlens-{RUN_ID}"
     with pytest.raises(ValueError, match="16 lowercase hex"):

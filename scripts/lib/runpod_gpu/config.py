@@ -164,6 +164,9 @@ class RunpodGpuConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     api_base_url: HttpUrl = Field(..., description="RunPod REST API base URL.")
+    model_registry_base_url: HttpUrl = Field(
+        ..., description="Model-registry origin checked from each paid Pod before setup."
+    )
     api_key_env: str = Field(
         ..., pattern=_ENV_NAME_PATTERN, description="Environment name holding the API key."
     )

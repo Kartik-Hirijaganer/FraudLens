@@ -29,6 +29,15 @@ from lib.runpod_gpu.api import RunpodApi, RunpodPod
 from lib.runpod_gpu.config import RunpodGpuConfig
 from lib.runpod_gpu.models import PodStatus, RunpodSession
 
+_SSH_TRANSPORT_OPTIONS = (
+    "-o",
+    "ServerAliveInterval=10",
+    "-o",
+    "ServerAliveCountMax=6",
+    "-o",
+    "TCPKeepAlive=yes",
+)
+
 
 def state_path(
     config: RunpodGpuConfig, repo_root: Path, run_id: str, role: str | None = None
@@ -146,6 +155,7 @@ def ssh_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         raise ValueError("RunPod Pod is not ready for full SSH")
     return (
         "ssh",
+        "-C",
         "-i",
         str(_private_key_path(config)),
         "-p",
@@ -156,17 +166,20 @@ def ssh_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        *_SSH_TRANSPORT_OPTIONS,
         f"{config.ssh.user}@{status.public_ip}",
     )
 
 
 def scp_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
     """Build the SCP prefix matching the verified full-SSH endpoint."""
-    ssh = ssh_argv(config, status)
+    if status.desired_status != "RUNNING" or not status.public_ip or not status.ssh_port:
+        raise ValueError("RunPod Pod is not ready for full SSH")
     return (
         "scp",
+        "-C",
         "-i",
-        ssh[2],
+        str(_private_key_path(config)),
         "-P",
         str(status.ssh_port),
         "-o",
@@ -175,4 +188,5 @@ def scp_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        *_SSH_TRANSPORT_OPTIONS,
     )

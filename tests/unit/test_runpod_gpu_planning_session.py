@@ -169,9 +169,11 @@ def test_session_round_trip_status_and_ssh_commands(sandbox, monkeypatch) -> Non
     private.write_text("not-read-by-operator")
     monkeypatch.setenv(config.ssh.private_key_path_env, str(private))
     ssh = ssh_argv(config, status)
-    assert ssh[0] == "ssh" and str(private) in ssh
+    assert ssh[0] == "ssh" and str(private) in ssh and "-C" in ssh
+    assert "ServerAliveInterval=10" in ssh and "ServerAliveCountMax=6" in ssh
     scp = scp_argv(config, status)
-    assert scp[0] == "scp" and "22022" in scp
+    assert scp[0] == "scp" and "22022" in scp and "-C" in scp
+    assert "ServerAliveInterval=10" in scp and "ServerAliveCountMax=6" in scp
 
 
 @pytest.mark.parametrize(

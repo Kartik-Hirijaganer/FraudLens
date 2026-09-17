@@ -4,6 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
+- check_session_egress: prove the Pod can reach its pinned model revision before expensive setup.
 - sync_session: copy committed source/cases and place the vLLM token on private container storage.
 - export_session: retrieve and validate benchmark results before Pod teardown.
 
@@ -19,10 +20,11 @@ import shlex
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from lib.runpod_gpu.api import RunpodApi
 from lib.runpod_gpu.config import RunpodGpuConfig
-from lib.runpod_gpu.models import RunpodSession
+from lib.runpod_gpu.models import EgressEvidence, RunpodSession
 from lib.runpod_gpu.session import (
     load_session,
     pod_status,
@@ -31,7 +33,7 @@ from lib.runpod_gpu.session import (
     write_session,
 )
 from lib.study import git_commit
-from lib.vllm_bench.config import VllmBenchConfig
+from lib.vllm_bench.config import ArmName, VllmBenchConfig
 from lib.vllm_bench.state import case_manifest_path, load_case_bundle, load_run
 
 
@@ -64,6 +66,43 @@ def _remote_sync_command(config: RunpodGpuConfig, commit: str) -> str:
             f"ln -s {output_root} {source_target}/.local;",
             f"ln -sfn {source_target} {source_link}",
         )
+    )
+
+
+def check_session_egress(  # noqa: PLR0913 - identity inputs are explicit governance boundaries.
+    config: RunpodGpuConfig,
+    vllm_config: VllmBenchConfig,
+    api: RunpodApi,
+    *,
+    run_id: str,
+    role: str | None,
+    repo_root: Path,
+) -> EgressEvidence:
+    """Require a successful request for the role's pinned model config from inside the Pod."""
+    validated_role = config.validate_role(role)
+    if validated_role is None:
+        raise ValueError("RunPod egress check requires an endpoint role")
+    if validated_role not in vllm_config.cascade.endpoints:
+        raise ValueError("RunPod egress role is not declared by the cascade protocol")
+    endpoint = vllm_config.cascade.endpoints[validated_role]
+    selected = vllm_config.arms[cast(ArmName, endpoint.arm)]
+    registry = str(config.model_registry_base_url).rstrip("/")
+    url = f"{registry}/{selected.model}/resolve/{selected.revision}/config.json"
+    status = pod_status(config, api, run_id=run_id, role=validated_role, repo_root=repo_root)
+    script = (
+        "import urllib.request; "
+        f"response=urllib.request.urlopen({url!r}, timeout=15); "
+        "response.read(1); "
+        "assert response.status == 200"
+    )
+    subprocess.run((*ssh_argv(config, status), "python3", "-c", script), check=True)
+    return EgressEvidence(
+        run_id=run_id,
+        role=validated_role,
+        model=selected.model,
+        revision=selected.revision,
+        url=url,
+        checked_at=_now(),
     )
 
 

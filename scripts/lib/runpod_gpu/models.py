@@ -5,6 +5,7 @@ Key classes:
 - RunpodPlan: availability and worst-case budget admission before creation.
 - RunpodSession: gitignored Pod identity and benchmark artifact lineage.
 - PodStatus: redacted operator-facing lifecycle and SSH facts.
+- EgressEvidence: pinned model-registry reachability observed from one ready Pod.
 - CleanupEvidence: absence proof for matching Pods and network volumes.
 
 Key functions:
@@ -170,6 +171,19 @@ class PodStatus(BaseModel):
     volume_encrypted: bool | None = Field(
         default=None, description="Observed Pod volume encryption; None when unreported."
     )
+
+
+class EgressEvidence(BaseModel):
+    """A successful pinned model-registry request made from one ready Pod."""
+
+    model_config = _MODEL_CONFIG
+
+    run_id: str = Field(..., pattern=RUN_ID_PATTERN, description="Benchmark run ID.")
+    role: str = Field(..., min_length=1, description="Endpoint role checked from the Pod.")
+    model: str = Field(..., min_length=1, description="Pinned model repository checked.")
+    revision: str = Field(..., min_length=1, description="Pinned model revision checked.")
+    url: str = Field(..., min_length=1, description="Non-secret registry URL requested.")
+    checked_at: datetime = Field(..., description="UTC time the remote request succeeded.")
 
 
 class CleanupEvidence(BaseModel):

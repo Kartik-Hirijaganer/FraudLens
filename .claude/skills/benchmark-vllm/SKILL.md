@@ -39,17 +39,20 @@ benchmark publication, or recovery after a spot interruption.
    `make runpod-gpu-plan`.
 2. Confirm quota, price provenance, allocation, watchdog, operator CIDR, and an open ledger row.
 3. After explicit permission, create the GPU host with the required `CONFIRM=yes` gate.
-4. Run the AWQ smoke profile first and inspect request completion, telemetry, checkpoint, and report
+4. Run `make runpod-gpu-egress-check RUN=<run> ROLE=<role>` after SSH becomes ready and again
+   immediately before serving. Do not pay for dependency setup or model launch while the pinned
+   model revision is unreachable from the Pod.
+5. Run the AWQ smoke profile first and inspect request completion, telemetry, checkpoint, and report
    shape before expanding the workload.
-5. Run the development set on both arms, project full duration and cost, and use
+6. Run the development set on both arms, project full duration and cost, and use
    `scripts/experiment_budget.py admit --allocation gpu_benchmark`; pause for the human
    pilot-to-full decision.
-6. Execute BF16 then AWQ on the host, stopping one server before starting the other. Reuse the same
+7. Execute BF16 then AWQ on the host, stopping one server before starting the other. Reuse the same
    run id and resume checkpoints after a spot eviction. Cascade scenarios instead keep both endpoint
    roles running and report GPU-hours per case plus aggregate resident memory.
-7. Build the report, run `make vllm-bench-validate`, review it, then publish only the validated,
+8. Build the report, run `make vllm-bench-validate`, review it, then publish only the validated,
    hash-bound pair. Treat the application pass as functional evidence, not a latency measurement.
-8. Export artifacts, reconcile the ledger, obtain teardown permission, run `make runpod-gpu-down`,
+9. Export artifacts, reconcile the ledger, obtain teardown permission, run `make runpod-gpu-down`,
    and finish with `make runpod-gpu-verify-clean`.
 
 ## Verification

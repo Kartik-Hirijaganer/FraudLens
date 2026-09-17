@@ -4,7 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
-- main: plan, create, inspect, connect, sync, start, stop, export, delete, or verify cleanup.
+- main: plan, create, inspect, check egress, connect, sync, start, stop, export, delete, or clean.
 
 Notes:
 - A cascade run provisions one Pod per endpoint role, so every command takes `--role`; omitting it
@@ -36,7 +36,7 @@ from lib.runpod_gpu.lifecycle import (
 from lib.runpod_gpu.models import RunpodPlan
 from lib.runpod_gpu.planning import build_plan, read_public_key
 from lib.runpod_gpu.session import pod_status, ssh_argv
-from lib.runpod_gpu.transfer import export_session, sync_session
+from lib.runpod_gpu.transfer import check_session_egress, export_session, sync_session
 from lib.vllm_bench.config import DEFAULT_VLLM_BENCH_CONFIG
 from lib.vllm_bench.config import load_config as load_vllm_config
 
@@ -64,6 +64,9 @@ def _parser() -> argparse.ArgumentParser:
 
     status = commands.add_parser("status")
     _run_argument(status)
+
+    egress = commands.add_parser("egress-check")
+    _run_argument(egress)
 
     ssh = commands.add_parser("ssh")
     _run_argument(ssh)
@@ -136,6 +139,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "status":
             _print_model(
                 pod_status(config, api, run_id=args.run, role=args.role, repo_root=REPO_ROOT)
+            )
+        elif args.command == "egress-check":
+            _print_model(
+                check_session_egress(
+                    config,
+                    load_vllm_config(args.vllm_config),
+                    api,
+                    run_id=args.run,
+                    role=args.role,
+                    repo_root=REPO_ROOT,
+                )
             )
         elif args.command == "ssh":
             status = pod_status(config, api, run_id=args.run, role=args.role, repo_root=REPO_ROOT)
