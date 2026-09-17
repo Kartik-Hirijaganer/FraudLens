@@ -156,6 +156,7 @@ def _attempt_row(
         model_id=f"vllm/{stage}",
         connection=f"runpod-{stage}",
         outcome="served" if passed else "rejected",
+        error_code=None if passed else "sar_quality_gate_failed",
         quality=SarQualityGateResult(
             passed=passed,
             policy_version=GATE_POLICY_VERSION,

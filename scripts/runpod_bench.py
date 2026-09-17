@@ -20,9 +20,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import benchmark_vllm
+from fraudlens_llm import LlmSettings, load_providers
 from lib.runpod_gpu.config import DEFAULT_CONFIG as DEFAULT_RUNPOD_CONFIG
 from lib.runpod_gpu.config import load_config as load_runpod_config
-from lib.vllm_bench.config import DEFAULT_VLLM_BENCH_CONFIG
+from lib.vllm_bench.config import DEFAULT_VLLM_BENCH_CONFIG, VllmBenchConfig
 from lib.vllm_bench.config import load_config as load_vllm_config
 
 _GIT_COMMIT_ENV = "VLLM_BENCH_GIT_COMMIT"
@@ -44,6 +45,35 @@ def _runtime_environment(values: Mapping[str, str]) -> Iterator[None]:
                 os.environ[key] = value
 
 
+def _scenario_runtime(
+    argv: Sequence[str] | None, config: VllmBenchConfig, token: str
+) -> dict[str, str]:
+    """Bind a single-endpoint scenario to localhost using its declared connection env vars."""
+    arguments = tuple(argv or ())
+    if "run-scenario" not in arguments or "--scenario" not in arguments:
+        return {}
+    scenario_index = arguments.index("--scenario") + 1
+    if scenario_index >= len(arguments):
+        raise ValueError("--scenario requires a value")
+    scenario = config.cascade.scenario(arguments[scenario_index])
+    registry = load_providers(LlmSettings().providers_path)
+    runtime: dict[str, str] = {}
+    for role in scenario.endpoints:
+        endpoint = config.cascade.endpoints[role]
+        connection = registry.connection(endpoint.connection)
+        route = registry.route(connection.provider, endpoint.connection)
+        if not os.environ.get(route.api_key_env, "").strip():
+            runtime[route.api_key_env] = token
+        if route.base_url_env is None or os.environ.get(route.base_url_env, "").strip():
+            continue
+        if len(scenario.endpoints) != 1:
+            raise ValueError(f"{route.base_url_env} is required for a multi-endpoint scenario")
+        runtime[route.base_url_env] = os.environ.get(
+            config.server.base_url_env, str(config.server.base_url)
+        )
+    return runtime
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Inject runtime-only values and dispatch an ordinary benchmark command."""
     runpod = load_runpod_config(DEFAULT_RUNPOD_CONFIG)
@@ -59,6 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         vllm.server.image_digest_env: runpod.pod.image_digest,
         "VLLM_BENCH_RUNTIME": "process",
     }
+    runtime.update(_scenario_runtime(argv, vllm, token))
     commit_path = Path(runpod.remote.git_commit_path)
     if commit_path.is_file():
         commit = commit_path.read_text(encoding="utf-8").strip()

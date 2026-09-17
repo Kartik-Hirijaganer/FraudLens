@@ -54,7 +54,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-16 | Azure | Standard_B2s + 2×Standard_D2as_v4 | pay-as-you-go | 2026-09-16T14:05:28Z | 2026-09-16T17:19:25Z | 3.232500 | 0.233600 | 0.790000 | — | aks-demo-20260915-01 | — | current-plan | supporting_resources | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T11:49:15Z | 2026-09-17T13:24:42Z | 3.108600 | 0.740000 | 11.840000 | 2.300000 | vllm-bench-042a265fdc42c9d4 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T14:20:51Z | 2026-09-17T14:50:45Z | 0.498108 | 0.740000 | 5.280000 | — | vllm-bench-445a5c1f412a96c8 | — | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 0.750000 | — | vllm-bench-4c656331f7ce9466 | — | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:23:43Z | 2026-09-17T15:42:01Z | 0.305000 | 0.740000 | 0.750000 | — | vllm-bench-4c656331f7ce9466 | — | current-plan | gpu_benchmark | yes |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -69,3 +69,9 @@ The corrected RunPod AWQ canary stopped before model download because its assign
 outbound routing after dependency setup. Its observed active interval estimates $0.37 at the quoted
 rate; `Actual cost USD` remains unset until provider billing settles. It produced no measurements,
 and the Pod plus matching volumes were verified absent after deletion.
+The egress-gated AWQ canary reached live generation and received HTTP 200 from the pinned model,
+but its first production-gated warm-up was rejected for `asserted_fact_mismatch` and
+`unmapped_narrative_fact`. The harness misclassified that expected gate verdict as a serving error,
+so no measured level started. Its 0.305000-hour active interval estimates $0.23 at the quoted rate;
+the exported failure artifact is local, provider billing is pending, and clean teardown found no
+matching Pod or volume.

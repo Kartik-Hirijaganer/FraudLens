@@ -13,6 +13,7 @@ Notes:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -64,9 +65,10 @@ def test_egress_check_requests_the_pinned_role_revision_from_the_pod(sandbox, mo
     assert evidence.model == selected.model
     assert evidence.revision == selected.revision
     command = calls[0][0]
-    assert command[-3:-1] == ("python3", "-c")
-    assert selected.model in command[-1]
-    assert selected.revision in command[-1]
+    remote_command = shlex.split(command[-1])
+    assert remote_command[:2] == ["python3", "-c"]
+    assert selected.model in remote_command[-1]
+    assert selected.revision in remote_command[-1]
     with pytest.raises(ValueError, match="requires an endpoint role"):
         check_session_egress(
             config,
@@ -245,6 +247,42 @@ def test_remote_wrapper_injects_process_runtime_from_mode_0600_file(sandbox, mon
     token_path.chmod(0o644)
     with pytest.raises(ValueError, match="mode 0600"):
         runpod_bench.main(["validate"])
+
+
+def test_remote_wrapper_maps_single_scenario_connection_to_local_server(
+    sandbox, monkeypatch
+) -> None:
+    """A one-role scenario receives the named route vars the production drafter resolves."""
+    runpod_config = load_config()
+    vllm_config = load_vllm_config()
+    token_path = sandbox / "vllm-token"
+    token_path.write_text("synthetic-vllm-token")
+    token_path.chmod(0o600)
+    commit_path = sandbox / "git-commit"
+    commit_path.write_text(GIT_SHA)
+    remote = runpod_config.remote.model_copy(
+        update={"api_key_path": str(token_path), "git_commit_path": str(commit_path)}
+    )
+    monkeypatch.setattr(
+        runpod_bench,
+        "load_runpod_config",
+        lambda _path: runpod_config.model_copy(update={"remote": remote}),
+    )
+    monkeypatch.setattr(runpod_bench, "load_vllm_config", lambda _path: vllm_config)
+    observed = []
+
+    def dispatch(_args) -> int:
+        observed.append((os.environ["VLLM_AWQ_BASE_URL"], os.environ["VLLM_AWQ_API_KEY"]))
+        return 0
+
+    monkeypatch.delenv("VLLM_AWQ_BASE_URL", raising=False)
+    monkeypatch.delenv("VLLM_AWQ_API_KEY", raising=False)
+    monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", dispatch)
+
+    assert runpod_bench.main(["run-scenario", "--scenario", "awq-raw"]) == 0
+    assert observed == [(str(vllm_config.server.base_url), "synthetic-vllm-token")]
+    assert "VLLM_AWQ_BASE_URL" not in os.environ
+    assert "VLLM_AWQ_API_KEY" not in os.environ
 
 
 class _Client:

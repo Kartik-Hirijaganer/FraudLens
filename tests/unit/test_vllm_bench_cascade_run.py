@@ -116,6 +116,8 @@ async def test_only_the_served_attempt_carries_text_so_rejected_output_is_never_
 
     escalated = [item for item in checkpoint.measurements if item.case_id == "case-1"]
     assert escalated[0].content == ""
+    assert escalated[0].error_code is None
+    assert escalated[0].usage is not None
     assert escalated[0].gate_reasons == ("citation_fabricated",)
     assert escalated[1].content != ""
 
@@ -153,6 +155,17 @@ async def test_a_failed_warm_up_stops_the_level_before_it_is_measured() -> None:
 
     with pytest.raises(RuntimeError, match="warm-up request failed"):
         await _level(config, cascade_artifact(config), drafter)
+
+
+async def test_a_gate_rejected_warm_up_still_proves_the_request_path() -> None:
+    """A deterministic rejection is a measured gate verdict, not a serving failure."""
+    config = small_config(load_config())
+    drafter = ScriptedCascadeDrafter(escalate={"warmup-0"})
+
+    checkpoint = await _level(config, cascade_artifact(config), drafter)
+
+    assert checkpoint.warmup_completed == 1
+    assert drafter.calls == 2
 
 
 async def test_scenario_resume_keeps_completed_levels_and_remeasures_nothing(

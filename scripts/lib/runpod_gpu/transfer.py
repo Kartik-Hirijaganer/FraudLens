@@ -95,7 +95,7 @@ def check_session_egress(  # noqa: PLR0913 - identity inputs are explicit govern
         "response.read(1); "
         "assert response.status == 200"
     )
-    subprocess.run((*ssh_argv(config, status), "python3", "-c", script), check=True)
+    _run_ssh(ssh_argv(config, status), shlex.join(("python3", "-c", script)))
     return EgressEvidence(
         run_id=run_id,
         role=validated_role,

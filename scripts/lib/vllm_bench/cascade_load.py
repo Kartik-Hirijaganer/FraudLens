@@ -91,8 +91,8 @@ def role_telemetry(config: VllmBenchConfig, role: str) -> TelemetryConfig:
 
 
 def _usage(attempt: SarGenerationAttempt) -> TokenUsage | None:
-    """Project one attempt's recorded token usage; a failed attempt may never claim usage."""
-    if attempt.error_code is not None:
+    """Project usage for generated output, including a deterministic gate rejection."""
+    if attempt.error_code is not None and attempt.quality is None:
         return None
     return TokenUsage(
         prompt_tokens=attempt.token_usage.input_tokens,
@@ -139,7 +139,7 @@ def _measurements(
             content=_served_content(result, attempt),
             finish_reason=None,
             usage=_usage(attempt),
-            error_code=attempt.error_code,
+            error_code=None if attempt.quality is not None else attempt.error_code,
             stage=attempt.stage,
             attempt_ordinal=attempt.ordinal,
             connection=attempt.connection,
