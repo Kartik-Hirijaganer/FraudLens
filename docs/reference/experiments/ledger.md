@@ -60,6 +60,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:55:32Z | 2026-09-17T18:45:10Z | 1.523099 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5, vllm-bench-3133fb4b74e9a053 | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T20:44:13Z | 2026-09-17T20:55:11Z | 0.182778 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T21:29:01Z | 2026-09-17T22:00:55Z | 0.906908 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | vllm-bench-75fb4e0c6dfd6884 | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 1.000000 | — | vllm-bench-82cddfec5c550250 | — | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -121,8 +122,10 @@ Diagnosis retained config/corpus/run hashes and isolated the prompt-shape plus v
 contract defects. The Pod and volume were deleted and verified absent after 0.182778 hours, about
 $0.135256 at the quoted rate pending provider settlement. Run artifact SHA-256:
 `9b57aae90600d93340167efb0aa3d017526844bc3976ed0abddb38551baadfc3`.
-Protocol-v4 session `vllm-bench-0a721bc3b5831216` is opened with a $1.85 projection so the two
-remediation sessions remain below $2.00 by observed runtime unless the owner is warned first.
-Two more dollars moved from reserve to `gpu_benchmark`: allocation $32.00, reserve $3.00, overall
-ceiling unchanged at $75.00. Its pre-registered full corpus SHA-256 is
+Protocol-v4 session `vllm-bench-0a721bc3b5831216` was opened with a $1.85 projection and closed
+after an estimated $0.671112 with verified teardown. Its full corpus SHA-256 is
 `abca4898c5101e62cbff9348c37eb2e7712bc6970d3e4aaf4d5256f399612447`.
+Protocol-v5 AWQ canary `vllm-bench-82cddfec5c550250` is opened with a $1.00 projection. One more
+dollar moved from reserve to `gpu_benchmark`: allocation $33.00, reserve $2.00, overall ceiling
+unchanged at $75.00. Its full corpus SHA-256 is
+`2e1df4db3099fcd411158fd18d1a6bcb9cf69bf1dadef8138d68712a049376e2`.
