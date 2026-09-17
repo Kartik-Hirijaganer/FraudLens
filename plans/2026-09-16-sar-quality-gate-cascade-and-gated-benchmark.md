@@ -773,6 +773,28 @@ regeneration. The deterministic v5 corpus contains 1,070 cases (1,000 measured, 
 Live latency, escalation rate, and throughput remain unknown until the new smoke; no v4
 performance percentage is carried forward as a v5 result.
 
+### Phase 4 remediation protocol v5 — live canary result 2026-09-17
+
+AWQ-only session `vllm-bench-82cddfec5c550250` ran from commit
+`c905618c1b2b22fb2210eef54368aa63394e1d60` and the pre-registered v5 corpus. The constrained
+`awq-constrained` c32 smoke completed eight real generations with zero serving errors, complete
+tokens/provenance/telemetry, and 8/8 production-gate pass, but p95 remained 441.57035 seconds.
+Average GPU utilization was only 2.44%, directly implicating guided schema decoding rather than
+model capacity. V5 improved v4's 522.8445-second p95 by 15.5%, but still failed latency acceptance.
+
+The same compact envelope through the unconstrained `awq-raw` route then produced eight real c1
+generations: 8/8 gate pass, zero errors, and p95 2.616 seconds. This supports the next architecture
+decision: keep deterministic hydration and the unchanged gate, but let gate rejection—not the
+vLLM 0.10.2 grammar engine—trigger BF16 escalation. It does not yet support a concurrency claim.
+
+The attempted c8/c32 controls were served from the drafter's in-memory cache after c1 and are
+explicitly invalid. The run is retained under artifact SHA
+`34634cf87b3e4c487dc931708237ed0544824fa5f7b29866eeb9f83dcfbf5b18`; those two checkpoints must
+never enter a report. The harness now constructs a fresh production drafter/cache per concurrency
+level and has regression coverage proving resume builds no drafter for completed levels. Repeat
+AWQ smoke from a new commit before BF16 provisioning. The session estimated $0.221947 and ended
+with zero matching Pods or volumes.
+
 ### Dependencies
 Phases 2 and 3.
 

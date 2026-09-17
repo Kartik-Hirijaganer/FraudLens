@@ -129,9 +129,9 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "vllm-bench-445a5c1f412a96c8",
         "vllm-bench-4c656331f7ce9466",
         "vllm-bench-4ded2e5f759f7e82",
-            "vllm-bench-5de63d0b0fe17634",
-            "vllm-bench-82cddfec5c550250",
-            "vllm-bench-ba468433f6fd893a",
+        "vllm-bench-5de63d0b0fe17634",
+        "vllm-bench-82cddfec5c550250",
+        "vllm-bench-ba468433f6fd893a",
         "vllm-bench-ff008c8fe1668e25",
         "vllm-bench-f810b57a7b8ae05a",
     }

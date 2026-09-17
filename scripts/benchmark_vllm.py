@@ -326,7 +326,7 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
         cases_sha256=cases_sha,
         config=config,
         profile=args.profile,
-        drafter=build_scenario_drafter(config, selected.profile),
+        drafter_factory=lambda: build_scenario_drafter(config, selected.profile),
         samplers={role: build_sampler(role_telemetry(config, role)) for role in selected.endpoints},
         provenance=provenance,
         git_commit=resolve_git_commit(REPO_ROOT, injected=os.environ.get("VLLM_BENCH_GIT_COMMIT")),

@@ -60,7 +60,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:55:32Z | 2026-09-17T18:45:10Z | 1.523099 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5, vllm-bench-3133fb4b74e9a053 | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T20:44:13Z | 2026-09-17T20:55:11Z | 0.182778 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T21:29:01Z | 2026-09-17T22:00:55Z | 0.906908 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | vllm-bench-75fb4e0c6dfd6884 | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 1.000000 | — | vllm-bench-82cddfec5c550250 | — | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T22:42:03Z | 2026-09-17T23:00:03Z | 0.299929 | 0.740000 | 1.000000 | — | vllm-bench-82cddfec5c550250 | — | current-plan | gpu_benchmark | yes |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -129,3 +129,10 @@ Protocol-v5 AWQ canary `vllm-bench-82cddfec5c550250` is opened with a $1.00 proj
 dollar moved from reserve to `gpu_benchmark`: allocation $33.00, reserve $2.00, overall ceiling
 unchanged at $75.00. Its full corpus SHA-256 is
 `2e1df4db3099fcd411158fd18d1a6bcb9cf69bf1dadef8138d68712a049376e2`.
+The canary completed the constrained c32 smoke at 8/8 gate pass and zero serving errors, but p95
+was 441.57035 seconds. The compact unconstrained c1 control then passed 8/8 with p95 2.616 seconds.
+Its subsequent c8/c32 checkpoints were invalidated because the production cache reused the c1
+responses; they are retained in the exported run but must not be reported. Run artifact SHA-256:
+`34634cf87b3e4c487dc931708237ed0544824fa5f7b29866eeb9f83dcfbf5b18`. The 0.299929-hour
+session estimates $0.221947 at the quoted rate pending settlement. The Pod and matching volume
+were deleted and independently verified absent.

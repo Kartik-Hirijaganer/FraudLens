@@ -191,15 +191,24 @@ async def test_scenario_resume_keeps_completed_levels_and_remeasures_nothing(
         "samplers": samplers,
     }
 
-    first = await run_scenario(**arguments, drafter=ScriptedCascadeDrafter())
-    resumed_drafter = ScriptedCascadeDrafter()
-    second = await run_scenario(**arguments, drafter=resumed_drafter)
+    created: list[ScriptedCascadeDrafter] = []
+
+    def fresh_drafter() -> ScriptedCascadeDrafter:
+        drafter = ScriptedCascadeDrafter()
+        created.append(drafter)
+        return drafter
+
+    first = await run_scenario(**arguments, drafter_factory=fresh_drafter)
+    first_factory_calls = len(created)
+    second = await run_scenario(**arguments, drafter_factory=fresh_drafter)
 
     assert set(first.levels) == {"awq-bf16:1", "awq-bf16:2"}
     assert first.completed_at is not None
     assert load_run(run_path).levels.keys() == first.levels.keys()
     assert second.levels["awq-bf16:1"] == first.levels["awq-bf16:1"]
-    assert resumed_drafter.calls == 0
+    assert first_factory_calls == 2
+    assert all(drafter.calls == 2 for drafter in created)
+    assert len(created) == first_factory_calls
 
 
 async def test_a_resumed_run_bound_to_another_corpus_fails_closed(tmp_path: Path) -> None:
@@ -216,7 +225,7 @@ async def test_a_resumed_run_bound_to_another_corpus_fails_closed(tmp_path: Path
         "config": config,
         "profile": "full",
         "samplers": {role: FakeSampler() for role in scenario.endpoints},
-        "drafter": ScriptedCascadeDrafter(),
+        "drafter_factory": ScriptedCascadeDrafter,
     }
     await run_scenario(**arguments, cases_sha256=case_artifact_sha256(artifact))
 
@@ -342,7 +351,7 @@ async def test_scenario_provenance_is_bound_per_role_and_fails_closed_on_drift(
     }
 
     manifest = await run_scenario(
-        **arguments, drafter=ScriptedCascadeDrafter(), provenance=provenance
+        **arguments, drafter_factory=ScriptedCascadeDrafter, provenance=provenance
     )
 
     assert set(manifest.servers) == {"awq", "bf16"}
@@ -351,7 +360,7 @@ async def test_scenario_provenance_is_bound_per_role_and_fails_closed_on_drift(
         for role, value in provenance.items()
     }
     with pytest.raises(ValueError, match="weight memory drift"):
-        await run_scenario(**arguments, drafter=ScriptedCascadeDrafter(), provenance=drifted)
+        await run_scenario(**arguments, drafter_factory=ScriptedCascadeDrafter, provenance=drifted)
 
 
 async def test_one_endpoints_sampler_failing_degrades_telemetry_without_losing_the_level() -> None:

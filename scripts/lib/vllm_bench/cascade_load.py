@@ -21,8 +21,9 @@ Key functions:
 - run_scenario: resume completed scenario levels and checkpoint each newly completed one.
 
 Notes:
-- One drafter instance serves the whole level, exactly as one process serves production traffic,
-  so the per-request budget guard and cache behave as they do in the product.
+- One fresh drafter instance serves each level, exactly as one process serves production traffic,
+  so the per-request budget guard and within-level cache behave as they do in the product without
+  leaking cached responses into a later concurrency measurement.
 - Telemetry is collected per endpoint ROLE: a two-endpoint cascade samples both GPUs, and a role
   whose sampler fails leaves its samples empty rather than aborting a paid level. Each role's
   sampler command prefix arrives through the env var its config declares, so no Pod address is
@@ -37,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -299,7 +300,7 @@ async def run_scenario(  # noqa: PLR0913 - explicit inputs keep external IO inje
     cases_sha256: str,
     config: VllmBenchConfig,
     profile: str,
-    drafter: SarDrafter,
+    drafter_factory: Callable[[], SarDrafter],
     samplers: Mapping[str, GpuSampler],
     provenance: Mapping[str, ServerProvenance] | None = None,
     git_commit: str | None = None,
@@ -336,7 +337,9 @@ async def run_scenario(  # noqa: PLR0913 - explicit inputs keep external IO inje
             cases_sha256=cases_sha256,
             config=config,
             profile=profile,
-            drafter=drafter,
+            # A production drafter owns an in-memory response cache. Reusing it across levels
+            # would turn later concurrency levels into cache benchmarks instead of generations.
+            drafter=drafter_factory(),
             samplers=samplers,
         )
         manifest = manifest.model_copy(update={"levels": {**manifest.levels, key: checkpoint}})
