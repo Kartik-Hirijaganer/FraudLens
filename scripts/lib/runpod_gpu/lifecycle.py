@@ -48,7 +48,9 @@ def create_session(  # noqa: PLR0913 - explicit boundaries prevent ambient autho
     """Create one duplicate-safe Pod and persist its identity for mandatory teardown."""
     if not confirmed:
         raise PermissionError("RunPod creation requires explicit confirmation")
-    if state_path(config, repo_root, plan.run_id).exists() or matching_pods(api, plan.pod_name):
+    if state_path(config, repo_root, plan.run_id, plan.role).exists() or matching_pods(
+        api, plan.pod_name
+    ):
         raise ValueError("matching RunPod state or Pod already exists")
     pod = api.create_pod(build_create_request(config, plan, public_key=public_key))
     state = write_session(
@@ -56,6 +58,7 @@ def create_session(  # noqa: PLR0913 - explicit boundaries prevent ambient autho
         repo_root,
         RunpodSession(
             run_id=plan.run_id,
+            role=plan.role,
             pod_id=pod.pod_id,
             pod_name=plan.pod_name,
             config_sha256=config.config_sha256,
@@ -75,36 +78,38 @@ def create_session(  # noqa: PLR0913 - explicit boundaries prevent ambient autho
     return state
 
 
-def start_session(
+def start_session(  # noqa: PLR0913 - the endpoint role is an explicit identity input.
     config: RunpodGpuConfig,
     api: RunpodApi,
     *,
     run_id: str,
+    role: str | None = None,
     repo_root: Path,
     confirmed: bool,
 ) -> None:
     """Start a stopped Pod after a separate explicit approval."""
     if not confirmed:
         raise PermissionError("RunPod start requires explicit confirmation")
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     pod = api.get_pod(state.pod_id)
     if pod.name != state.pod_name or pod.desired_status != "EXITED":
         raise ValueError("only the matching stopped RunPod Pod may be started")
     api.start_pod(state.pod_id)
 
 
-def stop_session(
+def stop_session(  # noqa: PLR0913 - the endpoint role is an explicit identity input.
     config: RunpodGpuConfig,
     api: RunpodApi,
     *,
     run_id: str,
+    role: str | None = None,
     repo_root: Path,
     confirmed: bool,
 ) -> None:
     """Stop a running Pod after explicit approval, preserving its Pod volume."""
     if not confirmed:
         raise PermissionError("RunPod stop requires explicit confirmation")
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     pod = api.get_pod(state.pod_id)
     if pod.name != state.pod_name:
         raise ValueError("provider Pod identity does not match local session state")
@@ -114,18 +119,19 @@ def stop_session(
         raise ValueError("only a running or stopped Pod may be stopped")
 
 
-def delete_session(
+def delete_session(  # noqa: PLR0913 - the endpoint role is an explicit identity input.
     config: RunpodGpuConfig,
     api: RunpodApi,
     *,
     run_id: str,
+    role: str | None = None,
     repo_root: Path,
     confirmed: bool,
 ) -> RunpodSession:
     """Delete only a stopped identity-matched Pod after explicit approval."""
     if not confirmed:
         raise PermissionError("RunPod deletion requires explicit confirmation")
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     pod = api.get_pod(state.pod_id)
     if pod.name != state.pod_name or pod.desired_status != "EXITED":
         raise ValueError("RunPod Pod must be identity-matched and stopped before deletion")
@@ -133,9 +139,11 @@ def delete_session(
     return write_session(config, repo_root, state.model_copy(update={"deleted_at": _now()}))
 
 
-def verify_clean(config: RunpodGpuConfig, api: RunpodApi, *, run_id: str) -> CleanupEvidence:
+def verify_clean(
+    config: RunpodGpuConfig, api: RunpodApi, *, run_id: str, role: str | None = None
+) -> CleanupEvidence:
     """Prove matching Pods and independently billed network volumes are absent."""
-    pod_name = config.pod_name(run_id)
+    pod_name = config.pod_name(run_id, role)
     pod_ids = tuple(sorted(pod.pod_id for pod in api.list_pods() if pod.name == pod_name))
     volume_ids = tuple(
         sorted(
@@ -146,6 +154,7 @@ def verify_clean(config: RunpodGpuConfig, api: RunpodApi, *, run_id: str) -> Cle
     )
     evidence = CleanupEvidence(
         run_id=run_id,
+        role=config.validate_role(role),
         pod_name=pod_name,
         matching_pod_ids=pod_ids,
         matching_volume_ids=volume_ids,

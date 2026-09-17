@@ -20,11 +20,27 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from vllm_bench_fakes import HASH, benchmark_case, complete_benchmark, server
+from cascade_fakes import (
+    ScriptedCascadeDrafter,
+    budget_config,
+    cascade_artifact,
+    cascade_config,
+    ledger_row,
+    replay_manifest,
+)
+from vllm_bench_fakes import (
+    HASH,
+    FakeSampler,
+    benchmark_case,
+    complete_benchmark,
+    server,
+    small_config,
+)
 
 import benchmark_vllm
+from fraudlens_backend.sar.factory import load_sar_llm_config
 from lib.vllm_bench.config import load_config
-from lib.vllm_bench.state import CaseArtifact, write_case_bundle, write_run
+from lib.vllm_bench.state import CaseArtifact, load_run, write_case_bundle, write_run
 
 
 def test_main_dispatches_validate_cases_serve_stop_e2e_and_report(monkeypatch) -> None:
@@ -305,3 +321,106 @@ def test_validate_success_and_incomplete_published_pair(sandbox, monkeypatch) ->
     docs.write_text("present")
     with pytest.raises(ValueError, match="pair is incomplete"):
         benchmark_vllm._validate(config)
+
+
+def test_cascade_pilot_writes_local_evidence_and_publishes_only_when_asked(
+    sandbox, monkeypatch
+) -> None:
+    """The free pilot always leaves local evidence; publishing it stays an explicit choice."""
+    config = cascade_config(small_config(load_config()))
+    artifact, manifest = replay_manifest(config)
+    root = sandbox / config.paths.output_dir
+    case_path = root / "cases-ibm-final-test-full.json"
+    case_hash = write_case_bundle(case_path, artifact)
+    write_run(
+        root / manifest.run_id / "run.json", manifest.model_copy(update={"cases_sha256": case_hash})
+    )
+    published = sandbox / "pilot.json"
+    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
+    monkeypatch.setattr(benchmark_vllm, "_DOCS_PILOT", published)
+    monkeypatch.setattr(benchmark_vllm, "load_budget_config", lambda _root: budget_config())
+    monkeypatch.setattr(benchmark_vllm, "load_ledger", lambda _path: ledger_row(manifest.run_id))
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "load_sar_llm_config",
+        lambda path: load_sar_llm_config(Path("config") / config.cascade.sar_config_file),
+    )
+    arguments = argparse.Namespace(
+        run=manifest.run_id, profile="awq-bf16", cases=case_path, publish=False
+    )
+
+    pilot = benchmark_vllm._cascade_pilot(arguments, config)
+
+    assert (root / manifest.run_id / "cascade-pilot.json").is_file()
+    assert not published.exists()
+    assert pilot.run_id == manifest.run_id
+
+    benchmark_vllm._cascade_pilot(
+        argparse.Namespace(run=manifest.run_id, profile="awq-bf16", cases=case_path, publish=True),
+        config,
+    )
+    assert published.is_file()
+
+
+def test_cascade_pilot_refuses_a_run_bound_to_another_corpus(sandbox, monkeypatch) -> None:
+    """A pilot judged against the wrong corpus would grade different cases than it measured."""
+    config = cascade_config(small_config(load_config()))
+    artifact, manifest = replay_manifest(config)
+    root = sandbox / config.paths.output_dir
+    case_path = root / "cases-ibm-final-test-full.json"
+    write_case_bundle(case_path, artifact)
+    write_run(
+        root / manifest.run_id / "run.json", manifest.model_copy(update={"cases_sha256": HASH})
+    )
+    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
+    arguments = argparse.Namespace(
+        run=manifest.run_id, profile="awq-bf16", cases=case_path, publish=False
+    )
+
+    with pytest.raises(ValueError, match="does not bind the provided case artifact"):
+        benchmark_vllm._cascade_pilot(arguments, config)
+
+
+async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_roles(
+    sandbox, monkeypatch
+) -> None:
+    """The measured subject must be the shipped cascade, built from the scenario's SAR profile."""
+    config = cascade_config(small_config(load_config()))
+    artifact = cascade_artifact(config)
+    root = sandbox / config.paths.output_dir
+    write_case_bundle(root / "cases-ibm-final-test-full.json", artifact)
+    built: list[str] = []
+    drafter = ScriptedCascadeDrafter()
+
+    def _drafter(settings):
+        built.append(settings.sar_profile)
+        return drafter
+
+    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
+    monkeypatch.setattr(benchmark_vllm, "build_sar_drafter", _drafter)
+    monkeypatch.setattr(benchmark_vllm, "read_startup_logs", lambda *_a, **_k: "logs")
+    monkeypatch.setattr(benchmark_vllm, "image_digest", lambda _config: f"sha256:{'b' * 64}")
+    monkeypatch.setattr(
+        benchmark_vllm,
+        "server_provenance",
+        lambda _config, **kwargs: server(config, kwargs["arm"]),
+    )
+    monkeypatch.setattr(benchmark_vllm, "build_sampler", lambda _telemetry: FakeSampler())
+    monkeypatch.setattr(benchmark_vllm, "git_commit", lambda _root: "a" * 40)
+    arguments = argparse.Namespace(
+        scenario="awq-bf16",
+        profile="full",
+        source="ibm-final-test",
+        run="vllm-bench-0123456789abcdef",
+        host=config.cost.default_host,
+        purchase_option="pay_as_you_go",
+    )
+
+    await benchmark_vllm._run_scenario(arguments, config)
+
+    manifest = load_run(root / "vllm-bench-0123456789abcdef" / "run.json")
+    assert built == ["awq-bf16"]
+    assert manifest.git_commit == "a" * 40
+    assert set(manifest.servers) == {"awq", "bf16"}
+    assert list(manifest.levels) == [f"awq-bf16:{config.load.concurrency_levels[-1]}"]
+    assert drafter.calls > 0

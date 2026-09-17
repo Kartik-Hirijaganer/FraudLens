@@ -4,8 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
-- git_commit: require a clean worktree and return its immutable HEAD.
-- build_plan: bind live GPU availability to the committed $25 admission policy.
+- build_plan: bind live GPU availability to the committed allocation admission policy.
 - read_public_key: validate the public half of the operator SSH identity.
 - build_create_request: render the SSH-only Pod request and automatic-stop watchdog.
 
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -25,27 +23,12 @@ from pathlib import Path
 from lib.experiments.budget import BudgetConfig, Projection, admit
 from lib.runpod_gpu.api import GpuInventoryItem
 from lib.runpod_gpu.config import RunpodGpuConfig
-from lib.runpod_gpu.models import GIT_SHA_PATTERN, CreatePodRequest, RunpodPlan
+from lib.runpod_gpu.models import CreatePodRequest, RunpodPlan
+from lib.study import git_commit
 
 _SSH_PUBLIC_KEY = re.compile(
     r"^(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp\d+) [A-Za-z0-9+/=]+(?: .*)?$"
 )
-
-
-def _command_output(command: Sequence[str], *, cwd: Path) -> str:
-    return subprocess.run(
-        command, cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def git_commit(repo_root: Path) -> str:
-    """Require a clean source tree and return its immutable HEAD revision."""
-    if _command_output(("git", "status", "--porcelain"), cwd=repo_root):
-        raise ValueError("RunPod operations require a clean committed worktree")
-    commit = _command_output(("git", "rev-parse", "HEAD"), cwd=repo_root)
-    if re.fullmatch(GIT_SHA_PATTERN, commit) is None:
-        raise ValueError("unable to resolve an immutable Git commit")
-    return commit
 
 
 def _inventory_item(
@@ -57,13 +40,14 @@ def _inventory_item(
     return matches[0]
 
 
-def build_plan(
+def build_plan(  # noqa: PLR0913 - the endpoint role is an explicit identity input.
     config: RunpodGpuConfig,
     budget: BudgetConfig,
     inventory: Sequence[GpuInventoryItem],
     *,
     run_id: str,
     repo_root: Path,
+    role: str | None = None,
 ) -> RunpodPlan:
     """Bind current capacity, immutable source, and worst-case allocation admission."""
     config.validate_run_id(run_id)
@@ -89,7 +73,8 @@ def build_plan(
     gpu = _inventory_item(config, inventory)
     return RunpodPlan(
         run_id=run_id,
-        pod_name=config.pod_name(run_id),
+        role=config.validate_role(role),
+        pod_name=config.pod_name(run_id, role),
         config_sha256=config.config_sha256,
         git_commit=git_commit(repo_root),
         gpu_id=gpu.gpu_id,
@@ -146,7 +131,7 @@ def build_create_request(
     """Build an SSH-only Pod payload without control-plane or vLLM secrets."""
     if (
         plan.config_sha256 != config.config_sha256
-        or plan.pod_name != config.pod_name(plan.run_id)
+        or plan.pod_name != config.pod_name(plan.run_id, plan.role)
         or plan.image_reference != config.pod.image_reference
     ):
         raise ValueError("RunPod plan identity does not match the frozen configuration")

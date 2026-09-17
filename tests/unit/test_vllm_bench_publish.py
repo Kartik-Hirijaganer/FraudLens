@@ -110,3 +110,35 @@ def test_published_binding_detects_markdown_tampering(sandbox) -> None:
     result.report_markdown_path.write_text("tampered")
     with pytest.raises(ValueError, match="Markdown rendering drifted"):
         validate_published_artifacts(result.report_json_path, result.frontend_json_path, config)
+
+
+def test_evidence_published_under_a_superseded_protocol_stays_hash_bound_to_it(sandbox) -> None:
+    """Bumping the protocol must not orphan, or silently re-bless, already-published evidence."""
+    config, artifact, manifest = complete_benchmark(load_config())
+    report = build_report(manifest, artifact, config)
+    published = publish_report(report, config, sandbox)
+    superseded = config.model_copy(
+        update={
+            "protocol_version": "vllm-sar-bench-v3",
+            "protocol_lineage": {report.protocol_version: report.config_sha256},
+        }
+    )
+
+    assert (
+        validate_published_artifacts(
+            published.report_json_path, published.frontend_json_path, superseded
+        )
+        == report
+    )
+
+    unrecorded = superseded.model_copy(update={"protocol_lineage": {}})
+    with pytest.raises(ValueError, match="no recorded config hash"):
+        validate_published_artifacts(
+            published.report_json_path, published.frontend_json_path, unrecorded
+        )
+
+    wrong = superseded.model_copy(update={"protocol_lineage": {report.protocol_version: "0" * 64}})
+    with pytest.raises(ValueError, match="config hash drifted"):
+        validate_published_artifacts(
+            published.report_json_path, published.frontend_json_path, wrong
+        )

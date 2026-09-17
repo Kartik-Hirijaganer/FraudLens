@@ -5,6 +5,7 @@ Key classes:
 
 Key functions:
 - ordered_cases: derive the identical deterministic request order used by both arms.
+- bind_server: validate restart identity/memory and attach first-seen per-arm provenance.
 - run_level: execute one complete concurrency level and collect its telemetry window.
 - run_arm: resume or execute every configured level for one arm.
 
@@ -149,7 +150,7 @@ async def run_level(  # noqa: PLR0913 - explicit run inputs enforce fairness and
     )
 
 
-def _bind_server(manifest: RunManifest, provenance: ServerProvenance) -> RunManifest:
+def bind_server(manifest: RunManifest, provenance: ServerProvenance) -> RunManifest:
     """Validate restart identity/memory and attach first-seen per-arm provenance."""
     prior = manifest.servers.get(provenance.arm)
     if prior is not None:
@@ -183,7 +184,7 @@ async def run_arm(  # noqa: PLR0913 - explicit inputs keep external IO injectabl
         cases_sha256=cases_sha256,
         started_at=datetime.now(UTC),
     )
-    manifest = _bind_server(manifest, provenance)
+    manifest = bind_server(manifest, provenance)
     write_run(run_path, manifest)
     _count, levels, _warmups = resolve_profile(config, profile)
     for index, concurrency in enumerate(levels):

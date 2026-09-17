@@ -20,7 +20,7 @@ from vllm_bench_fakes import complete_benchmark, measurement
 
 from lib.vllm_bench.config import load_config
 from lib.vllm_bench.report import build_report, load_report, write_report
-from lib.vllm_bench.report_models import VllmBenchReport
+from lib.vllm_bench.report_models import VllmBenchReport, mechanical_headline
 
 
 def test_complete_matrix_produces_accepted_mechanical_report(sandbox) -> None:
@@ -136,3 +136,39 @@ def test_extra_checkpoint_fails_complete_matrix_acceptance() -> None:
     complete = next(check for check in report.acceptance if check.name == "complete_matrix")
     assert not complete.passed
     assert "complete_matrix" in report.headline
+
+
+def test_the_v2_headline_carries_the_p95_latency_figure_the_resume_line_claims() -> None:
+    """`36.3` appeared nowhere in v1's mechanical text; a v2 report must derive it from data."""
+    config, artifact, manifest = complete_benchmark(load_config())
+
+    report = build_report(manifest, artifact, config)
+
+    bf16 = max(report.arms[0].levels, key=lambda item: item.concurrency)
+    awq = max(report.arms[1].levels, key=lambda item: item.concurrency)
+    delta = (awq.latency_p95_ms / bf16.latency_p95_ms - 1) * 100
+    direction = "higher" if delta > 0 else "lower"
+    assert report.report_version == "vllm-bench-report-v2"
+    assert f"AWQ p95 latency {direction} by {abs(delta):.1f}%" in report.headline
+
+
+def test_a_published_v1_report_keeps_deriving_its_own_wording() -> None:
+    """Versioning the headline must not retro-invalidate evidence already published (AD-1.3)."""
+    config, artifact, manifest = complete_benchmark(load_config())
+    report = build_report(manifest, artifact, config)
+
+    v1 = mechanical_headline(
+        report_version="vllm-bench-report-v1",
+        weight_reduction=report.weight_memory_reduction,
+        bf16=report.arms[0],
+        awq=report.arms[1],
+        failed=(),
+    )
+
+    assert "p95 latency" not in v1
+    assert "p95 latency" in report.headline
+    with pytest.raises(ValidationError, match="mechanically derived"):
+        VllmBenchReport.model_validate(
+            report.model_dump(mode="json", by_alias=True)
+            | {"reportVersion": "vllm-bench-report-v1"}
+        )

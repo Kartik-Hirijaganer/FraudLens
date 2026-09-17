@@ -23,7 +23,6 @@ from pathlib import Path
 from lib.runpod_gpu.api import RunpodApi
 from lib.runpod_gpu.config import RunpodGpuConfig
 from lib.runpod_gpu.models import RunpodSession
-from lib.runpod_gpu.planning import git_commit
 from lib.runpod_gpu.session import (
     load_session,
     pod_status,
@@ -31,6 +30,7 @@ from lib.runpod_gpu.session import (
     ssh_argv,
     write_session,
 )
+from lib.study import git_commit
 from lib.vllm_bench.config import VllmBenchConfig
 from lib.vllm_bench.state import load_case_bundle, load_run
 
@@ -70,6 +70,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     api: RunpodApi,
     *,
     run_id: str,
+    role: str | None = None,
     cases_path: Path,
     repo_root: Path,
     confirmed: bool,
@@ -77,7 +78,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     """Sync committed source, validated cases, and the vLLM token over full SSH."""
     if not confirmed:
         raise PermissionError("RunPod sync requires explicit confirmation")
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     if git_commit(repo_root) != state.git_commit or config.config_sha256 != state.config_sha256:
         raise ValueError("local Git or RunPod configuration changed after Pod creation")
     if re.fullmatch(r"cases-[a-z0-9-]+\.json", cases_path.name) is None:
@@ -88,7 +89,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     token = os.environ.get(vllm_config.server.api_key_env, "")
     if not token.strip():
         raise ValueError(f"{vllm_config.server.api_key_env} is required")
-    status = pod_status(config, api, run_id=run_id, repo_root=repo_root)
+    status = pod_status(config, api, run_id=run_id, role=role, repo_root=repo_root)
     ssh = ssh_argv(config, status)
     archive = subprocess.run(
         ("git", "archive", "--format=tar", state.git_commit),
@@ -137,12 +138,13 @@ def export_session(
     *,
     run_id: str,
     repo_root: Path,
+    role: str | None = None,
 ) -> RunpodSession:
     """Retrieve the bound run directory and validate its case lineage locally."""
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     if not state.cases_sha256:
         raise ValueError("RunPod session must be synced before artifact export")
-    status = pod_status(config, api, run_id=run_id, repo_root=repo_root)
+    status = pod_status(config, api, run_id=run_id, role=role, repo_root=repo_root)
     local_run = repo_root / ".local" / "vllm-bench" / run_id
     if local_run.exists():
         raise ValueError("local run directory already exists; refusing an ambiguous overwrite")

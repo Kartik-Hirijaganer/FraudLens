@@ -59,7 +59,7 @@ def test_plan_admits_eight_hour_secure_cloud_envelope(sandbox, monkeypatch) -> N
     assert plan.admitted is True
     assert plan.projected_cost_usd == Decimal("5.92000000")
     assert plan.cost_with_margin_usd == Decimal("7.6960000000")
-    assert plan.allocation_usd == Decimal("10.00")
+    assert plan.allocation_usd == Decimal("18.00")
     assert plan.gpu_memory_gb == 24
     assert plan.pod_name == config.pod_name(RUN_ID)
 
@@ -113,14 +113,14 @@ def test_plan_and_request_fail_closed_on_capacity_quote_or_inventory_drift(
 def test_git_commit_rejects_dirty_or_invalid_revision(sandbox, monkeypatch) -> None:
     outputs = iter([" M changed.py"])
     monkeypatch.setattr(
-        "lib.runpod_gpu.planning._command_output", lambda *_args, **_kwargs: next(outputs)
+        "lib.study.provenance._command_output", lambda *_args, **_kwargs: next(outputs)
     )
     with pytest.raises(ValueError, match="clean committed"):
         git_commit(sandbox)
 
     outputs = iter(["", "not-a-sha"])
     monkeypatch.setattr(
-        "lib.runpod_gpu.planning._command_output", lambda *_args, **_kwargs: next(outputs)
+        "lib.study.provenance._command_output", lambda *_args, **_kwargs: next(outputs)
     )
     with pytest.raises(ValueError, match="immutable Git"):
         git_commit(sandbox)

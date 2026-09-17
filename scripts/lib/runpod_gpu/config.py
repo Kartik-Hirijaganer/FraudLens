@@ -26,6 +26,10 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "runpod-gpu.yaml"
 RUN_ID_PATTERN = r"^vllm-bench-[0-9a-f]{16}$"
+# A cascade scenario needs two endpoints at once, so a session is identified by run AND role.
+# The role is part of the Pod name and of the local state path, which is what keeps `verify-clean`
+# able to prove each endpoint is gone rather than only the first one.
+ROLE_PATTERN = r"^[a-z][a-z0-9]{0,15}$"
 IMAGE_DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _ENV_NAME_PATTERN = r"^[A-Z][A-Z0-9_]+$"
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -177,9 +181,19 @@ class RunpodGpuConfig(BaseModel):
             raise ValueError("run ID must match vllm-bench-<16 lowercase hex>")
         return run_id
 
-    def pod_name(self, run_id: str) -> str:
+    def validate_role(self, role: str | None) -> str | None:
+        """Accept a short endpoint-role label, or None for a single-endpoint session."""
+        if role is None:
+            return None
+        if re.fullmatch(ROLE_PATTERN, role) is None:
+            raise ValueError("RunPod endpoint role must be a short lowercase label")
+        return role
+
+    def pod_name(self, run_id: str, role: str | None = None) -> str:
         """Derive the sole managed Pod name for one validated run."""
-        return f"{self.name_prefix}-{self.validate_run_id(run_id)}"
+        validated = self.validate_role(role)
+        name = f"{self.name_prefix}-{self.validate_run_id(run_id)}"
+        return f"{name}-{validated}" if validated else name
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> RunpodGpuConfig:

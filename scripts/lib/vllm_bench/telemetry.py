@@ -54,6 +54,9 @@ class TelemetrySample(BaseModel):
     model_config = _MODEL_CONFIG
 
     captured_at: datetime = Field(..., description="UTC sampling time.")
+    role: str | None = Field(
+        default=None, description="Endpoint role sampled; None for a single-endpoint window."
+    )
     gpu_utilization_pct: float | None = Field(
         default=None, ge=0, le=100, description="GPU busy percent."
     )

@@ -24,7 +24,7 @@ import runpod_bench
 import runpod_gpu
 from lib.runpod_gpu.config import load_config
 from lib.runpod_gpu.models import CleanupEvidence
-from lib.runpod_gpu.session import write_session
+from lib.runpod_gpu.session import load_session, state_path, write_session
 from lib.runpod_gpu.transfer import export_session, sync_session
 from lib.vllm_bench.config import load_config as load_vllm_config
 from lib.vllm_bench.state import write_case_bundle
@@ -264,7 +264,36 @@ def test_cli_client_plan_and_json_output_are_typed(monkeypatch, capsys) -> None:
     monkeypatch.setattr(runpod_gpu, "load_budget_config", lambda *_args: object())
     monkeypatch.setattr(runpod_gpu, "read_gpu_inventory", lambda: ())
     monkeypatch.setattr(runpod_gpu, "build_plan", lambda *_args, **_kwargs: clean)
-    args = type("Args", (), {"budget_config": Path("budget"), "run": RUN_ID})()
+    args = type("Args", (), {"budget_config": Path("budget"), "run": RUN_ID, "role": None})()
     assert runpod_gpu._plan(args, config) == clean
     runpod_gpu._print_model(clean)
     assert '"clean": true' in capsys.readouterr().out
+
+
+def test_two_endpoint_roles_get_independent_pods_sessions_and_cleanup_evidence(
+    sandbox, monkeypatch
+) -> None:
+    """A cascade run provisions two Pods, so each role must be addressable and provable alone."""
+    config = load_config()
+
+    awq = config.pod_name(RUN_ID, "awq")
+    bf16 = config.pod_name(RUN_ID, "bf16")
+
+    assert awq != bf16
+    assert awq.endswith("-awq") and bf16.endswith("-bf16")
+    assert config.pod_name(RUN_ID) == config.pod_name(RUN_ID, None)
+    assert state_path(config, sandbox, RUN_ID, "awq") != state_path(config, sandbox, RUN_ID, "bf16")
+    assert state_path(config, sandbox, RUN_ID, None).name == "session.json"
+    with pytest.raises(ValueError, match="endpoint role"):
+        config.pod_name(RUN_ID, "Not A Role")
+
+
+def test_a_session_loaded_under_the_wrong_role_fails_closed(sandbox) -> None:
+    """Mixing two endpoints' state would let one role's evidence stand in for the other's."""
+    config = load_config()
+    state = session(config, role="awq")
+    write_session(config, sandbox, state)
+
+    assert load_session(config, sandbox, RUN_ID, "awq") == state
+    with pytest.raises(FileNotFoundError):
+        load_session(config, sandbox, RUN_ID, "bf16")

@@ -30,12 +30,15 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     config = load_budget_config(REPO_ROOT)
     assert config.ceiling_usd == Decimal("75.00")
     assert config.admission_margin == Decimal("0.30")
+    # Release 0.5.0 Phase 4.6 drew $8.00 from the reserve into the GPU benchmark so the
+    # two-endpoint cascade matrix fits; the ceiling did not move, which is what the paired edit
+    # and the exact-sum contract below exist to prove.
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "gpu_benchmark": Decimal("10.00"),
+        "gpu_benchmark": Decimal("18.00"),
         "e2e_application_pass": Decimal("5.00"),
         "supporting_resources": Decimal("20.00"),
-        "reserve": Decimal("25.00"),
+        "reserve": Decimal("17.00"),
     }
     assert sum(config.allocations.values()) == config.ceiling_usd
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}

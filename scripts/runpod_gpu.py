@@ -7,6 +7,8 @@ Key functions:
 - main: plan, create, inspect, connect, sync, start, stop, export, delete, or verify cleanup.
 
 Notes:
+- A cascade run provisions one Pod per endpoint role, so every command takes `--role`; omitting it
+  addresses the single-endpoint session the raw quantization comparison uses.
 - Plan/status/SSH/export/verify-clean are non-billable lifecycle reads or data transfer.
 - Create/sync/start/stop/delete require command-specific explicit confirmation flags.
 """
@@ -43,6 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def _run_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run", required=True, help="vllm-bench-<16 lowercase hex>")
+    parser.add_argument("--role", default=None, help="Endpoint role for a two-endpoint cascade run")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -106,6 +109,7 @@ def _plan(args: argparse.Namespace, config: RunpodGpuConfig) -> RunpodPlan:
         budget,
         read_gpu_inventory(),
         run_id=args.run,
+        role=args.role,
         repo_root=REPO_ROOT,
     )
 
@@ -130,9 +134,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
         elif args.command == "status":
-            _print_model(pod_status(config, api, run_id=args.run, repo_root=REPO_ROOT))
+            _print_model(
+                pod_status(config, api, run_id=args.run, role=args.role, repo_root=REPO_ROOT)
+            )
         elif args.command == "ssh":
-            status = pod_status(config, api, run_id=args.run, repo_root=REPO_ROOT)
+            status = pod_status(config, api, run_id=args.run, role=args.role, repo_root=REPO_ROOT)
             command = ssh_argv(config, status)
             os.execvp(command[0], command)
         elif args.command == "sync":
@@ -142,6 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     load_vllm_config(args.vllm_config),
                     api,
                     run_id=args.run,
+                    role=args.role,
                     cases_path=args.cases,
                     repo_root=REPO_ROOT,
                     confirmed=args.confirm_sync,
@@ -152,6 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 api,
                 run_id=args.run,
+                role=args.role,
                 repo_root=REPO_ROOT,
                 confirmed=args.confirm_start,
             )
@@ -160,23 +168,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 api,
                 run_id=args.run,
+                role=args.role,
                 repo_root=REPO_ROOT,
                 confirmed=args.confirm_stop,
             )
         elif args.command == "export":
-            _print_model(export_session(config, api, run_id=args.run, repo_root=REPO_ROOT))
+            _print_model(
+                export_session(config, api, run_id=args.run, role=args.role, repo_root=REPO_ROOT)
+            )
         elif args.command == "delete":
             _print_model(
                 delete_session(
                     config,
                     api,
                     run_id=args.run,
+                    role=args.role,
                     repo_root=REPO_ROOT,
                     confirmed=args.confirm_delete,
                 )
             )
         else:
-            _print_model(verify_clean(config, api, run_id=args.run))
+            _print_model(verify_clean(config, api, run_id=args.run, role=args.role))
     return 0
 
 

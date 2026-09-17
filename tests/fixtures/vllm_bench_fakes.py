@@ -5,6 +5,7 @@ Key classes:
 - FakeSampler: deterministic telemetry sampler.
 
 Key functions:
+- replay_gate: the committed gate policy these prompt-v1-shaped fixtures are judged under.
 - benchmark_case: build one synthetic measured or abstention case.
 - complete_benchmark: build a small accepted full-profile artifact and run manifest.
 
@@ -18,6 +19,11 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
+from fraudlens_backend.sar.quality_gate import (
+    REPLAY_GATE_POLICY,
+    SarQualityGate,
+    load_sar_gate_policy,
+)
 from lib.study import sha256_hex
 from lib.vllm_bench.config import ArmName, VllmBenchConfig
 from lib.vllm_bench.load import ordered_cases
@@ -38,6 +44,17 @@ from lib.vllm_bench.telemetry import TelemetrySample
 HASH = "a" * 64
 RUN_ID = "vllm-bench-0123456789abcdef"
 NOW = datetime(2026, 9, 13, tzinfo=UTC)
+
+
+def replay_gate() -> SarQualityGate:
+    """Return the committed policy these prompt-v1-shaped fixtures are judged under.
+
+    The fixtures below carry no asserted facts and no FinCEN sections, because that is exactly the
+    shape the persisted benchmark corpus has. Judging them by the production runtime policy would
+    measure the fixture rather than the metric under test; the production policy is exercised by
+    the backend gate suites, which use production-shaped drafts.
+    """
+    return SarQualityGate(load_sar_gate_policy(policy=REPLAY_GATE_POLICY))
 
 
 def benchmark_case(case_id: str = "case-0", case_set: CaseSet = "measured") -> BenchmarkCase:

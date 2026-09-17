@@ -2,7 +2,13 @@
 # Secrets are injected at runtime; this file stores only environment-variable names.
 
 seed: 1729
-protocol_version: vllm-sar-bench-v1
+# Protocol v2 (release 0.5.0 Phase 4.8): constrained decoding changes generation, and the measured
+# subject changes from a raw model arm to the production quality-gated cascade, so the protocol is
+# VERSIONED rather than mutated. The v1 report stays published, valid, and immutable: the exact
+# config hash it was produced under is recorded below, so it is still bound to committed data.
+protocol_version: vllm-sar-bench-v2
+protocol_lineage:
+  vllm-sar-bench-v1: b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240
 
 cases:
   source: ibm-final-test
@@ -66,6 +72,7 @@ request:
   max_tokens: 1024
   temperature: 0.0
   json_object_mode: true
+  constrained_decoding: true
   seed_requests: true
   timeout_s: 300
   max_attempts: 2
@@ -135,6 +142,46 @@ acceptance:
   weight_memory_reduction_min: 0.50
   token_accounting_drift_max: 0.05
   require_gpu_telemetry: true
+
+# Protocol-v2 scenario matrix. A scenario measures the PRODUCTION cascade through a named SAR
+# profile, so no model reference, connection, or decoding mode is restated here — those belong to
+# config/llm/sar-vllm.yml and config/llm/providers.yml. Raw quantization scenarios keep all three
+# levels on ONE endpoint (equal hardware, AD-4.2); cascade scenarios need both endpoints reachable
+# at once and run the level the free replay pilot sized and costed (AD-4.3).
+cascade:
+  sar_config_file: llm/sar-vllm.yml
+  replay_run_id: vllm-bench-f810b57a7b8ae05a
+  replay_policy: replay_gate
+  allocation: gpu_benchmark
+  rate_key: runpod_rtx4090_secure_payg
+  endpoints:
+    awq:
+      arm: awq
+      connection: runpod-awq
+    bf16:
+      arm: bf16
+      connection: runpod-bf16
+  scenarios:
+    - name: bf16-baseline
+      profile: bf16-baseline
+      endpoints: [bf16]
+      concurrency_levels: [1, 8, 32]
+    - name: awq-raw
+      profile: awq-raw
+      endpoints: [awq]
+      concurrency_levels: [1, 8, 32]
+    - name: awq-bf16-unconstrained
+      profile: awq-bf16-unconstrained
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
+    - name: awq-bf16
+      profile: awq-bf16
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
+    - name: awq-bf16-external
+      profile: awq-bf16-external
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
 
 kv_cache_mode: equal_utilization
 

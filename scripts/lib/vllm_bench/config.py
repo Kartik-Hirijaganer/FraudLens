@@ -24,6 +24,9 @@ Key functions:
 
 Notes:
 - Secrets are represented only by environment-variable names and never parsed from YAML.
+- `protocol_lineage` records the exact config hash each SUPERSEDED protocol version was published
+  under, so bumping the protocol cannot orphan already-published evidence: a report produced under
+  an earlier protocol is still validated against a committed hash, just the historical one.
 """
 
 from __future__ import annotations
@@ -37,6 +40,8 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
+
+from lib.vllm_bench.scenarios import CascadeConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_VLLM_BENCH_CONFIG = REPO_ROOT / "config" / "vllm-bench.yaml"
@@ -156,6 +161,10 @@ class RequestConfig(BaseModel):
         ..., ge=0.0, le=0.0, description="Deterministic sampling temperature."
     )
     json_object_mode: Literal[True] = Field(..., description="Request JSON-object mode.")
+    constrained_decoding: bool = Field(
+        ...,
+        description="Whether this protocol may serve a closed-enum JSON schema (v2 and later).",
+    )
     seed_requests: Literal[True] = Field(..., description="Seed every request deterministically.")
     timeout_s: float = Field(..., gt=0, description="Per-attempt HTTP timeout.")
     max_attempts: int = Field(..., ge=1, description="Harness-owned total attempts.")
@@ -329,6 +338,9 @@ class VllmBenchConfig(BaseModel):
 
     seed: int = Field(..., ge=0, description="Case order and request seed.")
     protocol_version: str = Field(..., min_length=1, description="Immutable protocol version.")
+    protocol_lineage: dict[str, str] = Field(
+        default_factory=dict, description="Config hash each superseded protocol published under."
+    )
     cases: CaseConfig = Field(..., description="Case corpus contract.")
     arms: dict[ArmName, ArmConfig] = Field(..., description="Exactly BF16 and AWQ arms.")
     server: ServerConfig = Field(..., description="Comparable server configuration.")
@@ -341,6 +353,7 @@ class VllmBenchConfig(BaseModel):
     cost: CostConfig = Field(..., description="Cloud-neutral cost model.")
     quality: QualityConfig = Field(..., description="Output quality gates.")
     acceptance: AcceptanceConfig = Field(..., description="Publication criteria.")
+    cascade: CascadeConfig = Field(..., description="Protocol-v2 cascade scenario matrix.")
     kv_cache_mode: Literal["equal_utilization", "equal_kv_gib"] = Field(
         ..., description="Primary or optional KV-cache comparison mode."
     )
@@ -367,6 +380,16 @@ class VllmBenchConfig(BaseModel):
             raise ValueError("profiles must contain smoke and full")
         if self.profiles["full"].model_dump(exclude_none=True):
             raise ValueError("profiles.full must not override the frozen protocol")
+        if self.protocol_version in self.protocol_lineage:
+            raise ValueError("the current protocol version cannot also be a superseded one")
+        if any(role.arm not in self.arms for role in self.cascade.endpoints.values()):
+            raise ValueError("cascade endpoint roles must bind a configured arm")
+        if any(
+            level not in self.load.concurrency_levels
+            for scenario in self.cascade.scenarios
+            for level in scenario.concurrency_levels
+        ):
+            raise ValueError("cascade scenarios cannot measure an unconfigured concurrency level")
         return self
 
 
@@ -375,7 +398,10 @@ def load_config(path: Path = DEFAULT_VLLM_BENCH_CONFIG) -> VllmBenchConfig:
     raw = path.read_bytes()
     payload: Any = yaml.safe_load(raw)
     config = VllmBenchConfig.model_validate(payload)
-    return config.model_copy(update={"config_sha256": hashlib.sha256(raw).hexdigest()})
+    config_sha256 = hashlib.sha256(raw).hexdigest()
+    if config_sha256 in config.protocol_lineage.values():
+        raise ValueError("protocol_lineage must record superseded hashes, not the current one")
+    return config.model_copy(update={"config_sha256": config_sha256})
 
 
 def resolve_profile(config: VllmBenchConfig, profile: str) -> tuple[int, tuple[int, ...], int]:

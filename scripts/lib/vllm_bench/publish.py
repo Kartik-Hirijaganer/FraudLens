@@ -8,6 +8,9 @@ Key functions:
 - validate_published_artifacts: verify report, frontend, config, and byte-hash binding.
 
 Notes:
+- A report published under a SUPERSEDED protocol is still hash-bound, just to the lineage entry
+  that records what that protocol's config was: bumping the protocol may never orphan or silently
+  re-bless already-published evidence (AD-1.3).
 - `allow_unmet_acceptance` preserves failed criteria and requires the mechanical NOT-met headline.
 """
 
@@ -117,7 +120,14 @@ def validate_published_artifacts(
     _scan(markdown, markdown_path.name)
     report = VllmBenchReport.model_validate_json(report_bytes)
     frontend = FrontendVllmBenchData.model_validate_json(frontend_bytes)
-    if report.config_sha256 != config.config_sha256:
+    expected_config_sha256 = (
+        config.config_sha256
+        if report.protocol_version == config.protocol_version
+        else config.protocol_lineage.get(report.protocol_version)
+    )
+    if expected_config_sha256 is None:
+        raise ValueError("published report names a protocol with no recorded config hash")
+    if report.config_sha256 != expected_config_sha256:
         raise ValueError("published benchmark report config hash drifted")
     if frontend.report_sha256 != sha256_hex(report_bytes) or frontend.run_id != report.run_id:
         raise ValueError("published benchmark frontend binding drifted")

@@ -23,9 +23,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.runpod_gpu.config import IMAGE_DIGEST_PATTERN, RUN_ID_PATTERN
+from lib.study import GIT_SHA_PATTERN
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
-GIT_SHA_PATTERN = r"^[0-9a-f]{40}$"
 
 
 class CreatePodRequest(BaseModel):
@@ -90,6 +90,9 @@ class RunpodPlan(BaseModel):
 
     run_id: str = Field(..., pattern=RUN_ID_PATTERN, description="Benchmark run ID.")
     pod_name: str = Field(..., min_length=1, description="Derived RunPod name.")
+    role: str | None = Field(
+        default=None, description="Endpoint role for a multi-endpoint run; None when single."
+    )
     config_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$", description="RunPod config hash.")
     git_commit: str = Field(..., pattern=GIT_SHA_PATTERN, description="Committed source revision.")
     gpu_id: str = Field(..., min_length=1, description="Requested GPU identifier.")
@@ -113,6 +116,9 @@ class RunpodSession(BaseModel):
 
     run_id: str = Field(..., pattern=RUN_ID_PATTERN, description="Benchmark run ID.")
     pod_id: str = Field(..., pattern=r"^[A-Za-z0-9-]+$", description="Provider Pod ID.")
+    role: str | None = Field(
+        default=None, description="Endpoint role for a multi-endpoint run; None when single."
+    )
     pod_name: str = Field(..., pattern=r"^[a-z0-9-]+$", description="Managed Pod name.")
     config_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$", description="RunPod config hash.")
     git_commit: str = Field(..., pattern=GIT_SHA_PATTERN, description="Synced Git revision.")
@@ -143,6 +149,9 @@ class PodStatus(BaseModel):
 
     run_id: str = Field(..., pattern=RUN_ID_PATTERN, description="Benchmark run ID.")
     pod_id: str = Field(..., min_length=1, description="Provider Pod ID.")
+    role: str | None = Field(
+        default=None, description="Endpoint role for a multi-endpoint run; None when single."
+    )
     pod_name: str = Field(..., min_length=1, description="Managed Pod name.")
     desired_status: str = Field(..., min_length=1, description="Provider lifecycle state.")
     gpu_id: str = Field(..., min_length=1, description="Attached GPU identifier.")
@@ -160,6 +169,9 @@ class CleanupEvidence(BaseModel):
 
     run_id: str = Field(..., pattern=RUN_ID_PATTERN, description="Benchmark run ID.")
     pod_name: str = Field(..., min_length=1, description="Checked resource name.")
+    role: str | None = Field(
+        default=None, description="Endpoint role for a multi-endpoint run; None when single."
+    )
     matching_pod_ids: tuple[str, ...] = Field(..., description="Residual Pod IDs.")
     matching_volume_ids: tuple[str, ...] = Field(..., description="Residual network volume IDs.")
     clean: bool = Field(..., description="Whether all matching cloud resources are absent.")

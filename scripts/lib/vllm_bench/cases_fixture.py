@@ -108,6 +108,7 @@ def build_benchmark_case(  # noqa: PLR0913 - explicit case metadata is persisted
         expected_citation_ids=expected_citation_ids,
         available_evidence_refs=() if case_set == "abstention" else _EVIDENCE_REFS,
         payment_format=payment_format,
+        sar_input=sar_input,
         amount_band=_band(
             sar_input.amount,
             (Decimal("1000"), Decimal("10000"), Decimal("100000"), Decimal("Infinity")),
