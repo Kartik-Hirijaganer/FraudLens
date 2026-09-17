@@ -30,15 +30,14 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     config = load_budget_config(REPO_ROOT)
     assert config.ceiling_usd == Decimal("75.00")
     assert config.admission_margin == Decimal("0.30")
-    # Release 0.5.0 Phase 4.6 drew $8.00 from the reserve into the GPU benchmark so the
-    # two-endpoint cascade matrix fits; the ceiling did not move, which is what the paired edit
-    # and the exact-sum contract below exist to prove.
+    # Release 0.5.0 Phase 4 drew from reserve as governed live sessions exposed provider defects;
+    # the ceiling did not move, which is what the paired edit and exact-sum contract prove.
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "gpu_benchmark": Decimal("28.00"),
+        "gpu_benchmark": Decimal("32.00"),
         "e2e_application_pass": Decimal("5.00"),
         "supporting_resources": Decimal("20.00"),
-        "reserve": Decimal("7.00"),
+        "reserve": Decimal("3.00"),
     }
     assert sum(config.allocations.values()) == config.ceiling_usd
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
@@ -126,8 +125,10 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "gfp-c41b1fbb266f44d4",
         "sar-eval-e5c9a36b5f8a33f3",
         "vllm-bench-042a265fdc42c9d4",
+        "vllm-bench-0a721bc3b5831216",
         "vllm-bench-445a5c1f412a96c8",
         "vllm-bench-4c656331f7ce9466",
+        "vllm-bench-4ded2e5f759f7e82",
         "vllm-bench-5de63d0b0fe17634",
         "vllm-bench-ba468433f6fd893a",
         "vllm-bench-ff008c8fe1668e25",

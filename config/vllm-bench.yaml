@@ -2,13 +2,14 @@
 # Secrets are injected at runtime; this file stores only environment-variable names.
 
 seed: 1729
-# Protocol v3 is the pre-registered Phase 4 remediation: it closes evidence refs and asserted
-# ref/value pairs in the response schema, requires the core-fact claim and FinCEN sections, and
-# uses prompt v3. Prior raw and adverse live evidence remains bound through this lineage.
-protocol_version: vllm-sar-bench-v3
+# Protocol v4 is the provider-contract correction discovered by the v3 live smoke: vLLM 0.10.2
+# rejects JSON-Schema `uniqueItems`, while prompt v3 abbreviated the unconstrained output shape.
+# The deterministic gate still rejects duplicates; prompt v4 states the complete JSON shape.
+protocol_version: vllm-sar-bench-v4
 protocol_lineage:
   vllm-sar-bench-v1: b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240
   vllm-sar-bench-v2: 6c21b558cbb35dcc233c9ea945d5ac0363827d92d86c6b7396298fd8a20472e3
+  vllm-sar-bench-v3: 4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534
 
 cases:
   source: ibm-final-test

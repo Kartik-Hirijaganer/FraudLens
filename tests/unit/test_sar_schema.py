@@ -144,3 +144,19 @@ def test_the_response_schema_closes_evidence_values_and_required_shape(make_sar_
         for item in schema["properties"]["sections"]["prefixItems"]
     ]
     assert headings == ["Who", "What", "When", "Where", "Why", "How"]
+
+
+def test_response_schema_uses_vllm_supported_keywords(make_sar_input) -> None:
+    """vLLM 0.10.2 rejects uniqueItems; the deterministic gate owns duplicate rejection."""
+    sar_input = make_sar_input()
+    projected = project_for_model(sar_input, load_egress_policy())
+    schema = sar_response_schema(sar_input.citations, build_evidence_catalog(projected))
+
+    def keys(value: object) -> set[str]:
+        if isinstance(value, dict):
+            return set(value) | {item for nested in value.values() for item in keys(nested)}
+        if isinstance(value, list):
+            return {item for nested in value for item in keys(nested)}
+        return set()
+
+    assert "uniqueItems" not in keys(schema)

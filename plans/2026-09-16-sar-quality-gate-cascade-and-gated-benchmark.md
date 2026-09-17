@@ -694,6 +694,29 @@ AWQ weight-memory reduction at least `0.50`; complete telemetry and provenance. 
 then development-40 and a fresh cost admission. Do not run the full matrix if the corrected pilot
 still fails quality or admission, and do not retain old performance percentages unless reproduced.
 
+### Phase 4 remediation protocol v4 — pre-registered after v3 smoke 2026-09-17
+
+The paid v3 AWQ smoke completed 24 generations with zero serving errors, complete token usage,
+provenance, and telemetry, but the production gate rejected all 24 as `schema_invalid`. A retained
+diagnostic completion showed the unconstrained prompt abbreviated `assertedFacts` into bare strings,
+omitted required claim fields, and rendered `sections` as an object. The constrained endpoint then
+returned the exact vLLM 0.10.2 provider error `Unimplemented keys: ["uniqueItems"]`. This is a
+provider-contract defect, not evidence for relaxing the gate.
+
+Protocol v4 makes only two generation-contract changes before the next paid run:
+
+1. Prompt `v4@4.0.0` states the complete claim, asserted-fact, and section shapes; requires exactly
+   one core claim; and distinguishes the catalog's canonical `value` column from prose display text.
+2. The response schema omits `uniqueItems`, which vLLM 0.10.2 cannot compile. Duplicate citations
+   remain prohibited by the prompt and deterministically rejected by the unchanged production gate.
+
+A live diagnostic request using that compatible constrained schema produced a Pydantic-valid draft
+that passed `sar-gate-v2` with citation precision `1.0`, no mismatched facts, no unmapped narrative
+facts, and all six FinCEN elements. That diagnostic is compatibility evidence only; protocol v4 must
+still repeat smoke, development, admission, and the full matrix. All acceptance thresholds above
+remain unchanged, and v3 enters `protocol_lineage` under config hash
+`4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534`.
+
 ### Dependencies
 Phases 2 and 3.
 

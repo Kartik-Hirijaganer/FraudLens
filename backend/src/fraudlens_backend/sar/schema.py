@@ -115,7 +115,6 @@ def _close_citation_ids(properties: dict[str, Any], offered: list[str]) -> None:
             continue
         if offered:
             field["items"] = {"type": "string", "enum": offered}
-            field["uniqueItems"] = True
         else:
             field["items"] = {"type": "string"}
             field["maxItems"] = 0
@@ -140,10 +139,7 @@ def _close_claim_evidence(schema: dict[str, Any], catalog: SarEvidenceCatalog) -
     claim = defs[_CLAIM_DEF]
     properties = claim["properties"]
     refs = [fact.ref for fact in catalog.facts]
-    properties["evidenceRefs"].update(
-        {"items": {"type": "string", "enum": refs}, "minItems": 1, "uniqueItems": True}
-    )
-    properties["assertedFacts"].update({"uniqueItems": True})
+    properties["evidenceRefs"].update({"items": {"type": "string", "enum": refs}, "minItems": 1})
     defs[_CLAIM_FACT_DEF] = {
         "title": _CLAIM_FACT_DEF,
         "oneOf": [_closed_fact_schema(fact) for fact in catalog.facts],
@@ -170,7 +166,6 @@ def _citation_array(offered: list[str]) -> dict[str, Any]:
         "type": "array",
         "items": {"type": "string", "enum": offered},
         "maxItems": len(offered),
-        "uniqueItems": True,
     }
 
 

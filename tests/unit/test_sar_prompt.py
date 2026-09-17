@@ -21,8 +21,8 @@ def _messages(sar_input):
 def test_load_records_version_and_stable_hash() -> None:
     first = SarPromptTemplate.load()
     second = SarPromptTemplate.load()
-    assert first.template_id == "v3"
-    assert first.prompt_version == "v3@3.0.0"
+    assert first.template_id == "v4"
+    assert first.prompt_version == "v4@4.0.0"
     assert len(first.prompt_hash) == 64
     assert first.prompt_hash == second.prompt_hash  # deterministic for the same template bytes
     assert first.system_text  # body present
@@ -38,6 +38,12 @@ def test_v1_remains_loadable_and_distinct_from_the_default() -> None:
 def test_adverse_live_prompt_v2_remains_loadable_for_lineage() -> None:
     prior = SarPromptTemplate.load("v2")
     assert prior.prompt_version == "v2@2.0.0"
+    assert prior.prompt_hash != SarPromptTemplate.load().prompt_hash
+
+
+def test_adverse_live_prompt_v3_remains_loadable_for_lineage() -> None:
+    prior = SarPromptTemplate.load("v3")
+    assert prior.prompt_version == "v3@3.0.0"
     assert prior.prompt_hash != SarPromptTemplate.load().prompt_hash
 
 

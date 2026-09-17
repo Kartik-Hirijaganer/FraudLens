@@ -50,7 +50,7 @@ from fraudlens_backend.sar.evidence import (
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
 
-DEFAULT_SAR_PROMPT_ID = "v3"
+DEFAULT_SAR_PROMPT_ID = "v4"
 
 
 class SarPromptMeta(PromptMeta):
