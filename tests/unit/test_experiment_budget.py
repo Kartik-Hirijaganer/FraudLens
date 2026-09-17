@@ -126,6 +126,7 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "sar-eval-e5c9a36b5f8a33f3",
         "vllm-bench-042a265fdc42c9d4",
         "vllm-bench-0a721bc3b5831216",
+        "vllm-bench-39007a09a3c83bcb",
         "vllm-bench-445a5c1f412a96c8",
         "vllm-bench-4c656331f7ce9466",
         "vllm-bench-4ded2e5f759f7e82",

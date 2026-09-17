@@ -61,6 +61,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T20:44:13Z | 2026-09-17T20:55:11Z | 0.182778 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T21:29:01Z | 2026-09-17T22:00:55Z | 0.906908 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | vllm-bench-75fb4e0c6dfd6884 | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T22:42:03Z | 2026-09-17T23:00:03Z | 0.299929 | 0.740000 | 1.000000 | — | vllm-bench-82cddfec5c550250 | — | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 0.650000 | — | vllm-bench-39007a09a3c83bcb | — | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -136,3 +137,7 @@ responses; they are retained in the exported run but must not be reported. Run a
 `34634cf87b3e4c487dc931708237ed0544824fa5f7b29866eeb9f83dcfbf5b18`. The 0.299929-hour
 session estimates $0.221947 at the quoted rate pending settlement. The Pod and matching volume
 were deleted and independently verified absent.
+Protocol-v5 cache-isolated AWQ smoke `vllm-bench-39007a09a3c83bcb` is opened with a $0.65
+projection. It repeats the compact unconstrained c1/c8/c32 levels from commit `9476e2f` with one
+fresh production drafter/cache per level; its sole purpose is to replace the prior run's
+disqualified cache-hit concurrency checkpoints before any BF16 Pod is provisioned.
