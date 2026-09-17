@@ -20,7 +20,7 @@ import pytest
 from pydantic import ValidationError
 from runpod_gpu_fakes import RUN_ID, pod
 
-from lib.runpod_gpu.api import RunpodApi, api_key_from_env, read_gpu_inventory
+from lib.runpod_gpu.api import RunpodApi, RunpodPod, api_key_from_env, read_gpu_inventory
 from lib.runpod_gpu.config import RunpodGpuConfig, load_config
 from lib.runpod_gpu.models import CreatePodRequest
 
@@ -208,3 +208,27 @@ def test_api_key_env_and_runpodctl_inventory(monkeypatch) -> None:
         lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout=output),
     )
     assert read_gpu_inventory()[0].secure_cloud is True
+
+
+def test_a_freshly_created_pod_without_an_address_still_parses() -> None:
+    """A Pod reports `publicIp: ""` until placement completes, and it is already billing.
+
+    Parsing that as an address used to fail the whole create response, leaving a running Pod
+    with no local session — the exact orphan the teardown evidence is supposed to prevent.
+    """
+    pod = RunpodPod.model_validate(
+        {
+            "id": "pod-1",
+            "name": "fraudlens-vllm-bench-0123456789abcdef-awq",
+            "desiredStatus": "RUNNING",
+            "costPerHr": "0.740000",
+            "publicIp": "",
+            "volumeEncrypted": True,
+            "volumeInGb": 50,
+            "volumeMountPath": "/workspace",
+        }
+    )
+
+    assert pod.public_ip is None
+    assert pod.ssh_port is None
+    assert pod.name.endswith("-awq")
