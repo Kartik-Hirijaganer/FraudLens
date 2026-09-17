@@ -105,7 +105,6 @@ def test_rest_client_uses_header_auth_and_typed_lifecycle() -> None:
             "containerDiskInGb": 50,
             "volumeInGb": 50,
             "volumeMountPath": "/workspace",
-            "volumeEncrypted": True,
             "ports": ["22/tcp"],
             "globalNetworking": False,
             "allowedCudaVersions": ["12.8"],
@@ -129,7 +128,10 @@ def test_rest_client_uses_header_auth_and_typed_lifecycle() -> None:
         api.stop_pod(current.pod_id)
         api.delete_pod(current.pod_id)
         assert api.list_network_volumes()[0].size_gb == 50
-    assert any(method == "POST" and body and "volumeEncrypted" in body for method, _, body in seen)
+    assert any(method == "POST" and body and "gpuTypeIds" in body for method, _, body in seen)
+    assert not any(
+        method == "POST" and body and "volumeEncrypted" in body for method, _, body in seen
+    )
 
 
 def test_rest_client_accepts_current_sparse_pod_response() -> None:

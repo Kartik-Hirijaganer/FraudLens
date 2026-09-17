@@ -99,8 +99,10 @@ class RunpodPod(BaseModel):
         default=None, alias="portMappings", description="Container-to-public TCP port mappings."
     )
     ports: tuple[str, ...] = Field(default=(), description="Declared exposed Pod ports.")
-    volume_encrypted: bool = Field(
-        ..., alias="volumeEncrypted", description="Whether Pod-local volume encryption is on."
+    volume_encrypted: bool | None = Field(
+        default=None,
+        alias="volumeEncrypted",
+        description="Reported Pod-local volume encryption; None when the provider omits it.",
     )
     volume_in_gb: int = Field(..., alias="volumeInGb", ge=0, description="Pod volume size.")
     volume_mount_path: str = Field(

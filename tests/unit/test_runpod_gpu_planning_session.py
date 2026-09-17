@@ -71,7 +71,9 @@ def test_create_request_is_ssh_only_secret_free_and_self_stopping(sandbox, monke
     assert payload["cloudType"] == "SECURE"
     assert payload["gpuTypeIds"] == [config.pod.gpu_id]
     assert payload["ports"] == ["22/tcp"]
-    assert payload["volumeEncrypted"] is True
+    # The provider rejects this key on create, so the request must NOT carry it; encryption is
+    # verified on the created Pod instead (see the contract cases below).
+    assert "volumeEncrypted" not in payload
     assert payload["imageName"] == config.pod.image_reference
     assert "28800" in payload["dockerStartCmd"][0]
     assert "runpodctl pod stop" in payload["dockerStartCmd"][0]
@@ -169,6 +171,9 @@ def test_session_round_trip_status_and_ssh_commands(sandbox, monkeypatch) -> Non
         ({"interruptible": True}, "lifecycle"),
         ({"costPerHr": "0.75"}, "hourly rate"),
         ({"volumeEncrypted": False}, "encrypted volume"),
+        # A provider that stops reporting encryption leaves the claim unverifiable, which is a
+        # contract failure rather than a pass by omission.
+        ({"volumeEncrypted": None}, "encrypted volume"),
         ({"ports": ["22/tcp", "8000/http"]}, "network/storage"),
         ({"machine": {"secureCloud": False}}, "Secure Cloud"),
     ),

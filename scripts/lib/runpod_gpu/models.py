@@ -29,7 +29,14 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
 
 class CreatePodRequest(BaseModel):
-    """Exact API payload for one immutable, SSH-only Secure Cloud Pod."""
+    """Exact API payload for one immutable, SSH-only Secure Cloud Pod.
+
+    Volume encryption is NOT a field here: the provider rejects it on create
+    ("key provided in request body which is not in input schema"). It remains a
+    requirement — `validate_pod_contract` refuses any created Pod that does not report an
+    encrypted volume — so the guarantee is verified on the result instead of requested in
+    the call, and a provider that silently stopped encrypting would fail the contract.
+    """
 
     model_config = _MODEL_CONFIG
 
@@ -52,9 +59,6 @@ class CreatePodRequest(BaseModel):
     volume_gb: int = Field(..., alias="volumeInGb", ge=20, description="Pod volume size.")
     volume_mount_path: str = Field(
         ..., alias="volumeMountPath", min_length=1, description="Pod volume mount."
-    )
-    volume_encrypted: Literal[True] = Field(
-        ..., alias="volumeEncrypted", description="Pod volume encryption requirement."
     )
     ports: tuple[Literal["22/tcp"], ...] = Field(
         ..., min_length=1, max_length=1, description="SSH-only public ports."
@@ -159,7 +163,9 @@ class PodStatus(BaseModel):
     data_center_id: str | None = Field(default=None, description="Placement data center.")
     public_ip: str | None = Field(default=None, description="Public SSH address when ready.")
     ssh_port: int | None = Field(default=None, ge=1, le=65535, description="Public SSH port.")
-    volume_encrypted: bool = Field(..., description="Observed Pod volume encryption state.")
+    volume_encrypted: bool | None = Field(
+        default=None, description="Observed Pod volume encryption; None when unreported."
+    )
 
 
 class CleanupEvidence(BaseModel):

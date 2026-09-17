@@ -82,7 +82,9 @@ def validate_pod_contract(
         failures.append("lifecycle")
     if pod.cost_per_hour != expected_rate:
         failures.append("hourly rate")
-    if not pod.volume_encrypted or pod.volume_in_gb != config.pod.volume_gb:
+    # Fail closed on both a reported `false` AND a provider that stopped reporting it at all:
+    # an unverifiable encryption claim is not a satisfied one.
+    if pod.volume_encrypted is not True or pod.volume_in_gb != config.pod.volume_gb:
         failures.append("encrypted volume")
     if pod.volume_mount_path != config.pod.volume_mount_path or set(pod.ports) != set(
         config.pod.ports

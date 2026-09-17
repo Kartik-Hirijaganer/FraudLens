@@ -154,7 +154,6 @@ def build_create_request(
         containerDiskInGb=pod.container_disk_gb,
         volumeInGb=pod.volume_gb,
         volumeMountPath=pod.volume_mount_path,
-        volumeEncrypted=pod.volume_encrypted,
         ports=pod.ports,
         globalNetworking=pod.global_networking,
         allowedCudaVersions=pod.allowed_cuda_versions,
