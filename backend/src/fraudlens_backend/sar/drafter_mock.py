@@ -68,6 +68,7 @@ _TRANSACTION_REFS = (
     "txn.occurredAt",
 )
 _RISK_REFS = ("risk.band", "risk.fraudProbability")
+_CORE_REFS = _TRANSACTION_REFS + _RISK_REFS
 _UNKNOWN = "unknown"
 
 
@@ -182,9 +183,9 @@ def _compose_content(
     claims = (
         SarClaim(
             statement=f"The subject moved {amount} via {channel} in {country}.",
-            evidence_refs=_TRANSACTION_REFS,
+            evidence_refs=_CORE_REFS,
             citation_ids=citation_ids,
-            asserted_facts=_facts(catalog, _TRANSACTION_REFS),
+            asserted_facts=_facts(catalog, _CORE_REFS),
         ),
         SarClaim(
             statement=f"The blended model assigned a {band} band at {probability} probability.",

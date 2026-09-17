@@ -5,7 +5,8 @@ imports llm (the backend wires it in). Per draft it: (1) replays an identical pr
 cache with no spend (plan §7.6); (2) enforces the session/daily USD budget, raising
 `SarBudgetExceededError` → 429 before any call (plan §7.6); (3) assembles the PHI-masked prompt and
 calls the client's provider-native streaming path — optionally under CONSTRAINED DECODING, whose
-closed citation-id enum makes fabrication structurally impossible — which assembles raw deltas
+closed citation/evidence schema makes fabricated refs and altered values structurally impossible —
+which assembles raw deltas
 server-side before running output policy/phishing scans + sanitization + governed fallback (plan
 §8.1, §7.5); (4) parses the complete model JSON WITHOUT grounding and puts it through the
 deterministic `SarQualityGate` (release 0.5.0 Phase 2.4) — grounding is deliberately deferred,
@@ -46,7 +47,7 @@ from fraudlens_backend.sar.egress import (
     load_egress_policy,
     project_for_model,
 )
-from fraudlens_backend.sar.evidence import build_evidence_catalog
+from fraudlens_backend.sar.evidence import SarEvidenceCatalog, build_evidence_catalog
 from fraudlens_backend.sar.prompt import SarPromptTemplate, build_messages
 from fraudlens_backend.sar.quality_gate import SarQualityGate
 from fraudlens_backend.sar.schema import (
@@ -147,10 +148,13 @@ class LiveSarDrafter:
             return
 
         self._budget.ensure_within_budget()
+        evidence_catalog = build_evidence_catalog(model_input)
         started = time.perf_counter()
         try:
             llm_result = await self._client.generate_stream(
-                self._request(build_messages(self._prompt, model_input), sar_input)
+                self._request(
+                    build_messages(self._prompt, model_input), sar_input, evidence_catalog
+                )
             )
         except LlmError as exc:
             async for event in stream_result(
@@ -178,7 +182,7 @@ class LiveSarDrafter:
         verdict = self._gate.evaluate(
             content,
             available=sar_input.citations,
-            catalog=build_evidence_catalog(model_input),
+            catalog=evidence_catalog,
             finish_reason=llm_result.finish_reason,
         )
         if not verdict.passed:
@@ -199,9 +203,12 @@ class LiveSarDrafter:
             yield event
 
     def _request(
-        self, messages: list[dict[str, object]], sar_input: SarInput
+        self,
+        messages: list[dict[str, object]],
+        sar_input: SarInput,
+        evidence_catalog: SarEvidenceCatalog,
     ) -> StreamGenerationRequest:
-        """Build the guarded stream request, closing the citation enum when constrained."""
+        """Build the guarded request, closing citations and evidence when constrained."""
         return StreamGenerationRequest(
             messages=[LlmMessage.model_validate(message) for message in messages],
             model=self._model,
@@ -214,7 +221,9 @@ class LiveSarDrafter:
             fallbacks=self._fallbacks,
             connection=self._connection,
             response_schema=(
-                sar_response_schema(sar_input.citations) if self._constrained_decoding else None
+                sar_response_schema(sar_input.citations, evidence_catalog)
+                if self._constrained_decoding
+                else None
             ),
         )
 

@@ -15,6 +15,7 @@ Key classes:
 
 Key functions:
 - build_evidence_catalog: derive the catalog from a projected, PHI-free `SarModelInput`.
+- required_narrative_facts: select the core facts every generated draft must trace explicitly.
 
 Notes:
 - Ref ids are positional for rules and named for drivers, aggregates, and regulations, so the same
@@ -31,6 +32,16 @@ from fraudlens_backend.sar.egress import SarModelInput
 from fraudlens_ml.sar import SarEvidenceFact, SarFactKind, canonical_fact_value
 
 _PERCENT_SCALE = 100
+REQUIRED_NARRATIVE_FACT_REFS = (
+    "txn.amount",
+    "txn.currency",
+    "txn.country",
+    "txn.channel",
+    "txn.direction",
+    "txn.occurredAt",
+    "risk.band",
+    "risk.fraudProbability",
+)
 
 
 class SarEvidenceCatalog(BaseModel):
@@ -52,6 +63,15 @@ class SarEvidenceCatalog(BaseModel):
     def get(self, ref: str) -> SarEvidenceFact | None:
         """Return the catalog fact for a reference id, or None when the ref is unknown."""
         return next((fact for fact in self.facts if fact.ref == ref), None)
+
+
+def required_narrative_facts(catalog: SarEvidenceCatalog) -> tuple[SarEvidenceFact, ...]:
+    """Return the ordered trusted facts every production narrative must trace explicitly."""
+    by_ref = {fact.ref: fact for fact in catalog.facts}
+    missing = tuple(ref for ref in REQUIRED_NARRATIVE_FACT_REFS if ref not in by_ref)
+    if missing:
+        raise ValueError(f"evidence catalog is missing required narrative facts: {missing}")
+    return tuple(by_ref[ref] for ref in REQUIRED_NARRATIVE_FACT_REFS)
 
 
 def _fact(ref: str, kind: SarFactKind, raw: str, display: str) -> SarEvidenceFact:

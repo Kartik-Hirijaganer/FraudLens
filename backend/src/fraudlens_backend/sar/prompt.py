@@ -25,9 +25,8 @@ Notes:
 - Messages are returned as plain role/content dicts so this module imports no provider types; the
   live drafter hands them to the guardrailed `fraudlens_llm` client, which masks again and prepends
   its own system-policy message.
-- The default template is `v2`: it is the first version that requests claim-level evidence refs and
-  machine-readable asserted facts, which the production `SarQualityGate` requires. `v1` stays on
-  disk, immutable, because the published vLLM benchmark's `promptSha256` binds to its exact bytes.
+- The default template is `v3`: it pre-registers the remediation prompted by the adverse live run
+  and matches the fully closed response schema. `v1` and `v2` stay immutable for evidence lineage.
 """
 
 from __future__ import annotations
@@ -43,11 +42,15 @@ from fraudlens_backend.prompting import (
     split_front_matter,
 )
 from fraudlens_backend.sar.egress import SarModelInput
-from fraudlens_backend.sar.evidence import build_evidence_catalog
+from fraudlens_backend.sar.evidence import (
+    SarEvidenceCatalog,
+    build_evidence_catalog,
+    required_narrative_facts,
+)
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
 
-DEFAULT_SAR_PROMPT_ID = "v2"
+DEFAULT_SAR_PROMPT_ID = "v3"
 
 
 class SarPromptMeta(PromptMeta):
@@ -107,6 +110,7 @@ def build_messages(
 def _render_user_content(sar_input: SarModelInput) -> str:
     """Render the structured, PHI-free facts + fenced regulation block into the user message."""
     probability_pct = f"{sar_input.fraud_probability * 100:.1f}%"
+    catalog = build_evidence_catalog(sar_input)
     blocks = [
         "Draft a SAR for the following investigation.",
         "\n".join(
@@ -126,7 +130,8 @@ def _render_user_content(sar_input: SarModelInput) -> str:
         ),
         _render_rule_hits(sar_input),
         _render_top_features(sar_input),
-        _render_evidence_catalog(sar_input),
+        _render_evidence_catalog(catalog),
+        _render_required_narrative_facts(catalog),
         _render_regulations(sar_input),
     ]
     return "\n\n".join(block for block in blocks if block)
@@ -155,13 +160,22 @@ def _render_top_features(sar_input: SarModelInput) -> str:
     return "\n".join(lines)
 
 
-def _render_evidence_catalog(sar_input: SarModelInput) -> str:
+def _render_evidence_catalog(catalog: SarEvidenceCatalog) -> str:
     """Render the closed evidence catalog every claim ref and asserted fact must come from."""
-    catalog = build_evidence_catalog(sar_input)
     if not catalog.facts:
         return "Evidence catalog: empty — assert no facts."
     lines = ["Evidence catalog (ref | value | as written):"]
     lines.extend(f"- {fact.ref} | {fact.value} | {fact.display}" for fact in catalog.facts)
+    return "\n".join(lines)
+
+
+def _render_required_narrative_facts(catalog: SarEvidenceCatalog) -> str:
+    """Render the exact core refs/values required in the first generated claim."""
+    lines = ["Required narrative facts (first claim; copy ref and value exactly):"]
+    lines.extend(
+        f"- {fact.ref} | {fact.value} | {fact.display}"
+        for fact in required_narrative_facts(catalog)
+    )
     return "\n".join(lines)
 
 

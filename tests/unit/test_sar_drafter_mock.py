@@ -31,7 +31,7 @@ async def test_mock_streams_schema_valid_grounded_sar_without_keys(make_sar_inpu
     assert result.structured.cited_regulations == ("31 CFR 1010.314",)
     # streamed tokens reconstruct the persisted content
     assert "".join(t.token or "" for t in tokens) == result.content
-    assert result.prompt_version == "v2@2.0.0"
+    assert result.prompt_version == "v3@3.0.0"
     # The mock is not trusted either: it is ACCEPTED by the same deterministic gate as live.
     assert result.quality is not None
     assert result.quality.passed is True

@@ -39,7 +39,7 @@ _MODEL_CONFIG = ConfigDict(
 )
 _HASH = r"^[0-9a-f]{64}$"
 REPORT_VERSION = "vllm-bench-report-v2"
-# Protocol v1 published a memory-and-throughput headline. Protocol v2 adds the latency percentile
+# Protocol v1 published a memory-and-throughput headline. Later protocols add the latency percentile
 # the resume line is named after, so the derivation is keyed by report version: an already
 # published v1 report keeps re-deriving its own exact headline and stays valid forever (AD-1.3).
 _LATENCY_HEADLINE_VERSIONS = frozenset({REPORT_VERSION})

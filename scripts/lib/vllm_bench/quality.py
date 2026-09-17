@@ -39,7 +39,7 @@ _MODEL_CONFIG = ConfigDict(
     frozen=True, extra="forbid", alias_generator=to_camel, populate_by_name=True
 )
 # A protocol-v1 case carries only ground-truth citation and fact expectations, so its asserted-fact
-# rules have nothing to judge; a protocol-v2 case carries the production SAR input, whose catalog is
+# rules have nothing to judge; a v2+ case carries the production SAR input, whose catalog is
 # rebuilt through the production projection exactly as the drafter does at request time.
 _EMPTY_CATALOG = SarEvidenceCatalog(facts=())
 

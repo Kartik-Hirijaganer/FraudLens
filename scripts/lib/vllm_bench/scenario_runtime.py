@@ -1,4 +1,4 @@
-"""Summary: Production SAR scenario wiring for the protocol-v2 live benchmark.
+"""Summary: Production SAR scenario wiring for the versioned cascade live benchmark.
 
 Key classes:
 - (none)

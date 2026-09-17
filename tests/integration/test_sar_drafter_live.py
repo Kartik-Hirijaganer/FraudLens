@@ -360,7 +360,7 @@ async def test_live_rejects_a_fabricated_citation_instead_of_dropping_it(make_sa
 
 @pytest.mark.asyncio
 async def test_live_constrained_decoding_closes_the_citation_enum(make_sar_input) -> None:
-    """A constrained stage cannot emit an id it was never given — fabrication is structural."""
+    """A constrained stage cannot invent a citation, evidence ref, or asserted value."""
     adapter = _FakeAdapter()
     sar_input = make_sar_input()
 
@@ -372,6 +372,10 @@ async def test_live_constrained_decoding_closes_the_citation_enum(make_sar_input
     assert schema["$defs"]["SarClaim"]["properties"]["citationIds"]["items"]["enum"] == [
         "31 CFR 1010.314"
     ]
+    evidence = schema["$defs"]["SarClaim"]["properties"]["evidenceRefs"]["items"]["enum"]
+    assert "txn.amount" in evidence
+    core = schema["properties"]["claims"]["prefixItems"][0]
+    assert core["properties"]["assertedFacts"]["minItems"] == 8
 
 
 @pytest.mark.asyncio
@@ -433,7 +437,7 @@ async def test_live_cache_key_binds_the_quality_policy(make_sar_input) -> None:
         model="primary/chat",
         max_output_tokens=256,
         gate=SarQualityGate(
-            production_gate().policy.model_copy(update={"policy_version": "sar-gate-v2"})
+            production_gate().policy.model_copy(update={"policy_version": "sar-gate-v2-tightened"})
         ),
         budget=BudgetGuard(),
         cache=cache,

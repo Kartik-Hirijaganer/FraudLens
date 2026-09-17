@@ -390,6 +390,8 @@ def _allowed_narrative_values(
                 continue
             allowed.add(fact.value)
             allowed.update(_canonical_forms(fact.display))
+            if fact.kind is SarFactKind.INSTANT:
+                allowed.add(fact.value.partition("T")[0])
     return frozenset(allowed)
 
 

@@ -99,7 +99,7 @@ class SarTierConfig(BaseModel):
         default=None, description="Named connection route, or None for the provider default."
     )
     constrained_decoding: bool = Field(
-        default=False, description="Request a closed citation-id schema from this stage."
+        default=False, description="Request a closed citation/evidence schema from this stage."
     )
     requires_egress_class: str | None = Field(
         default=None, description="Data class a case must carry before this stage may run."

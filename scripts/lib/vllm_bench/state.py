@@ -33,7 +33,7 @@ Notes:
 - A cascade attempt has no meaningful time-to-first-token: the drafter BUFFERS a tier's output and
   emits tokens only for the tier the gate accepted, so TTFT is required of raw-arm measurements and
   optional for cascade attempts rather than being invented.
-- A protocol-v1 arm records exactly one measurement per case; a protocol-v2 cascade scenario
+- A protocol-v1 arm records exactly one measurement per case; a v2+ cascade scenario
   records ONE MEASUREMENT PER ATTEMPT, sharing the case's `sequence` and ordered by
   `attempt_ordinal`, so an escalated case's rejected tier is never dropped from the evidence.
 """

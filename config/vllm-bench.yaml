@@ -2,13 +2,13 @@
 # Secrets are injected at runtime; this file stores only environment-variable names.
 
 seed: 1729
-# Protocol v2 (release 0.5.0 Phase 4.8): constrained decoding changes generation, and the measured
-# subject changes from a raw model arm to the production quality-gated cascade, so the protocol is
-# VERSIONED rather than mutated. The v1 report stays published, valid, and immutable: the exact
-# config hash it was produced under is recorded below, so it is still bound to committed data.
-protocol_version: vllm-sar-bench-v2
+# Protocol v3 is the pre-registered Phase 4 remediation: it closes evidence refs and asserted
+# ref/value pairs in the response schema, requires the core-fact claim and FinCEN sections, and
+# uses prompt v3. Prior raw and adverse live evidence remains bound through this lineage.
+protocol_version: vllm-sar-bench-v3
 protocol_lineage:
   vllm-sar-bench-v1: b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240
+  vllm-sar-bench-v2: 6c21b558cbb35dcc233c9ea945d5ac0363827d92d86c6b7396298fd8a20472e3
 
 cases:
   source: ibm-final-test

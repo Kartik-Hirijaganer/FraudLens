@@ -48,6 +48,8 @@ def _payload() -> dict[str, object]:
 
 def test_config_pins_full_protocol_and_profiles() -> None:
     config = load_config()
+    assert config.protocol_version == "vllm-sar-bench-v3"
+    assert "vllm-sar-bench-v2" in config.protocol_lineage
     assert resolve_profile(config, "full") == (1000, (1, 8, 32), 10)
     assert resolve_profile(config, "smoke") == (8, (1, 2), 1)
     assert resolve_profile(config, "development") == (40, (32,), 1)

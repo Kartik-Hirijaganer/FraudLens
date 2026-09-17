@@ -19,7 +19,7 @@ Key functions:
 - parse_content: parse + validate model JSON into an ungrounded SarDraftContent.
 - parse_only: the gate's entry point — parse without grounding, so fabrication stays visible.
 - parse_and_ground: compose parsing and grounding into a SarDraftContent + its citations.
-- sar_response_schema: build the strict SAR schema with a CLOSED citation-id enum.
+- sar_response_schema: close citations, evidence refs, asserted values, and required sections.
 - render_markdown: render a validated SAR body into PHI-masked, human-readable markdown.
 
 Notes:
@@ -44,14 +44,17 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from fraudlens_backend.sar.evidence import SarEvidenceCatalog, required_narrative_facts
 from fraudlens_core.phi import mask_text
-from fraudlens_ml.sar import SarCitation, SarDraftContent
+from fraudlens_ml.sar import SarCitation, SarDraftContent, SarEvidenceFact
 
 _CODE_FENCE_RE = re.compile(
     r"^\s*```(?:json)?\s*\n(?P<body>.*?)\n```\s*$", re.DOTALL | re.IGNORECASE
 )
 _CLAIM_DEF = "SarClaim"
+_CLAIM_FACT_DEF = "SarClaimFact"
 _CITATION_ID_FIELDS = ("citedRegulations", "citationIds")
+_FINCEN_SECTIONS = ("Who", "What", "When", "Where", "Why", "How")
 
 
 class SarSchemaError(ValueError):
@@ -87,14 +90,20 @@ def parse_only(raw_text: str) -> SarDraftContent:
     return parse_content(raw_text)
 
 
-def sar_response_schema(available: Sequence[SarCitation]) -> dict[str, Any]:
-    """Build the strict SAR draft schema whose citation-id lists are closed over offered ids."""
+def sar_response_schema(
+    available: Sequence[SarCitation], catalog: SarEvidenceCatalog
+) -> dict[str, Any]:
+    """Build the strict schema closed over every offered citation and trusted evidence fact."""
     schema = SarDraftContent.model_json_schema(by_alias=True)
     offered = list(dict.fromkeys(citation.citation for citation in available))
     defs = schema.get("$defs", {})
     claim = defs.get(_CLAIM_DEF, {}).get("properties", {}) if isinstance(defs, dict) else {}
     for container in (schema.get("properties", {}), claim):
         _close_citation_ids(container, offered)
+    _close_claim_evidence(schema, catalog)
+    _require_core_claim(schema, catalog, offered)
+    _require_fincen_sections(schema)
+    _require_root_arrays(schema, offered)
     return schema
 
 
@@ -106,9 +115,119 @@ def _close_citation_ids(properties: dict[str, Any], offered: list[str]) -> None:
             continue
         if offered:
             field["items"] = {"type": "string", "enum": offered}
+            field["uniqueItems"] = True
         else:
             field["items"] = {"type": "string"}
             field["maxItems"] = 0
+
+
+def _closed_fact_schema(fact: SarEvidenceFact) -> dict[str, Any]:
+    """Return one exact ref/value object accepted by constrained decoding."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "ref": {"type": "string", "const": fact.ref},
+            "value": {"type": "string", "const": fact.value},
+        },
+        "required": ["ref", "value"],
+    }
+
+
+def _close_claim_evidence(schema: dict[str, Any], catalog: SarEvidenceCatalog) -> None:
+    """Forbid invented evidence refs and ref/value pairs in every generated claim."""
+    defs = schema["$defs"]
+    claim = defs[_CLAIM_DEF]
+    properties = claim["properties"]
+    refs = [fact.ref for fact in catalog.facts]
+    properties["evidenceRefs"].update(
+        {"items": {"type": "string", "enum": refs}, "minItems": 1, "uniqueItems": True}
+    )
+    properties["assertedFacts"].update({"uniqueItems": True})
+    defs[_CLAIM_FACT_DEF] = {
+        "title": _CLAIM_FACT_DEF,
+        "oneOf": [_closed_fact_schema(fact) for fact in catalog.facts],
+    }
+    claim["required"] = ["statement", "evidenceRefs", "citationIds", "assertedFacts"]
+
+
+def _exact_array(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return an ordered, fixed-length array schema."""
+    return {
+        "type": "array",
+        "prefixItems": items,
+        "items": False,
+        "minItems": len(items),
+        "maxItems": len(items),
+    }
+
+
+def _citation_array(offered: list[str]) -> dict[str, Any]:
+    """Return a deduplicated array closed over offered regulation ids."""
+    if not offered:
+        return {"type": "array", "items": {"type": "string"}, "maxItems": 0}
+    return {
+        "type": "array",
+        "items": {"type": "string", "enum": offered},
+        "maxItems": len(offered),
+        "uniqueItems": True,
+    }
+
+
+def _require_core_claim(
+    schema: dict[str, Any], catalog: SarEvidenceCatalog, offered: list[str]
+) -> None:
+    """Make the first claim carry every core narrative fact in deterministic order."""
+    facts = required_narrative_facts(catalog)
+    core_claim = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "statement": {"type": "string", "minLength": 1},
+            "evidenceRefs": _exact_array([{"type": "string", "const": fact.ref} for fact in facts]),
+            "citationIds": _citation_array(offered),
+            "assertedFacts": _exact_array([_closed_fact_schema(fact) for fact in facts]),
+        },
+        "required": ["statement", "evidenceRefs", "citationIds", "assertedFacts"],
+    }
+    claims = schema["properties"]["claims"]
+    claims.update(
+        {
+            "prefixItems": [core_claim],
+            "items": {"$ref": f"#/$defs/{_CLAIM_DEF}"},
+            "minItems": 1,
+            "maxItems": 3,
+        }
+    )
+
+
+def _require_fincen_sections(schema: dict[str, Any]) -> None:
+    """Make all six ordered FinCEN sections structural instead of prompt-only."""
+    section_schemas = [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "heading": {"type": "string", "const": heading},
+                "body": {"type": "string", "minLength": 1},
+            },
+            "required": ["heading", "body"],
+        }
+        for heading in _FINCEN_SECTIONS
+    ]
+    schema["properties"]["sections"] = _exact_array(section_schemas)
+
+
+def _require_root_arrays(schema: dict[str, Any], offered: list[str]) -> None:
+    """Require the arrays production relies on and at least one offered citation."""
+    required = schema["required"]
+    required.extend(
+        name for name in ("claims", "sections", "citedRegulations") if name not in required
+    )
+    citations = schema["properties"]["citedRegulations"]
+    if offered:
+        citations["minItems"] = 1
+        citations["maxItems"] = len(offered)
 
 
 def parse_and_ground(

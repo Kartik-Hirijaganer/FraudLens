@@ -58,6 +58,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T15:56:48Z | 2026-09-17T16:23:32Z | 0.572404 | 0.740000 | 2.000000 | — | vllm-bench-5de63d0b0fe17634 | — | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:16:14Z | 2026-09-17T17:46:58Z | 0.828652 | 0.740000 | 5.282763 | — | vllm-bench-ff008c8fe1668e25 | vllm-bench-cf06c21fa6cb425d | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:55:32Z | 2026-09-17T18:45:10Z | 1.523099 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5, vllm-bench-3133fb4b74e9a053 | current-plan | gpu_benchmark | yes |
+| 2026-09-17 | RunPod Secure Cloud | up to 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | no |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -104,3 +105,8 @@ with the required 30% margin. `experiment_budget.py admit` therefore returned
 1.523099-hour Pod interval estimates $1.127093 at the quoted rate; provider billing is pending.
 Both Pods and matching volumes were verified absent after deletion. The temporary production-path
 LLM ceiling was restored from $22.00 to $0.25 immediately after teardown.
+The protocol-v3 remediation session `vllm-bench-4ded2e5f759f7e82` is opened before provisioning
+with a $2.00 initial projection. Two dollars moved from the unused reserve to `gpu_benchmark`, so
+the allocation is $30.00, reserve is $5.00, and the overall experiment ceiling remains $75.00.
+The owner authorized continued execution when measurements remain healthy, but the operator must
+report measured spend and the new projection before this session exceeds $2.00.

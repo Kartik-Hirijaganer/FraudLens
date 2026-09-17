@@ -24,7 +24,6 @@ from fraudlens_backend.sar.quality_gate import (
     SarRuntimeGatePolicy,
     load_sar_gate_policy,
 )
-from fraudlens_backend.sar.schema import sar_response_schema
 from fraudlens_ml.sar import (
     SarClaim,
     SarClaimFact,
@@ -50,7 +49,7 @@ def _evaluate(gate: SarQualityGate, sar_input, catalog, content, **kwargs):
 
 def test_policy_round_trips_from_the_committed_quality_config() -> None:
     policy = load_sar_gate_policy()
-    assert policy.policy_version == "sar-gate-v1"
+    assert policy.policy_version == "sar-gate-v2"
     assert policy.require_citation and policy.require_claim_evidence
     assert policy.require_asserted_fact_match and policy.require_fincen_elements
     assert policy.fail_on_truncation and not policy.allow_duplicate_citations
@@ -73,7 +72,7 @@ def test_a_clean_draft_passes_every_enabled_rule(make_sar_input) -> None:
     assert verdict.reasons == ()
     assert verdict.fallback_required is False
     assert verdict.citation_metrics.precision == 1.0
-    assert verdict.policy_version == "sar-gate-v1"
+    assert verdict.policy_version == "sar-gate-v2"
 
 
 def test_the_verdict_is_byte_identical_across_repeated_evaluations(make_sar_input) -> None:
@@ -332,6 +331,18 @@ def test_an_objective_narrative_value_with_no_asserted_fact_is_rejected(make_sar
     assert verdict.unmapped_narrative_spans
 
 
+def test_an_asserted_instant_may_be_truthfully_written_as_its_date(make_sar_input) -> None:
+    """Date-only prose is a truthful loss of precision, not an invented objective value."""
+    sar_input, catalog, content = _case(make_sar_input)
+    date_only = content.model_copy(
+        update={"narrative": f"The transaction occurred on {sar_input.occurred_at.date()}."}
+    )
+
+    verdict = _evaluate(production_gate(), sar_input, catalog, date_only)
+
+    assert SarGateReason.UNMAPPED_NARRATIVE_FACT not in verdict.reasons
+
+
 def test_a_missing_fincen_element_is_named(make_sar_input) -> None:
     sar_input, catalog, content = _case(make_sar_input)
     trimmed = content.model_copy(
@@ -473,13 +484,3 @@ def test_a_fact_whose_value_cannot_be_canonicalised_is_a_construction_error() ->
     """A catalog entry is evidence: an unusable value must fail loudly, never become a silent ''."""
     with pytest.raises(ValueError, match="cannot be canonicalised"):
         _fact("txn.amount", SarFactKind.MONEY, "not-a-number", "n/a")
-
-
-def test_the_response_schema_forbids_any_citation_when_none_are_offered() -> None:
-    """With nothing to cite, constrained decoding must make citing structurally impossible."""
-    schema = sar_response_schema(())
-
-    cited = schema["properties"]["citedRegulations"]
-    claim_ids = schema["$defs"]["SarClaim"]["properties"]["citationIds"]
-    assert cited["maxItems"] == 0 and "enum" not in cited["items"]
-    assert claim_ids["maxItems"] == 0 and "enum" not in claim_ids["items"]

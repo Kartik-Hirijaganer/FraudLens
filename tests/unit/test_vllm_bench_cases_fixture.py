@@ -58,6 +58,8 @@ def test_benchmark_case_bands_and_abstention_contract(
     assert case.amount_band == "100k-plus"
     assert case.history_length_band == "long"
     assert case.prompt_chars == sum(len(message.content) for message in case.messages)
+    assert "txn.amount" in case.available_evidence_refs
+    assert "risk.fraudProbability" in case.available_evidence_refs
 
     abstention = build_benchmark_case(
         case_id="case-abstain",

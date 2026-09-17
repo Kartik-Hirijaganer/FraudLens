@@ -1,4 +1,4 @@
-"""Summary: The protocol-v2 cascade scenario contract (release 0.5.0 Phase 4.3/4.5/4.8). A v1 "arm"
+"""Summary: The versioned cascade scenario contract (release 0.5.0 Phase 4.3/4.5/4.8). A v1 "arm"
 was one pinned model behind one endpoint; a v2 SCENARIO is one production SAR profile measured over
 the named endpoint roles it needs, so the benchmark measures the shipped
 `QualityGatedSarDrafter` rather than a benchmark-only client. A scenario therefore owns no model
@@ -73,7 +73,7 @@ class ScenarioConfig(BaseModel):
 
 
 class CascadeConfig(BaseModel):
-    """The frozen protocol-v2 scenario matrix, replay-pilot binding, and spend provenance."""
+    """The frozen cascade scenario matrix, replay-pilot binding, and spend provenance."""
 
     model_config = _MODEL_CONFIG
 

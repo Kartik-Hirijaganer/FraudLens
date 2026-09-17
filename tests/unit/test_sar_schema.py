@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import pytest
 
+from fraudlens_backend.sar.egress import load_egress_policy, project_for_model
+from fraudlens_backend.sar.evidence import build_evidence_catalog
 from fraudlens_backend.sar.schema import (
     SarSchemaError,
     ground_citations,
     parse_and_ground,
     parse_content,
     render_markdown,
+    sar_response_schema,
 )
 from fraudlens_ml.sar import SarCitation, SarDraftContent
 
@@ -101,3 +104,43 @@ def test_render_markdown_is_byte_identical_with_empty_claims() -> None:
         "**Cited regulations:** 31 CFR 1010.314\n\n"
         "**Recommended action:** Escalate for human review."
     )
+
+
+def test_the_response_schema_forbids_any_citation_when_none_are_offered(
+    make_sar_input,
+) -> None:
+    """With nothing to cite, constrained decoding makes citing structurally impossible."""
+    model_input = project_for_model(
+        make_sar_input(citations=(), rag_context=""), load_egress_policy()
+    )
+    schema = sar_response_schema((), build_evidence_catalog(model_input))
+
+    cited = schema["properties"]["citedRegulations"]
+    claim_ids = schema["$defs"]["SarClaim"]["properties"]["citationIds"]
+    assert cited["maxItems"] == 0 and "enum" not in cited["items"]
+    assert claim_ids["maxItems"] == 0 and "enum" not in claim_ids["items"]
+
+
+def test_the_response_schema_closes_evidence_values_and_required_shape(make_sar_input) -> None:
+    sar_input = make_sar_input()
+    model_input = project_for_model(sar_input, load_egress_policy())
+    catalog = build_evidence_catalog(model_input)
+
+    schema = sar_response_schema(sar_input.citations, catalog)
+
+    claim = schema["$defs"]["SarClaim"]
+    refs = claim["properties"]["evidenceRefs"]["items"]["enum"]
+    assert refs == [fact.ref for fact in catalog.facts]
+    exact_pairs = schema["$defs"]["SarClaimFact"]["oneOf"]
+    assert len(exact_pairs) == len(catalog.facts)
+    amount_pair = next(
+        item for item in exact_pairs if item["properties"]["ref"]["const"] == "txn.amount"
+    )
+    assert amount_pair["properties"]["value"]["const"] == "9500"
+    core = schema["properties"]["claims"]["prefixItems"][0]
+    assert core["properties"]["evidenceRefs"]["minItems"] == 8
+    headings = [
+        item["properties"]["heading"]["const"]
+        for item in schema["properties"]["sections"]["prefixItems"]
+    ]
+    assert headings == ["Who", "What", "When", "Where", "Why", "How"]

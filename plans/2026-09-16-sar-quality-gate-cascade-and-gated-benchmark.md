@@ -663,6 +663,37 @@ as a **failed acceptance test**: it supports the 40-case raw-development figures
 not support the original full-matrix or gated-cascade resume claim. Phase 5 may remediate and
 re-admit the benchmark; it must not publish the replay projection as though this live result passed.
 
+### Phase 4 remediation protocol v3 — pre-registered 2026-09-17
+
+The owner directed that Phase 4 reach acceptance rather than close as a failed experiment. The
+retained live and raw-smoke artifacts isolate a contract failure, not a reason to lower the gate:
+prompt v2 asked the model to trace objective prose through asserted facts, while the response
+schema closed only citation ids. It still allowed invented evidence refs, rounded ref/value pairs,
+omitted core claims, and omitted FinCEN sections. The 7B models therefore produced structurally
+valid JSON that the deterministic production gate correctly rejected.
+
+The remediation is frozen before another paid generation:
+
+1. Prompt `v3@3.0.0` requires concise prose, one ordered core-fact claim, exact display values, and
+   no numeric restatement of regulation prose or model-driver values.
+2. The constrained schema closes citation ids, evidence refs, and every asserted ref/value pair;
+   requires the eight core transaction/risk facts in `claims[0]`; and structurally requires the six
+   ordered FinCEN sections. The gate remains unchanged except that a date-only rendering of an
+   already-asserted instant is accepted as a truthful loss of precision.
+3. Runtime policy becomes `sar-gate-v2`, benchmark protocol becomes `vllm-sar-bench-v3`, and the
+   exact v2 config hash enters `protocol_lineage`. Prior adverse evidence remains immutable.
+4. The self-hosted completion cap becomes 1,024 tokens. This is a pre-run latency/cost bound, not a
+   result-driven retry; truncation remains a hard gate failure.
+5. Protocol-v2 case artifacts are regenerated because prompt and config hashes changed. Their
+   available evidence refs come from the production catalog rather than the obsolete generic
+   fixture refs.
+
+Acceptance thresholds do not move: constrained reference validity `1.0`; final cascade pass at
+least `0.99` and no worse than BF16-alone; zero omitted serving errors; token drift at most `0.05`;
+AWQ weight-memory reduction at least `0.50`; complete telemetry and provenance. Execute smoke first,
+then development-40 and a fresh cost admission. Do not run the full matrix if the corrected pilot
+still fails quality or admission, and do not retain old performance percentages unless reproduced.
+
 ### Dependencies
 Phases 2 and 3.
 
@@ -691,7 +722,7 @@ work for whoever implements Phase 5.
 | 8 | Two-endpoint p95 can read as a same-resource loss/gain | P4 risk 4 | In the published cascade report, p95 must appear next to `gpuHoursPerCase` and `aggregateMemoryPeakMib`, and the report must state which comparison each figure describes (AD-4.3, AD-4.4). |
 | 9 | `awq-bf16-unconstrained` exists only to isolate scenario 3 vs 4 | P4 risk 5 | Decide its disposition: keep it as a shipped production profile, or mark it benchmark-only in `config/llm/sar-vllm.yml` and the ADR. Do not delete it before the constrained-versus-unconstrained comparison is published. |
 | 10 | Run-level provenance still partly manual | P4 gap | The live manifests capture `gitCommit`, role-specific driver identity, connection, served model, policy hash, tokens, and provider cost. Still to capture at run time: the CUDA version and the OpenRouter ZDR eligibility snapshot taken at readiness. Add both to the published report's provenance block. |
-| 11 | No report builder for protocol-v2 scenarios | P4 gap | `build_report` is still the two-arm builder. Publishing the gated-cascade report needs a scenario-shaped report, acceptance checks, and Markdown rendering built on the level metrics Phase 4 already derives (`cascade`, `stageTotals`, `telemetryByRole`, `gpuHoursPerCase`, `aggregateMemoryPeakMib`). The v1 report and its lineage entry stay untouched. |
+| 11 | No report builder for v2+ scenarios | P4 gap | `build_report` is still the two-arm builder. Publishing the gated-cascade report needs a scenario-shaped report, acceptance checks, and Markdown rendering built on the level metrics Phase 4 already derives (`cascade`, `stageTotals`, `telemetryByRole`, `gpuHoursPerCase`, `aggregateMemoryPeakMib`). The v1 report and its lineage entry stay untouched. |
 | 13 | RunPod REST v1 is drifting under us | P4 live run | Three breakages surfaced on 2026-09-17: `volumeEncrypted` rejected on create, `publicIp: ""` before placement crashing response parsing AFTER the Pod existed (a billing orphan), and encryption no longer reported at all. Each is patched on `/v1`, but the v2 shape nests GPU and mount settings entirely differently (`gpu.{id,count}`, `mounts.persistent.{size,path}`) and drops `interruptible`, `locked`, `computeType`, `gpuTypePriority` and `minDownloadMbps`. Migrate the operator to REST v2 — the `runpod:migrate` skill inventories and rewrites — before the next paid session, or expect the next drift to land mid-run. |
 | 14 | Volume encryption is no longer obtainable | P4 live run | The frozen contract required an encrypted Pod volume AND its verification; the provider supplies neither. Accepted for this run because the corpus is the public IBM AML synthetic dataset, with the observed value recorded on each session. ADR-030 must state this as a judged exception with reconsideration criteria, and the published report must disclose it. Rotating `VLLM_API_KEY` after teardown is prudent: it is written to an unencrypted volume at `/workspace/.fraudlens/vllm-api-key`. |
 | 12 | `prod.yaml` app-path budget | P4 4.10 | **Closed for this session.** The approved temporary ceiling was raised to $22.00 for the production-path run and restored to $0.25 immediately after teardown; release-checklist item 18 keeps verifying the restored value. |
@@ -728,7 +759,7 @@ Bump **all seven** lockstep locations 0.4.0 → 0.5.0; `make release-gate`. Veri
 | # | Item | Gate |
 |---|---|---|
 | 1 | Dated plan in `plans/` + ADR-030 accepted | blocking |
-| 2 | Prompt v2 and quality-policy versions frozen and hashed | blocking |
+| 2 | Prompt v3 and quality-policy versions frozen and hashed | blocking |
 | 3 | `make pre-pr` green (`deploy-identity-check fmt docs ci`) | blocking |
 | 4 | `make quality-gates` green; citation gate proven non-vacuous | blocking |
 | 5 | No `status=draft` without `quality.passed=true`; no ungated draft approvable | blocking |
