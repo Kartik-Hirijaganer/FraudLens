@@ -7,10 +7,14 @@ import pytest
 from fraudlens_backend.sar.egress import load_egress_policy, project_for_model
 from fraudlens_backend.sar.evidence import build_evidence_catalog
 from fraudlens_backend.sar.schema import (
+    SarGenerationContent,
     SarSchemaError,
+    SarSectionBodies,
     ground_citations,
+    hydrate_generation,
     parse_and_ground,
     parse_content,
+    parse_generation,
     render_markdown,
     sar_response_schema,
 )
@@ -115,39 +119,91 @@ def test_the_response_schema_forbids_any_citation_when_none_are_offered(
     )
     schema = sar_response_schema((), build_evidence_catalog(model_input))
 
-    cited = schema["properties"]["citedRegulations"]
-    claim_ids = schema["$defs"]["SarClaim"]["properties"]["citationIds"]
-    assert cited["maxItems"] == 0 and "enum" not in cited["items"]
-    assert claim_ids["maxItems"] == 0 and "enum" not in claim_ids["items"]
+    citation_ids = schema["properties"]["citationIds"]
+    assert citation_ids["maxItems"] == 0 and "enum" not in citation_ids["items"]
 
 
-def test_the_response_schema_closes_evidence_values_and_required_shape(make_sar_input) -> None:
+def test_the_response_schema_is_compact_and_closes_only_generated_citations(make_sar_input) -> None:
     sar_input = make_sar_input()
     model_input = project_for_model(sar_input, load_egress_policy())
     catalog = build_evidence_catalog(model_input)
 
     schema = sar_response_schema(sar_input.citations, catalog)
 
-    claim = schema["$defs"]["SarClaim"]
-    refs = claim["properties"]["evidenceRefs"]["items"]["enum"]
-    assert refs == [fact.ref for fact in catalog.facts]
-    exact_pairs = schema["$defs"]["SarClaimFact"]["oneOf"]
-    assert len(exact_pairs) == len(catalog.facts)
-    amount_pair = next(
-        item for item in exact_pairs if item["properties"]["ref"]["const"] == "txn.amount"
+    assert set(schema["properties"]) == {
+        "subject",
+        "narrative",
+        "claimStatement",
+        "sectionBodies",
+        "citationIds",
+    }
+    assert schema["properties"]["citationIds"]["items"]["enum"] == ["31 CFR 1010.314"]
+    assert schema["properties"]["citationIds"]["minItems"] == 1
+    assert set(schema["$defs"]["SarSectionBodies"]["properties"]) == {
+        "who",
+        "what",
+        "when",
+        "where",
+        "why",
+        "how",
+    }
+
+
+def test_generation_hydrates_canonical_facts_and_fixed_fields(make_sar_input) -> None:
+    projected = project_for_model(make_sar_input(), load_egress_policy())
+    catalog = build_evidence_catalog(projected)
+    generated = SarGenerationContent(
+        subject="Qualitative review",
+        narrative=(
+            "Subject alias sent 9500 USD outbound by wire from US at 2025-01-15T12:30:00Z; "
+            "risk is high with 91.0% fraud probability."
+        ),
+        claim_statement="The supplied core transaction facts warrant human review.",
+        section_bodies=SarSectionBodies(
+            who="The masked subject alias.",
+            what="An outbound 9500 USD transaction.",
+            when="At 2025-01-15T12:30:00Z.",
+            where="US through wire.",
+            why="The risk band is high with 91.0% fraud probability.",
+            how="The transaction moved outbound by wire.",
+        ),
+        citation_ids=("31 CFR 1010.314",),
     )
-    assert amount_pair["properties"]["value"]["const"] == "9500"
-    core = schema["properties"]["claims"]["prefixItems"][0]
-    assert core["properties"]["evidenceRefs"]["minItems"] == 8
-    headings = [
-        item["properties"]["heading"]["const"]
-        for item in schema["properties"]["sections"]["prefixItems"]
+
+    content = hydrate_generation(generated, catalog)
+
+    claim = content.claims[0]
+    assert claim.evidence_refs == tuple(fact.ref for fact in catalog.facts[:8])
+    assert claim.asserted_facts[0].ref == "txn.amount"
+    assert claim.asserted_facts[0].value == "9500"
+    assert [section.heading for section in content.sections] == [
+        "Who",
+        "What",
+        "When",
+        "Where",
+        "Why",
+        "How",
     ]
-    assert headings == ["Who", "What", "When", "Where", "Why", "How"]
+    assert content.cited_regulations == generated.citation_ids
+    assert content.recommended_action == "Recommend human compliance review."
+
+
+def test_parse_generation_accepts_fenced_compact_json() -> None:
+    raw = SarGenerationContent(
+        subject="Review",
+        narrative="Narrative.",
+        claim_statement="Claim.",
+        section_bodies=SarSectionBodies(
+            who="who", what="what", when="when", where="where", why="why", how="how"
+        ),
+        citation_ids=("31 CFR 1010.314",),
+    ).model_dump_json(by_alias=True)
+
+    assert parse_generation(f"```json\n{raw}\n```").claim_statement == "Claim."
 
 
 def test_response_schema_uses_vllm_supported_keywords(make_sar_input) -> None:
-    """vLLM 0.10.2 rejects uniqueItems; the deterministic gate owns duplicate rejection."""
+    """v5 avoids unsupported and latency-dominating grammar keywords."""
     sar_input = make_sar_input()
     projected = project_for_model(sar_input, load_egress_policy())
     schema = sar_response_schema(sar_input.citations, build_evidence_catalog(projected))
@@ -159,4 +215,4 @@ def test_response_schema_uses_vllm_supported_keywords(make_sar_input) -> None:
             return {item for nested in value for item in keys(nested)}
         return set()
 
-    assert "uniqueItems" not in keys(schema)
+    assert {"uniqueItems", "oneOf", "prefixItems"}.isdisjoint(keys(schema))

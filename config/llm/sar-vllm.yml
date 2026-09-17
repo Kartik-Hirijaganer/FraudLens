@@ -23,6 +23,14 @@ profiles:
     - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16}
   awq-raw:
     - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq}
+  # One-stage constrained controls let the live canary prove the compact production contract on
+  # AWQ before BF16 is provisioned, then compare equal-contract AWQ and BF16 latency directly.
+  awq-constrained:
+    - {name: awq, model: vllm/Qwen/Qwen2.5-7B-Instruct-AWQ, connection: runpod-awq,
+       constrained_decoding: true}
+  bf16-constrained:
+    - {name: bf16, model: vllm/Qwen/Qwen2.5-7B-Instruct, connection: runpod-bf16,
+       constrained_decoding: true}
   # The same cascade without the closed citation schema. It exists so the benchmark can isolate
   # what constrained decoding changes (scenario 3 versus scenario 4) by comparing two real routes
   # rather than a route against a benchmark-only switch; the gate is identical on both.
@@ -42,6 +50,6 @@ profiles:
     - {name: external, model: openrouter/openai/gpt-5-mini, connection: openrouter-zdr,
        constrained_decoding: true, requires_egress_class: synthetic}
 
-# Prompt v3 is intentionally concise; this cap bounds sequential-cascade latency and cost while
-# leaving headroom above the structurally required six-section JSON response.
-max_output_tokens: 1024
+# Prompt v5 returns a compact generation envelope; trusted fact objects and section headings are
+# hydrated by the backend. The lower cap bounds cascade latency without truncating valid prose.
+max_output_tokens: 512

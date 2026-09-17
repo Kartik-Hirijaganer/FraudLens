@@ -5,15 +5,14 @@ imports llm (the backend wires it in). Per draft it: (1) replays an identical pr
 cache with no spend (plan §7.6); (2) enforces the session/daily USD budget, raising
 `SarBudgetExceededError` → 429 before any call (plan §7.6); (3) assembles the PHI-masked prompt and
 calls the client's provider-native streaming path — optionally under CONSTRAINED DECODING, whose
-closed citation/evidence schema makes fabricated refs and altered values structurally impossible —
-which assembles raw deltas
+compact citation schema makes fabricated ids structurally impossible — and assembles raw deltas
 server-side before running output policy/phishing scans + sanitization + governed fallback (plan
-§8.1, §7.5); (4) parses the complete model JSON WITHOUT grounding and puts it through the
-deterministic `SarQualityGate` (release 0.5.0 Phase 2.4) — grounding is deliberately deferred,
-because `ground_citations` deletes fabricated ids and would destroy the evidence the gate decides
-on; (5) grounds, renders, records usage/cost, and caches ONLY a gate-passing draft; (6) streams the
-validated result. A rejected candidate becomes a terminal `failed` result carrying its verdict, so
-the cascade above can escalate on evidence rather than on a guess.
+§8.1, §7.5); (4) parses the compact envelope and deterministically hydrates evidence refs, asserted
+values, section headings, and the human-review action from trusted backend data; (5) evaluates that
+ungrounded candidate with the deterministic `SarQualityGate`; (6) grounds, renders, records
+usage/cost, and caches ONLY a gate-passing draft; (7) streams the validated result. A rejected
+candidate becomes a terminal `failed` result carrying its verdict, so the cascade above can
+escalate on evidence rather than on a guess.
 
 Key classes:
 - LiveSarDrafter: the provider-backed SarDrafter (gate, guardrails, grounding, cost, cache).
@@ -53,7 +52,8 @@ from fraudlens_backend.sar.quality_gate import SarQualityGate
 from fraudlens_backend.sar.schema import (
     SarSchemaError,
     ground_citations,
-    parse_only,
+    hydrate_generation,
+    parse_generation,
     render_markdown,
     sar_response_schema,
 )
@@ -165,7 +165,7 @@ class LiveSarDrafter:
 
         latency_ms = _elapsed_ms(started)
         try:
-            content = parse_only(llm_result.safe_text)
+            content = hydrate_generation(parse_generation(llm_result.safe_text), evidence_catalog)
         except SarSchemaError:
             verdict = self._gate.rejected(SarGateReason.SCHEMA_INVALID)
             async for event in stream_result(

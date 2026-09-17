@@ -59,7 +59,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:16:14Z | 2026-09-17T17:46:58Z | 0.828652 | 0.740000 | 5.282763 | — | vllm-bench-ff008c8fe1668e25 | vllm-bench-cf06c21fa6cb425d | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T17:55:32Z | 2026-09-17T18:45:10Z | 1.523099 | 0.740000 | 5.920000 | — | vllm-bench-ba468433f6fd893a | vllm-bench-c041bc70ff0d4de5, vllm-bench-3133fb4b74e9a053 | current-plan | gpu_benchmark | yes |
 | 2026-09-17 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T20:44:13Z | 2026-09-17T20:55:11Z | 0.182778 | 0.740000 | 2.000000 | — | vllm-bench-4ded2e5f759f7e82 | — | current-plan | gpu_benchmark | yes |
-| 2026-09-17 | RunPod Secure Cloud | up to 2×NVIDIA GeForce RTX 4090 | on-demand | — | — | 0 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | — | current-plan | gpu_benchmark | no |
+| 2026-09-17 | RunPod Secure Cloud | 2×NVIDIA GeForce RTX 4090 | on-demand | 2026-09-17T21:29:01Z | 2026-09-17T22:00:55Z | 0.906908 | 0.740000 | 1.850000 | — | vllm-bench-0a721bc3b5831216 | vllm-bench-75fb4e0c6dfd6884 | current-plan | gpu_benchmark | yes |
 
 For a current-plan session, `Actual cost USD` may remain `—` only until provider billing lands.
 The validator conservatively counts actual cost when present and otherwise projected cost. Start
@@ -80,6 +80,14 @@ but its first production-gated warm-up was rejected for `asserted_fact_mismatch`
 so no measured level started. Its 0.305000-hour active interval estimates $0.23 at the quoted rate;
 the exported failure artifact is local, provider billing is pending, and clean teardown found no
 matching Pod or volume.
+The protocol-v4 compatibility session completed three live checks. The unconstrained AWQ and BF16
+smokes each made 24 successful generations with complete token and telemetry capture but passed
+the production gate 0/24. The constrained production cascade passed 8/8 at the AWQ tier with no
+escalation and reference validity 1.0, but its 522.8445-second p95 made it unsuitable for the
+latency claim. AWQ used 5.2036 GiB of model-weight memory versus 14.2488 GiB for BF16, preserving
+the 63.5% reduction. The summed 0.906908 endpoint-hours estimate $0.671112 at the quoted rate;
+provider billing is pending. Both Pods and matching volumes were deleted and independently
+verified absent.
 The final-validation attempt completed and exported the AWQ smoke matrix with zero serving errors,
 token usage on every attempt, and GPU telemetry. It stopped before the two-endpoint smoke because
 the frozen config omitted the BF16 remote-telemetry command, which would have mislabeled AWQ GPU

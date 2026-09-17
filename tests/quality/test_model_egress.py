@@ -23,7 +23,7 @@ from openai import AsyncOpenAI
 from openai_compatible_fake import CapturedOpenAiEndpoint
 from pydantic import ValidationError
 from quality_gates import production_gate
-from sar_drafts import gate_passing_content
+from sar_drafts import gate_passing_generation
 
 from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
@@ -66,9 +66,9 @@ def _sar_json(sar_input: object) -> str:
     output has to be a draft the production gate actually accepts — otherwise the drafter would
     reject it and the test would prove nothing about a served SAR.
     """
-    content = gate_passing_content(cast(SarInput, sar_input))
-    return content.model_copy(
-        update={"narrative": f"{content.narrative} {_LOG_RESPONSE_SENTINEL}"}
+    generated = gate_passing_generation(cast(SarInput, sar_input))
+    return generated.model_copy(
+        update={"narrative": f"{generated.narrative} {_LOG_RESPONSE_SENTINEL}"}
     ).model_dump_json(by_alias=True)
 
 

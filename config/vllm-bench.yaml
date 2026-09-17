@@ -2,14 +2,15 @@
 # Secrets are injected at runtime; this file stores only environment-variable names.
 
 seed: 1729
-# Protocol v4 is the provider-contract correction discovered by the v3 live smoke: vLLM 0.10.2
-# rejects JSON-Schema `uniqueItems`, while prompt v3 abbreviated the unconstrained output shape.
-# The deterministic gate still rejects duplicates; prompt v4 states the complete JSON shape.
-protocol_version: vllm-sar-bench-v4
+# Protocol v5 is the latency remediation discovered by the v4 live constrained smoke: the exact
+# fact-object `oneOf` grammar passed quality but produced a 522.8-second p95. The model now emits a
+# compact prose envelope; the backend hydrates canonical facts before the unchanged quality gate.
+protocol_version: vllm-sar-bench-v5
 protocol_lineage:
   vllm-sar-bench-v1: b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240
   vllm-sar-bench-v2: 6c21b558cbb35dcc233c9ea945d5ac0363827d92d86c6b7396298fd8a20472e3
   vllm-sar-bench-v3: 4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534
+  vllm-sar-bench-v4: 47349665261b5c0f893b156227003e7192d40928df78bb674fb1796186f6c8cf
 
 cases:
   source: ibm-final-test
@@ -70,7 +71,7 @@ server:
     command_prefix: []
 
 request:
-  max_tokens: 1024
+  max_tokens: 512
   temperature: 0.0
   json_object_mode: true
   constrained_decoding: true
@@ -173,6 +174,16 @@ cascade:
       profile: awq-raw
       endpoints: [awq]
       concurrency_levels: [1, 8, 32]
+    # Compact-contract controls. AWQ runs first as the paid canary; BF16 is created only after the
+    # AWQ gate and latency checks pass. Together they isolate quantization from cascade overhead.
+    - name: awq-constrained
+      profile: awq-constrained
+      endpoints: [awq]
+      concurrency_levels: [32]
+    - name: bf16-constrained
+      profile: bf16-constrained
+      endpoints: [bf16]
+      concurrency_levels: [32]
     - name: awq-bf16-unconstrained
       profile: awq-bf16-unconstrained
       endpoints: [awq, bf16]

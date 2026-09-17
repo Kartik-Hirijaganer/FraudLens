@@ -218,6 +218,8 @@ def test_scenario_lookup_and_endpoint_count_fail_closed_on_an_unknown_name() -> 
     cascade = load_config().cascade
 
     assert cascade.endpoint_count("awq-bf16") == 2
+    assert cascade.endpoint_count("awq-constrained") == 1
+    assert cascade.endpoint_count("bf16-constrained") == 1
     assert cascade.scenario("awq-raw").profile == "awq-raw"
     with pytest.raises(ValueError, match="unknown benchmark scenario"):
         cascade.scenario("not-declared")

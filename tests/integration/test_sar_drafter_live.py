@@ -359,8 +359,8 @@ async def test_live_rejects_a_fabricated_citation_instead_of_dropping_it(make_sa
 
 
 @pytest.mark.asyncio
-async def test_live_constrained_decoding_closes_the_citation_enum(make_sar_input) -> None:
-    """A constrained stage cannot invent a citation, evidence ref, or asserted value."""
+async def test_live_constrained_decoding_uses_the_compact_closed_envelope(make_sar_input) -> None:
+    """A constrained stage emits prose and closed citations; trusted facts are hydrated."""
     adapter = _FakeAdapter()
     sar_input = make_sar_input()
 
@@ -368,14 +368,14 @@ async def test_live_constrained_decoding_closes_the_citation_enum(make_sar_input
 
     schema = adapter.stream_response_schemas[0]
     assert schema is not None
-    assert schema["properties"]["citedRegulations"]["items"]["enum"] == ["31 CFR 1010.314"]
-    assert schema["$defs"]["SarClaim"]["properties"]["citationIds"]["items"]["enum"] == [
-        "31 CFR 1010.314"
-    ]
-    evidence = schema["$defs"]["SarClaim"]["properties"]["evidenceRefs"]["items"]["enum"]
-    assert "txn.amount" in evidence
-    core = schema["properties"]["claims"]["prefixItems"][0]
-    assert core["properties"]["assertedFacts"]["minItems"] == 8
+    assert schema["properties"]["citationIds"]["items"]["enum"] == ["31 CFR 1010.314"]
+    assert set(schema["properties"]) == {
+        "subject",
+        "narrative",
+        "claimStatement",
+        "sectionBodies",
+        "citationIds",
+    }
 
 
 @pytest.mark.asyncio

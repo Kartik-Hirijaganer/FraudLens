@@ -48,10 +48,13 @@ def _payload() -> dict[str, object]:
 
 def test_config_pins_full_protocol_and_profiles() -> None:
     config = load_config()
-    assert config.protocol_version == "vllm-sar-bench-v4"
+    assert config.protocol_version == "vllm-sar-bench-v5"
     assert "vllm-sar-bench-v2" in config.protocol_lineage
     assert config.protocol_lineage["vllm-sar-bench-v3"] == (
         "4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534"
+    )
+    assert config.protocol_lineage["vllm-sar-bench-v4"] == (
+        "47349665261b5c0f893b156227003e7192d40928df78bb674fb1796186f6c8cf"
     )
     assert resolve_profile(config, "full") == (1000, (1, 8, 32), 10)
     assert resolve_profile(config, "smoke") == (8, (1, 2), 1)
@@ -60,6 +63,8 @@ def test_config_pins_full_protocol_and_profiles() -> None:
     assert resolve_case_set(config, "full") == "measured"
     assert config.arms["bf16"].dtype == "bfloat16"
     assert config.arms["awq"].quantization == "awq_marlin"
+    assert config.cascade.scenario("awq-constrained").endpoints == ("awq",)
+    assert config.cascade.scenario("bf16-constrained").endpoints == ("bf16",)
     assert config.server.enable_prefix_caching is False
     assert config.application_pass.base_url_env == "FRAUDLENS_E2E_BASE_URL"
     assert config.application_pass.auth_token_env == "FRAUDLENS_E2E_AUTH_TOKEN"

@@ -134,7 +134,7 @@ async def test_vllm_sar_route_streams_grounded_zero_cost_result(make_sar_input) 
     assert payload["stream"] is True
     assert payload["response_format"]["type"] == "json_schema"
     schema = payload["response_format"]["json_schema"]["schema"]
-    assert schema["properties"]["citedRegulations"]["items"]["enum"] == ["31 CFR 1010.314"]
+    assert schema["properties"]["citationIds"]["items"]["enum"] == ["31 CFR 1010.314"]
     assert [message["role"] for message in payload["messages"]] == [
         "system",
         "system",

@@ -33,7 +33,7 @@ import httpx
 import pytest
 from openai import AsyncOpenAI
 from openai_compatible_fake import CapturedOpenAiEndpoint
-from sar_drafts import FABRICATED_CITATION_ID, gate_passing_content
+from sar_drafts import FABRICATED_CITATION_ID, gate_passing_generation, gate_passing_json
 
 from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
@@ -77,11 +77,11 @@ def _settings() -> LlmSettings:
 
 def _rejected_json(sar_input: SarInput) -> str:
     """Return output the gate rejects, marked so its text is traceable if it ever escapes."""
-    content = gate_passing_content(sar_input)
-    return content.model_copy(
+    generated = gate_passing_generation(sar_input)
+    return generated.model_copy(
         update={
-            "cited_regulations": (*content.cited_regulations, FABRICATED_CITATION_ID),
-            "narrative": f"{content.narrative} {_REJECTED_MARKER}",
+            "citation_ids": (*generated.citation_ids, FABRICATED_CITATION_ID),
+            "narrative": f"{generated.narrative} {_REJECTED_MARKER}",
         }
     ).model_dump_json(by_alias=True)
 
@@ -216,9 +216,9 @@ async def test_the_self_hosted_tiers_emit_a_closed_citation_enum(
         body = cascade.body(stage.name)
         assert body["response_format"]["type"] == "json_schema", stage.name
         schema = body["response_format"]["json_schema"]["schema"]
-        claim = schema["$defs"]["SarClaim"]["properties"]
-        assert schema["properties"]["citedRegulations"]["items"]["enum"] == offered, stage.name
-        assert claim["citationIds"]["items"]["enum"] == offered, stage.name
+        assert schema["properties"]["citationIds"]["items"]["enum"] == offered, stage.name
+        assert "evidenceRefs" not in json.dumps(schema), stage.name
+        assert "assertedFacts" not in json.dumps(schema), stage.name
 
 
 @pytest.mark.asyncio
@@ -298,4 +298,4 @@ async def test_no_forbidden_sentinel_reaches_any_tier_or_any_log(
 
 def _sar_json(sar_input: SarInput) -> str:
     """Return the gate-accepted output the hosted tier answers with."""
-    return gate_passing_content(sar_input).model_dump_json(by_alias=True)
+    return gate_passing_json(sar_input)

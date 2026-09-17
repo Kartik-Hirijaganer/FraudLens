@@ -717,6 +717,62 @@ still repeat smoke, development, admission, and the full matrix. All acceptance 
 remain unchanged, and v3 enters `protocol_lineage` under config hash
 `4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534`.
 
+### Phase 4 remediation protocol v4 — live result 2026-09-17
+
+Protocol v4 ran from commit `398cdacf77de0708f2cc841e3795a47a2d208deb` against corpus SHA
+`abca4898c5101e62cbff9348c37eb2e7712bc6970d3e4aaf4d5256f399612447`, config SHA
+`47349665261b5c0f893b156227003e7192d40928df78bb674fb1796186f6c8cf`, and prompt SHA
+`254b765cbeaf52deb5296583661e572e3a03e891d5f6b168aabc3999833e116e`.
+
+- AWQ and BF16 unconstrained smokes each completed 24/24 live generations with zero serving
+  errors, complete token accounting, and GPU telemetry, but each passed the production gate 0/24.
+- The real constrained `awq-bf16` route passed 8/8 cases at AWQ, so no case escalated and BF16
+  received no generation request. Reference validity was 1.0 under the unchanged production gate.
+- The constrained p95 was 522.8445 seconds (p50 499.5075 seconds), so v4 failed the latency
+  objective even though it fixed quality. The large case-specific grammar, not model service
+  availability, was the measured bottleneck.
+- AWQ model-weight memory was 5.2036 GiB versus BF16 14.2488 GiB, preserving the 63.5% reduction.
+- The retained constrained artifact SHA is
+  `72d7a5dddcc6de6e0238344543732bf758b29d72f5dfc7368cc3ffbaf88be595`; the BF16 raw artifact
+  SHA is `fea1acadc8759bf76933e05fed0af21f5d2a9d77541ac926862c5d7a82a57218`.
+- The session used 0.906908 summed endpoint-hours (estimated $0.671112 pending settlement).
+  Both Pods and matching volumes were deleted and independently verified absent.
+
+Protocol v4 therefore closes the live quality uncertainty but does not satisfy Phase 4 acceptance:
+its latency cannot support a cascade-latency reduction claim, and development-40 plus the admitted
+1,000-case matrix remain unrun under a viable constrained contract.
+
+### Phase 4 remediation protocol v5 — pre-registered 2026-09-17
+
+The owner approved a compact generation boundary intended to preserve v4's quality result while
+removing its grammar bottleneck. This is a versioned protocol change made before another paid Pod:
+
+1. The model emits only `subject`, `narrative`, one `claimStatement`, six named section bodies, and
+   citation ids. It does not emit evidence refs, asserted fact objects, section headings, or the
+   recommended action.
+2. The backend deterministically hydrates evidence refs and canonical asserted values from the
+   trusted case catalog, supplies the fixed six FinCEN headings and human-review action, then runs
+   the unchanged production `SarQualityGate`. Citation ids remain a closed enum and rejected prose
+   remains buffered from clients.
+3. Prompt `v5@5.0.0`, benchmark protocol `vllm-sar-bench-v5`, and a 512-token completion cap replace
+   v4. The v4 config SHA enters `protocol_lineage`; all v4 evidence remains immutable.
+4. Two one-stage constrained controls are added: `awq-constrained` is the first paid canary, and
+   `bf16-constrained` provides an equal-contract latency baseline. BF16 is not provisioned until the
+   AWQ-only smoke passes quality and demonstrates a material latency improvement over v4.
+5. Only after the AWQ canary passes may the real `awq-bf16` smoke run. It must then pass the same
+   reference-validity/final-quality thresholds before development-40 and a fresh cost admission.
+   The 1,000-case matrix remains prohibited until admission passes.
+
+The provider-free gate for this design is 134/134 focused tests plus 135/135 canonical benchmark
+tests at 91.17% branch coverage and `make vllm-bench-validate`. These checks passed before corpus
+regeneration. The deterministic v5 corpus contains 1,070 cases (1,000 measured, 40 development,
+10 warm-up, 20 abstention) and binds config SHA
+`57df143fde48dd7cfee6c14d366ea261d8bfa36c949e1be5ad5cbf0d7d70f169`, prompt SHA
+`7041a9a4f2b5f985cf9ae7861b671d11432bd22c218a7bbb39094d1451cef77d`, and artifact SHA
+`2e1df4db3099fcd411158fd18d1a6bcb9cf69bf1dadef8138d68712a049376e2`.
+Live latency, escalation rate, and throughput remain unknown until the new smoke; no v4
+performance percentage is carried forward as a v5 result.
+
 ### Dependencies
 Phases 2 and 3.
 

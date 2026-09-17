@@ -25,8 +25,8 @@ Notes:
 - Messages are returned as plain role/content dicts so this module imports no provider types; the
   live drafter hands them to the guardrailed `fraudlens_llm` client, which masks again and prepends
   its own system-policy message.
-- The default template is `v3`: it pre-registers the remediation prompted by the adverse live run
-  and matches the fully closed response schema. `v1` and `v2` stay immutable for evidence lineage.
+- The default template is `v5`: it emits compact prose while the backend hydrates canonical facts.
+  Prior templates stay immutable for benchmark evidence lineage.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from fraudlens_backend.sar.evidence import (
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
 
-DEFAULT_SAR_PROMPT_ID = "v4"
+DEFAULT_SAR_PROMPT_ID = "v5"
 
 
 class SarPromptMeta(PromptMeta):
@@ -170,8 +170,8 @@ def _render_evidence_catalog(catalog: SarEvidenceCatalog) -> str:
 
 
 def _render_required_narrative_facts(catalog: SarEvidenceCatalog) -> str:
-    """Render the exact core refs/values required in the first generated claim."""
-    lines = ["Required narrative facts (first claim; copy ref and value exactly):"]
+    """Render the core facts the backend attaches and the prose must state exactly."""
+    lines = ["Required narrative facts (backend attaches refs; use `as written` in prose):"]
     lines.extend(
         f"- {fact.ref} | {fact.value} | {fact.display}"
         for fact in required_narrative_facts(catalog)

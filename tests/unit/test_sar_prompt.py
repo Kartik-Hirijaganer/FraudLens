@@ -21,8 +21,8 @@ def _messages(sar_input):
 def test_load_records_version_and_stable_hash() -> None:
     first = SarPromptTemplate.load()
     second = SarPromptTemplate.load()
-    assert first.template_id == "v4"
-    assert first.prompt_version == "v4@4.0.0"
+    assert first.template_id == "v5"
+    assert first.prompt_version == "v5@5.0.0"
     assert len(first.prompt_hash) == 64
     assert first.prompt_hash == second.prompt_hash  # deterministic for the same template bytes
     assert first.system_text  # body present
@@ -44,6 +44,12 @@ def test_adverse_live_prompt_v2_remains_loadable_for_lineage() -> None:
 def test_adverse_live_prompt_v3_remains_loadable_for_lineage() -> None:
     prior = SarPromptTemplate.load("v3")
     assert prior.prompt_version == "v3@3.0.0"
+    assert prior.prompt_hash != SarPromptTemplate.load().prompt_hash
+
+
+def test_high_latency_live_prompt_v4_remains_loadable_for_lineage() -> None:
+    prior = SarPromptTemplate.load("v4")
+    assert prior.prompt_version == "v4@4.0.0"
     assert prior.prompt_hash != SarPromptTemplate.load().prompt_hash
 
 
@@ -85,7 +91,7 @@ def test_build_messages_offers_the_closed_evidence_catalog(make_sar_input) -> No
     assert "- risk.band | high | high" in user
     assert "- rule.1.type | structuring | structuring" in user
     assert "- regulation.31 CFR 1010.314 |" in user
-    assert "Required narrative facts (first claim; copy ref and value exactly):" in user
+    assert "Required narrative facts (backend attaches refs; use `as written` in prose):" in user
     assert "- txn.occurredAt | 2024-06-01T14:00:00+00:00 | 2024-06-01T14:00:00" in user
 
 

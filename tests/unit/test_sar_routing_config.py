@@ -43,6 +43,8 @@ def test_the_committed_cascade_profiles_are_ordered_and_routed() -> None:
         "deployed-openrouter",
         "bf16-baseline",
         "awq-raw",
+        "awq-constrained",
+        "bf16-constrained",
         "awq-bf16-unconstrained",
         "awq-bf16",
         "awq-bf16-external",
@@ -56,6 +58,15 @@ def test_the_committed_cascade_profiles_are_ordered_and_routed() -> None:
     ]
     assert all(stage.constrained_decoding for stage in cascade)
     assert cascade[-1].requires_egress_class == "synthetic"
+
+    for profile, connection in (
+        ("awq-constrained", "runpod-awq"),
+        ("bf16-constrained", "runpod-bf16"),
+    ):
+        control = config.stages(profile)
+        assert len(control) == 1
+        assert control[0].connection == connection
+        assert control[0].constrained_decoding is True
 
 
 def test_the_two_cascade_shapes_differ_only_in_constrained_decoding() -> None:
