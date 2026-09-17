@@ -42,6 +42,9 @@ def test_docker_argv_pins_fair_controls_and_arm_difference() -> None:
     bf16 = render_docker_argv(config, "bf16")
     awq = render_docker_argv(config, "awq")
     assert bf16[:4] == ("docker", "run", "--detach", "--rm")
+    image = f"{config.server.image}:{config.server.image_tag}"
+    assert bf16[bf16.index(image) + 1] == config.arms["bf16"].model
+    assert "--model" not in bf16
     assert "--no-enable-prefix-caching" in bf16
     assert "--quantization" not in bf16
     assert awq[awq.index("--quantization") + 1] == "awq_marlin"
@@ -60,6 +63,8 @@ def test_process_argv_is_loopback_only_and_preserves_fairness() -> None:
     bf16 = render_process_argv(config, "bf16")
     awq = render_process_argv(config, "awq")
     assert bf16[:2] == ("vllm", "serve")
+    assert bf16[2] == config.arms["bf16"].model
+    assert "--model" not in bf16
     assert bf16[bf16.index("--host") + 1] == "127.0.0.1"
     assert "--quantization" not in bf16
     assert awq[awq.index("--quantization") + 1] == "awq_marlin"
@@ -174,7 +179,7 @@ def test_process_lifecycle_records_identity_and_stops_matching_group(sandbox, mo
     monkeypatch.setattr("lib.vllm_bench.server._process_exists", lambda _pid: True)
     monkeypatch.setattr(
         "lib.vllm_bench.server._command_output",
-        lambda _command: f"vllm serve --model {config.arms['bf16'].model}",
+        lambda _command: f"vllm serve {config.arms['bf16'].model}",
     )
     monkeypatch.setattr("lib.vllm_bench.server.os.killpg", lambda *args: signals.append(args))
     stop(config, repo_root=sandbox)

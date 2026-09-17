@@ -125,6 +125,8 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "data-batch-20260914-pilot1",
         "gfp-c41b1fbb266f44d4",
         "sar-eval-e5c9a36b5f8a33f3",
+        "vllm-bench-042a265fdc42c9d4",
+        "vllm-bench-445a5c1f412a96c8",
         "vllm-bench-f810b57a7b8ae05a",
     }
     batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")

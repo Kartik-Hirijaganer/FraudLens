@@ -108,19 +108,28 @@ class SshConfig(BaseModel):
 
 
 class RemoteConfig(BaseModel):
-    """Bounded locations within the encrypted RunPod volume."""
+    """Bounded persistent and container-disk locations on a RunPod Pod."""
 
     model_config = _MODEL_CONFIG
 
     source_link: str = Field(..., description="Stable symlink to the synced commit tree.")
     state_root: str = Field(..., description="Private operator state root on the Pod volume.")
+    secret_root: str = Field(..., description="Private state root on the Pod container disk.")
     local_output_link: str = Field(..., description="Persistent target for repository .local.")
     api_key_path: str = Field(..., description="Mode-0600 vLLM bearer-token path.")
+    git_commit_path: str = Field(..., description="Session-injected source commit path.")
     uv_version: str = Field(
         ..., pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$", description="Pinned remote uv version."
     )
 
-    @field_validator("source_link", "state_root", "local_output_link", "api_key_path")
+    @field_validator(
+        "source_link",
+        "state_root",
+        "secret_root",
+        "local_output_link",
+        "api_key_path",
+        "git_commit_path",
+    )
     @classmethod
     def _absolute_remote_path(cls, value: str) -> str:
         path = PurePosixPath(value)
@@ -135,11 +144,17 @@ class RemoteConfig(BaseModel):
     @model_validator(mode="after")
     def _contained_paths(self) -> RemoteConfig:
         state = PurePosixPath(self.state_root)
+        secret = PurePosixPath(self.secret_root)
         if not all(
             state == PurePosixPath(value) or state in PurePosixPath(value).parents
-            for value in (self.local_output_link, self.api_key_path)
+            for value in (self.local_output_link, self.git_commit_path)
         ):
-            raise ValueError("remote state paths must be contained by state_root")
+            raise ValueError("persistent remote state paths must be contained by state_root")
+        key_path = PurePosixPath(self.api_key_path)
+        if secret != key_path and secret not in key_path.parents:
+            raise ValueError("api_key_path must be contained by secret_root")
+        if state == secret or state in secret.parents or secret in state.parents:
+            raise ValueError("secret_root and persistent state_root must not overlap")
         return self
 
 

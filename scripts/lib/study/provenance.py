@@ -5,6 +5,7 @@ Key classes:
 
 Key functions:
 - git_commit: require a clean worktree and return its immutable HEAD revision.
+- resolve_git_commit: validate injected remote provenance or resolve a local checkout.
 
 Notes:
 - A DIRTY worktree fails rather than recording a commit the artifact was not actually produced
@@ -35,3 +36,13 @@ def git_commit(repo_root: Path) -> str:
     if re.fullmatch(GIT_SHA_PATTERN, commit) is None:
         raise ValueError("unable to resolve an immutable Git commit")
     return commit
+
+
+def resolve_git_commit(repo_root: Path, *, injected: str | None = None) -> str:
+    """Validate a session-injected revision, falling back to a clean local checkout."""
+    value = (injected or "").strip()
+    if not value:
+        return git_commit(repo_root)
+    if re.fullmatch(GIT_SHA_PATTERN, value) is None:
+        raise ValueError("injected Git commit must be 40 lowercase hexadecimal characters")
+    return value

@@ -27,7 +27,7 @@ from lib.runpod_gpu.models import CleanupEvidence
 from lib.runpod_gpu.session import load_session, state_path, write_session
 from lib.runpod_gpu.transfer import export_session, sync_session
 from lib.vllm_bench.config import load_config as load_vllm_config
-from lib.vllm_bench.state import write_case_bundle
+from lib.vllm_bench.state import case_manifest_path, write_case_bundle
 
 
 def _private_key(config, sandbox, monkeypatch) -> None:
@@ -114,7 +114,17 @@ def test_sync_streams_secret_only_on_stdin_and_records_case_hash(sandbox, monkey
     assert synced.synced_at is not None
     assert any(value == b"synthetic-vllm-token" for _, value in ssh_calls)
     assert all("synthetic-vllm-token" not in command for command, _ in ssh_calls)
-    assert any(call[0][0] == "scp" for call in process_calls)
+    commands = [command for command, _input in ssh_calls]
+    assert any("UV_LINK_MODE=copy uv sync" in command for command in commands)
+    assert any(
+        config.remote.git_commit_path in command and GIT_SHA in command for command in commands
+    )
+    secret_command = next(command for command in commands if "chmod 0600" in command)
+    assert config.remote.secret_root in secret_command
+    assert config.remote.state_root not in secret_command
+    scp = next(call[0] for call in process_calls if call[0][0] == "scp")
+    assert str(cases) in scp
+    assert str(case_manifest_path(cases)) in scp
 
 
 def test_export_refuses_unsynced_or_existing_and_validates_lineage(sandbox, monkeypatch) -> None:
@@ -154,7 +164,11 @@ def test_remote_wrapper_injects_process_runtime_from_mode_0600_file(sandbox, mon
     token_path = sandbox / "vllm-token"
     token_path.write_text("synthetic-vllm-token")
     token_path.chmod(0o600)
-    remote = runpod_config.remote.model_copy(update={"api_key_path": str(token_path)})
+    commit_path = sandbox / "git-commit"
+    commit_path.write_text(GIT_SHA)
+    remote = runpod_config.remote.model_copy(
+        update={"api_key_path": str(token_path), "git_commit_path": str(commit_path)}
+    )
     monkeypatch.setattr(
         runpod_bench,
         "load_runpod_config",
@@ -169,6 +183,7 @@ def test_remote_wrapper_injects_process_runtime_from_mode_0600_file(sandbox, mon
                 os.environ[vllm_config.server.api_key_env],
                 os.environ[vllm_config.server.image_digest_env],
                 os.environ["VLLM_BENCH_RUNTIME"],
+                os.environ["VLLM_BENCH_GIT_COMMIT"],
             )
         )
         return len(args or ())
@@ -178,10 +193,13 @@ def test_remote_wrapper_injects_process_runtime_from_mode_0600_file(sandbox, mon
     monkeypatch.delenv("VLLM_BENCH_RUNTIME", raising=False)
     monkeypatch.setattr(runpod_bench.benchmark_vllm, "main", dispatch)
     assert runpod_bench.main(["validate"]) == 1
-    assert runtime_values == [("synthetic-vllm-token", runpod_config.pod.image_digest, "process")]
+    assert runtime_values == [
+        ("synthetic-vllm-token", runpod_config.pod.image_digest, "process", GIT_SHA)
+    ]
     assert vllm_config.server.api_key_env not in os.environ
     assert vllm_config.server.image_digest_env not in os.environ
     assert "VLLM_BENCH_RUNTIME" not in os.environ
+    assert "VLLM_BENCH_GIT_COMMIT" not in os.environ
     token_path.chmod(0o644)
     with pytest.raises(ValueError, match="mode 0600"):
         runpod_bench.main(["validate"])

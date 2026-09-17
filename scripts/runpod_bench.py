@@ -7,12 +7,13 @@ Key functions:
 - main: load the mode-0600 vLLM token, pin process runtime provenance, and dispatch the harness.
 
 Notes:
-- The token is read only from the encrypted Pod volume and is never printed or passed in argv.
+- The token is read only from private container-disk storage and is never printed or passed in argv.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import stat
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -23,6 +24,9 @@ from lib.runpod_gpu.config import DEFAULT_CONFIG as DEFAULT_RUNPOD_CONFIG
 from lib.runpod_gpu.config import load_config as load_runpod_config
 from lib.vllm_bench.config import DEFAULT_VLLM_BENCH_CONFIG
 from lib.vllm_bench.config import load_config as load_vllm_config
+
+_GIT_COMMIT_ENV = "VLLM_BENCH_GIT_COMMIT"
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 @contextmanager
@@ -50,13 +54,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = token_path.read_text(encoding="utf-8")
     if not token.strip():
         raise ValueError("vLLM API key file is empty")
-    with _runtime_environment(
-        {
-            vllm.server.api_key_env: token,
-            vllm.server.image_digest_env: runpod.pod.image_digest,
-            "VLLM_BENCH_RUNTIME": "process",
-        }
-    ):
+    runtime = {
+        vllm.server.api_key_env: token,
+        vllm.server.image_digest_env: runpod.pod.image_digest,
+        "VLLM_BENCH_RUNTIME": "process",
+    }
+    commit_path = Path(runpod.remote.git_commit_path)
+    if commit_path.is_file():
+        commit = commit_path.read_text(encoding="utf-8").strip()
+        if _GIT_COMMIT_PATTERN.fullmatch(commit) is None:
+            raise ValueError("session Git commit must be 40 lowercase hexadecimal characters")
+        runtime[_GIT_COMMIT_ENV] = commit
+    elif argv and "run-scenario" in argv:
+        raise ValueError("session Git commit is required for a remote scenario run")
+    with _runtime_environment(runtime):
         return benchmark_vllm.main(argv)
 
 

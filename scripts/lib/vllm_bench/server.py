@@ -80,7 +80,6 @@ def _server_arguments(config: VllmBenchConfig, arm: ArmName, *, host: str) -> tu
     selected = config.arms[arm]
     server = config.server
     arguments = [
-        "--model",
         selected.model,
         "--revision",
         selected.revision,

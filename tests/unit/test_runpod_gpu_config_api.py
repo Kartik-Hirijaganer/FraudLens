@@ -59,7 +59,20 @@ def test_config_pins_secure_single_gpu_and_bounded_paths() -> None:
         ),
         (
             lambda value: value["remote"].update({"api_key_path": "/tmp/key"}),
+            "contained by secret_root",
+        ),
+        (
+            lambda value: value["remote"].update({"git_commit_path": "/tmp/commit"}),
             "contained by state_root",
+        ),
+        (
+            lambda value: value["remote"].update(
+                {
+                    "secret_root": "/workspace/.fraudlens/secrets",
+                    "api_key_path": "/workspace/.fraudlens/secrets/key",
+                }
+            ),
+            "must not overlap",
         ),
     ),
 )

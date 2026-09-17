@@ -44,6 +44,8 @@ ssh:
 remote:
   source_link: /workspace/FraudLens
   state_root: /workspace/.fraudlens
+  secret_root: /root/.fraudlens
   local_output_link: /workspace/.fraudlens/local
-  api_key_path: /workspace/.fraudlens/vllm-api-key
+  api_key_path: /root/.fraudlens/vllm-api-key
+  git_commit_path: /workspace/.fraudlens/git-commit
   uv_version: 0.11.3

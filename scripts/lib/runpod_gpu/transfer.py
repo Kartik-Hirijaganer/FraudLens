@@ -4,7 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
-- sync_session: copy a committed tree, validated cases, and vLLM token to encrypted storage.
+- sync_session: copy committed source/cases and place the vLLM token on private container storage.
 - export_session: retrieve and validate benchmark results before Pod teardown.
 
 Notes:
@@ -32,7 +32,7 @@ from lib.runpod_gpu.session import (
 )
 from lib.study import git_commit
 from lib.vllm_bench.config import VllmBenchConfig
-from lib.vllm_bench.state import load_case_bundle, load_run
+from lib.vllm_bench.state import case_manifest_path, load_case_bundle, load_run
 
 
 def _now() -> datetime:
@@ -50,6 +50,8 @@ def _remote_sync_command(config: RunpodGpuConfig, commit: str) -> str:
     output_root = shlex.quote(config.remote.local_output_link)
     source_link = shlex.quote(config.remote.source_link)
     source_target = shlex.quote(f"{config.remote.state_root}/source-{commit}")
+    commit_path = shlex.quote(config.remote.git_commit_path)
+    commit_value = shlex.quote(commit)
     return " ".join(
         (
             "set -Eeuo pipefail;",
@@ -58,6 +60,7 @@ def _remote_sync_command(config: RunpodGpuConfig, commit: str) -> str:
             f"rm -rf -- {source_target};",
             f"mkdir -p {source_target};",
             f"tar -xf - -C {source_target};",
+            f"printf '%s\\n' {commit_value} > {commit_path};",
             f"ln -s {output_root} {source_target}/.local;",
             f"ln -sfn {source_target} {source_link}",
         )
@@ -102,7 +105,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
         (
             "set -Eeuo pipefail;",
             f"cd {shlex.quote(config.remote.source_link)};",
-            "uv sync --all-packages --group fulldata --frozen",
+            "UV_LINK_MODE=copy uv sync --all-packages --group fulldata --frozen",
         )
     )
     _run_ssh(ssh, setup_command)
@@ -110,15 +113,25 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
         (
             "set -Eeuo pipefail;",
             "umask 077;",
-            f"mkdir -p {shlex.quote(config.remote.state_root)};",
-            f"cat > {shlex.quote(config.remote.api_key_path)}",
+            f"install -d -m 0700 {shlex.quote(config.remote.secret_root)};",
+            f"rm -f -- {shlex.quote(config.remote.api_key_path)};",
+            f"cat > {shlex.quote(config.remote.api_key_path)};",
+            f"chmod 0600 {shlex.quote(config.remote.api_key_path)}",
         )
     )
     _run_ssh(ssh, secret_command, input_bytes=token.encode())
     remote_case_dir = f"{config.remote.source_link}/{vllm_config.paths.output_dir}"
     _run_ssh(ssh, f"mkdir -p {shlex.quote(remote_case_dir)}")
-    destination = f"{config.ssh.user}@{status.public_ip}:{remote_case_dir}/{cases_path.name}"
-    subprocess.run((*scp_argv(config, status), str(cases_path), destination), check=True)
+    destination = f"{config.ssh.user}@{status.public_ip}:{remote_case_dir}/"
+    subprocess.run(
+        (
+            *scp_argv(config, status),
+            str(cases_path),
+            str(case_manifest_path(cases_path)),
+            destination,
+        ),
+        check=True,
+    )
     return write_session(
         config,
         repo_root,

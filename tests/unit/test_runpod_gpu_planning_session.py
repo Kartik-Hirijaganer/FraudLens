@@ -39,6 +39,7 @@ from lib.runpod_gpu.session import (
     validate_pod_contract,
     write_session,
 )
+from lib.study import resolve_git_commit
 
 
 def _plan(sandbox, monkeypatch, **inventory_changes):
@@ -126,6 +127,17 @@ def test_git_commit_rejects_dirty_or_invalid_revision(sandbox, monkeypatch) -> N
     )
     with pytest.raises(ValueError, match="immutable Git"):
         git_commit(sandbox)
+
+
+def test_injected_git_commit_is_validated_without_a_local_checkout(sandbox, monkeypatch) -> None:
+    """A remote archive uses its session SHA and never shells out to a nonexistent .git tree."""
+    monkeypatch.setattr(
+        "lib.study.provenance._command_output",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Git must not run")),
+    )
+    assert resolve_git_commit(sandbox, injected=GIT_SHA) == GIT_SHA
+    with pytest.raises(ValueError, match="40 lowercase hexadecimal"):
+        resolve_git_commit(sandbox, injected="not-a-commit")
 
 
 def test_public_key_path_is_environment_backed_and_single_line(sandbox, monkeypatch) -> None:

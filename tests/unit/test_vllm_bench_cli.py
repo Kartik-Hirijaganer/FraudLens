@@ -406,7 +406,7 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
         lambda _config, **kwargs: server(config, kwargs["arm"]),
     )
     monkeypatch.setattr(benchmark_vllm, "build_sampler", lambda _telemetry: FakeSampler())
-    monkeypatch.setattr(benchmark_vllm, "git_commit", lambda _root: "a" * 40)
+    monkeypatch.setenv("VLLM_BENCH_GIT_COMMIT", "a" * 40)
     arguments = argparse.Namespace(
         scenario="awq-bf16",
         profile="full",
@@ -414,6 +414,7 @@ async def test_run_scenario_drives_the_production_drafter_over_both_endpoint_rol
         run="vllm-bench-0123456789abcdef",
         host=config.cost.default_host,
         purchase_option="pay_as_you_go",
+        cases=root / "cases-ibm-final-test-full.json",
     )
 
     await benchmark_vllm._run_scenario(arguments, config)

@@ -34,7 +34,13 @@ from fraudlens_backend.sar.factory import build_sar_drafter, load_sar_llm_config
 from fraudlens_backend.sar.quality_gate import SarQualityGate, load_sar_gate_policy
 from fraudlens_backend.settings import AppSettings
 from lib.experiments.budget import DEFAULT_LEDGER, load_budget_config, load_ledger
-from lib.study import atomic_write_model, canonical_json, derive_run_id, git_commit, sha256_hex
+from lib.study import (
+    atomic_write_model,
+    canonical_json,
+    derive_run_id,
+    resolve_git_commit,
+    sha256_hex,
+)
 from lib.vllm_bench.cascade_load import role_telemetry, run_scenario
 from lib.vllm_bench.cascade_pilot import CascadeReplayPilot, project_replay_pilot
 from lib.vllm_bench.cases_fixture import build_fixture_cases
@@ -101,6 +107,7 @@ def _parser() -> argparse.ArgumentParser:
         if name == "run":
             command.add_argument("--profile", choices=("smoke", "full"), required=True)
             command.add_argument("--source", choices=("sar-eval", "ibm-final-test"), required=True)
+            command.add_argument("--cases", type=Path)
             command.add_argument("--run")
             command.add_argument("--host", required=True)
             command.add_argument(
@@ -126,6 +133,7 @@ def _parser() -> argparse.ArgumentParser:
     scenario.add_argument("--scenario", required=True)
     scenario.add_argument("--profile", choices=("smoke", "full"), required=True)
     scenario.add_argument("--source", choices=("sar-eval", "ibm-final-test"), required=True)
+    scenario.add_argument("--cases", type=Path)
     scenario.add_argument("--run")
     scenario.add_argument("--host", required=True)
     scenario.add_argument("--purchase-option", choices=("spot", "pay_as_you_go"), required=True)
@@ -230,7 +238,8 @@ async def _run(args: argparse.Namespace, config: VllmBenchConfig) -> None:
     api_key = os.environ.get(config.server.api_key_env, "")
     if not api_key.strip():
         raise ValueError(f"{config.server.api_key_env} is required")
-    case_path, root = _paths(config, profile=args.profile, source=args.source)
+    default_case_path, root = _paths(config, profile=args.profile, source=args.source)
+    case_path = getattr(args, "cases", None) or default_case_path
     artifact, cases_sha = load_case_bundle(case_path)
     if (
         artifact.profile != args.profile
@@ -280,7 +289,8 @@ async def _run(args: argparse.Namespace, config: VllmBenchConfig) -> None:
 async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> None:
     """Execute or resume one cascade scenario against the production quality-gated drafter."""
     selected = config.cascade.scenario(args.scenario)
-    case_path, root = _paths(config, profile=args.profile, source=args.source)
+    default_case_path, root = _paths(config, profile=args.profile, source=args.source)
+    case_path = getattr(args, "cases", None) or default_case_path
     artifact, cases_sha = load_case_bundle(case_path)
     if artifact.config_sha256 != config.config_sha256:
         raise ValueError("case artifact identity does not match the requested protocol")
@@ -311,7 +321,7 @@ async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> No
         drafter=build_sar_drafter(_scenario_settings(config, selected.profile)),
         samplers={role: build_sampler(role_telemetry(config, role)) for role in selected.endpoints},
         provenance=provenance,
-        git_commit=git_commit(REPO_ROOT),
+        git_commit=resolve_git_commit(REPO_ROOT, injected=os.environ.get("VLLM_BENCH_GIT_COMMIT")),
     )
     print(f"vllm-bench scenario OK: {run_id} {selected.name}")
 

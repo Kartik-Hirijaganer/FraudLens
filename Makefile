@@ -475,11 +475,13 @@ vllm-bench-run: ## Run/resume one arm (RUN + ARM; server must already be ready).
 	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
 	$(VLLM_BENCH) run $(if $(RUN),--run "$(RUN)",) --arm "$(ARM)" \
 		--profile "$(PROFILE)" --source "$(SOURCE)" \
+		$(if $(CASES),--cases "$(CASES)",) \
 		--host "$(HOST)" --purchase-option "$(PURCHASE)"
 vllm-bench-scenario: ## Run/resume one cascade scenario through the production drafter (SCENARIO).
 	@test -n "$(SCENARIO)" || { echo "SCENARIO=<declared cascade scenario> is required"; exit 2; }
 	$(VLLM_BENCH) run-scenario --scenario "$(SCENARIO)" $(if $(RUN),--run "$(RUN)",) \
 		--profile "$(PROFILE)" --source "$(SOURCE)" \
+		$(if $(CASES),--cases "$(CASES)",) \
 		--host "$(HOST)" --purchase-option "$(PURCHASE)"
 vllm-bench-e2e: ## Prove 100 API -> durable-worker -> vLLM cases (functional, never latency).
 	$(VLLM_BENCH) e2e --cases "$${E2E_CASES:-100}" --concurrency "$${E2E_CONCURRENCY:-4}" \
