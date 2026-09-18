@@ -2,6 +2,72 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.5.0] - 2026-09-18
+
+Release 0.5.0 makes the deterministic SAR quality gate part of the production path. Before this
+release the single-writer path silently deleted fabricated citation IDs and returned a draft that
+looked clean; the gate existed but nothing on the request path called it. The 1,000-case live matrix
+measured what that hid — raw AWQ fabricated citations on 85 cases at concurrency 32 where BF16
+fabricated none — and the release replaces silent repair with an explicit cascade: gate, escalate,
+or fail with reason codes.
+
+### Features
+
+- Gate every SAR draft with the shipped deterministic evaluator before it is persisted or streamed,
+  and escalate a citation-failed draft to the next model tier instead of repairing it
+- Fail a cascade explicitly when every tier is exhausted, with PHI-free reason codes, rather than
+  serving a plausible narrative; `SarQualityStatus` becomes a real tri-state driven by an evaluator
+  that actually ran
+- Route SAR drafting through named ordered profiles in production config, so a one-stage profile
+  reproduces the pre-0.5.0 single-model behaviour exactly and the benchmark measures the same
+  profiles the product runs
+- Measure the shipped cascade rather than a benchmark-only client: a scenario invokes the production
+  quality-gated drafter, and the raw quantization arms are single-stage scenarios of the same runner
+- Publish a scenario-shaped gated-cascade report with mechanically derived headline, acceptance
+  table, per-stage accounting, terminal-failure reason codes, and labelled comparisons
+- Refuse to publish a cascade report unless the gate verdict recorded at request time equals the
+  verdict re-derived from the persisted output on every attempt
+- Capture the CUDA runtime version in endpoint provenance at run time, and publish it as absent
+  rather than inferred when a run predates the capture
+
+### Fixes
+
+- Report cascade p95 and GPU-hours per case on the same row, and label every published comparison
+  `same hardware` or `two endpoints vs one`, so a two-endpoint architecture result can never read
+  as a free same-resource gain
+- Exclude guided decoding from the published matrix after its latency canary measured a
+  441.6-second p95 at concurrency 32, and record why rather than dropping the configuration
+- Require a published AKS scaling load to clear a 95% served share or state its measured counts;
+  the previous `succeeded > 0` bar let a 0.15% served rate read as a clean load test
+- Give zero-cost local Kubernetes evidence a derived run id so it reconciles against the experiment
+  ledger instead of being invisible to coverage
+- Reject a typo'd `FRAUDLENS_LLM_*` environment variable at startup instead of ignoring it
+
+### Removals
+
+- Remove the direct model-only benchmark load runner and its raw HTTP client, superseded by the
+  scenario runner once the full matrix measured its raw arms as single-stage scenarios and the
+  verdict-parity criterion proved the two derivations identical
+- Remove `SarInput.rag_context`, its producers, and `build_rag_context`: production had stopped
+  rendering the pre-fenced block, so it was an unread second copy of the regulation text. The
+  injection and PHI gates now assert the live prompt, where an uncommitted excerpt is refused
+  outright rather than fenced
+- Remove the `TransactionSummary` sample domain model and the empty `config/quality/` directory
+- Lift the application-pass workload bounds out of source into benchmark config
+
+### Documentation
+
+- Add ADR-030 for the quality-gated SAR cascade: deterministic gate over LLM judge, quality tiers
+  separate from transport fallback, one attempt per tier, explicit failure over degradation, and
+  the carried decisions on escalation-tier surfacing, profile disposition, and the judged
+  volume-encryption exception
+- Link ADR-020 forward: its memory, latency, and throughput findings stand and were re-measured;
+  its silence on grounding is what ADR-030 supersedes
+- Distinguish the three runtimes in the README — the standing deployment, the ephemeral Kubernetes
+  demonstration, and the ephemeral inference benchmark — so none is mistaken for another
+- Disclose the AKS scaling-load caveat in the published artifact and the README
+- Register the 0.5.0 claims against the published report, with no claim ahead of its evidence
+
 ## [0.4.0] - 2026-09-16
 
 Release 0.4.0 takes FraudLens from a CI-validated deployment scaffold to a running one: a
