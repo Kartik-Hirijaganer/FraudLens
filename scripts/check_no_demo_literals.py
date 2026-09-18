@@ -15,8 +15,8 @@ Key functions:
 - main: scan the tree and return a process exit code.
 
 Notes:
-- Permitted by design: `config/portfolio-demo.yaml` (the canonical source) and `plans/` (historical
-  plans record the values they pinned). Nothing else is exempt by path.
+- Permitted by design: `config/portfolio-demo.yaml` (the canonical source). Nothing else is exempt
+  by path.
 - The agency NAME is forbidden UNLESS the config declares it as `research_partition_key` too. That
   key exists precisely to say "this string is also an OFFLINE study partition name", which the
   committed GFP artifact and `scripts/lib/gfp/partitions.py` legitimately hold (ADR-017, Phase 2).
@@ -40,7 +40,7 @@ from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Roots that must never restate a story value. `plans/` is deliberately absent (permitted).
+# Roots that must never restate a story value.
 _SCAN_ROOTS: tuple[str, ...] = (
     ".github",
     "backend/src",

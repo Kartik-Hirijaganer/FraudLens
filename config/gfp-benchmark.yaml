@@ -1,10 +1,9 @@
 # GFP tenant-isolation benchmark — FROZEN protocol pins (offline-only; ADR-017).
 #
 # Read ONLY by scripts/lib/gfp (GfpBenchmarkConfig) — never by AppSettings and never by
-# live scoring. These values pin the "Benchmark contract" of
-# plans/2026-07-14-gfp-isolation-gap-visual-study.md and were frozen with
-# docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md BEFORE any new holdout
-# result was inspected; changing them invalidates published results. NON-SECRET
+# live scoring. These values pin the "Benchmark contract" now carried by
+# docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md, which froze them BEFORE any
+# new holdout result was inspected; changing them invalidates published results. NON-SECRET
 # (Golden Rule 2): dataset files and outputs live under gitignored .local/ only.
 
 seed: 1729

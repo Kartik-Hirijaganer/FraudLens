@@ -1,43 +1,21 @@
-# Production overlay (non-secret). Applied on top of default.yaml.
-# Secrets still come from Infisical at runtime — nothing sensitive here.
 environment: prod
 log_level: INFO
-auth_dev_bypass: false
-
-# CORS origins are filled with the real Vercel domain at deploy (Phase 14); empty
-# here means cross-origin is denied by default until explicitly configured.
 cors_allow_origins: []
 cors_allow_credentials: true
 
-# Cloud backends + live SAR drafter (Anthropic Haiku). Accounts do not exist yet, so
-# the deploy is inert until provisioned; the selection itself is just config.
+portfolio_demo_enabled: true
 storage_backend: azure_blob
 queue_backend: container_apps_jobs
 llm_mode: live
 multi_agent_sar_enabled: false
 
-# Hard ceiling on one tenant-day of live LLM spend. The normal 0.25 value caps theoretical
-# exposure at $7.50/month; each tenant's `system_config` budget is clamped to this value.
-# The governed Phase-4 benchmark raise has been restored; release and deploy keep the normal cap.
-llm_daily_budget_usd: 0.25
-
-# Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,
-# job names, storage account, managed-identity client id) are injected by Terraform as env vars.
+llm_daily_budget_usd: 2.25
 azure_managed_identity_token_url: "http://169.254.169.254/metadata/identity/oauth2/token"
 azure_arm_endpoint: "https://management.azure.com"
 azure_arm_token_resource: "https://management.azure.com/"
 azure_storage_token_resource: "https://storage.azure.com/"
 
-# The FinCEN/BSA RAG index is baked into the image; require it at readiness so a broken
-# deploy (missing/empty index) fails /readyz instead of serving without citations (§10.6).
 rag_index_required: true
-
-# Secret delivery contract. The service never calls Infisical: the deploy platform injects
-# the prod runtime secrets as process environment, so readiness VERIFIES the injection
-# instead of probing app.infisical.com (which would tie pod readiness to an unrelated SaaS and
-# still prove nothing). The active llmProvider probe separately verifies its profile-selected API
-# key, so this provider-neutral list contains only shared service secrets. A failed secret sync
-# leaves a name unset → /readyz 503. Names only — values stay in Infisical prod (Golden Rule 3).
 infisical_secrets_delivery: externally_injected
 infisical_required_env_keys:
   - DATABASE_URL

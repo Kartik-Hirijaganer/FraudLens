@@ -50,6 +50,19 @@ def test_spa_routes_fall_back_to_the_application_shell() -> None:
     assert fallback["destination"] == "/index.html"
 
 
+def test_only_the_governed_workflow_may_publish_the_public_site() -> None:
+    """Git auto-deploy is the one publisher that cannot resolve the origin placeholder.
+
+    Vercel substitutes nothing in `vercel.json`, so a deployment created by the Git integration
+    ships `${AZURE_API_ORIGIN}` literally and every `/api` request falls through to the SPA
+    catch-all — served as `text/html`, with the persona endpoint unreachable. It also bypasses
+    `environment: production`, making `test_application_deploy_workflows_are_manual_only` true of
+    the repository while a push still published. Turning automatic deployments off leaves
+    `deploy-frontend.yml`, which resolves the origin before `vercel build`, as the only path.
+    """
+    assert _config()["git"] == {"deploymentEnabled": False}
+
+
 def test_proxied_api_responses_are_never_cached() -> None:
     # Responses here are tenant-scoped and authenticated; a shared edge cache would serve one
     # agency's data to another.
@@ -59,13 +72,33 @@ def test_proxied_api_responses_are_never_cached() -> None:
     assert {"key": "Cache-Control", "value": "no-store"} in api_headers["headers"]
 
 
+def _production_env() -> dict[str, str]:
+    env: dict[str, str] = {}
+    for line in PRODUCTION_ENV.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        env[key] = value
+    return env
+
+
 def test_the_production_build_emits_relative_api_paths() -> None:
-    lines = [
-        line
-        for line in PRODUCTION_ENV.read_text(encoding="utf-8").splitlines()
-        if line and not line.startswith("#")
-    ]
-    assert lines == ["VITE_API_BASE_URL="]
+    # Exhaustive, not a subset: an absolute API base added here would silently undo the
+    # same-origin proxy and teach the browser the gateway's hostname.
+    assert _production_env() == {"VITE_API_BASE_URL": "", "VITE_DEMO_AUTH_ENABLED": "true"}
+
+
+def test_the_production_build_ships_the_public_persona_picker() -> None:
+    """The picker gate is pinned in the committed build config, not only in the deploy job.
+
+    `vercel build` takes its build environment from the Project Settings that `vercel pull`
+    writes locally, so a step-level env var is not a channel the framework build is guaranteed
+    to see. Vite reads this file from the project root directory under every publisher, which
+    is what stops the picker from vanishing from a build nobody dispatched.
+    """
+    assert _production_env()["VITE_DEMO_AUTH_ENABLED"] == "true"
+    # The public demo never rides on the tokenless local bypass; every persona signs in for real.
+    assert "VITE_AUTH_DEV_BYPASS" not in _production_env()
 
 
 def test_the_deploy_job_resolves_the_origin_before_building() -> None:

@@ -1,4 +1,4 @@
 interface:
   display_name: "Quality Gates"
   short_description: "Run quality, grounding, and egress gates"
-  default_prompt: "Use $quality-gates to run and explain the checks required by the active phase under plans/."
+  default_prompt: "Use $quality-gates to run and explain the gates the current change requires."

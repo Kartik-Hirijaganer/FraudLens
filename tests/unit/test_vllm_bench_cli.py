@@ -403,6 +403,6 @@ def test_scenario_runtime_binds_the_production_overlay_and_daily_budget(monkeypa
     assert result == "drafter"
     assert observed["settings"].environment == "prod"
     assert observed["settings"].sar_profile == "awq-bf16"
-    observed["budget"].record(Decimal("0.25"))
+    observed["budget"].record(Decimal("2.25"))
     with pytest.raises(SarBudgetExceededError, match="daily budget"):
         observed["budget"].ensure_within_budget()

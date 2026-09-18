@@ -118,9 +118,11 @@ frontend only receives `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, which a
 `make run-live` requires all four values and fails before startup if any are absent; it never maps
 the service-role value into a `VITE_*` variable.
 
-The Vercel production project must expose those same two publishable values to `vercel build`.
-The deploy workflow supplies `VITE_DEMO_AUTH_ENABLED=true` so portfolio visitors see the synthetic
-persona picker, but it never supplies `VITE_AUTH_DEV_BYPASS`; production authentication therefore
+The Vercel production project must expose those same two publishable values to `vercel build`,
+which takes its build environment from the Project Settings `vercel pull` writes locally — a
+step-level env var in the workflow is not a channel that build is guaranteed to see. The persona
+picker is therefore pinned in the committed `frontend/.env.production` instead, where Vite reads it
+under every publisher; nothing ever supplies `VITE_AUTH_DEV_BYPASS`, so production authentication
 always uses Supabase and the gateway's verified `/api/v1/me` tenant claim.
 
 ## GitHub Actions OIDC

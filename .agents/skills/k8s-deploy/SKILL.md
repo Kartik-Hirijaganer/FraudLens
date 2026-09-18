@@ -23,7 +23,7 @@ deployment, smoke testing, stopping, starting, or teardown.
 
 ## Steps
 
-1. Read the applicable deployment phase under `plans/` and run `make k8s-tools-check`,
+1. Confirm the intended deployment scope with the operator and run `make k8s-tools-check`,
    `make k8s-validate`, `make k8s-demo-test`, and the committed evidence validator.
 2. For kind, create/load/deploy through `make kind-up`, `make kind-load`, and
    `make kind-deploy`; confirm the context is `kind-fraudlens-demo` before kubectl writes.

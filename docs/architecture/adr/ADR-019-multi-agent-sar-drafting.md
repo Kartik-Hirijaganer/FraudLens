@@ -2,11 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** [ADR-016 — run owns execution; SSE is an observer](README.md)
   · [ADR-018 — portfolio demo data provenance](ADR-018-portfolio-demo-data-provenance.md)
-  · implementation plan
-  `plans/2026-08-17-multi-agent-investigation-and-azure-deployment.md` (retired; see plans/README.md)
 
 ## Context
 
@@ -22,6 +19,32 @@ arbitrary network access, or writes; concurrent nodes could share unsafe databas
 agent could be mistaken for a compliance authority. A more expensive workflow also needs evidence
 that its quality gain is real. Because FraudLens currently uses synthetic data only, that evidence
 can be published, but it must not be represented as validation for real PHI or production filing.
+
+### Options considered and rejected
+
+1. **Keep only the single writer** — rejected as the sole design because it provides no independent
+   evidence investigation or pre-human compliance review. It remains the compatibility baseline and
+   live fallback.
+2. **Use an LLM supervisor to choose agents and termination** — rejected because it makes execution,
+   spend, and tool exposure model-directed and nondeterministic. The four roles and their edges are
+   known before any request.
+3. **Give every agent the same tools** — rejected: synthesis and review do not need data access, and
+   broader capabilities would violate least privilege. Writer and Reviewer deliberately have none.
+4. **Use a generic LangGraph checkpointer keyed only by `run_id`** — rejected because tenant identity
+   would be implicit in an unscoped thread key and persistence would be coupled to framework
+   serialization. Explicit tenant-scoped execution rows make replay and audit semantics application
+   owned.
+5. **Allow the reviewer to approve or transition the alert** — rejected because model review is
+   advisory. The established authenticated human transition is the only approval authority.
+6. **Evaluate through an internal shortcut** — rejected because it would measure a path that does not
+   ship. Both study arms invoke the real API with `workflowMode` and therefore include production
+   orchestration and persistence behavior.
+7. **Serve evaluation results from a backend endpoint** — rejected because the study is an offline,
+   synthetic, committed artifact. A static, lazily loaded page is reproducible and creates no tenant
+   query or runtime provider dependency.
+8. **Let the writer's model family judge its own output** — rejected because same-family preference
+   is an avoidable source of bias. The frozen protocol uses a different judge family, blind labels,
+   randomized order, and repeated samples.
 
 ## Decision
 
@@ -56,7 +79,7 @@ The feature is disabled by default in production and additionally requires the t
 flag. This is defense in depth for rollout, not a substitute for the tool, tenancy, budget, and human
 authority boundaries above.
 
-## Why — specialization is useful only when control stays deterministic
+### Why — specialization is useful only when control stays deterministic
 
 **1 · Separation makes independent review possible.** Evidence retrieval, regulatory analysis,
 narrative synthesis, and compliance review have different inputs and failure modes. Typed handoffs
@@ -83,33 +106,7 @@ single writer. It is justified only by a frozen paired evaluation whose headline
 delta. A neutral or negative result is valid and must remain visible; the benchmark is not allowed to
 rewrite its protocol or prose to manufacture a favorable conclusion.
 
-## Options considered and rejected
-
-1. **Keep only the single writer** — rejected as the sole design because it provides no independent
-   evidence investigation or pre-human compliance review. It remains the compatibility baseline and
-   live fallback.
-2. **Use an LLM supervisor to choose agents and termination** — rejected because it makes execution,
-   spend, and tool exposure model-directed and nondeterministic. The four roles and their edges are
-   known before any request.
-3. **Give every agent the same tools** — rejected: synthesis and review do not need data access, and
-   broader capabilities would violate least privilege. Writer and Reviewer deliberately have none.
-4. **Use a generic LangGraph checkpointer keyed only by `run_id`** — rejected because tenant identity
-   would be implicit in an unscoped thread key and persistence would be coupled to framework
-   serialization. Explicit tenant-scoped execution rows make replay and audit semantics application
-   owned.
-5. **Allow the reviewer to approve or transition the alert** — rejected because model review is
-   advisory. The established authenticated human transition is the only approval authority.
-6. **Evaluate through an internal shortcut** — rejected because it would measure a path that does not
-   ship. Both study arms invoke the real API with `workflowMode` and therefore include production
-   orchestration and persistence behavior.
-7. **Serve evaluation results from a backend endpoint** — rejected because the study is an offline,
-   synthetic, committed artifact. A static, lazily loaded page is reproducible and creates no tenant
-   query or runtime provider dependency.
-8. **Let the writer's model family judge its own output** — rejected because same-family preference
-   is an avoidable source of bias. The frozen protocol uses a different judge family, blind labels,
-   randomized order, and repeated samples.
-
-## Frozen published-evaluation protocol
+### Frozen published-evaluation protocol
 
 The comparison is fixed before inspecting the published result:
 

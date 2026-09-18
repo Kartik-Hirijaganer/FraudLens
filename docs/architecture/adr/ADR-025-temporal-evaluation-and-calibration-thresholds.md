@@ -2,9 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
 ## Context
 
@@ -19,6 +16,23 @@ The full-data path must process up to 68,228,066 transactions without loading ra
 survive interruption, and preserve the 19-feature live scoring contract. It operates only on public
 synthetic data under `.local/`; it does not receive application database or tenant credentials and
 does not alter tenant-scoped serving queries, JWT authorization, or the human-gated promotion flow.
+
+### Options considered and rejected
+
+1. **Keep account-whole folds** — rejected for this study because they answer unseen-account
+   generalization rather than future-activity generalization. The earlier protocol remains valid
+   historical evidence and is not retroactively relabeled.
+2. **Choose thresholds on holdout** — rejected because the threshold becomes a fitted parameter and
+   contaminates the final-test role.
+3. **Randomly split transactions** — rejected because future rows could influence training while
+   earlier rows appear in evaluation, overstating temporal production performance.
+4. **Split equal-timestamp rows by source order** — rejected because order inside one timestamp is
+   not a defensible causal boundary.
+5. **Load each full CSV into pandas** — rejected because peak memory scales with raw-source size and
+   prevents bounded laptop/ephemeral-VM execution.
+6. **Train one merged cross-source model** — rejected because it hides source-specific prevalence
+   and reconciliation, weakens evidence interpretation, and conflicts with the three pre-registered
+   candidates.
 
 ## Decision
 
@@ -39,7 +53,7 @@ Model metadata now records `threshold_source`; newly trained bundles write `cali
 missing field on an older bundle parses as `holdout`, preserving an honest historical label rather
 than rewriting provenance.
 
-## Why
+### Why
 
 **1 · Final-test isolation becomes enforceable.** Tuning controls tree count, calibration controls
 probability mapping and operational cutoffs, and holdout supplies only the reported metrics. A
@@ -56,23 +70,6 @@ before any XGBoost fit starts.
 **4 · Provenance remains interpretable.** Reports distinguish source, usable, training,
 calibration, and evaluation transactions; they do not relabel transactions as SAR cases. Candidate
 identity, config hash, source hash, commit, software versions, memory, timing, and cost are retained.
-
-## Options considered and rejected
-
-1. **Keep account-whole folds** — rejected for this study because they answer unseen-account
-   generalization rather than future-activity generalization. The earlier protocol remains valid
-   historical evidence and is not retroactively relabeled.
-2. **Choose thresholds on holdout** — rejected because the threshold becomes a fitted parameter and
-   contaminates the final-test role.
-3. **Randomly split transactions** — rejected because future rows could influence training while
-   earlier rows appear in evaluation, overstating temporal production performance.
-4. **Split equal-timestamp rows by source order** — rejected because order inside one timestamp is
-   not a defensible causal boundary.
-5. **Load each full CSV into pandas** — rejected because peak memory scales with raw-source size and
-   prevents bounded laptop/ephemeral-VM execution.
-6. **Train one merged cross-source model** — rejected because it hides source-specific prevalence
-   and reconciliation, weakens evidence interpretation, and conflicts with the three pre-registered
-   candidates.
 
 ## Tradeoffs accepted
 

@@ -2,9 +2,6 @@
 
 - **Status:** Accepted; amended 2026-09-16 (see [Amendment](#amendment--2026-09-16-release-040))
 - **Date:** 2026-09-14
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
 ## Context
 
@@ -16,6 +13,19 @@ ephemeral demonstration runtime whose paid apply is deferred to the next release
 The proof must distinguish infrastructure deployability from observed behavior. Local kind can
 measure HPA scale-out/convergence and worker replacement at zero cloud cost. Terraform and an inert
 workflow can validate the Azure shape without creating a cluster.
+
+### Options considered and rejected
+
+1. **Claim a real AKS deployment in release 0.3** — rejected because no approved apply or measured
+   AKS session exists.
+2. **Replace Container Apps with AKS now** — rejected because it broadens operational cost and
+   support scope without a release requirement; ADR-007 remains active.
+3. **Use KEDA for scale-to-zero** — rejected for this demonstration because it adds an operator and
+   queue-scaling contract. One minimum API replica keeps the proof understandable and bounded.
+4. **Run only kind and omit AKS IaC** — rejected because local behavior alone does not prove the
+   Azure architecture is deployable.
+5. **Use a permanent AKS cluster** — rejected because continuing node and observability charges
+   conflict with the personal-project budget.
 
 ## Decision
 
@@ -35,7 +45,7 @@ managed identity and writes namespaced Secrets at runtime.
 Creation, workload mutation, stop, and destroy commands also require explicit confirmation. No AKS
 apply or AKS runtime evidence is part of release 0.3.
 
-## Evidence
+### Evidence
 
 - [`k8s-hpa-scaling.md`](../../reference/benchmarks/k8s-hpa-scaling.md) records the measured local
   autoscaling and worker-recovery proof.
@@ -44,19 +54,6 @@ apply or AKS runtime evidence is part of release 0.3.
   formatter-, provider-, plan-, and Checkov-validated without an apply.
 - [`deploy-aks.yml`](../../../.github/workflows/deploy-aks.yml) encodes the next-release lifecycle
   and clean-teardown path while remaining feature-gated.
-
-## Options considered and rejected
-
-1. **Claim a real AKS deployment in release 0.3** — rejected because no approved apply or measured
-   AKS session exists.
-2. **Replace Container Apps with AKS now** — rejected because it broadens operational cost and
-   support scope without a release requirement; ADR-007 remains active.
-3. **Use KEDA for scale-to-zero** — rejected for this demonstration because it adds an operator and
-   queue-scaling contract. One minimum API replica keeps the proof understandable and bounded.
-4. **Run only kind and omit AKS IaC** — rejected because local behavior alone does not prove the
-   Azure architecture is deployable.
-5. **Use a permanent AKS cluster** — rejected because continuing node and observability charges
-   conflict with the personal-project budget.
 
 ## Tradeoffs accepted
 
@@ -83,8 +80,8 @@ kind.”
 
 ## Amendment — 2026-09-16 (release 0.4.0)
 
-Release 0.4.0 executed the apply this record deferred, under
-`plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see plans/README.md).
+Release 0.4.0 executed the apply this record deferred; the recurring-cost decision that work
+produced is recorded in [ADR-029](ADR-029-recurring-operational-budget.md).
 The decision is unchanged in substance: AKS remains the ephemeral demonstration runtime, ADR-007
 keeps Container Apps as the application target, and the cluster is still created and destroyed per
 session. Three specifics moved, each because the subscription would not create what this record

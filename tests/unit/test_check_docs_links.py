@@ -17,7 +17,7 @@ def _write(path: Path, text: str) -> None:
 
 def test_validates_the_exact_governed_surface_and_relative_anchors(sandbox: Path) -> None:
     _write(sandbox / "README.md", "# Home\n[Guide](docs/guide.md#how-it-works)\n")
-    _write(sandbox / "AGENTS.md", "# Agents\n[Plans](plans/)\n")
+    _write(sandbox / "AGENTS.md", "# Agents\n[Docs](docs/)\n")
     _write(sandbox / "docs" / "guide.md", "# Guide\n## How it works\n")
     _write(sandbox / "plans" / "README.md", "# Plans\n")
     assert validate_docs_links(sandbox) == []

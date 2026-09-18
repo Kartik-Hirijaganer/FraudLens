@@ -30,7 +30,14 @@ so there is nothing a private network would buy.
 
 One hostname reaches the user. `frontend/vercel.json` rewrites `/api/*` to `AZURE_API_ORIGIN` — the
 **stable** ingress FQDN — before the SPA fallback, and `frontend/.env.production` pins
-`VITE_API_BASE_URL` empty, so the browser never learns the Container Apps hostname. CORS is a
+`VITE_API_BASE_URL` empty, so the browser never learns the Container Apps hostname.
+
+Vercel substitutes nothing in `vercel.json`, so `deploy-frontend.yml` resolves the origin itself
+before `vercel build` reads the file. A deployment created any other way would ship the literal
+placeholder and drop every `/api` request into the SPA catch-all, answering JSON routes with
+`text/html`. That is why the same file sets `git.deploymentEnabled: false`: automatic Git
+deployments are the one publisher that cannot perform the substitution, and disabling them is also
+what keeps the `environment: production` approval gate on the only path that can. CORS is a
 defence-in-depth backstop behind a same-origin request, not the mechanism that makes it work.
 Authorization headers and unbuffered SSE streams pass through the rewrite unchanged.
 
@@ -299,7 +306,7 @@ current numbers and their sources.
 |---|---|---|
 | `max_replicas` (`prod.tfvars`) | 1 | The platform cannot schedule a second replica. Load queues; the bill does not scale. |
 | `daily_quota_gb` (Log Analytics) | 0.1 GB/day | The workspace **stops ingesting** for the rest of the UTC day rather than billing on. Expect a telemetry gap, not a charge. |
-| `llm_daily_budget_usd` (`config/prod.yaml`) | $0.25/day | The investigation path fails closed and returns the standard `{code, message, details, requestId}` envelope — never a raw provider error. |
+| `llm_daily_budget_usd` (`config/prod.yaml`) | $2.25/day | The investigation path fails closed and returns the standard `{code, message, details, requestId}` envelope — never a raw provider error. |
 | Container Apps Jobs | manual trigger only | No schedule exists to fire, so retrain/batch compute is never recurring. |
 | `fraudlens-prod-budget` | $25/month, RG-scoped | Email at 50 / 80 / 100% actual and 100% forecast. Alert only. |
 | `fraudlens-cost-guardrails-budget` | $25/month, subscription-wide, unfiltered | The only instrument that sees a resource created outside a named resource group. Alert only. |

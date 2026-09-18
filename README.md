@@ -463,7 +463,7 @@ resources.
 | Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
 
 Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a
-$0.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
+$2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
 subscription scopes and a daily read-only watchdog for leftover resources. See the
 [cost model](docs/reference/cost-model.md) and
 [ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md).
@@ -493,7 +493,6 @@ or AKS sessions incur new cost and require fresh admission/approval.
 ├── scripts/                    Docs, ingest, training, demo, and governance tooling
 ├── tests/                      Unit, integration, security, smoke, and synthetic fixtures
 ├── docs/                       Architecture, runbooks, generated references
-├── plans/                      Dated, phase-based implementation plans
 ├── DESIGN.md                   Canonical Wise frontend design system
 ├── Makefile                    Single source of truth for developer and CI commands
 └── docker-compose.local.yml    Local Postgres 16 stack
@@ -579,7 +578,6 @@ See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-gu
 | Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
 | Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |
 | Contributor/agent rules | [AGENTS.md](AGENTS.md) |
-| Implementation plans | [plans/](plans/) |
 
 ## License
 

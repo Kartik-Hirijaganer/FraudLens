@@ -1,9 +1,8 @@
 # Security hardening & threat model
 
-> Runbook for the FraudLens security posture and the **deploy gate** it must pass. Phase 13 of
-> the [retired foundation plan](../../plans/README.md#retired-plans)
-> verifies and tightens the posture **before any production-style deploy** — it is a hard
-> prerequisite for Phase 14 (Azure deploy). Pairs with
+> Runbook for the FraudLens security posture and the **deploy gate** it must pass. The gate
+> verifies and tightens the posture **before any production-style deploy**, and is a hard
+> prerequisite for the Azure deploy. Pairs with
 > [phi-guardrails.md](phi-guardrails.md), [observability.md](observability.md), and the
 > governance rules in [AGENTS.md](../../AGENTS.md). Implements plan §4, §6, §8, §11, §16 Phase 13.
 

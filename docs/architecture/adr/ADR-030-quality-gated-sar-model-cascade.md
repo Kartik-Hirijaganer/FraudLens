@@ -2,10 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-16-sar-quality-gate-cascade-and-gated-benchmark.md`;
-  [ADR-020](ADR-020-vllm-awq-self-hosted-sar-inference.md) (the raw AWQ decision this supersedes on
+- **Related:** [ADR-020](ADR-020-vllm-awq-self-hosted-sar-inference.md) (the raw AWQ decision this supersedes on
   quality), [ADR-023](ADR-023-sar-quality-and-privacy-gates.md) (the deterministic gate this
   promotes to the production path), [ADR-026](ADR-026-synthetic-only-model-egress.md),
   [ADR-028](ADR-028-paid-experiment-governance.md)
@@ -27,6 +24,25 @@ that, because it converts a detectable failure into an undetectable one.
 
 ADR-020 chose AWQ on memory, latency, and throughput. It was right about all three and silent about
 this. Its reconsideration clause is now met.
+
+### Options considered
+
+1. **Keep silent citation repair** — rejected. It converts a detectable grounding failure into an
+   undetectable one, which is the opposite of what an audit trail is for.
+2. **Gate, but degrade to a warning banner instead of failing** — rejected. A draft the gate rejected
+   is a draft whose citations may not support its claims; shipping it with a banner moves the
+   burden onto the analyst least able to check it.
+3. **LLM-as-judge instead of deterministic checks** — rejected. It needs its own correctness
+   evidence, costs a second inference per draft, and is not reproducible across model revisions.
+4. **Escalate by retrying the same tier** — rejected. Deterministic decoding makes the retry
+   identical, so it buys latency and nothing else.
+5. **Ship constrained decoding because fabrication becomes impossible** — rejected on the measured
+   441.6-second p95. Structural prevention is better than detection only if the product still
+   responds. Retained, not deleted, so the comparison can be repeated when vLLM's guided decoding
+   improves.
+6. **Escalate straight to a hosted frontier model** — rejected as unmeasured. BF16 resolved **every
+   one of the 92** escalated cases; adding a paid third hop before exhausting a free second one
+   would buy nothing this release can demonstrate.
 
 ## Decision
 
@@ -76,26 +92,7 @@ tier-3 behaviour. The tier-3 pilot that would select between `claude-sonnet-4.6`
 | **RunPod REST v1 vs v2** | **Stay on v1 for release 0.5.0.** Three `/v1` breakages landed mid-release and each is patched; 0.5.0 provisions nothing further, so migrating now would ship an unverifiable rewrite of a paid-provisioning path. v2 also deletes the host-quality floors (`minRAMPerGPU`, `minVCPUPerGPU`, `minDownloadMbps`) that let the operator refuse an underpowered host before renting it — the floors AD-4.2's equal-hardware comparison rests on — so the migration needs post-create verification to replace them, not a literal translation. Recorded as an admission precondition for the next paid session, gated behind an owner-approved single-pod smoke. Full inventory in the [Phase 4 handoff](../../handoff/0.5.0-phase4-live-run.md). |
 | **Volume encryption on the benchmark Pod** | **Judged exception.** The frozen contract required an encrypted Pod volume and its verification; mid-release the provider rejected the create field, then stopped reporting encryption state at all. Accepted for these sessions because the corpus is the public IBM AML synthetic dataset and contains no PHI. The observed state is recorded on each ledger row, the published report discloses it, and `VLLM_API_KEY` — written to an unencrypted volume at `/workspace/.fraudlens/vllm-api-key` — should be rotated after teardown. |
 
-## Options considered
-
-1. **Keep silent citation repair** — rejected. It converts a detectable grounding failure into an
-   undetectable one, which is the opposite of what an audit trail is for.
-2. **Gate, but degrade to a warning banner instead of failing** — rejected. A draft the gate rejected
-   is a draft whose citations may not support its claims; shipping it with a banner moves the
-   burden onto the analyst least able to check it.
-3. **LLM-as-judge instead of deterministic checks** — rejected. It needs its own correctness
-   evidence, costs a second inference per draft, and is not reproducible across model revisions.
-4. **Escalate by retrying the same tier** — rejected. Deterministic decoding makes the retry
-   identical, so it buys latency and nothing else.
-5. **Ship constrained decoding because fabrication becomes impossible** — rejected on the measured
-   441.6-second p95. Structural prevention is better than detection only if the product still
-   responds. Retained, not deleted, so the comparison can be repeated when vLLM's guided decoding
-   improves.
-6. **Escalate straight to a hosted frontier model** — rejected as unmeasured. BF16 resolved **every
-   one of the 92** escalated cases; adding a paid third hop before exhausting a free second one
-   would buy nothing this release can demonstrate.
-
-## Why this is defensible
+### Why this is defensible
 
 The claim rests on measurements, not on the architecture reading well:
 

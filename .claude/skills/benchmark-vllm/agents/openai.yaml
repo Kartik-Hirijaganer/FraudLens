@@ -1,4 +1,4 @@
 interface:
   display_name: "Benchmark vLLM"
   short_description: "Run the governed BF16-versus-AWQ benchmark"
-  default_prompt: "Use $benchmark-vllm to execute the vLLM benchmark protocol defined under plans/ with smoke, spend, evidence, and teardown gates."
+  default_prompt: "Use $benchmark-vllm to execute the vLLM benchmark protocol with smoke, spend, evidence, and teardown gates."

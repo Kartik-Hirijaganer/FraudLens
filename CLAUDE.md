@@ -16,9 +16,10 @@ Project guidance for Claude Code. The canonical rules live in **[AGENTS.md](AGEN
   mirror. `make docs-check` validates metadata and rejects mirror drift. Current skills are
   `adr`, `azure-experiment`, `benchmark-vllm`, `deadcode`, `design-review`, `docs`, `drift-check`,
   `k8s-deploy`, `maintain`, `pre-pr`, `quality-gates`, and `split-module`. Invoke drift-check as
-  `drift-check plans/<file>.md phase=<N>`.
-- **Plan mode:** for multi-step work, draft the plan into `plans/YYYY-MM-DD-<title>.md`
-  first, then implement and run drift-check.
+  `drift-check <doc-path> phase=<N>` against any document that states `## Phase N` sections.
+- **Plan mode:** for multi-step work, draft the plan first and keep it out of the repo unless
+  it is genuinely worth committing — Golden Rule 4 says the landed record is an ADR, a runbook, a
+  report, or a test, not a plan. Implement, then run drift-check against the drafted plan.
 - **Accounts:** personal GitHub (`Kartik-Hirijaganer`, via the `github-personal` SSH
   alias) and the `personal-admin` AWS profile (acct `970385384114`) — see
   [AGENTS.md → Accounts & Identity](AGENTS.md). Never the work account / `nightingale-*`.

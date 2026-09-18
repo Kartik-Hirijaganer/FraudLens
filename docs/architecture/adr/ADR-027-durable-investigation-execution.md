@@ -2,11 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-14
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** [ADR-016 — Run owns execution; SSE is a pure observer](README.md)
   · [ADR-019 — bounded multi-agent SAR drafting](ADR-019-multi-agent-sar-drafting.md)
-  · implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
 ## Context
 
@@ -20,6 +17,23 @@ Investigation execution is tenant-scoped and may call a paid model. Recovery mus
 the persisted `agency_id`, prevent a stale worker from writing after ownership changes, bound retries
 and elapsed time, reuse already committed work, and remain explicit that a provider call cannot be
 made exactly once across a process crash.
+
+### Options considered and rejected
+
+1. **Keep API-owned background tasks** — rejected because accepted work dies with the pod and HPA
+   replicas cannot coordinate recovery.
+2. **Use an in-memory queue** — rejected because it moves the same failure mode into another process
+   and has no durable tenant-bound audit record.
+3. **Use Redis/Celery or a cloud queue now** — rejected because Postgres already owns the run state,
+   ordering, and tenant identity; another state system adds credentials, reconciliation, and failure
+   modes without improving this bounded demonstration.
+4. **Use leases without fencing** — rejected because an expired worker can resume after takeover and
+   overwrite or duplicate the replacement worker's output.
+5. **Hold one database transaction for the whole pipeline** — rejected because model calls may be
+   slow, long locks reduce concurrency, and partial evidence would be lost on interruption.
+6. **Claim exactly-once model inference** — rejected because a process can die after provider
+   acceptance but before durable acknowledgement. The system provides at-least-once execution with
+   replay and bounded, conservatively governed uncertainty.
 
 ## Decision
 
@@ -52,7 +66,7 @@ same transaction admits the run only when today's actual SAR spend plus all acti
 the new reservation fits the tenant budget. Terminal status releases capacity by excluding the run
 from active totals while retaining the reservation value as audit evidence.
 
-## Why
+### Why
 
 **1 · Durable acceptance is separated from process lifetime.** A committed pending row survives API
 replacement and is visible to any healthy worker.
@@ -72,23 +86,6 @@ are reused after a crash. The PostgreSQL CI gate proves row-lock behavior that S
 
 **6 · Spend admission is a shared database decision.** A tenant-row lock serializes concurrent API
 replicas, so process-local rate limits cannot multiply paid multi-agent exposure.
-
-## Options considered and rejected
-
-1. **Keep API-owned background tasks** — rejected because accepted work dies with the pod and HPA
-   replicas cannot coordinate recovery.
-2. **Use an in-memory queue** — rejected because it moves the same failure mode into another process
-   and has no durable tenant-bound audit record.
-3. **Use Redis/Celery or a cloud queue now** — rejected because Postgres already owns the run state,
-   ordering, and tenant identity; another state system adds credentials, reconciliation, and failure
-   modes without improving this bounded demonstration.
-4. **Use leases without fencing** — rejected because an expired worker can resume after takeover and
-   overwrite or duplicate the replacement worker's output.
-5. **Hold one database transaction for the whole pipeline** — rejected because model calls may be
-   slow, long locks reduce concurrency, and partial evidence would be lost on interruption.
-6. **Claim exactly-once model inference** — rejected because a process can die after provider
-   acceptance but before durable acknowledgement. The system provides at-least-once execution with
-   replay and bounded, conservatively governed uncertainty.
 
 ## Tradeoffs accepted
 

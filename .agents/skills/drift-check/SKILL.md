@@ -13,30 +13,32 @@ Use when the user asks for a drift check, plan-vs-code audit, implementation val
 
 ## Inputs
 
-Parse the user's request as `<plan-path> <phase|all>`.
+Parse the user's request as `<doc-path> <phase|all>`.
+
+The document is any file that states intent in `## Phase N` sections: a working spec, an ADR, a handoff note, or a scratch plan outside the repository. FraudLens retired its `plans/` directory, so never assume that path and never scan for a document to audit.
 
 Accepted forms:
 
-- `<plan-path> <phase>` such as `plans/foo.md phase-3`
-- `<plan-path> phase=<N>` such as `plans/foo.md phase=6`
-- `<plan-path> all` to validate every phase in the plan
-- `<plan-path>` alone: ask which phase to validate; do not guess
+- `<doc-path> <phase>` such as `notes/foo.md phase-3`
+- `<doc-path> phase=<N>` such as `notes/foo.md phase=6`
+- `<doc-path> all` to validate every phase in the document
+- `<doc-path>` alone: ask which phase to validate; do not guess
 
-If the user typed an old slash form such as `/drift-check <plan-path> phase=3`, ignore the `/drift-check` token and parse the remaining text. If no plan path is provided, stop and ask for one. Never invent a plan or pick one by scanning plan directories.
+If the user typed an old slash form such as `/drift-check <doc-path> phase=3`, ignore the `/drift-check` token and parse the remaining text. If no document path is provided, stop and ask for one. Never invent a document or pick one by scanning directories.
 
 ## Core Rules
 
 - Read-only. Do not write, edit, delete, stage, commit, apply patches, run autofix, run formatters, run migrations, or deploy.
 - Evidence required. Every claim must cite a file path, line number, symbol, API route, schema field, test name, or captured command output.
-- The plan is the contract. Do not grade whether the plan was wise; grade implementation against it.
+- The document is the contract. Do not grade whether it was wise; grade implementation against it.
 - No vague language. Drop unverifiable claims.
 - Follow FraudLens governance: no PHI in logs, URLs, errors, or query params; every tenant-scoped database query and background job must be scoped by `agency_id`; JWT `agency_id` claims must be validated against requested resources.
 - Use code-review-graph MCP tools before grep/read where available. Fall back to ripgrep and file reads for markdown, fixtures, generated docs, configs, or artifacts the graph does not cover.
 
 ## Workflow
 
-1. Load the plan and scope.
-   - Read the full plan at the supplied path.
+1. Load the document and scope.
+   - Read the full document at the supplied path.
    - Parse phase headings and isolate the requested phase or every phase when `all` is requested.
    - Capture the goal, demo criteria, files, symbols, routes, schemas, tests, configs, non-goals, and compatibility promises.
    - Before reading implementation code, restate the intended phase changes in 2-4 bullets as ground truth.
@@ -75,7 +77,7 @@ Output these sections exactly, in this order. Keep each heading even when empty;
 ### 1. Executive Summary
 
 - One-line verdict: **Aligned** / **Partially Aligned** / **Misaligned**.
-- Phase(s) audited, plan path, current branch, and `git rev-parse --short HEAD`.
+- Phase(s) audited, document path, current branch, and `git rev-parse --short HEAD`.
 - Coverage: `X of Y` plan items verified present and correct.
 - 3-6 bullets on highest-impact risks.
 - Blocking release issues, if any.
@@ -92,7 +94,7 @@ For each deviation:
 ### 3. Gap Analysis
 
 - Missing features or incomplete components with file/line where the gap should live.
-- Unimplemented plan sections with quote or section anchor.
+- Unimplemented sections with quote or section anchor.
 - Broken or partially implemented workflows, traced through the broken path.
 - Evidence of absence: tool/query and null result, or partial artifact citation.
 
@@ -147,7 +149,7 @@ AUDIT VERDICT: <Aligned | Partially Aligned | Misaligned> — <N> drift, <M> gap
 
 ## Failure Modes To Avoid
 
-- Citing the plan as implementation evidence.
+- Citing the document as implementation evidence.
 - Reporting green status because a test file exists without confirming assertions.
 - Calling something duplicated without citing both locations.
 - Locating a symbol with grep and declaring completion without reading the source.

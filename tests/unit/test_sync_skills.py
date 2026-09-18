@@ -35,7 +35,7 @@ def _write_skill(
     frontmatter_name: str | None = None,
     description: str = "Exercise an example project workflow.",
     body: str = "# Example\n\n## When To Use\n\nUse for tests.",
-    default_prompt: str = "Use $example with a plan under plans/.",
+    default_prompt: str = "Use $example to exercise the current change.",
 ) -> Path:
     directory = root / name
     directory.mkdir(parents=True)
@@ -106,8 +106,7 @@ def test_check_succeeds_and_writer_reports_an_already_synchronized_tree(
         ({"frontmatter_name": "another"}, "must equal folder"),
         ({"description": "x" * 1025}, "at most 1024"),
         ({"body": "\n".join("line" for _ in range(501))}, "maximum is 500"),
-        ({"default_prompt": "Use $example without a plan path."}, "must reference plans/"),
-        ({"default_prompt": "Audit .agents/plans/example.md."}, "never .agents/plans/"),
+        ({"default_prompt": "Audit .agents/skills/example."}, "generated .agents/ mirror"),
     ],
 )
 def test_validation_rejects_contract_drift(
@@ -167,7 +166,7 @@ def test_validation_rejects_invalid_roots_documents_and_blank_interface_text(
     _write_skill(sandbox / "blank-source", name="blank")
     metadata = sandbox / "blank-source" / "blank" / "agents" / "openai.yaml"
     metadata.write_text(
-        'interface:\n  display_name: " "\n  default_prompt: "Use plans/."\n',
+        'interface:\n  display_name: " "\n  default_prompt: "Use $blank."\n',
         encoding="utf-8",
     )
     with pytest.raises(ValidationError, match="cannot be blank"):

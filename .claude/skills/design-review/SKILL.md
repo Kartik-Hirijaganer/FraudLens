@@ -18,7 +18,7 @@ pages, responsive layouts, or accessibility-sensitive interactions.
 - Use configured Tailwind theme tokens only: no ad hoc colors, pixel sizes, radii, or spacing.
 - Reserve Wise green for the primary CTA, not success status; use semantic status tokens.
 - Review accessibility and state comprehension as functional requirements, not polish.
-- Preserve the plan's user-visible behavior under `plans/` and the API's error/state vocabulary.
+- Preserve the change's intended user-visible behavior and the API's error/state vocabulary.
 
 ## Steps
 

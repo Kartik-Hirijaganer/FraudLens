@@ -23,7 +23,7 @@ Use for Phase 2 line-cap work or any source module approaching the 500-physical-
 
 ## Steps
 
-1. Read the exact split map and constraints in the active Phase 2 plan under `plans/`.
+1. Establish the exact split map and constraints before touching code; never improvise them mid-split.
 2. Map definitions, importers, runtime registrations, private cross-module uses, test patches, CLI
    entry points, and public exports before moving code.
 3. Choose cohesive seams, promote cross-module names only when the plan requires it, and define the

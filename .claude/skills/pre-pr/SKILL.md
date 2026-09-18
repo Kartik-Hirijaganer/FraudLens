@@ -21,7 +21,7 @@ a commit or pull request.
 
 ## Steps
 
-1. Read the active scope under `plans/` and inspect `git status --short` before running the gate.
+1. Inspect `git status --short` to establish the active scope before running the gate.
 2. Run `make pre-pr` from the repository root.
 3. If a target fails, identify the first failing target and its actionable output.
 4. When it passes, run `git status --short` and `git diff --stat`.

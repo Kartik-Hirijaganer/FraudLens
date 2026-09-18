@@ -2,12 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** [ADR-014 — masked/hashed PHI storage](README.md)
   · [ADR-019 — bounded multi-agent SAR drafting](ADR-019-multi-agent-sar-drafting.md)
   · [ADR-023 — deterministic SAR quality gates](ADR-023-sar-quality-and-privacy-gates.md)
-  · implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
 ## Context
 
@@ -20,6 +17,21 @@ path.
 FraudLens currently operates only synthetic cases. Its API, importers, portfolio demo, single-writer
 drafter, multi-agent graph, tool resubmission, retry, fallback, and benchmark paths must enforce that
 claim from trusted persisted state, not from a caller-supplied classification or a provider setting.
+
+### Options considered and rejected
+
+1. **Continue relying on deterministic masking** — rejected because arbitrary names, notes, labels,
+   and identifiers can evade pattern recognition while still being inappropriate to send.
+2. **Trust the caller to declare `synthetic`** — rejected because request-controlled classification
+   would make the allowlist an assertion rather than an authorization boundary.
+3. **Allow all masked API uploads** — rejected because masking is not anonymisation proof and upload
+   provenance provides no basis to claim synthetic content.
+4. **Validate citation id without snippet content** — rejected because a valid label could accompany
+   altered or injected text. Digest and metadata binding are required together.
+5. **Apply the projection only to the single writer** — rejected because agents, tool results,
+   revisions, retries, fallbacks, and benchmarks are separate serialization opportunities.
+6. **Fail the whole investigation on egress refusal** — rejected because deterministic evidence is
+   still valid and must remain available for human review.
 
 ## Decision
 
@@ -48,7 +60,7 @@ settings. Application logs retain safe telemetry and never raw prompt or respons
 decision does not broaden tenant access, allow real PHI, change human review authority, or authorize
 any cloud/provider spend.
 
-## Why
+### Why
 
 **1 · Positive selection is stronger than text detection.** Fields outside the closed schema cannot
 enter a request, even when they do not resemble a known identifier pattern.
@@ -66,21 +78,6 @@ second sanitation step.
 
 **5 · Stable refusal preserves deterministic value.** Blocking only the live drafting edge avoids
 turning a privacy refusal into loss of rules, scoring, SHAP, or alert evidence.
-
-## Options considered and rejected
-
-1. **Continue relying on deterministic masking** — rejected because arbitrary names, notes, labels,
-   and identifiers can evade pattern recognition while still being inappropriate to send.
-2. **Trust the caller to declare `synthetic`** — rejected because request-controlled classification
-   would make the allowlist an assertion rather than an authorization boundary.
-3. **Allow all masked API uploads** — rejected because masking is not anonymisation proof and upload
-   provenance provides no basis to claim synthetic content.
-4. **Validate citation id without snippet content** — rejected because a valid label could accompany
-   altered or injected text. Digest and metadata binding are required together.
-5. **Apply the projection only to the single writer** — rejected because agents, tool results,
-   revisions, retries, fallbacks, and benchmarks are separate serialization opportunities.
-6. **Fail the whole investigation on egress refusal** — rejected because deterministic evidence is
-   still valid and must remain available for human review.
 
 ## Tradeoffs accepted
 

@@ -21,7 +21,7 @@ or repair a `docs-check` freshness failure.
 
 ## Steps
 
-1. Inspect the relevant work under `plans/` and the current `git status --short`.
+1. Inspect the current change with `git status --short`.
 2. Run `make docs` from the repository root.
 3. Run `make docs-check` to prove the generated state is stable.
 4. Run `git status --short` and `git diff --stat`.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Design Review"
   short_description: "Review Wise design, accessibility, and state clarity"
-  default_prompt: "Use $design-review to review the frontend work specified under plans/ against DESIGN.md and accessibility requirements."
+  default_prompt: "Use $design-review to review the current frontend work against DESIGN.md and accessibility requirements."

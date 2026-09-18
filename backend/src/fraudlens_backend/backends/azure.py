@@ -6,15 +6,24 @@ briefly in-process, and then applied to Azure Blob data-plane and Container Apps
 Key classes:
 - BackendConfigurationError: raised when required non-secret Azure resource config is missing.
 - BackendRequestError: raised when an Azure REST call fails.
+- TokenEndpoint: one resolved managed-identity token endpoint (URL, API version, headers).
 - ManagedIdentityTokenProvider: cached managed-identity token provider.
 
 Key functions:
 - azure_http_request: perform one bounded-timeout HTTP request and return status/body.
+- resolve_token_endpoint: pick the managed-identity flavor this runtime actually exposes.
 - configured_url:
 
 Notes:
 - Full endpoints and resource audiences live in config/env; source only assembles paths from typed
 settings so the no-hardcoding guard still owns environment-specific values.
+- Two managed-identity flavors exist and the runtime decides which one applies. Azure Container
+Apps does NOT serve IMDS: it injects a per-replica local token service (IDENTITY_ENDPOINT) plus a
+platform-ROTATED anti-SSRF guard (IDENTITY_HEADER) sent as X-IDENTITY-HEADER. Because that header
+rotates, both values are read from the process environment on every acquisition — a rotating value
+cannot be pinned in YAML or stamped as a Terraform env var, so this is the one Azure input that
+cannot come from typed settings. Everywhere else (VM/VMSS, or any host where IMDS is reachable)
+keeps the configured IMDS URL with its `Metadata: true` header.
 - Error messages intentionally avoid response bodies, headers, and requested URLs because they may
 contain provider details that should stay in server logs only.
 """
@@ -22,11 +31,14 @@ contain provider details that should stay in server logs only.
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
+
+from pydantic import BaseModel, Field
 
 from fraudlens_backend.settings import AppSettings
 
@@ -34,6 +46,14 @@ _HTTP_ERROR_FLOOR = 400
 _HTTP_OK = 200
 _TOKEN_REFRESH_SKEW_SECONDS = 60.0
 _TOKEN_DEFAULT_TTL_SECONDS = 300.0
+
+# Names of the env vars Azure Container Apps injects into every replica. These are the platform's
+# contract, not FraudLens config: the endpoint is replica-local and the header is rotated by the
+# platform, so neither can be declared in config/*.yaml or stamped by Terraform.
+CONTAINER_APPS_ENDPOINT_ENV = "IDENTITY_ENDPOINT"
+CONTAINER_APPS_HEADER_ENV = "IDENTITY_HEADER"
+_CONTAINER_APPS_HEADER = "X-IDENTITY-HEADER"
+_IMDS_METADATA_HEADER = "Metadata"
 
 
 class BackendConfigurationError(RuntimeError):
@@ -83,6 +103,42 @@ def azure_http_request(
         raise BackendRequestError("Azure request failed before a response was received") from exc
 
 
+class TokenEndpoint(BaseModel):
+    """One resolved managed-identity token endpoint: where to ask, and how to prove the ask."""
+
+    url: str = Field(..., description="Token endpoint URL, without the query string.")
+    api_version: str = Field(..., description="Token API version this endpoint flavor expects.")
+    headers: dict[str, str] = Field(..., description="Headers this endpoint flavor requires.")
+    flavor: str = Field(..., description="Flavor name for PHI-free diagnostics.")
+
+
+def resolve_token_endpoint(settings: AppSettings) -> TokenEndpoint:
+    """Return the managed-identity endpoint this runtime exposes, preferring Container Apps.
+
+    Container Apps advertises itself through two injected env vars and does not route to IMDS at
+    all, so presence of BOTH is what selects that flavor. A partially injected environment falls
+    back rather than sending a credential-less request the platform would reject.
+    """
+    endpoint = os.environ.get(CONTAINER_APPS_ENDPOINT_ENV, "").strip()
+    header = os.environ.get(CONTAINER_APPS_HEADER_ENV, "").strip()
+    if endpoint and header:
+        return TokenEndpoint(
+            url=endpoint,
+            api_version=settings.azure_container_apps_identity_api_version,
+            headers={_CONTAINER_APPS_HEADER: header},
+            flavor="container_apps",
+        )
+    return TokenEndpoint(
+        url=_require(
+            settings.azure_managed_identity_token_url,
+            "azure_managed_identity_token_url",
+        ),
+        api_version=settings.azure_managed_identity_api_version,
+        headers={_IMDS_METADATA_HEADER: "true"},
+        flavor="imds",
+    )
+
+
 class ManagedIdentityTokenProvider:
     """Managed-identity token provider with simple per-resource in-process caching."""
 
@@ -99,22 +155,22 @@ class ManagedIdentityTokenProvider:
         if cached is not None and cached[1] - _TOKEN_REFRESH_SKEW_SECONDS > now:
             return cached[0]
 
-        token_url = _require(
-            self._settings.azure_managed_identity_token_url,
-            "azure_managed_identity_token_url",
-        )
+        endpoint = resolve_token_endpoint(self._settings)
         query: dict[str, str] = {
-            "api-version": self._settings.azure_managed_identity_api_version,
+            "api-version": endpoint.api_version,
             "resource": resource,
         }
+        # Both flavors default to the SYSTEM-assigned identity when no id is supplied, which on a
+        # user-assigned-only app resolves to an identity that does not exist. The client id is
+        # injected by Terraform, so an omitted one is a deploy gap, not a mode.
         if self._settings.azure_managed_identity_client_id:
             query["client_id"] = self._settings.azure_managed_identity_client_id
-        separator = "&" if "?" in token_url else "?"
-        url = f"{token_url}{separator}{urllib.parse.urlencode(query)}"
+        separator = "&" if "?" in endpoint.url else "?"
+        url = f"{endpoint.url}{separator}{urllib.parse.urlencode(query)}"
         status, body = azure_http_request(
             method="GET",
             url=url,
-            headers={"Metadata": "true"},
+            headers=endpoint.headers,
             timeout_seconds=self._settings.azure_rest_timeout_seconds,
         )
         if status != _HTTP_OK:
