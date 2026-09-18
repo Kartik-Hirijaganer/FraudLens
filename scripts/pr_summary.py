@@ -48,7 +48,6 @@ _AREAS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Tooling", ("scripts/",)),
     ("Tests", ("tests/",)),
     ("Docs", ("docs/",)),
-    ("Plans", ("plans/",)),
     ("Agent skills", (".claude/", ".agents/")),
 )
 _FALLBACK = "Build/config"

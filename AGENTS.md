@@ -46,8 +46,13 @@ personal repo. Handoff/context lives in
    the hook; the history scan in CI is the backstop.
 3. **No secrets in `.env` or source.** All credentials come from **Infisical** (see
    [Secrets](#secrets)). `.env` is for non-secret local config only and stays gitignored.
-4. **Plans live in [`plans/`](plans/)**, named `YYYY-MM-DD-<short-title>.md` — see
-   [`plans/README.md`](plans/README.md).
+4. **Durable decisions become ADRs, not plans.** A plan that has landed is a second,
+   drifting description of a system the code already describes. Record a decision as an
+   [ADR](docs/architecture/adr/), a procedure as a runbook, a measurement as a published report,
+   and a contract as a test. A working plan is fine while the work is in flight: keep it out of the
+   repo root, and if it is worth committing at all, park it in [`docs/handoff/`](docs/handoff/)
+   under a status banner and delete it when the work lands. What each retired plan became is
+   indexed in [`docs/architecture/retired-plans.md`](docs/architecture/retired-plans.md).
 5. **Documents live in [`docs/`](docs/)** per [`docs/README.md`](docs/README.md). Don't
    drop deliverables in the repo root.
 6. **Hold the security governance below** on every change.
@@ -267,7 +272,6 @@ pre-PR gate, CI, and the deploy pre-gate all invoke the **identical** targets.
 | `tests/quality/` | Deterministic citation, hallucination, and model-egress gates |
 | `config/{quality,fulldata,k8s-demo}.yaml` / `config/experiments/` | Quality, full-data, Kubernetes-demo, and budget policy |
 | `docs/reference/experiments/` / `docs/reference/claims.md` / `docs/reference/interview-guide.md` | Experiment ledger, evidence-backed claims, and demo guide |
-| `plans/` | Dated implementation plans |
 | `docs/` | Project documents (handoff, architecture, runbooks, reference) |
 
 ## Project skills
@@ -286,21 +290,26 @@ rules; generic external skills do not override them. The rationale and external-
 recorded in
 [`ADR-024`](docs/architecture/adr/ADR-024-agent-skills-single-source.md).
 
-## Plans & drift-check
+## drift-check
 
-Write a plan in `plans/YYYY-MM-DD-<title>.md` before non-trivial work, using
-`## Phase N` headings. After implementing, run the read-only **drift-check** audit:
+**drift-check** is the read-only plan-vs-code audit. It takes the path to any document that
+states intent in `## Phase N` sections — a working spec, an ADR, a handoff note — and grades the
+repository against it, applying the governance above: no PHI in logs/URLs/errors, every
+tenant-scoped query and job filtered by `agency_id`, banned names, single Alembic head, and
+generated-doc freshness.
 
 ```
-drift-check plans/<file>.md phase=<N>     # one phase
-drift-check plans/<file>.md all           # every phase
+drift-check <doc-path> phase=<N>     # one phase
+drift-check <doc-path> all           # every phase
 ```
 
-drift-check validates real repo state against the plan and the governance rules above.
+It never writes, and it grades implementation against the document rather than grading the
+document. It does not require `plans/`, which is retired — see
+[`docs/architecture/retired-plans.md`](docs/architecture/retired-plans.md).
 
 ## Dev Workflow
 
 - Work on a branch; the default branch is `main` (release work uses `release/<x.y.z>`).
-- Keep changes scoped to one plan/phase where practical.
-- Run drift-check before declaring a phase done.
+- Keep changes scoped to one coherent unit of work where practical.
+- Run drift-check before declaring a phased piece of work done, when a document states its phases.
 - Commit/push only on explicit request (Golden Rule 1).

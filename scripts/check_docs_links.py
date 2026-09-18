@@ -1,5 +1,5 @@
 """Summary: Repository-wide relative Markdown link validator for FraudLens docs.
-It checks README.md, AGENTS.md, docs/**/*.md, and plans/*.md for missing targets,
+It checks README.md, AGENTS.md, and docs/**/*.md for missing targets,
 repository escapes, and unresolved Markdown heading anchors while ignoring external
 URLs and examples inside fenced or inline code.
 
@@ -53,7 +53,6 @@ def iter_markdown_files(repo_root: Path) -> Iterator[Path]:
     """Yield README, AGENTS, docs Markdown, and top-level plan Markdown in stable order."""
     candidates = [repo_root / "README.md", repo_root / "AGENTS.md"]
     candidates.extend((repo_root / "docs").rglob("*.md"))
-    candidates.extend((repo_root / "plans").glob("*.md"))
     yield from sorted({item.resolve() for item in candidates if item.is_file()})
 
 
@@ -120,9 +119,6 @@ def validate_docs_links(repo_root: Path) -> list[LinkIssue]:
             relative_path = unquote(parsed.path)
             relative_path = re.sub(r":\d+(?::\d+)?$", "", relative_path)
             target = source if not relative_path else (source.parent / relative_path).resolve()
-            root_relative = (root / relative_path).resolve() if relative_path else source
-            if not target.exists() and source.parent == root / "plans" and root_relative.exists():
-                target = root_relative
             if target != root and root not in target.parents:
                 issues.append(
                     LinkIssue(

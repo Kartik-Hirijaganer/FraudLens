@@ -4,7 +4,7 @@
 - **Date:** 2026-09-14
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
+  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -84,7 +84,7 @@ kind.”
 ## Amendment — 2026-09-16 (release 0.4.0)
 
 Release 0.4.0 executed the apply this record deferred, under
-`plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see plans/README.md).
+`plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans)).
 The decision is unchanged in substance: AKS remains the ephemeral demonstration runtime, ADR-007
 keeps Container Apps as the application target, and the cluster is still created and destroyed per
 session. Three specifics moved, each because the subscription would not create what this record

@@ -20,7 +20,7 @@ Use when the user asks for dead-code analysis, unused-symbol review, or the `mak
 
 ## Steps
 
-1. Read the relevant scope under `plans/` and run `make deadcode`.
+1. Establish the scope from the current change (`git status --short`) and run `make deadcode`.
 2. Trace each vulture, ruff, and knip finding to imports, registrations, tests, and public exports.
 3. Classify each item as a true positive, framework false positive, or uncertain.
 4. If strict behavior was explicitly requested, run `DEADCODE_STRICT=1 make deadcode`.

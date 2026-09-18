@@ -5,7 +5,7 @@
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when (per master-plan §22)
 - **Related:** [ADR-015 — tenant-safe global model training](README.md)
   · [ADR-017 — graph-feature serving boundary](ADR-017-graph-feature-serving-boundary.md)
-  · [retired-plan index](../../../plans/README.md#retired-plans)
+  · [retired-plan index](../retired-plans.md#retired-plans)
   · runbooks [`portfolio-demo.md`](../../runbooks/portfolio-demo.md) · [`portfolio-demo-uat.md`](../../runbooks/portfolio-demo-uat.md)
 
 ## Context

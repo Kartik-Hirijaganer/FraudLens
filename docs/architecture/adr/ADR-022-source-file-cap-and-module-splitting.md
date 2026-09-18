@@ -4,7 +4,7 @@
 - **Date:** 2026-09-13
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
+  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 

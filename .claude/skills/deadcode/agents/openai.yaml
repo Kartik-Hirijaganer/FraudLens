@@ -1,4 +1,4 @@
 interface:
   display_name: "Dead Code"
   short_description: "Run and classify dead-code findings"
-  default_prompt: "Use $deadcode to audit code associated with plans/ and report evidence-backed findings only."
+  default_prompt: "Use $deadcode to audit the current change and report evidence-backed findings only."

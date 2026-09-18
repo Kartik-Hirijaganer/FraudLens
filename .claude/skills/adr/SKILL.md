@@ -1,6 +1,6 @@
 ---
 name: adr
-description: Create or update a FraudLens Architecture Decision Record in the house format, including its index row, active-plan pointer, evidence, trade-offs, and reconsideration criteria.
+description: Create or update a FraudLens Architecture Decision Record in the house format, including its index row, evidence pointer, trade-offs, and reconsideration criteria.
 ---
 
 # Architecture Decision Record
@@ -17,8 +17,8 @@ decision needs a superseding record.
 - ADRs live under `docs/architecture/adr/` and use the next assigned `ADR-NNN-kebab-title.md` name.
 - Use the house order: Context, Decision, Why, Options considered and rejected, Tradeoffs accepted,
   Reconsider when.
-- Add exactly one row to `docs/architecture/adr/README.md` and a relative pointer to the relevant
-  implementation plan under `plans/`.
+- Add exactly one row to `docs/architecture/adr/README.md` and a relative pointer to the evidence
+  the decision rests on: a runbook, a published report, or the tests that hold the contract.
 - Record the real status and evidence. Do not call a planned or validated-only state demonstrated.
 - Amend an accepted ADR only for clarification; supersede it when the decision changes.
 

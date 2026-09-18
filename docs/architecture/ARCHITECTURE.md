@@ -78,6 +78,46 @@ C4Component
     Rel(v1, errors, "Errors rendered by")
 ```
 
+## Gateway request flow (the trust boundary)
+
+The frontend is untrusted. The FastAPI gateway middleware is the public edge, and every business
+router depends on identity the edge has already verified. The gateway runs in-process with the API
+service; the contract is shaped so it could split into a separate internal service without the
+frontend noticing.
+
+The order matters more than any single control: each step is a precondition for the next, so no
+router can be reached with an unverified identity or an unbound tenant.
+
+```mermaid
+flowchart LR
+    req["request"] --> rid["1 · request id<br/><i>assigned or accepted</i>"]
+    rid --> edge["2 · security headers<br/>CORS · rate limit"]
+    edge --> jwt["3 · verify JWT<br/><i>fails closed</i>"]
+    jwt --> tenant["4 · bind agency_id<br/>into TenantContext"]
+    tenant --> router["5 · router + audit<br/><i>tenant-scoped, PHI-free</i>"]
+```
+
+| Step | What happens | Why |
+| --- | --- | --- |
+| 1 | Gateway assigns or accepts `X-Request-Id`. | Every response, error, log, and audit row can be correlated. |
+| 2 | Security headers, CORS allowlist, and rate limits are applied. | Cross-cutting controls cannot be skipped by individual routers. |
+| 3 | Auth dependency verifies the bearer JWT or fails closed. | Missing or invalid credentials return 401 **before** any database access. |
+| 4 | The `agency_id` claim is bound into `TenantContext`. | Tenant-scoped reads and writes never trust a client-supplied tenant id. |
+| 5 | The router executes and writes audit rows for governed actions. | Compliance-critical actions are durable, tenant-scoped, and PHI-free. |
+
+Surface contract: ops endpoints are unprefixed (`GET /healthz`, `GET /readyz`) and business APIs
+carry `/api/v1/*`. API JSON is camelCase while Python internals stay snake_case through Pydantic
+aliases, path parameters are camelCase in the public contract (`{agencyId}`, `{runId}`), and errors
+use `{code, message, details, requestId}` — never a stack trace, an exception name, or raw input.
+
+| Control | Code |
+| --- | --- |
+| Gateway middleware | [`middleware/gateway.py`](../../backend/src/fraudlens_backend/middleware/gateway.py) |
+| Security headers | [`middleware/security.py`](../../backend/src/fraudlens_backend/middleware/security.py) |
+| Auth and tenant enforcement | [`api/deps.py`](../../backend/src/fraudlens_backend/api/deps.py) |
+| Error envelope | [`api/errors.py`](../../backend/src/fraudlens_backend/api/errors.py) |
+| Audit writer | [`db/repositories/audit.py`](../../backend/src/fraudlens_backend/db/repositories/audit.py) |
+
 ## Fraud-investigation pipeline (target / opt-in live path)
 
 ```mermaid

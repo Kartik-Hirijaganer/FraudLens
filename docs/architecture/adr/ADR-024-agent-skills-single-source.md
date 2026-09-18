@@ -4,7 +4,7 @@
 - **Date:** 2026-09-13
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
+  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -25,8 +25,9 @@ or reinterpret kind evidence as a live AKS deployment.
 `.claude/skills/<name>/` is the sole human-authored project-skill tree. Every directory contains a
 `SKILL.md` and `agents/openai.yaml`. `scripts/lib/skills.py` validates the skill name against its
 folder, bounds discovery descriptions to 1,024 characters and Markdown bodies to 500 lines, and
-requires `interface.display_name` plus a `default_prompt` that points to `plans/`, never
-`.agents/plans/`.
+requires a non-blank `interface.display_name` and `default_prompt`, and rejects any prompt that
+names the generated `.agents/` mirror — a prompt pointing at the mirror would send Codex back at
+the copy it is already reading instead of the real repository.
 
 `scripts/sync_skills.py` mirrors every canonical regular file byte-for-byte into
 `.agents/skills/<name>/`. Writer mode is part of `make docs`; read-only `--check` is the

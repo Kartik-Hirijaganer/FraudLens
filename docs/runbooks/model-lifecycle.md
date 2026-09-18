@@ -6,7 +6,7 @@
 > §10.5.1 promotion gates**; Phase 10 adds the **human-gated MLOps workflow** —
 > retrain → candidate → shadow → approve → canary → active → rollback, advisory drift, and
 > tenant-safe training — all with **no redeploy**. See plan
-> the [retired foundation-plan index](../../plans/README.md#retired-plans) (promotion gates,
+> the [retired-plan index](../architecture/retired-plans.md#retired-plans) (promotion gates,
 > model-lifecycle tables, and tenant-safe policy).
 
 ## The pieces

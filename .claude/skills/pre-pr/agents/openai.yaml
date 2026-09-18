@@ -1,4 +1,4 @@
 interface:
   display_name: "Pre-PR"
   short_description: "Run and explain the canonical pre-PR gate"
-  default_prompt: "Use $pre-pr to validate the current work tracked under plans/; never commit or push."
+  default_prompt: "Use $pre-pr to validate the current change; never commit or push."

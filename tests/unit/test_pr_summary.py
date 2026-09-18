@@ -27,7 +27,6 @@ def test_categorize_maps_each_area() -> None:
             "scripts/s.py",
             "tests/unit/t.py",
             "docs/d.md",
-            "plans/p.md",
             ".claude/skills/maintain/SKILL.md",
             "README.md",
         ]
@@ -42,7 +41,6 @@ def test_categorize_maps_each_area() -> None:
         "Tooling": 1,
         "Tests": 1,
         "Docs": 1,
-        "Plans": 1,
         "Agent skills": 1,
         "Build/config": 1,  # README.md falls back
     }

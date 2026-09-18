@@ -493,7 +493,6 @@ or AKS sessions incur new cost and require fresh admission/approval.
 ├── scripts/                    Docs, ingest, training, demo, and governance tooling
 ├── tests/                      Unit, integration, security, smoke, and synthetic fixtures
 ├── docs/                       Architecture, runbooks, generated references
-├── plans/                      Dated, phase-based implementation plans
 ├── DESIGN.md                   Canonical Wise frontend design system
 ├── Makefile                    Single source of truth for developer and CI commands
 └── docker-compose.local.yml    Local Postgres 16 stack
@@ -579,7 +578,7 @@ See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-gu
 | Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
 | Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |
 | Contributor/agent rules | [AGENTS.md](AGENTS.md) |
-| Implementation plans | [plans/](plans/) |
+| Retired implementation plans | [docs/architecture/retired-plans.md](docs/architecture/retired-plans.md) |
 
 ## License
 

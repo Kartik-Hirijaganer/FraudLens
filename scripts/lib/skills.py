@@ -78,9 +78,11 @@ class SkillInterface(BaseModel):
 
     @field_validator("default_prompt")
     @classmethod
-    def _prompt_uses_canonical_plans_path(cls, value: str) -> str:
-        if ".agents/plans/" in value or "plans/" not in value:
-            raise ValueError("default_prompt must reference plans/, never .agents/plans/")
+    def _prompt_never_points_at_the_generated_mirror(cls, value: str) -> str:
+        # `.agents/` is a byte-identical copy of `.claude/skills/`, so a prompt that names it
+        # would send Codex at the mirror it is already reading instead of the real repository.
+        if ".agents/" in value:
+            raise ValueError("default_prompt must never reference the generated .agents/ mirror")
         return value
 
 

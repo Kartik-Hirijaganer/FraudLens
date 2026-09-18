@@ -4,7 +4,7 @@
 - **Date:** 2026-09-16
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** implementation plan
-  `plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see plans/README.md)
+  `plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 

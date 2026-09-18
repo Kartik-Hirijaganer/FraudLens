@@ -1,4 +1,4 @@
 interface:
   display_name: "Architecture Decision Record"
   short_description: "Write and index a FraudLens house-format ADR"
-  default_prompt: "Use $adr to capture the decision from the relevant plan under plans/ in the FraudLens ADR format."
+  default_prompt: "Use $adr to capture the decision behind the current change in the FraudLens ADR format."

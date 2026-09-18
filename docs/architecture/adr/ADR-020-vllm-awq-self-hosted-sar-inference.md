@@ -8,7 +8,7 @@
   0.5.0. What it did not measure was grounding: raw AWQ fabricated citations on **85 of 1,000**
   cases at concurrency 32 where BF16 fabricated none, so AWQ is no longer served ungated.
 - **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
+  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 

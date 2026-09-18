@@ -1,4 +1,4 @@
 interface:
   display_name: "Kubernetes Deploy"
   short_description: "Validate kind and permission-gate AKS operations"
-  default_prompt: "Use $k8s-deploy to follow the Kubernetes flow under plans/, keeping kind and AKS evidence distinct."
+  default_prompt: "Use $k8s-deploy to run the Kubernetes flow, keeping kind and AKS evidence distinct."

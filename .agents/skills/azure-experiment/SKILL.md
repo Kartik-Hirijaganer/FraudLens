@@ -23,7 +23,7 @@ artifact export, or experiment teardown.
 
 ## Steps
 
-1. Read the applicable phase under `plans/`; run `make data-batch-plan` and review resource names,
+1. Confirm the scope of the run with the operator; run `make data-batch-plan` and review resource names,
    SKU, Spot eviction policy, network exposure, storage scope, shutdown, watchdog, and cost estimate.
 2. Open the ledger session and run `scripts/experiment_budget.py ledger-check`.
 3. After explicit permission, run `CONFIRM=yes make data-batch-up`; request separate permission for

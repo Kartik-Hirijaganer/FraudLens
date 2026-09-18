@@ -14,7 +14,7 @@ request to run and explain the configured quality checks.
 
 ## Rules
 
-- Choose gates from the implementation phase under `plans/`; do not replace the Makefile targets
+- Choose the gates the current change actually requires; do not replace the Makefile targets
   with ad hoc approximations.
 - Quality and egress suites run provider-free, keyless, and with network denied.
 - Treat threshold failures as product evidence; never loosen a threshold merely to turn CI green.

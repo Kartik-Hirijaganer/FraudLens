@@ -4,7 +4,8 @@
 - **Date:** 2026-09-18
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** implementation plan
-  `plans/2026-09-16-sar-quality-gate-cascade-and-gated-benchmark.md`;
+  `2026-09-16-sar-quality-gate-cascade-and-gated-benchmark.md`
+  (retired; see [retired-plans.md](../retired-plans.md#retired-plans));
   [ADR-020](ADR-020-vllm-awq-self-hosted-sar-inference.md) (the raw AWQ decision this supersedes on
   quality), [ADR-023](ADR-023-sar-quality-and-privacy-gates.md) (the deterministic gate this
   promotes to the production path), [ADR-026](ADR-026-synthetic-only-model-egress.md),
