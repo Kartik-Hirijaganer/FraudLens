@@ -24,6 +24,7 @@ from pipeline_fakes import (
 from fraudlens_core import RiskBand, RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
+from fraudlens_ml.pipeline.runner import log_core_failure
 from fraudlens_ml.sar import (
     SarAgentEvent,
     SarDraftContent,
@@ -314,3 +315,53 @@ async def test_core_failure_logs_the_exception_type_but_never_its_message(
     # and three libraries below anything actionable.
     origin = rendered.split("origin=", 1)[1].split(" ", 1)[0]
     assert origin.startswith("fraudlens"), origin
+
+
+def test_core_failure_log_names_the_constraint_but_not_the_colliding_values(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A wrapped DBAPI error must surface WHICH constraint lost, never the keys that collided.
+
+    `session.flush()` writes every pending object, so the raising frame names where the flush
+    happened rather than which row lost. The constraint name closes that gap and is schema
+    identity — it appears in the migration. Postgres's DETAIL line, which carries the offending
+    key values, must not follow it into the log.
+    """
+
+    class _FakeUniqueViolationError(Exception):
+        constraint_name = "uq_sar_generation_attempts_draft_id_ordinal"
+
+        def __str__(self) -> str:
+            return "duplicate key value violates ... DETAIL: Key (draft_id, ordinal)=(d1, 0)."
+
+    class _FakeIntegrityError(Exception):
+        def __init__(self) -> None:
+            super().__init__("wrapped driver failure")
+            self.orig = _FakeUniqueViolationError()
+
+    with caplog.at_level(logging.ERROR, logger="fraudlens.pipeline.runner"):
+        try:
+            raise _FakeIntegrityError
+        except _FakeIntegrityError as exc:
+            log_core_failure(exc, run_id="run-1")
+
+    rendered = caplog.text
+    assert "cause_type=_FakeUniqueViolationError" in rendered
+    assert "constraint=uq_sar_generation_attempts_draft_id_ordinal" in rendered
+    assert "DETAIL" not in rendered  # the key values never follow the constraint name
+    assert "(d1, 0)" not in rendered
+
+
+def test_core_failure_log_tolerates_an_exception_with_no_dbapi_cause(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Most core failures are not database errors; the constraint fields degrade, never raise."""
+    with caplog.at_level(logging.ERROR, logger="fraudlens.pipeline.runner"):
+        try:
+            raise ValueError("plain failure")
+        except ValueError as exc:
+            log_core_failure(exc, run_id="run-2")
+
+    assert "cause_type=none" in caplog.text
+    assert "constraint=none" in caplog.text
+    assert "plain failure" not in caplog.text
