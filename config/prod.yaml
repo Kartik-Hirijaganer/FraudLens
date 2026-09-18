@@ -7,7 +7,7 @@ portfolio_demo_enabled: true
 storage_backend: azure_blob
 queue_backend: container_apps_jobs
 llm_mode: live
-multi_agent_sar_enabled: false
+multi_agent_sar_enabled: true
 
 llm_daily_budget_usd: 2.25
 azure_managed_identity_token_url: "http://169.254.169.254/metadata/identity/oauth2/token"
