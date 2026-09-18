@@ -125,7 +125,7 @@ This **replaces any AWS-as-cloud assumption**:
   Supabase Postgres project is provisioned with credentials in Infisical.
 - **Recurring cost is governed, not assumed** (ADR-029): ~$2.72/month projected by
   [`docs/reference/cost-model.md`](docs/reference/cost-model.md), bounded by hard caps — one maximum
-  replica, 0.1 GB/day log ingestion, a $0.25/day LLM ceiling, manual-only jobs — plus $25/month
+  replica, 0.1 GB/day log ingestion, a $2.25/day LLM ceiling, manual-only jobs — plus $25/month
   budgets at the resource-group and subscription scopes and a daily read-only leftover-resource
   watchdog. Budgets alert; the caps are what bind.
 - FraudLens governance (above) is **unchanged** by the cloud choice.

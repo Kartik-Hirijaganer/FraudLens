@@ -463,7 +463,7 @@ resources.
 | Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
 
 Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a
-$0.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
+$2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
 subscription scopes and a daily read-only watchdog for leftover resources. See the
 [cost model](docs/reference/cost-model.md) and
 [ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md).

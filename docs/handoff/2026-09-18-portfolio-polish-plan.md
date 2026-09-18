@@ -304,7 +304,7 @@ flowchart TB
     db[("Supabase Postgres<br/><i>every row scoped by agency_id</i>")]
     rag[("ChromaDB<br/><i>FinCEN / BSA index baked into the image</i>")]
     blob[("Azure Blob<br/><i>model bundles · approved SAR PDFs</i>")]
-    llm["OpenRouter<br/><i>capped $0.25 / day</i>"]
+    llm["OpenRouter<br/><i>capped $2.25 / day</i>"]
     vault[["Infisical prod<br/><i>runtime secret injection</i>"]]
 
     user --> spa

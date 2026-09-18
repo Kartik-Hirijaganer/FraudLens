@@ -1,10 +1,7 @@
 # ADR-029 — The permanent deployment runs under a recurring operational budget
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-18 (see [Amendment](#amendment--2026-09-18-llm-daily-ceiling-raised-to-225))
 - **Date:** 2026-09-16
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-15-azure-deployment-cost-projection-and-budget-alerts.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -52,7 +49,7 @@ cluster under ADR-028, not carried here.
 | --- | --- | --- |
 | Container Apps maximum replicas | **1** | `max_replicas` in [`prod.tfvars`](../../../infra/terraform/environments/prod/prod.tfvars) |
 | Log Analytics ingestion | **0.1 GB/day** | `daily_quota_gb` in [`modules/observability`](../../../infra/terraform/modules/observability/) — the workspace stops ingesting rather than billing on |
-| OpenRouter LLM spend | **$0.25/day** | `llm_daily_budget_usd` in [`config/prod.yaml`](../../../config/prod.yaml), fail-closed in the investigation path |
+| OpenRouter LLM spend | **$2.25/day** | `llm_daily_budget_usd` in [`config/prod.yaml`](../../../config/prod.yaml), fail-closed in the investigation path |
 | Scheduled Container Apps Jobs | **none — manual trigger only** | [`environments/prod/main.tf`](../../../infra/terraform/environments/prod/main.tf) |
 | AKS session lifetime | **4-hour wall clock, teardown under `if: always()`** | [`deploy-aks.yml`](../../../.github/workflows/deploy-aks.yml) |
 | AKS session cost | **$5.00 admission ceiling** | `make azure-cost-plan`, which exits non-zero above it |
@@ -158,3 +155,40 @@ rests on it stays literally true and is worded in
 A budget alert is not a spending control, and a projection is not a bill. The caps bound the
 maximum, the watchdog bounds the detection delay, and the settled monthly invoice is the only record
 that closes the loop.
+
+## Amendment — 2026-09-18 (LLM daily ceiling raised to $2.25)
+
+The owner raised `llm_daily_budget_usd` in [`config/prod.yaml`](../../../config/prod.yaml) from
+**$0.25/day to $2.25/day**. The decision this record makes is unchanged — hard caps bound the bill
+and budgets only alert — but the value of one cap moved, so the number is restated here rather than
+left to drift between the config and this table.
+
+**Why.** Headroom for a live demo session. The public URL runs `llm_mode: live`, and every
+persona in the portfolio demo drives real investigations through the drafter. At $0.25/day a
+single session could exhaust the ceiling part-way through, and the investigation path is
+fail-closed by design — so the visible result of a too-tight cap is not a smaller bill, it is a
+demo that stops working in front of whoever is watching. The raise buys room for a session to
+finish.
+
+**This ceiling is standing, not a session raise.** The temporary raises recorded in the
+[experiment ledger](../../reference/experiments/ledger.md) were restored immediately after
+teardown because they existed for one measured run. This one holds continuously, which is why
+it belongs in this record rather than in a session row.
+
+**What it costs.** Theoretical exposure for one tenant-day-equivalent moves from ~$7.50/month to
+~$67.50/month. As the table above already notes, OpenRouter is not an Azure meter: neither $25
+budget sees this spend, so the ceiling is the only thing bounding it. That makes this cap the one
+whose value carries the most exposure per unit change, and the reason a raise is recorded instead of
+edited silently.
+
+**What did not change.** The ceiling is still fail-closed in the investigation path; each tenant's
+`system_config` budget is still clamped to it. The caps beside it hold at one maximum replica,
+0.1 GB/day log ingestion, and manual-trigger-only jobs, so the Azure side of the projection is
+unaffected.
+
+**Where it is enforced.** The raise moved with its contract tests, which pin the ceiling at its
+single source of truth rather than describing it: `test_every_hard_cap_is_committed_where_it_is_enforced`
+(`tests/unit/test_cost_controls.py`), `test_prod_caps_one_tenant_day_of_live_llm_spend`
+(`tests/unit/test_settings.py`), and the scenario budget-guard test in
+`tests/unit/test_vllm_bench_cli.py`, which records the full ceiling and requires the guard to refuse
+the next call.
