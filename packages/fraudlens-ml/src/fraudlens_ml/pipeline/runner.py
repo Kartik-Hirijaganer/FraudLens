@@ -65,18 +65,28 @@ _RUN_FAILED_CODE = "investigation_failed"
 # see the header note. Plain stdlib — layering forbids importing the backend from this package.
 _LOGGER = logging.getLogger("fraudlens.pipeline.runner")
 
-# How many of the DEEPEST frames to name. The raise site and its immediate callers are what locate
-# a fault; the LangGraph/asyncio frames above them are noise repeated on every failure.
+# How many of the DEEPEST frames to name, for driver context around the raise.
 _TRACEBACK_FRAME_LIMIT = 5
+
+# `origin` reports the deepest frame belonging to OUR code, which is not the deepest frame overall.
+# The first version of this reported the latter and its first real failure named `asyncpg.py:797` —
+# true, useless, and three libraries below anything anyone can fix. A driver raises where it
+# detects the problem; the call that caused it is further up. Match on the module rather than the
+# path so a vendored copy or a renamed directory cannot silently turn our frames into foreign ones.
+_FIRST_PARTY_MODULE_PREFIX = "fraudlens"
 
 
 def log_core_failure(exc: BaseException, *, run_id: str) -> None:
     """Record a core failure's exception type and frame chain — never `str(exc)` (PHI)."""
     frames: list[str] = []
+    origin = "unknown"
     traceback = exc.__traceback__
     while traceback is not None:
         code = traceback.tb_frame.f_code
         frames.append(f"{os.path.basename(code.co_filename)}:{traceback.tb_lineno}")
+        module = str(traceback.tb_frame.f_globals.get("__name__", ""))
+        if module.startswith(_FIRST_PARTY_MODULE_PREFIX):
+            origin = f"{module}:{traceback.tb_lineno}"
         traceback = traceback.tb_next
     _LOGGER.error(
         "run.failed code=%s run_id=%s error_type=%s error_module=%s origin=%s frames=%s",
@@ -84,7 +94,7 @@ def log_core_failure(exc: BaseException, *, run_id: str) -> None:
         run_id,
         type(exc).__name__,
         type(exc).__module__,
-        frames[-1] if frames else "unknown",
+        origin,
         ">".join(frames[-_TRACEBACK_FRAME_LIMIT:]) or "unknown",
     )
 
