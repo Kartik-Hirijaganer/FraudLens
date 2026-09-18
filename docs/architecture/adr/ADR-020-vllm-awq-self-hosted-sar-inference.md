@@ -1,14 +1,9 @@
 # ADR-020 — vLLM and 4-bit AWQ for self-hosted SAR inference
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded on quality 2026-09-18 by
+  [ADR-030](ADR-030-quality-gated-sar-model-cascade.md)
+  (see [Amendment](#amendment--2026-09-18-superseded-on-quality-by-adr-030))
 - **Date:** 2026-09-14
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Superseded on quality by:** [ADR-030](ADR-030-quality-gated-sar-model-cascade.md). This
-  record's memory, latency, and throughput findings stand and were re-measured in release
-  0.5.0. What it did not measure was grounding: raw AWQ fabricated citations on **85 of 1,000**
-  cases at concurrency 32 where BF16 fabricated none, so AWQ is no longer served ungated.
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -20,6 +15,19 @@ image, workload, and quality checks while measuring latency, throughput, memory,
 The application already routes LLM work through a governed OpenAI-compatible client. The benchmark
 must exercise that contract without making self-hosting the production default or weakening the
 synthetic-only model-egress boundary.
+
+### Options considered and rejected
+
+1. **Compare unrelated BF16 and quantized models** — rejected because model-family differences
+   would confound the quantization result.
+2. **Use different hosts or images per arm** — rejected because hardware/runtime variance would
+   invalidate the direct comparison.
+3. **Measure only weight-file size** — rejected because serving memory, KV capacity, useful
+   throughput, quality, and cost determine operational value.
+4. **Make the benchmark endpoint the deployment default** — rejected because a temporary research
+   host is not an availability, compliance, or operations commitment.
+5. **Use an AMD GPU** — rejected because the frozen AWQ-Marlin vLLM path requires supported NVIDIA
+   CUDA kernels.
 
 ## Decision
 
@@ -39,7 +47,7 @@ and maximum safe concurrency as a capacity observation. Persist prompts/outputs 
 encrypted experiment workspace; publish aggregate, PHI-free, hash-bound evidence. A 100-case
 application pass must prove that the normal FastAPI path can use the selected vLLM endpoint.
 
-## Evidence
+### Evidence
 
 - [`config/vllm-bench.yaml`](../../../config/vllm-bench.yaml) freezes the cases, models, image,
   concurrency levels, quality thresholds, and telemetry contract.
@@ -49,19 +57,6 @@ application pass must prove that the normal FastAPI path can use the selected vL
   and its bound frontend projection publish the 1,000-case, three-concurrency result. AWQ reduced
   model-weight memory by 63.5% and increased throughput by 60.8% at concurrency 32, while failing
   the reference-validity acceptance threshold; no quality-parity claim is permitted.
-
-## Options considered and rejected
-
-1. **Compare unrelated BF16 and quantized models** — rejected because model-family differences
-   would confound the quantization result.
-2. **Use different hosts or images per arm** — rejected because hardware/runtime variance would
-   invalidate the direct comparison.
-3. **Measure only weight-file size** — rejected because serving memory, KV capacity, useful
-   throughput, quality, and cost determine operational value.
-4. **Make the benchmark endpoint the deployment default** — rejected because a temporary research
-   host is not an availability, compliance, or operations commitment.
-5. **Use an AMD GPU** — rejected because the frozen AWQ-Marlin vLLM path requires supported NVIDIA
-   CUDA kernels.
 
 ## Tradeoffs accepted
 
@@ -85,3 +80,10 @@ application pass must prove that the normal FastAPI path can use the selected vL
 The published performance claim is limited to the measured efficiency result. The failed quality
 criterion remains visible in the report and prevents treating AWQ as an unconditional runtime
 default; any later gated cascade is separate release work.
+
+## Amendment — 2026-09-18 (superseded on quality by ADR-030)
+
+[ADR-030](ADR-030-quality-gated-sar-model-cascade.md) supersedes this record **on quality only**.
+The memory, latency, and throughput findings below stand, and were re-measured in release 0.5.0.
+What this record did not measure was grounding: raw AWQ fabricated citations on **85 of 1,000**
+cases at concurrency 32 where BF16 fabricated none, so AWQ is no longer served ungated.

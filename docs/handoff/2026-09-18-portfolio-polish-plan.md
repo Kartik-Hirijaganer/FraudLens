@@ -3,8 +3,7 @@
 > **Status: working document, in flight.** This is the plan behind the 2026-09-18 portfolio
 > polish work, kept here because Phases 3-6 are still open. It is not a deliverable and not a
 > maintained record: when the work lands, the durable outputs are the ADRs, runbooks, reports, and
-> tests it produced (Golden Rule 4), and this file goes. Retired plans are indexed in
-> [retired-plans.md](../architecture/retired-plans.md#retired-plans).
+> tests it produced (Golden Rule 4), and this file goes.
 
 ## Context
 

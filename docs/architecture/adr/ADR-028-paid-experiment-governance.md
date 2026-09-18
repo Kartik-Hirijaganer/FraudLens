@@ -2,9 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-14
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -12,6 +9,18 @@ Release 0.3 needs bounded CPU training and GPU inference experiments, but cloud 
 reliable spending control. Runtime uncertainty, quota failures, stopped-resource storage charges,
 Spot eviction, and delayed billing can all exceed a casual estimate. Evidence must also identify
 which provider, SKU, protocol, and source data produced a claim.
+
+### Options considered and rejected
+
+1. **Rely on cloud budget alerts** — rejected because alerts lag and do not stop resources.
+2. **Approve an entire release once** — rejected because creation, full-run admission, and deletion
+   have different evidence and risk.
+3. **Use Spot unconditionally** — rejected because capacity and eviction can invalidate equal-host
+   comparisons or strand partial artifacts.
+4. **Treat stopped compute as teardown** — rejected because persistent disks, network volumes,
+   public IPs, storage, and budgets may remain billable.
+5. **Publish estimates as measurements** — rejected because release claims must link to observed,
+   hash-bound artifacts.
 
 ## Decision
 
@@ -33,7 +42,7 @@ RunPod Secure Cloud RTX 4090 is the default GPU path. Azure A100/A10 remains opp
 fresh quota and price checks pass the same admission gate. Provider choice does not change the
 frozen BF16-versus-AWQ protocol or allow the two arms to use different hardware.
 
-## Evidence
+### Evidence
 
 - [`ledger.md`](../../reference/experiments/ledger.md) is the auditable session register.
 - [`budget.yaml`](../../../config/experiments/budget.yaml) contains allocations, watchdog bounds,
@@ -41,18 +50,6 @@ frozen BF16-versus-AWQ protocol or allow the two arms to use different hardware.
 - [`data-batch.md`](../../runbooks/data-batch.md) and
   [`vllm-benchmark.md`](../../runbooks/vllm-benchmark.md) define the pilot and teardown gates.
 - `make experiment-budget-check` validates ceiling reconciliation and publication lineage.
-
-## Options considered and rejected
-
-1. **Rely on cloud budget alerts** — rejected because alerts lag and do not stop resources.
-2. **Approve an entire release once** — rejected because creation, full-run admission, and deletion
-   have different evidence and risk.
-3. **Use Spot unconditionally** — rejected because capacity and eviction can invalidate equal-host
-   comparisons or strand partial artifacts.
-4. **Treat stopped compute as teardown** — rejected because persistent disks, network volumes,
-   public IPs, storage, and budgets may remain billable.
-5. **Publish estimates as measurements** — rejected because release claims must link to observed,
-   hash-bound artifacts.
 
 ## Tradeoffs accepted
 

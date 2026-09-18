@@ -2,9 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -18,6 +15,20 @@ The repository also has stable Python import paths, TypeScript module specifiers
 and monkeypatch seams. A mechanical size reduction that silently moved those boundaries would be a
 behavioral change, not a safe refactor. The policy therefore needs to constrain both file size and
 how a split preserves compatibility.
+
+### Options considered and rejected
+
+1. **Keep the shrink-only baseline indefinitely** — rejected because compliant files would still be
+   represented as exceptions and future cleanup could stall without failing the build.
+2. **Raise the limit** — rejected because it reduces gate failures without addressing mixed
+   responsibilities or review cost.
+3. **Count logical statements instead of physical lines** — rejected because the metric would vary
+   by parser and language, and could be gamed through formatting. Physical lines match `wc -l` and
+   are deterministic across Python, TypeScript, and TSX.
+4. **Split files without compatibility facades** — rejected because dozens of consumers and CLI
+   entry paths would move at once, increasing regression risk with no product benefit.
+5. **Exempt tests or scripts** — rejected because oversized fixtures and operational scripts carry
+   substantial behavior, security, and publication logic; reviewability matters there too.
 
 ## Decision
 
@@ -42,7 +53,7 @@ This decision changes maintainability constraints only. It does not change API c
 scope, authorization, PHI handling, provider access, cloud deployment, experiment spending, or the
 human approval boundaries around SARs and cloud mutations.
 
-## Why
+### Why
 
 **1 · An absolute cap prevents exception drift.** A baseline can ratchet known debt down, but it also
 normalizes files that remain harder to review. Removing it makes the same rule apply to every new
@@ -59,20 +70,6 @@ refactoring without forcing unrelated consumers to change in the same commit.
 **4 · Tests and tooling close the regression path.** Shared fixtures reduce copied setup, script
 coverage protects code that the main application coverage configuration does not measure, and
 dead-code plus duplication checks catch extraction that merely relocates unused or repeated code.
-
-## Options considered and rejected
-
-1. **Keep the shrink-only baseline indefinitely** — rejected because compliant files would still be
-   represented as exceptions and future cleanup could stall without failing the build.
-2. **Raise the limit** — rejected because it reduces gate failures without addressing mixed
-   responsibilities or review cost.
-3. **Count logical statements instead of physical lines** — rejected because the metric would vary
-   by parser and language, and could be gamed through formatting. Physical lines match `wc -l` and
-   are deterministic across Python, TypeScript, and TSX.
-4. **Split files without compatibility facades** — rejected because dozens of consumers and CLI
-   entry paths would move at once, increasing regression risk with no product benefit.
-5. **Exempt tests or scripts** — rejected because oversized fixtures and operational scripts carry
-   substantial behavior, security, and publication logic; reviewability matters there too.
 
 ## Tradeoffs accepted
 

@@ -3,8 +3,7 @@
 # Read ONLY by scripts/lib/gfp (GfpBenchmarkConfig) — never by AppSettings and never by
 # live scoring. These values pin the "Benchmark contract" now carried by
 # docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md, which froze them BEFORE any
-# new holdout result was inspected; changing them invalidates published results. The plan that
-# originally stated the contract is retired (docs/architecture/retired-plans.md). NON-SECRET
+# new holdout result was inspected; changing them invalidates published results. NON-SECRET
 # (Golden Rule 2): dataset files and outputs live under gitignored .local/ only.
 
 seed: 1729

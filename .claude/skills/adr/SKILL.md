@@ -15,8 +15,9 @@ decision needs a superseding record.
 ## Rules
 
 - ADRs live under `docs/architecture/adr/` and use the next assigned `ADR-NNN-kebab-title.md` name.
-- Use the house order: Context, Decision, Why, Options considered and rejected, Tradeoffs accepted,
-  Reconsider when.
+- Use the house order: Context, Decision, Tradeoffs accepted, Reconsider when, then any Amendment.
+  The alternatives that were weighed belong inside Context, and the reasoning and evidence for the
+  choice inside Decision, as `###` subsections — an ADR must read as one self-contained record.
 - Add exactly one row to `docs/architecture/adr/README.md` and a relative pointer to the evidence
   the decision rests on: a runbook, a published report, or the tests that hold the contract.
 - Record the real status and evidence. Do not call a planned or validated-only state demonstrated.
@@ -24,11 +25,11 @@ decision needs a superseding record.
 
 ## Steps
 
-1. Read the active plan, ADR index, and adjacent records to determine number, scope, and conflicts.
+1. Read the ADR index and adjacent records to determine number, scope, and conflicts.
 2. State the decision in one testable sentence and identify boundaries it does not change.
 3. Document considered options, concrete reasons, operational/security costs, and triggers for
    revisiting the choice.
-4. Add related ADR and plan links using repository-relative paths.
+4. Add related ADR links using repository-relative paths. Never cite a retired plan.
 5. Add the index row with status/date and run `make docs-links-check` plus `make docs-check`.
 
 ## Verification
@@ -36,7 +37,8 @@ decision needs a superseding record.
 - Filename, title, index number, status, date, and link targets agree.
 - Every option and trade-off is decision-specific and the reconsideration criteria are actionable.
 - Security, tenant isolation, PHI posture, cost, and compatibility are addressed when applicable.
-- The plan points to the ADR as the canonical decision record rather than restating it indefinitely.
+- The record stands alone: the conflict, the options weighed, and the decision are all readable
+  without opening another document.
 
 ## Never Do
 

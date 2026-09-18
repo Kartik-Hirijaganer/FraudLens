@@ -2,9 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
-- **Related:** implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -19,6 +16,34 @@ benchmarking, Kubernetes deployment, quality/privacy review, architecture decisi
 and design review. Those procedures must remain repository-specific: a generic cloud skill cannot
 weaken Golden Rule 7, change Infisical's single `prod` environment, broaden AWS into a deploy target,
 or reinterpret kind evidence as a live AKS deployment.
+
+### Options considered and rejected
+
+1. **Maintain separate Claude and Codex skill trees** — rejected because every policy change would
+   require a coordinated manual edit and could pass review with one platform stale.
+2. **Use symlinks from `.agents/skills/` to `.claude/skills/`** — rejected because tool support and
+   checkout behavior vary, symlinks obscure generated ownership, and they can escape managed roots.
+3. **Keep `.claude/commands/` plus generated compatibility skills** — rejected because two names and
+   two discovery mechanisms represent the same workflow and encourage divergent maintenance.
+4. **Install broad Terraform/Azure plugins now** — rejected because Phase 1 needs procedural safety,
+   not more mutation capability. Their useful live lookup/diagnostic surface does not justify the
+   overlap or permission expansion without a concrete task and explicit approval.
+5. **Embed synchronization in the documentation engine** — rejected in favor of a focused CLI that
+   can be tested and invoked independently while still composing through `make docs`/`docs-check`.
+
+### External skills review (2026-09-13)
+
+The review covered the requested Terraform, Kubernetes, and Azure subjects:
+
+| Catalog | Relevant result | Decision |
+|---|---|---|
+| [OpenAI skills catalog](https://github.com/openai/skills) and its [successor plugins catalog](https://github.com/openai/plugins) | No dedicated general Terraform, Kubernetes, or Azure project skill. Matches are provider-specific reference material, such as Cloudflare Terraform and NVIDIA infrastructure components. | Do not install; these do not replace the FraudLens operating protocol. |
+| [Anthropic official marketplace](https://github.com/anthropics/claude-plugins-official/blob/main/.claude-plugin/marketplace.json) | `terraform` exposes HashiCorp's broad Terraform MCP capability; `azure` installs Microsoft's broad Azure skills/MCP integration; no standalone `kubernetes` entry was present. | Do not install without a separate human approval. They add live, generic capability but duplicate the planned workflows and broaden the mutation surface. Reconsider for a bounded live troubleshooting need. |
+| [Anthropic example skills](https://github.com/anthropics/skills) | No Terraform, Kubernetes, or Azure skill is listed in the example marketplace. | No installation candidate. |
+
+No external skill or plugin is installed by this decision. If one is proposed later, review its exact
+revision, permissions, network/MCP surface, mutation behavior, maintenance ownership, and overlap
+with FraudLens skills, then obtain explicit human approval before installation.
 
 ## Decision
 
@@ -40,21 +65,7 @@ The three old `.claude/commands/` workflows become the normally named `pre-pr`, 
 set also contains `adr`, `azure-experiment`, `benchmark-vllm`, `design-review`, `drift-check`,
 `k8s-deploy`, `maintain`, `quality-gates`, and `split-module`.
 
-## External skills review (2026-09-13)
-
-The review covered the requested Terraform, Kubernetes, and Azure subjects:
-
-| Catalog | Relevant result | Decision |
-|---|---|---|
-| [OpenAI skills catalog](https://github.com/openai/skills) and its [successor plugins catalog](https://github.com/openai/plugins) | No dedicated general Terraform, Kubernetes, or Azure project skill. Matches are provider-specific reference material, such as Cloudflare Terraform and NVIDIA infrastructure components. | Do not install; these do not replace the FraudLens operating protocol. |
-| [Anthropic official marketplace](https://github.com/anthropics/claude-plugins-official/blob/main/.claude-plugin/marketplace.json) | `terraform` exposes HashiCorp's broad Terraform MCP capability; `azure` installs Microsoft's broad Azure skills/MCP integration; no standalone `kubernetes` entry was present. | Do not install without a separate human approval. They add live, generic capability but duplicate the planned workflows and broaden the mutation surface. Reconsider for a bounded live troubleshooting need. |
-| [Anthropic example skills](https://github.com/anthropics/skills) | No Terraform, Kubernetes, or Azure skill is listed in the example marketplace. | No installation candidate. |
-
-No external skill or plugin is installed by this decision. If one is proposed later, review its exact
-revision, permissions, network/MCP surface, mutation behavior, maintenance ownership, and overlap
-with FraudLens skills, then obtain explicit human approval before installation.
-
-## Why — generated duplication makes drift testable
+### Why — generated duplication makes drift testable
 
 **1 · One editable tree removes policy forks.** Claude Code and Codex read the same bytes, so a
 permission or evidence change has one reviewable source.
@@ -69,20 +80,6 @@ and canonical plan links are rejected at the source rather than copied into both
 repo's cost allocations, Infisical posture, Azure-only deployment boundary, synthetic-only evidence,
 kind/AKS distinction, and human approvals. External catalogs remain optional capability sources, not
 governance authorities.
-
-## Options considered and rejected
-
-1. **Maintain separate Claude and Codex skill trees** — rejected because every policy change would
-   require a coordinated manual edit and could pass review with one platform stale.
-2. **Use symlinks from `.agents/skills/` to `.claude/skills/`** — rejected because tool support and
-   checkout behavior vary, symlinks obscure generated ownership, and they can escape managed roots.
-3. **Keep `.claude/commands/` plus generated compatibility skills** — rejected because two names and
-   two discovery mechanisms represent the same workflow and encourage divergent maintenance.
-4. **Install broad Terraform/Azure plugins now** — rejected because Phase 1 needs procedural safety,
-   not more mutation capability. Their useful live lookup/diagnostic surface does not justify the
-   overlap or permission expansion without a concrete task and explicit approval.
-5. **Embed synchronization in the documentation engine** — rejected in favor of a focused CLI that
-   can be tested and invoked independently while still composing through `make docs`/`docs-check`.
 
 ## Tradeoffs accepted
 

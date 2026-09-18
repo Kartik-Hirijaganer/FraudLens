@@ -2,11 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-13
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
 - **Related:** [ADR-019 — bounded multi-agent SAR drafting](ADR-019-multi-agent-sar-drafting.md)
   · [ADR-026 — provenance-derived synthetic-only model egress](ADR-026-synthetic-only-model-egress.md)
-  · implementation plan
-  `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see [retired-plans.md](../retired-plans.md#retired-plans))
 
 ## Context
 
@@ -19,6 +16,19 @@ fact coverage without failing a focused quality contract.
 The quality claims must remain reproducible without credentials, provider availability, network
 access, or paid inference. They also need to exercise the production schemas and grounding behavior
 rather than maintain a benchmark-only interpretation of citation or claim correctness.
+
+### Options considered and rejected
+
+1. **Rely on general unit coverage** — rejected because coverage shows execution, not that measured
+   SAR quality remains above an explicit acceptance threshold.
+2. **Call live models in CI** — rejected because outputs and cost are nondeterministic and would make
+   a privacy gate depend on the external path it is meant to constrain.
+3. **Keep metrics inside the SAR-study harness** — rejected because runtime quality tests, future
+   vLLM benchmarks, and publication validation would then risk diverging definitions.
+4. **Use only schema and object-level egress assertions** — rejected because adapters serialize,
+   retry, and reroute requests after those assertions. Raw request-body capture closes that gap.
+5. **Treat a passing synthetic suite as production validation** — rejected because the fixture
+   distribution cannot establish safety or regulatory correctness for real cases.
 
 ## Decision
 
@@ -38,7 +48,7 @@ These gates evaluate deterministic behavior on synthetic fixtures. They do not c
 filing accuracy, anonymisation, provider compliance, or performance on real customer data. Human SAR
 approval remains unchanged and no quality result can transition an alert or authorize a filing.
 
-## Why
+### Why
 
 **1 · Named thresholds make quality regression reviewable.** A maintainer can identify the exact
 metric, fixture, and configured limit that failed instead of inferring quality from a general test
@@ -55,19 +65,6 @@ later benchmarks can reuse.
 **4 · Transport inspection tests the last responsible boundary.** Capturing serialized
 OpenAI-compatible request bytes exposes leaks that object-level tests could miss and verifies both
 retry and governed fallback behavior under a socket-denial guard.
-
-## Options considered and rejected
-
-1. **Rely on general unit coverage** — rejected because coverage shows execution, not that measured
-   SAR quality remains above an explicit acceptance threshold.
-2. **Call live models in CI** — rejected because outputs and cost are nondeterministic and would make
-   a privacy gate depend on the external path it is meant to constrain.
-3. **Keep metrics inside the SAR-study harness** — rejected because runtime quality tests, future
-   vLLM benchmarks, and publication validation would then risk diverging definitions.
-4. **Use only schema and object-level egress assertions** — rejected because adapters serialize,
-   retry, and reroute requests after those assertions. Raw request-body capture closes that gap.
-5. **Treat a passing synthetic suite as production validation** — rejected because the fixture
-   distribution cannot establish safety or regulatory correctness for real cases.
 
 ## Tradeoffs accepted
 

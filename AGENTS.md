@@ -51,8 +51,7 @@ personal repo. Handoff/context lives in
    [ADR](docs/architecture/adr/), a procedure as a runbook, a measurement as a published report,
    and a contract as a test. A working plan is fine while the work is in flight: keep it out of the
    repo root, and if it is worth committing at all, park it in [`docs/handoff/`](docs/handoff/)
-   under a status banner and delete it when the work lands. What each retired plan became is
-   indexed in [`docs/architecture/retired-plans.md`](docs/architecture/retired-plans.md).
+   under a status banner and delete it when the work lands.
 5. **Documents live in [`docs/`](docs/)** per [`docs/README.md`](docs/README.md). Don't
    drop deliverables in the repo root.
 6. **Hold the security governance below** on every change.
@@ -304,8 +303,7 @@ drift-check <doc-path> all           # every phase
 ```
 
 It never writes, and it grades implementation against the document rather than grading the
-document. It does not require `plans/`, which is retired — see
-[`docs/architecture/retired-plans.md`](docs/architecture/retired-plans.md).
+document. It does not require `plans/`, which is retired.
 
 ## Dev Workflow
 

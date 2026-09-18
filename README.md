@@ -578,7 +578,6 @@ See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-gu
 | Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
 | Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |
 | Contributor/agent rules | [AGENTS.md](AGENTS.md) |
-| Retired implementation plans | [docs/architecture/retired-plans.md](docs/architecture/retired-plans.md) |
 
 ## License
 

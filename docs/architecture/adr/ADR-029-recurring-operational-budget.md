@@ -20,6 +20,26 @@ never halt a resource, and their data lags by hours — long enough for a miscon
 unobserved. Alerts therefore cannot be the control. They are the notification that a control was
 approached.
 
+### Options considered and rejected
+
+1. **Extend ADR-028's $75 experiment ceiling to cover the URL** — rejected because that ceiling is
+   one-time and reconciled by teardown. A recurring charge would consume it monotonically and leave
+   no allocation for the experiments the instrument exists to govern.
+2. **Rely on the Azure budgets alone** — rejected because budgets never stop a resource and their
+   data lags by hours; with the subscription spending limit off, nothing below the caps would bind.
+3. **Turn the subscription spending limit on** — rejected because it is unavailable on this
+   Pay-As-You-Go offer, and its all-or-nothing suspension would take the live URL down rather than
+   bound it.
+4. **Keep AKS running to serve the permanent URL** — rejected on the ~50× ratio above for no visible
+   difference to a reader, and because a standing cluster removes the verified-teardown discipline
+   that makes the paid session auditable.
+5. **Pay for `min_replicas = 1` instead of the keep-warm cron** — rejected at ~$10.20/month versus
+   $1.23 for an outcome a visitor cannot distinguish inside the window that matters.
+6. **Automated shutdown at 80% of budget** (an Automation account with a narrow custom role, driven
+   by the budget action group) — rejected as core scope: the hard caps already bound the bill, and it
+   would add a custom RBAC role and a runbook to maintain. It remains fully specified in the plan if
+   the caps ever stop being sufficient.
+
 ## Decision
 
 The permanent deployment runs under a standing operational budget of **$25/month of Azure spend**,
@@ -90,7 +110,7 @@ evidence artifact, and the workflow logs — which is what is actually shown to 
 rests on it stays literally true and is worded in
 [ADR-021](ADR-021-aks-ephemeral-kubernetes-demonstration.md)'s amendment.
 
-## Evidence
+### Evidence
 
 - [`cost-model.md`](../../reference/cost-model.md) is the generated projection: enforced ceilings and
   their observed values, priced shapes, dated unit rates with source URLs, the measured cold start,
@@ -103,26 +123,6 @@ rests on it stays literally true and is worded in
   artifacts support.
 - `make azure-cost-plan` is a gate, not a report: it fails the build when the Container Apps replica
   cap or the AKS session ceiling is breached, so a shape change cannot quietly raise the bill.
-
-## Options considered and rejected
-
-1. **Extend ADR-028's $75 experiment ceiling to cover the URL** — rejected because that ceiling is
-   one-time and reconciled by teardown. A recurring charge would consume it monotonically and leave
-   no allocation for the experiments the instrument exists to govern.
-2. **Rely on the Azure budgets alone** — rejected because budgets never stop a resource and their
-   data lags by hours; with the subscription spending limit off, nothing below the caps would bind.
-3. **Turn the subscription spending limit on** — rejected because it is unavailable on this
-   Pay-As-You-Go offer, and its all-or-nothing suspension would take the live URL down rather than
-   bound it.
-4. **Keep AKS running to serve the permanent URL** — rejected on the ~50× ratio above for no visible
-   difference to a reader, and because a standing cluster removes the verified-teardown discipline
-   that makes the paid session auditable.
-5. **Pay for `min_replicas = 1` instead of the keep-warm cron** — rejected at ~$10.20/month versus
-   $1.23 for an outcome a visitor cannot distinguish inside the window that matters.
-6. **Automated shutdown at 80% of budget** (an Automation account with a narrow custom role, driven
-   by the budget action group) — rejected as core scope: the hard caps already bound the bill, and it
-   would add a custom RBAC role and a runbook to maintain. It remains fully specified in the plan if
-   the caps ever stop being sufficient.
 
 ## Tradeoffs accepted
 

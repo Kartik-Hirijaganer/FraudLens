@@ -2,10 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-26
-- **Format:** Decision · Options · Why · Tradeoffs · Reconsider when (per master-plan §22)
 - **Related:** [ADR-015 — tenant-safe global model training](README.md)
   · [ADR-017 — graph-feature serving boundary](ADR-017-graph-feature-serving-boundary.md)
-  · [retired-plan index](../retired-plans.md#retired-plans)
   · runbooks [`portfolio-demo.md`](../../runbooks/portfolio-demo.md) · [`portfolio-demo-uat.md`](../../runbooks/portfolio-demo-uat.md)
 
 ## Context
@@ -22,6 +20,28 @@ The obvious fix — insert rows into `transactions.risk_band`, `alerts`, and `sa
 screens look full — is available, cheap, and wrong for a system whose entire claim is that its
 decisions are produced by a governed pipeline. This ADR records the alternative and the constraints
 that make it hold.
+
+### Options considered and rejected
+
+1. **Insert demo rows directly into `transactions.risk_band` / `alerts` / `sar_drafts`** — rejected:
+   fastest to build, but it fabricates the exact claim the product makes, and leaves no run,
+   inference log, SHAP snapshot, or audit trail behind the numbers on screen.
+2. **Generate the story from a fixture dump / SQL seed** — rejected for the same reason at one
+   remove: a dump is inserted state with a build step, and it silently rots the moment a rule
+   parameter, band bound, or model changes, because nothing compares it to anything.
+3. **Auto-heal: re-pin `expected:` whenever the pipeline disagrees** — rejected: it makes every
+   assertion trivially true. A model regression and a deliberate re-pin become indistinguishable, and
+   the demo's numbers stop being reviewable.
+4. **Tune thresholds or rule parameters until the desired distribution appears** — rejected: it moves
+   *production* policy to satisfy a demo. The authored inputs are data chosen to satisfy the live
+   parameters; the parameters are not chosen to satisfy the story.
+5. **Two or more populated runtime tenants for a live isolation demo** — rejected: see Why §4. The
+   demo moment is real but is paid for in duplicated identity, duplicated calibration, and a larger
+   surface for a scoping bug; temporary-tenant tests prove the invariant more strongly.
+6. **Keep demo identities as TypeScript/Python constants and skip the config boundary** — rejected:
+   the same id then lives in the seed, the dev bypass, the frontend picker, the batch runner, and
+   several test suites, and they drift. One validated document plus a derive-from-config CI guard
+   costs less than the drift did (it found 51 restatements across 19 files when first run).
 
 ## Decision
 
@@ -44,7 +64,7 @@ in one runtime tenant:
 - **Exactly one persistent runtime demo tenant exists.** Research partitions are an offline analysis
   concept, and generic multi-tenancy is proven by tests that mint temporary tenants.
 
-## Why — a demo that lies is worse than an empty one
+### Why — a demo that lies is worse than an empty one
 
 **1 · Inserted state falsifies the only claim the demo makes.** A visitor looking at a CRITICAL band
 is being told "the model and the rules agreed this is critical." If the row were inserted, that
@@ -82,28 +102,6 @@ study-owned constant (`scripts/lib/gfp/partitions.py`), explicitly named for wha
 analysis partitions. The demo tenant declares the partition it mirrors via
 `agency.research_partition_key`, which is also what exempts that one shared string from the
 no-duplicated-literals guard — rename the agency without renaming the partition and the guard re-arms.
-
-## Options considered and rejected
-
-1. **Insert demo rows directly into `transactions.risk_band` / `alerts` / `sar_drafts`** — rejected:
-   fastest to build, but it fabricates the exact claim the product makes, and leaves no run,
-   inference log, SHAP snapshot, or audit trail behind the numbers on screen.
-2. **Generate the story from a fixture dump / SQL seed** — rejected for the same reason at one
-   remove: a dump is inserted state with a build step, and it silently rots the moment a rule
-   parameter, band bound, or model changes, because nothing compares it to anything.
-3. **Auto-heal: re-pin `expected:` whenever the pipeline disagrees** — rejected: it makes every
-   assertion trivially true. A model regression and a deliberate re-pin become indistinguishable, and
-   the demo's numbers stop being reviewable.
-4. **Tune thresholds or rule parameters until the desired distribution appears** — rejected: it moves
-   *production* policy to satisfy a demo. The authored inputs are data chosen to satisfy the live
-   parameters; the parameters are not chosen to satisfy the story.
-5. **Two or more populated runtime tenants for a live isolation demo** — rejected: see Why §4. The
-   demo moment is real but is paid for in duplicated identity, duplicated calibration, and a larger
-   surface for a scoping bug; temporary-tenant tests prove the invariant more strongly.
-6. **Keep demo identities as TypeScript/Python constants and skip the config boundary** — rejected:
-   the same id then lives in the seed, the dev bypass, the frontend picker, the batch runner, and
-   several test suites, and they drift. One validated document plus a derive-from-config CI guard
-   costs less than the drift did (it found 51 restatements across 19 files when first run).
 
 ## Tradeoffs accepted
 
