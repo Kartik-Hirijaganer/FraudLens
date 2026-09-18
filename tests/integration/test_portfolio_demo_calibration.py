@@ -33,7 +33,6 @@ from fraudlens_backend.pipeline_wiring import build_pipeline_input, load_risk_po
 from fraudlens_backend.portfolio_demo import (
     PortfolioDemoConfig,
     PortfolioDemoScenario,
-    load_portfolio_demo_config,
 )
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RuleRegistry, build_canonical
@@ -43,12 +42,6 @@ from seed import _ensure_config, _ensure_rules  # scripts/ is on sys.path via co
 
 _MODELS_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
 _UNSCORED = "unscored"
-
-
-@pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story whose expectations this module re-derives."""
-    return load_portfolio_demo_config()
 
 
 @pytest.fixture

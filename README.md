@@ -5,8 +5,10 @@
 **Explainable, tenant-safe AML investigations — from masked transaction ingest to risk scoring,
 analyst review, grounded SAR drafts, and governed model operations.**
 
-[![Run locally](https://img.shields.io/badge/demo-run%20locally-9fe870)](#quick-start)
+[![Live demo](https://img.shields.io/badge/demo-live-9fe870)](https://fraud-lens-amber.vercel.app)
+[![Walkthrough](https://img.shields.io/badge/walkthrough-60%20seconds-9fe870)](#try-it-in-60-seconds)
 [![CI](https://github.com/Kartik-Hirijaganer/FraudLens/actions/workflows/ci.yml/badge.svg)](https://github.com/Kartik-Hirijaganer/FraudLens/actions/workflows/ci.yml)
+<br/>
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25%20gated-success)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 <br/>
@@ -17,85 +19,98 @@ analyst review, grounded SAR drafts, and governed model operations.**
 ![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)
 ![XGBoost](https://img.shields.io/badge/ML-XGBoost%20%2B%20SHAP-orange)
 
-**[Why](#why-fraudlens-exists)** · **[Capabilities](#what-it-does)** ·
-**[Architecture](#how-it-works)** · **[Quick start](#quick-start)** ·
-**[Engineering](#engineering-highlights)** · **[API](#api-surface)** ·
-**[Docs](#documentation)**
-
-> **Current status:** FraudLens is **live** at
-> **[fraud-lens-amber.vercel.app](https://fraud-lens-amber.vercel.app)** — the SPA on Vercel with
-> `/api/*` proxied same-origin to Azure Container Apps, state in Supabase Postgres. It also runs
-> fully locally with no cloud account. Deploys are never automatic: each one needs the owner's
-> approval on a protected environment. Recurring cost is ~$2.72/month under enforced hard caps
-> ([cost model](docs/reference/cost-model.md), [ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md)).
-
-**Three different things run in this repository, and only the first one is standing right now:**
-
-| | What it is | Status | Evidence |
-| --- | --- | --- | --- |
-| **The deployment** | Azure Container Apps + Vercel + Supabase behind one public origin | **Standing.** ~$2.72/month under hard caps | [Live URL](https://fraud-lens-amber.vercel.app), [cost model](docs/reference/cost-model.md) |
-| **The Kubernetes demonstration** | One Kustomize base on local kind and on Azure AKS, with a real HPA | **Ephemeral.** Applied, measured, destroyed in one approved session; $0 standing | [kind](docs/reference/benchmarks/k8s-hpa-scaling.md) · [AKS](docs/reference/benchmarks/aks-hpa-scaling.md) |
-| **The inference benchmark** | Two RunPod RTX 4090 endpoints serving BF16 and AWQ for a 1,000-case matrix | **Ephemeral.** Both Pods and volumes verified deleted after export | [Gated cascade](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) · [raw arms](docs/reference/benchmarks/vllm-awq-sar-benchmark.md) |
-
-> The demonstration runtime and the benchmark are **not** how the application is served. AKS is not
-> the deploy target ([ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md)),
-> and no GPU is provisioned outside an approved, torn-down session
-> ([ADR-028](docs/architecture/adr/ADR-028-paid-experiment-governance.md)).
+**[Why](#why-fraudlens-exists)** · **[What it does](#what-it-does)** ·
+**[Try it](#try-it-in-60-seconds)** · **[How it works](#how-it-works)** ·
+**[Quick start](#quick-start)** · **[Engineering](#engineering-highlights)** ·
+**[Evidence](#measured-evidence)** · **[Docs](#documentation)**
 
 **Keywords:** AML · fraud detection · explainable AI · XGBoost · SHAP · LangGraph · regulatory RAG
 · SAR drafting · multi-tenant SaaS · FastAPI · React · MLOps
+
+<!-- Hero screenshot: capture the live demo dashboard, save it to docs/screenshots/ as
+     dashboard.png, then replace this comment with an img tag 860px wide. -->
 
 </div>
 
 ---
 
+## Demo video
+
+<!-- Walkthrough GIF: record the five steps in "Try it in 60 seconds" against the live demo,
+     save it to docs/demo/ as fraudlens-demo.gif, then replace this comment with a Markdown
+     image reference to that path. -->
+
+**What it shows:** the five steps in [Try it in 60 seconds](#try-it-in-60-seconds), end to end —
+persona sign-in, an unscored transaction, the investigation streaming its evidence, the exact
+persisted model input, and a human approving or rejecting the SAR.
+
 ## Why FraudLens exists
 
 A fraud score by itself is not an investigation. An analyst also needs to know which signals fired,
 why the model moved the score, what regulatory context applies, what action was taken, and whether
-the entire decision can be reconstructed later. In a multi-tenant system, every one of those steps
-must also preserve tenant isolation and prevent sensitive data from leaking through logs, prompts,
-URLs, or errors.
+the whole decision can be reconstructed later. In a multi-tenant system, every one of those steps
+must also preserve tenant isolation and keep sensitive data out of logs, prompts, URLs, and errors.
 
 FraudLens explores that complete decision path as a personal, production-hygiene project. It turns
 public, synthetically generated AML transactions into explainable investigations and review-ready
-alerts, while keeping analysts in control of alert decisions and SAR approval. The repository uses
-no real PHI, stores only masked demo data, validates tenant identity from JWT claims, and keeps every
-secret outside source control.
+alerts, while keeping analysts in control of alert decisions and SAR approval. It uses no real PHI,
+stores only masked demo data, validates tenant identity from JWT claims, and keeps every secret
+outside source control.
 
 ## What it does
 
-- **Transaction ingest** — accepts single records, batches, or masked CSV uploads; list and search
-  operations use tenant-scoped, keyset-paginated queries.
-- **Hybrid risk scoring** — combines deterministic rules with a calibrated XGBoost model and assigns
-  a risk band using the active model's operating points.
-- **Explainable decisions** — records rule hits and additive SHAP feature contributions so analysts
-  can see why a transaction moved toward or away from risk.
-- **Thresholded investigation graph** — below-threshold runs stop after scoring; alerted runs continue
-  through regulatory retrieval and SAR drafting, avoiding unnecessary LLM work.
-- **Regulatory RAG** — retrieves versioned FinCEN/BSA context from ChromaDB, with a deterministic
-  offline embedder for the default local demo and a guarded live embedding path as an opt-in.
-- **Governed SAR drafting** — produces cited draft narratives through a provenance-derived,
-  synthetic-only model-input allowlist, versioned prompt, strict schema, citation grounding, budget
-  guard, replay cache, and mock/live provider seam.
-- **Analyst workflow** — exposes dashboards, transaction search, live investigation progress, alert
-  review actions, SAR review, and role-aware navigation for analyst, reviewer, auditor, and admin
-  responsibilities.
-- **Human-gated MLOps** — supports retrain → candidate → shadow → approval → canary → active, plus
-  rollback, per-tenant promotion gates, last-known-good model fallback, and advisory drift reports.
-- **Auditable operations** — records request IDs, investigation transitions, model versions, prompt
-  provenance, review decisions, and administrative lifecycle actions without logging PHI.
-- **Tenant-isolation research** — includes a committed, redacted graph-feature study and interactive
-  typology view that makes the performance-versus-isolation boundary explicit without querying live
-  tenant data.
+- **Transaction ingest** — single records, batches, or masked CSV uploads; list and search run as
+  tenant-scoped, keyset-paginated queries.
+- **Hybrid risk scoring** — deterministic rules plus a calibrated XGBoost model, banded by the
+  active model's operating points.
+- **Explainable decisions** — rule hits and additive SHAP contributions, so an analyst sees why a
+  transaction moved toward or away from risk.
+- **Thresholded investigation graph** — below-threshold runs stop after scoring; alerted runs
+  continue through regulatory retrieval and SAR drafting, avoiding unnecessary LLM work.
+- **Regulatory RAG** — versioned FinCEN/BSA context from ChromaDB, with a deterministic offline
+  embedder locally and a guarded live path as an opt-in.
+- **Governed SAR drafting** — a bounded four-agent workflow (investigate → interpret → draft →
+  review) composes each cited narrative and degrades to a single writer rather than failing the
+  run, through a synthetic-only model-input allowlist, versioned prompts, strict schema, citation
+  grounding, budget guard, replay cache, and mock/live provider seam.
+- **Analyst workflow** — dashboards, search, live investigation progress, alert and SAR review, and
+  role-aware navigation for analyst, reviewer, auditor, and admin.
+- **Human-gated MLOps** — retrain → candidate → shadow → approval → canary → active, plus rollback,
+  per-tenant promotion gates, last-known-good fallback, and advisory drift reports.
+- **Auditable operations** — request IDs, state transitions, model versions, prompt provenance, and
+  review decisions, all without logging PHI.
+- **Tenant-isolation research** — a committed, redacted graph-feature study that makes the
+  performance-versus-isolation boundary explicit without ever querying live tenant data.
+
+## Try it in 60 seconds
+
+1. Open the [live demo](https://fraud-lens-amber.vercel.app) → pick **Fraud Analyst** from
+   *Demo · sign in as* (synthetic credentials auto-fill) → **Sign in**.
+2. Open **Transactions** and click any row in the **unscored** band.
+3. Watch the investigation stream: **Risk → Drivers → Citations → SAR draft**. Each step
+   unlocks only once its own evidence has arrived — nothing is pre-rendered.
+4. Expand **"What the model saw"** — the exact persisted input the draft was built from.
+5. **Approve**, or **reject with a reason**. No SAR is ever filed without a human.
+
+Low-risk transactions terminate at *Risk → Drivers → Outcome* and never imply a SAR exists.
 
 ## How it works
 
-### Architecture diagram
+Three different things run in this repository, and only the first is standing right now:
 
-This is the **deployed architecture**: everything in the Azure box below is applied and serving,
-reached through the Vercel same-origin proxy. The main request and investigation path runs
-top-to-bottom; dashed connections are runtime configuration or trust relationships.
+| | What it is | Status |
+| --- | --- | --- |
+| **The deployment** | Azure Container Apps + Vercel + Supabase behind one public origin | **Standing.** ~$2.72/month under hard caps |
+| **The Kubernetes demonstration** | One Kustomize base on local kind and on Azure AKS, with a real HPA | **Ephemeral.** Applied, measured, destroyed in one approved session; $0 standing |
+| **The inference benchmark** | Two RunPod RTX 4090 endpoints serving BF16 and AWQ over a 1,000-case matrix | **Ephemeral.** Both Pods and volumes verified deleted after export |
+
+Neither the demonstration runtime nor the benchmark is how the application is served: AKS is not a
+deploy target ([ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md)),
+and no GPU is provisioned outside an approved, torn-down session
+([ADR-028](docs/architecture/adr/ADR-028-paid-experiment-governance.md)).
+
+Below is the **deployed architecture** — everything in the Azure box is applied and serving, reached
+through the Vercel same-origin proxy. Dashed connections are configuration or trust relationships.
 
 ```mermaid
 flowchart TB
@@ -145,61 +160,8 @@ flowchart TB
 
 The default developer stack maps those boundaries to Vite, local FastAPI, Docker Postgres, local
 jobs/artifacts, the offline ChromaDB index, and the keyless mock SAR drafter. Infisical is used only
-to inject the Kaggle token into the public IBM AML-Data fetch command; the token is removed before
-database, backend, frontend, scoring, RAG, or SAR processes start.
-
-### User flow — draft and submit a SAR for review
-
-This is the implemented above-threshold happy path. The system generates the first grounded draft;
-the analyst validates the evidence and sends it for internal review; the reviewer remains the human
-approval gate. Regulatory filing is outside FraudLens.
-
-```mermaid
-flowchart TB
-    subgraph analyst["Analyst"]
-        direction TB
-        signIn["Sign in"]
-        transactions["Open Transactions"]
-        select["Select or import a masked transaction"]
-        start["Start investigation"]
-        signIn --> transactions --> select --> start
-    end
-
-    subgraph system["FraudLens investigation"]
-        direction TB
-        authorize["Validate JWT, RBAC, and agency_id"]
-        score["Run rules + active XGBoost model"]
-        explain["Produce risk band + SHAP drivers"]
-        threshold["Happy path: alert threshold crossed"]
-        alert["Persist tenant-scoped alert"]
-        retrieve["Retrieve FinCEN / BSA citations"]
-        draft["Generate and persist masked, grounded SAR draft"]
-        authorize --> score --> explain --> threshold --> alert --> retrieve --> draft
-    end
-
-    subgraph caseReview["Analyst case review"]
-        direction TB
-        evidence["Confirm Risk → Drivers → Citations → SAR draft"]
-        regenerate["Regenerate the draft if needed, then confirm"]
-        alertQueue["Open the generated alert in the Alerts queue"]
-        submit["Click Send for review<br/>append action + audit event"]
-        evidence --> regenerate --> alertQueue --> submit
-    end
-
-    subgraph reviewer["Reviewer"]
-        direction TB
-        openReview["Open the escalated alert"]
-        assess["Review evidence, citations, narrative, and activity"]
-        edit["Edit if needed<br/>persist a new masked draft version"]
-        approve["Approve SAR"]
-        complete["SAR approved<br/>PDF generation queued + audit trail updated"]
-        openReview --> assess --> edit --> approve --> complete
-    end
-
-    start --> authorize
-    draft --> evidence
-    submit --> openReview
-```
+to inject the Kaggle token into the public IBM AML-Data fetch; the token is removed before database,
+backend, frontend, scoring, RAG, or SAR processes start.
 
 ### Built with
 
@@ -215,137 +177,91 @@ flowchart TB
 
 ## Quick start
 
-### Prerequisites
+**Prerequisites:** Python 3.11 + [uv](https://docs.astral.sh/uv/) · Node.js 20+ and npm · Docker ·
+GNU Make and Git · [Infisical CLI](https://infisical.com/docs/cli/overview) authenticated with
+`infisical login` · room for the ~454 MB gitignored IBM AML-Data file plus Docker state.
 
-- **Python 3.11** and [uv](https://docs.astral.sh/uv/)
-- **Node.js 20+** and npm
-- **Docker** with the daemon running
-- **GNU Make** and Git
-- **Infisical CLI** access to the FraudLens project, authenticated with `infisical login`
-- Enough local space for the approximately 454 MB gitignored IBM AML-Data file plus Docker state
-
-No Azure, Vercel, Supabase, or LLM-provider account is required for the default local demo.
-Application/provider secrets never belong in `.env`; the optional `.env` file is for non-secret
-local port and Docker overrides only.
-
-### Install and run
+No Azure, Vercel, Supabase, or LLM-provider account is needed for the local demo, and no
+provider cost is incurred: it uses the deterministic mock SAR drafter.
 
 ```bash
 git clone https://github.com/Kartik-Hirijaganer/FraudLens.git
 cd FraudLens
 
-infisical login       # one-time local authentication; the dataset fetch reads prod /ml
+infisical login       # one-time; the dataset fetch reads prod /ml
 make install          # uv workspace sync + npm ci
-make run              # clean local rebuild, ingest, score, then start API + frontend
+make run              # clean rebuild, ingest, score, then start API + frontend
 ```
 
-`make run` is the normal, reproducible demo path. It:
-
-1. drops the local Postgres volume and generated caches while preserving the downloaded IBM file;
-2. verifies or fetches only `HI-Small_Trans.csv` from the public IBM AML-Data dataset;
-3. removes the Kaggle token from the environment, starts Postgres, and applies migrations;
-4. seeds foundation identity/config/rules and activates the best gates-passed local model bundle;
-5. masks and ingests a bounded 1,600-row partition into the configured demo agency;
-6. builds the offline regulatory index and batch-scores the rows through the production pipeline;
-7. starts the FastAPI gateway and Vite frontend, then prints the actual local URLs.
-
-Preferred URLs are:
-
-| Surface | URL |
-| --- | --- |
-| Analyst application | [http://localhost:5173](http://localhost:5173) |
-| API / gateway | [http://localhost:8000](http://localhost:8000) |
-| Swagger UI | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| ReDoc | [http://localhost:8000/redoc](http://localhost:8000/redoc) |
-| Liveness | [http://localhost:8000/healthz](http://localhost:8000/healthz) |
-| Readiness | [http://localhost:8000/readyz](http://localhost:8000/readyz) |
-
-If a default port is occupied, the runner selects a free fallback and prints it. Local mode enables
-the development auth bypass only in the non-production environment, uses local storage/queue
-backends, and uses the deterministic mock SAR drafter, so there is no provider cost.
-
-> **Reset behavior:** `make run` intentionally rebuilds local database/generated state on each run.
-> Use `make local-demo` when you want to keep the existing Docker volume and local state.
-
-### Stop, preserve, or reset
+`make run` resets local state, fetches `HI-Small_Trans.csv` from the public IBM AML-Data set, drops
+the Kaggle token from the environment, migrates, seeds identity/config/rules, activates the best
+gates-passed model bundle, masks and ingests a bounded 1,600-row partition, builds the offline
+regulatory index, batch-scores through the production pipeline, then serves the app on
+**localhost:5173** and the API on **localhost:8000** (`/docs`, `/redoc`, `/healthz`, `/readyz`) —
+printing the ports it actually picked.
 
 ```bash
-# Stop the foreground API/frontend with Ctrl-C, then remove local containers but keep volumes:
-make local-demo-down
-
-# Start again without dropping the existing volume/state:
-make local-demo
-
-# Remove containers, volumes, generated state, AND the cached IBM download:
-make local-demo-reset
+make local-demo-down    # stop containers, keep volumes
+make local-demo         # restart without dropping state
+make local-demo-reset   # also drop volumes and the cached IBM download
+make run-live           # local app against real Supabase + guarded OpenRouter
 ```
 
-`make local-demo-reset` is destructive only to gitignored local demo state. The next run must fetch
-the IBM file again. For port overrides or troubleshooting, see the
+`make run-live` never enables the auth bypass and needs the documented Supabase setup plus Infisical
+`prod` values; `make run-live-demo` additionally bootstraps the pinned portfolio story. See the
 [local development runbook](docs/runbooks/local-dev.md) and
 [troubleshooting guide](docs/runbooks/troubleshooting.md).
 
-### Optional live-service mode
-
-`make run-live` keeps the frontend, backend, files, and job execution local but connects to real
-Supabase Auth/Postgres and the guarded OpenRouter path. It is not the default demo and requires the
-documented Supabase setup plus runtime values from Infisical `prod`; it never enables the auth
-bypass. `make run-live-demo` additionally bootstraps the pinned portfolio story.
-
-```bash
-make ingest-rag-live
-make run-live
-```
-
-Follow [Local development — Running live locally](docs/runbooks/local-dev.md#running-live-locally)
-before using either live-service command.
-
 ## Engineering highlights
 
-- **Tenant isolation is a boundary, not a filter.** Tenant-scoped tables and operations carry
-  `agency_id`; authorization compares the verified JWT claim with the requested resource instead
-  of trusting a client-supplied tenant ID. Offline graph research never becomes a cross-tenant
-  serving dependency. → [Architecture](docs/architecture/ARCHITECTURE.md),
+- **Tenant isolation is a boundary, not a filter.** Authorization compares the verified JWT claim
+  against the requested resource instead of trusting a client-supplied tenant ID, and offline graph
+  research never becomes a cross-tenant serving dependency. →
   [ADR-017](docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md)
-- **Explainability follows the exact served model.** Model bundles include feature metadata,
-  calibration, a SHAP background, and checksums. Explanations are additive to the model margin, and
-  the cache reloads when the active registry pointer changes. →
-  [Model lifecycle](docs/runbooks/model-lifecycle.md)
-- **Alert creation is earned by the pipeline.** Demo and production-shaped flows do not seed alerts
-  directly: transactions run through scoring, threshold evaluation, persistence, retrieval, and
-  drafting. Below-threshold runs short-circuit before RAG/LLM work. →
-  [Architecture pipeline](docs/architecture/ARCHITECTURE.md#fraud-investigation-pipeline-target--opt-in-live-path)
-- **SAR output is reviewable and reproducible.** Drafts retain prompt version/hash, grounded
-  citations, safe structured output, token/cost metadata, and review state. Provider failure
-  degrades to a completed investigation with score/evidence rather than losing the case. →
-  [Architecture — SAR drafting](docs/architecture/ARCHITECTURE.md#sar-drafting--prompt-versioning)
-- **Model promotion is quantitative and human-gated.** Candidates must clear global and per-tenant
-  checks before shadow/canary/active transitions; canary evaluation can auto-abort, and rollback
-  flips the pointer without a redeploy. → [Model lifecycle](docs/runbooks/model-lifecycle.md)
-- **Local data provenance is explicit.** The default input is public, synthetically generated IBM
-  AML-Data. Raw files remain gitignored; identifiers are masked before storage, and provenance is
-  recorded. CI/tests remain reproducible on committed synthetic fixtures. →
+- **Explainability follows the exact served model.** Bundles carry feature metadata, calibration, a
+  SHAP background, and checksums; explanations are additive to the model margin, and the cache
+  reloads when the active pointer changes. → [Model lifecycle](docs/runbooks/model-lifecycle.md)
+- **Alert creation is earned by the pipeline.** Nothing seeds alerts directly, and below-threshold
+  runs short-circuit before any RAG/LLM work. →
+  [Architecture](docs/architecture/ARCHITECTURE.md#fraud-investigation-pipeline-target--opt-in-live-path)
+- **A rejected SAR draft is refused, never silently repaired.** A deterministic gate judges every
+  draft before it is persisted or streamed; a citation-failed draft escalates a tier, and a cascade
+  that exhausts every tier fails with explicit reason codes. →
+  [ADR-030](docs/architecture/adr/ADR-030-quality-gated-sar-model-cascade.md)
+- **SAR drafting is a bounded team, not one call.** An evidence investigator, a regulatory analyst,
+  a writer, and a compliance reviewer each run under per-agent output-token and tool-call ceilings
+  behind a worst-case cost cap checked before the first request; deterministic control and final
+  authority stay outside the models. →
+  [ADR-019](docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md)
+- **Model promotion is quantitative and human-gated.** Candidates clear global and per-tenant checks
+  before shadow/canary/active; canary can auto-abort, and rollback flips the pointer without a
+  redeploy. → [Model lifecycle](docs/runbooks/model-lifecycle.md)
+- **Data provenance is explicit.** Public, synthetic IBM AML-Data; raw files stay gitignored,
+  identifiers are masked before storage, and CI stays reproducible on committed fixtures. →
   [ADR-018](docs/architecture/adr/ADR-018-portfolio-demo-data-provenance.md)
-- **LLM access is policy-driven.** Provider/model selection, retention posture, data-class policy,
-  retry/fallback eligibility, input masking, prompt-risk scans, output scans, and budgets are
-  config-driven. The default local path is keyless. → [LLM configuration](config/README.md)
-- **Local and CI gates share one contract.** The root Makefile drives lint, formatting, strict
-  typing, branch coverage, changed-line coverage, tenancy checks, docs generation, duplication,
-  secret scanning, dependency audits, Terraform validation, and container builds. →
-  [Makefile](Makefile), [CI workflow](.github/workflows/ci.yml)
-- **SAR quality/privacy is thresholded and provider-free.** `make quality-gates` checks all 32
-  synthetic scenarios, adversarial unsupported claims, raw retry/fallback request bytes, and the
-  published study binding without network or credentials. →
-  [Quality gates](docs/reference/quality-gates.md),
+- **Model egress is synthetic-only.** An uncommitted or tampered regulation excerpt cannot reach the
+  model at all — the request is refused rather than the payload fenced. →
   [ADR-026](docs/architecture/adr/ADR-026-synthetic-only-model-egress.md)
+- **Local and CI gates share one contract.** The root [Makefile](Makefile) drives lint, typing,
+  branch and changed-line coverage, tenancy checks, docs generation, duplication, secret scanning,
+  dependency audits, Terraform validation, and container builds — CI invokes the identical targets.
+  → [CI workflow](.github/workflows/ci.yml)
 
-## Inference benchmark: vLLM + 4-bit AWQ
+**By the numbers:** 68,228,066 IBM source rows processed · 1,000-case GPU benchmark matrix served at
+99.7% under the gated cascade · ≥90% branch coverage gated on both stacks · ~$2.72/month recurring
+under enforced hard caps.
 
-The frozen study compares BF16 and AWQ-Marlin on the same GPU, image, model family, prompt, and
-1,000-case synthetic workload at concurrency 1, 8, and 32. The measured run used a temporary
-RunPod Secure Cloud RTX 4090 after the admission gate passed; the Pod and its volume were deleted
-and independently verified absent after export. AWQ is presented as an efficiency result, not a
-quality-equivalent default — and release 0.5.0 measured exactly how far from equivalent it is.
+## Measured evidence
+
+Every figure below is derived from a persisted run by the publishing pipeline — none is authored by
+hand, and each report is regenerated into this README by `make docs`.
+
+<details>
+<summary><strong>Inference benchmark — vLLM + 4-bit AWQ</strong></summary>
+
+BF16 versus AWQ-Marlin on the same GPU, image, model family, prompt, and 1,000-case workload at
+concurrency 1, 8, and 32, on a temporary RunPod RTX 4090 deleted and verified absent after export.
+AWQ is an efficiency result, not a quality-equivalent default.
 
 <!-- AUTOGEN:vllm-benchmark -->
 | Cases | BF16 weight memory | AWQ weight memory | Reduction | Acceptance |
@@ -355,18 +271,17 @@ quality-equivalent default — and release 0.5.0 measured exactly how far from e
 Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory by 63.5%; AWQ throughput higher by 60.8% at concurrency 32.
 <!-- /AUTOGEN:vllm-benchmark -->
 
-See the [protocol and operator runbook](docs/runbooks/vllm-benchmark.md) and
-[ADR-020](docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md).
+[Protocol and runbook](docs/runbooks/vllm-benchmark.md) ·
+[ADR-020](docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md)
 
-## Quality-gated SAR cascade
+</details>
+
+<details>
+<summary><strong>Quality-gated SAR cascade</strong></summary>
 
 Quantization did not cost fluency; it cost **grounding**. Over the same 1,000 cases at concurrency
-32, raw AWQ fabricated citations on 85 of them and BF16 on none. Every draft is therefore judged by
-a deterministic gate before it is persisted or streamed, a citation-failed draft escalates to the
-next model tier, and a cascade that exhausts every tier **fails explicitly** rather than serving a
-plausible narrative. Nothing is silently repaired.
-
-Each row below is one scenario at its highest measured concurrency, over the same 1,000 cases:
+32, raw AWQ fabricated citations on 85 and BF16 on none. Each row is one scenario at its highest
+measured concurrency.
 
 <!-- AUTOGEN:cascade-benchmark -->
 | Scenario | Cases served | Citation fabrications | Escalated | Case p95 | GPU-hours / case | Endpoints |
@@ -379,19 +294,19 @@ Gated awq-bf16-unconstrained served 99.7% of 1000 cases with 9.2% escalated; cas
 <!-- /AUTOGEN:cascade-benchmark -->
 
 The cascade's p95 and GPU-time are measured across **two** simultaneously provisioned endpoints
-against a one-endpoint baseline — an architecture comparison, not a same-hardware one. The published
-report labels every row accordingly, and no figure in it is authored: the headline, the acceptance
-table, and the comparisons are all derived from the persisted run.
+against a one-endpoint baseline — an architecture comparison, not a same-hardware one.
 
-See the [gated-cascade report](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) and
-[ADR-030](docs/architecture/adr/ADR-030-quality-gated-sar-model-cascade.md).
+[Gated-cascade report](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) ·
+[ADR-030](docs/architecture/adr/ADR-030-quality-gated-sar-model-cascade.md)
 
-## Training at scale: 68.2M IBM transactions
+</details>
 
-The public IBM source contains 68,228,066 rows across the three frozen inputs. That is the source
-row count, not the number of model-fitting rows: usability rules, whole-account temporal folds,
-calibration, and final holdout evaluation reduce the training population. The published aggregate
-records all three candidates, reconciliation counts, temporal folds, runtime, and projected cost.
+<details>
+<summary><strong>Training at scale — 68.2M IBM transactions</strong></summary>
+
+The public IBM source holds 68,228,066 rows across three frozen inputs — the source count, not the
+model-fitting count: usability rules, whole-account temporal folds, calibration, and holdout
+evaluation all reduce the training population.
 
 <!-- AUTOGEN:fulldata-training -->
 | Candidate | Source rows | Usable rows | Training rows | Holdout rows | PR-AUC | Gates |
@@ -401,17 +316,17 @@ records all three candidates, reconciliation counts, temporal folds, runtime, an
 | li-medium | 31251483 | 31157276 | 18695899 | 6231386 | 0.0839 | failed |
 <!-- /AUTOGEN:fulldata-training -->
 
-See the [data-batch runbook](docs/runbooks/data-batch.md) and
-[model lifecycle](docs/runbooks/model-lifecycle.md#dataset-strategy).
+[Data-batch runbook](docs/runbooks/data-batch.md) ·
+[dataset strategy](docs/runbooks/model-lifecycle.md#dataset-strategy)
 
-## Kubernetes deployment: AKS, Terraform, and HPA
+</details>
 
-One Kustomize base runs on local kind and on Azure AKS. Both have now been measured, and each row
-below comes from its own artifact — kind evidence is never cited as an AKS deployment. The AKS
-session was human-approved, bounded, and destroyed afterwards with a verified-clean check, so the
-cluster is **ephemeral by design**: what persists at $0 is the Terraform, the evidence, and the
-workflow logs. AKS scale-out is slower than kind because pods bind on node capacity and trigger the
-cluster autoscaler — that is node autoscaling on top of pod autoscaling, not a regression.
+<details>
+<summary><strong>Kubernetes — AKS, Terraform, and HPA</strong></summary>
+
+One Kustomize base on local kind and on Azure AKS; each row comes from its own artifact, and kind
+evidence is never cited as AKS. AKS scale-out is slower because pods bind on node capacity and
+trigger the cluster autoscaler — node autoscaling on top of pod autoscaling.
 
 <!-- AUTOGEN:k8s-benchmark -->
 | Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
@@ -420,61 +335,21 @@ cluster autoscaler — that is node autoscaling on top of pod autoscaling, not a
 | aks | 1 → 5 → 1 | 101 s | 117 s | 100/100 | 0 |
 <!-- /AUTOGEN:k8s-benchmark -->
 
-The AKS load exercised an authenticated API hard enough to drive scale-out, but the rate limiter
-rejected almost all of it: **1,147 of 783,498 requests succeeded (0.15%)**. The rows above are a
-real autoscaling result and are **not** a sustained-throughput result. The evidence validator now
-refuses to publish a sub-95% served share unless the artifact states the measured counts.
+The AKS load drove real scale-out, but the rate limiter rejected almost all of it: **1,147 of
+783,498 requests succeeded (0.15%)**. These rows are an autoscaling result, **not** a
+sustained-throughput result; the evidence validator refuses to publish a sub-95% served share
+unless the artifact states the measured counts.
 
-Evidence: [kind report](docs/reference/benchmarks/k8s-hpa-scaling.md),
-[AKS report](docs/reference/benchmarks/aks-hpa-scaling.md),
-[ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md), and the
-[AKS runbook](docs/runbooks/aks-deploy.md).
+[kind report](docs/reference/benchmarks/k8s-hpa-scaling.md) ·
+[AKS report](docs/reference/benchmarks/aks-hpa-scaling.md) ·
+[ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md)
 
-## Quality and privacy gates
+</details>
 
-Provider-free CI evaluates citation validity, required-fact coverage, abstention behavior,
-unsupported claims, model-egress byte safety, tenant isolation, secrets, attribution, and
-dependency/IaC posture. The alert review UI exposes the exact persisted, policy-projected model
-input; it never reconstructs prompts from raw browser data. Drafting failure is a durable
-`drafting-blocked` state, while risk and SHAP evidence remain available to the analyst.
+## Project internals
 
-## Working with AI agents
-
-[`AGENTS.md`](AGENTS.md) is the contributor contract. Project skills are authored once under
-`.claude/skills/` and deterministically mirrored to `.agents/skills/`; `make docs-check` rejects
-drift. Agents may edit and verify, but cloud mutations, commits, pushes, tags, and releases remain
-human-authorized actions. AI authorship or co-author trailers are prohibited.
-
-## Cloud deployment status
-
-FraudLens keeps always-on application hosting separate from temporary research compute. The
-application is deployed; every paid experiment was destroyed after producing its evidence. RunPod
-was used only for the completed temporary NVIDIA benchmark and has no continuing FraudLens
-resources.
-
-| Surface | Target | Current status |
-| --- | --- | --- |
-| Backend API | Azure Container Apps | **Deployed** and serving; scale-to-zero with a 1-replica hard cap, deploys gated by required production approval |
-| Frontend | Vercel | **Live** at `fraud-lens-amber.vercel.app`; `/api/*` proxied same-origin to the backend |
-| Database | Supabase Postgres | Provisioned; credentials resolve only from Infisical |
-| AKS demonstration | Azure AKS | Applied, measured, and destroyed in one governed session; cluster is ephemeral, evidence is committed |
-| GPU benchmark VM | Temporary RunPod RTX 4090 | 6,000-request benchmark and 100-case application pass completed; Pod and encrypted volume deleted |
-| Data-batch VM | Temporary Azure CPU experiment | 68.2M-source-row aggregate published; resource group destroyed and clean teardown verified |
-| Secrets | Infisical Cloud | Active source of truth; workloads use scoped, short-lived identity |
-
-Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a
-$2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
-subscription scopes and a daily read-only watchdog for leftover resources. See the
-[cost model](docs/reference/cost-model.md) and
-[ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md).
-
-See the [Azure deployment runbook](docs/runbooks/azure-deploy.md), [paid-experiment ledger](docs/reference/experiments/ledger.md),
-and [deployment/rollback runbook](docs/runbooks/deploy-rollback.md). Future inference, retraining,
-or AKS sessions incur new cost and require fresh admission/approval.
-
-## Project internals and reference
-
-### Project structure
+<details>
+<summary><strong>Project structure</strong></summary>
 
 ```text
 .
@@ -498,7 +373,10 @@ or AKS sessions incur new cost and require fresh admission/approval.
 └── docker-compose.local.yml    Local Postgres 16 stack
 ```
 
-### API surface
+</details>
+
+<details>
+<summary><strong>API surface</strong></summary>
 
 Operational probes are deliberately unprefixed. Business APIs use `/api/v1`, camelCase payloads,
 and the error envelope `{code, message, details, requestId}`.
@@ -515,15 +393,16 @@ and the error envelope `{code, message, details, requestId}`.
 | Model lifecycle | `/api/v1/training-runs`, `/api/v1/model-deployment` | Retrain · shadow · approve · canary · evaluate · rollback · drift |
 | Identity/admin | `/api/v1/me`, `/api/v1/users`, `/api/v1/config` | Current principal · invite user · system configuration |
 
-The committed machine-readable contract is
+The machine-readable contract is
 [`openapi.json`](docs/reference/generated/api/openapi.json), with an equivalent
 [`openapi.yaml`](docs/reference/generated/api/openapi.yaml) and a generated
-[`standalone Scalar reference`](docs/reference/generated/api/index.html). When the backend is
-running, use Swagger UI at `/docs`, ReDoc at `/redoc`, or Scalar at `/scalar`. For browser-based
-schema editing, upload `openapi.json` to [editor.swagger.io](https://editor.swagger.io/); do not
-send authenticated requests or secret-bearing examples to third-party tools.
+[Scalar reference](docs/reference/generated/api/index.html). With the backend running, use
+Swagger UI at `/docs`, ReDoc at `/redoc`, or Scalar at `/scalar`.
 
-### Developer commands
+</details>
+
+<details>
+<summary><strong>Developer commands</strong></summary>
 
 The root [Makefile](Makefile) is the single source of truth; CI invokes the same targets. This table
 is regenerated from its help text.
@@ -548,13 +427,45 @@ is regenerated from its help text.
 | `make tf-validate` | Terraform fmt + validate (no backend) per discovered environment root. |
 <!-- /AUTOGEN:make-targets -->
 
+</details>
+
+<details>
+<summary><strong>Deployment and cost control</strong></summary>
+
+The backend runs on Azure Container Apps (scale-to-zero, 1-replica hard cap), the SPA on Vercel,
+state in Supabase Postgres, secrets in Infisical. Every deploy job is gated behind required
+production approval, so a green CI run alone ships nothing.
+
+Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a
+$2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and
+subscription scopes and a daily read-only watchdog for leftover resources. Every paid experiment
+was destroyed after producing its evidence.
+
+[Cost model](docs/reference/cost-model.md) ·
+[ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md) ·
+[Azure runbook](docs/runbooks/azure-deploy.md) ·
+[experiment ledger](docs/reference/experiments/ledger.md)
+
+</details>
+
+<details>
+<summary><strong>Working with AI agents</strong></summary>
+
+[`AGENTS.md`](AGENTS.md) is the contributor contract. Project skills are authored once under
+`.claude/skills/` and deterministically mirrored to `.agents/skills/`; `make docs-check` rejects
+drift. Agents may edit and verify, but cloud mutations, commits, pushes, tags, and releases remain
+human-authorized. AI authorship and co-author trailers are prohibited. Run `make pre-pr` before
+opening a PR — CI mirrors it exactly.
+
+</details>
+
 ## Security and governance
 
 - **No real PHI** in source, fixtures, logs, error messages, URLs, query strings, prompts, or demo
   data. Public source data is masked before persistence.
 - **Tenant isolation** on every tenant-scoped query and background job through `agency_id`.
 - **Fail-closed authorization** validates the JWT `agency_id` claim against the resource; the
-  development bypass is explicitly enabled only outside production and is proven inert in prod.
+  development bypass is enabled only outside production and is proven inert in prod by test.
 - **Least privilege and auditability** for alert review, SAR decisions, configuration, training,
   promotion, canary, and rollback operations.
 - **No secrets in `.env` or git.** Secrets resolve at runtime from the single Infisical `prod`
@@ -574,6 +485,7 @@ See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-gu
 | Portfolio demo workflow | [docs/runbooks/portfolio-demo.md](docs/runbooks/portfolio-demo.md) |
 | Model scoring, gates, canary, rollback, and drift | [docs/runbooks/model-lifecycle.md](docs/runbooks/model-lifecycle.md) |
 | Security posture and PHI controls | [docs/runbooks/security.md](docs/runbooks/security.md) · [docs/runbooks/phi-guardrails.md](docs/runbooks/phi-guardrails.md) |
+| Evidence-backed claims register | [docs/reference/claims.md](docs/reference/claims.md) |
 | Database schema and tenancy | [docs/reference/database.md](docs/reference/database.md) |
 | Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
 | Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |

@@ -26,6 +26,7 @@ from sqlalchemy.pool import StaticPool
 
 from fraudlens_backend.db.models import Base
 from fraudlens_backend.main import create_app
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RuleContext
 from fraudlens_core.rules.base import RuleTransaction, TransactionDirection
@@ -165,3 +166,15 @@ async def db_session(
     """Yield a request-scoped AsyncSession over the in-memory test engine."""
     async with db_sessionmaker() as session:
         yield session
+
+
+@pytest.fixture
+def story() -> PortfolioDemoConfig:
+    """Return the committed portfolio-demo story every demo suite asserts against.
+
+    Deliberately NOT paired with a shared `settings` fixture. Each demo module builds its own,
+    and the differences are load-bearing rather than incidental: one needs the RAG index built,
+    another needs it provably absent, a third needs only the story's provider modes. Collapsing
+    them would hide exactly the distinction the citation precondition exists to police.
+    """
+    return load_portfolio_demo_config()

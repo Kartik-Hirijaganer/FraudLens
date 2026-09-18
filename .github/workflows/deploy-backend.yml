@@ -365,6 +365,18 @@ jobs:
         run: |
           set -euo pipefail
           uv run python scripts/provision_demo_auth.py
+      # The bootstrap drafts a real SAR for every alerting row, and the quality-gated cascade
+      # (ADR-030) rejects a draft that cites no regulation — a case retrieval offered NOTHING for
+      # is terminal, so no later tier can rescue it. The FinCEN/BSA index is baked into the
+      # CONTAINER image, not into this runner, and the story is bootstrapped HERE, so without this
+      # step retrieval degrades to empty and every SAR the story pins lands `failed`. The offline
+      # hashing build is deterministic, keyless, free, and takes about a second over the committed
+      # corpus; `assert_rag_index` refuses the bootstrap outright if it is ever skipped.
+      - name: Build the offline RAG index the story cites from (gated, pre-promote)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          make ingest-rag
       # `--reset` rather than a plain bootstrap, because "deterministic" has to survive USE. The
       # smoke below starts a real investigation, and visitors resolve alerts and review SARs, so
       # by the next deploy the tenant no longer matches `expected` and a plain bootstrap refuses

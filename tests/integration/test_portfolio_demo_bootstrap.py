@@ -1,28 +1,28 @@
 """The portfolio-demo bootstrap must produce the CONFIGURED story through the real pipeline, and do
 it idempotently (plan §16 Phase 6).
 
-Two tiers, for the same reason `test_portfolio_demo_calibration.py` has two:
-  * the guards, operational-state detection, content-drift detection, the model-state matrix, the
-    story's `job_executions` upsert, and `--reset` need no model bundle, so they run everywhere;
-  * a full `apply_story` needs the pinned artifact, which `.gitignore` does not track, so those
-    tests skip with a clear reason rather than silently proving the story on a substitute model.
+A full `apply_story` needs the pinned artifact, and that artifact IS tracked (`.gitignore` negates
+it by label, so the deploy runner can read it from the checkout). The end-to-end tier therefore
+runs everywhere: `_pinned_bundle` is a safety net, not an expected skip.
 
-The end-to-end tier fakes ONLY the retriever and the SAR drafter (RAG has no chroma index in tests
-and the drafter is keyless-mock by config anyway). Rules, the scorer, the explainer, the run store,
-and the risk policy are all real — they are what decides bands, alerts, and SAR drafts, so faking
-them would prove nothing about the pinned distribution.
+That tier fakes ONLY the RETRIEVER PORT and the SAR drafter, yet still needs a real ChromaDB index
+on disk — `preflight` refuses without one, because a story SAR offered no citation fails its
+quality gate terminally. Faking the port proves the pipeline; building the index proves the guard.
+Rules, the scorer, the explainer, the run store, and the risk policy are all real — they are what
+decides bands, alerts, and SAR drafts, so faking them would prove nothing about the distribution.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pipeline_fakes import FakeRetrieverPort, FakeSarDrafter
+from rag_index import build_offline_rag_index
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -41,7 +41,7 @@ from fraudlens_backend.db.models import (
     User,
 )
 from fraudlens_backend.db.repositories import AuditLogRepository
-from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig
 from fraudlens_backend.portfolio_demo.bootstrap import (
     BootstrapRefusedError,
     OperationalState,
@@ -63,36 +63,25 @@ from fraudlens_backend.portfolio_demo.verification import (
 )
 from fraudlens_backend.settings import AppSettings
 from fraudlens_ml.pipeline import PipelineDeps
-from seed import seed  # scripts/ is on sys.path via conftest
 
 _MODELS_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
 
 
 @pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story the bootstrap must reproduce."""
-    return load_portfolio_demo_config()
-
-
-@pytest.fixture
-def settings(make_settings: Callable[..., AppSettings], story: PortfolioDemoConfig) -> AppSettings:
-    """Return settings whose provider modes match the ones the story was calibrated against."""
-    return make_settings(
+def settings(
+    make_settings: Callable[..., AppSettings], story: PortfolioDemoConfig, tmp_path: Path
+) -> AppSettings:
+    """Return settings on the story's provider modes, over a freshly built throwaway RAG index."""
+    resolved = make_settings(
         llm_mode=story.execution.llm_mode,
         rag_embedding_mode=story.execution.rag_embedding_mode,
         model_artifacts_dir=str(_MODELS_DIR),
+        rag_index_dir=str(tmp_path / "chroma"),
     )
-
-
-@pytest.fixture
-async def seeded(
-    db_sessionmaker: async_sessionmaker[AsyncSession], settings: AppSettings
-) -> AsyncIterator[AsyncSession]:
-    """Yield a session over a database holding the seeded foundation (agency, personas, rules)."""
-    async with db_sessionmaker() as session:
-        await seed(session, settings)
-        await session.commit()
-        yield session
+    # Per test and under tmp_path, never the repo's `.local/chroma`: a developer machine that has
+    # run `make ingest-rag` would otherwise pass while CI, which never builds one, failed.
+    build_offline_rag_index(resolved)
+    return resolved
 
 
 def _audit(story: PortfolioDemoConfig, session: AsyncSession) -> AuditLogRepository:
@@ -101,13 +90,21 @@ def _audit(story: PortfolioDemoConfig, session: AsyncSession) -> AuditLogReposit
 
 
 def _pinned_bundle(story: PortfolioDemoConfig) -> Path:
-    """Return the pinned bundle dir, skipping when the untracked artifact is not present."""
-    if not (_MODELS_DIR / story.model.version_label / "model.json").is_file():
-        pytest.skip(
-            "the pinned model bundle is not tracked in git (only v0-fixture is); "
-            "train/fetch it to exercise the full bootstrap"
+    """Return the pinned bundle dir, failing loudly when the TRACKED artifact is missing.
+
+    This skipped once, on the premise that the bundle was untracked. It is not: .gitignore
+    negates it by exact path so the deploy runner reads it from the checkout. The skip could
+    therefore never fire, and its message asserted the opposite of the truth — which is what
+    talked a reader out of suspecting this tier at all. Absence means a damaged checkout now,
+    and saying so beats reporting green.
+    """
+    bundle = _MODELS_DIR / story.model.version_label
+    if not (bundle / "model.json").is_file():
+        pytest.fail(
+            f"the pinned bundle {story.model.version_label} is tracked in git but missing from "
+            f"{_MODELS_DIR}; restore it with `git checkout -- data/models/`"
         )
-    return _MODELS_DIR / story.model.version_label
+    return bundle
 
 
 async def _fake_promoter(session: AsyncSession, *, version_label: str) -> str:

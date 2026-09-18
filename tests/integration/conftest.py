@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from fraudlens_backend.db.models import Base
+from fraudlens_backend.settings import AppSettings
+from seed import seed  # scripts/ is on sys.path via the root conftest
 
 
 @pytest.fixture
@@ -28,3 +30,18 @@ async def file_db(
         yield engine, async_sessionmaker(engine, expire_on_commit=False)
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+async def seeded(
+    db_sessionmaker: async_sessionmaker[AsyncSession], settings: AppSettings
+) -> AsyncIterator[AsyncSession]:
+    """Yield a session over the seeded foundation (agency, personas, config, baseline rules).
+
+    `settings` resolves to the requesting module's own fixture, so each suite seeds under the
+    provider modes it means to exercise while sharing this one body.
+    """
+    async with db_sessionmaker() as session:
+        await seed(session, settings)
+        await session.commit()
+        yield session

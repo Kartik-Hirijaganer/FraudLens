@@ -229,6 +229,15 @@ async def apply_workflow_targets(
             raise BootstrapRefusedError(
                 f"scenario '{scenario.scenario_id}' targets a SAR the pipeline did not draft"
             )
+        # Named here rather than discovered two transitions later. A gate-rejected draft is also
+        # what stamps `sar_unavailable` on the alert and raises it `pending_review`, so without
+        # this the run refuses on the ALERT status and reports a cause that is only a symptom.
+        if draft.status is SarStatus.FAILED and scenario.sar_target is not SarStatus.FAILED:
+            raise BootstrapRefusedError(
+                f"scenario '{scenario.scenario_id}' targets a '{scenario.sar_target.value}' SAR "
+                "but the draft is 'failed': the quality gate rejected it at every cascade tier. "
+                "Restore the evidence the gate requires rather than re-targeting the story"
+            )
         applied, note = await _apply_sar_target(
             workflow,
             config,

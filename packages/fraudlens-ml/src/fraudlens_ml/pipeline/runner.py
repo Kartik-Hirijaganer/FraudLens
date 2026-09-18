@@ -14,19 +14,34 @@ Key classes:
 - Runner: builds the orchestration graph from the deps and drives one run to completion/failure.
 
 Key functions:
-- (none)
+- log_core_failure: record a core exception's TYPE and frame chain, never its message.
 
 Notes:
 - The Runner is constructed per run (its `PipelineDeps.store` is run-scoped); the backend wraps
   `run()` in a background task so the run lifecycle is decoupled from the request + any stream.
 - On a deterministic-core exception the partial provenance is unknown (LangGraph drops the state),
   so `fail_run` records only the stable error code — the already-persisted events carry the detail.
+- That stable code is deliberately opaque, which used to make a production failure undiagnosable:
+  the handler discarded the exception entirely, so nothing recorded WHICH error was raised or
+  WHERE. `log_core_failure` closes that gap without weakening the PHI invariant. It logs the
+  exception's type, module and frame chain — source identity, never data — and NOT `str(exc)`,
+  because messages embed inputs (a Pydantic `ValidationError` renders the offending field values)
+  and the redaction net in the backend's log pipeline is pattern-based defence-in-depth, not a
+  guarantee. A type plus a raise site is what locates a bug; the message is what leaks.
+- The logger is named under `fraudlens.` ON PURPOSE. `configure_logging` attaches its handler to
+  that logger, so a name outside the prefix would propagate to the root logger and be dropped.
+  It is a plain stdlib logger because layering forbids `fraudlens-ml` importing the backend;
+  `ProcessorFormatter`'s `foreign_pre_chain` picks stdlib records up regardless. For the same
+  reason the fields are interpolated into the message rather than passed as `extra=`, which the
+  chain has no `ExtraAdder` to render.
 - `run.completed` is always the last persisted event (highest seq), so an SSE observer tailing the
   log sees it as the terminal signal; `run.failed` plays that role on the failure path.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +60,33 @@ from fraudlens_ml.pipeline.steps import completed_payload
 
 # The stable run.failed code for a deterministic-core step failure (PHI-free, no internals leaked).
 _RUN_FAILED_CODE = "investigation_failed"
+
+# Named under the backend's configured logger prefix so `configure_logging`'s handler receives it;
+# see the header note. Plain stdlib — layering forbids importing the backend from this package.
+_LOGGER = logging.getLogger("fraudlens.pipeline.runner")
+
+# How many of the DEEPEST frames to name. The raise site and its immediate callers are what locate
+# a fault; the LangGraph/asyncio frames above them are noise repeated on every failure.
+_TRACEBACK_FRAME_LIMIT = 5
+
+
+def log_core_failure(exc: BaseException, *, run_id: str) -> None:
+    """Record a core failure's exception type and frame chain — never `str(exc)` (PHI)."""
+    frames: list[str] = []
+    traceback = exc.__traceback__
+    while traceback is not None:
+        code = traceback.tb_frame.f_code
+        frames.append(f"{os.path.basename(code.co_filename)}:{traceback.tb_lineno}")
+        traceback = traceback.tb_next
+    _LOGGER.error(
+        "run.failed code=%s run_id=%s error_type=%s error_module=%s origin=%s frames=%s",
+        _RUN_FAILED_CODE,
+        run_id,
+        type(exc).__name__,
+        type(exc).__module__,
+        frames[-1] if frames else "unknown",
+        ">".join(frames[-_TRACEBACK_FRAME_LIMIT:]) or "unknown",
+    )
 
 
 class RunReport(BaseModel):
@@ -81,7 +123,8 @@ class Runner:
         )
         try:
             final = await self._graph.ainvoke({"pipeline_input": pipeline_input})
-        except Exception:
+        except Exception as exc:
+            log_core_failure(exc, run_id=pipeline_input.run_id)
             await deps.store.fail_run(error_code=_RUN_FAILED_CODE, provenance=RunProvenance())
             await persist_and_emit(deps, PipelineEventType.RUN_FAILED, {"code": _RUN_FAILED_CODE})
             return RunReport(
