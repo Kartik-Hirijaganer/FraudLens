@@ -6,9 +6,11 @@ the real adapters/store implement (plan "pure nodes + injected IO")."""
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from pipeline_fakes import (
     FakeExplainerPort,
     FakeRetrieverPort,
@@ -283,3 +285,26 @@ async def test_drafter_empty_token_is_skipped_not_streamed() -> None:
     ).run(_pipeline_input())
 
     assert emit.event_types.count("sar.token") == 1  # the value-less token is not broadcast
+
+
+async def test_core_failure_logs_the_exception_type_but_never_its_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The handler must name WHICH error was raised and WHERE, without leaking `str(exc)`.
+
+    The stable `investigation_failed` code is deliberately opaque, so the log is the only place a
+    production core failure is identifiable. It carries type/module/frames — source identity —
+    and must never carry the message, which is where an exception embeds its inputs.
+    """
+    store, emit = FakeRunStore(), RecordingEmit()
+    with caplog.at_level(logging.ERROR, logger="fraudlens.pipeline.runner"):
+        report = await Runner(_deps(store, emit, scorer=FakeScorerPort(error=True))).run(
+            _pipeline_input()
+        )
+
+    assert report.error_code == "investigation_failed"
+    rendered = caplog.text
+    assert "error_type=RuntimeError" in rendered
+    assert "error_module=builtins" in rendered
+    assert "pipeline_fakes.py:" in rendered  # the frame chain names the raise site
+    assert "scorer boom" not in rendered  # the PHI invariant: no exception message, ever
