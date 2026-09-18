@@ -818,6 +818,38 @@ acceptance at 441.57035-second p95; they remain adverse evidence rather than par
 full matrix. The pilot consumed 0.841213 summed endpoint-hours (~$0.622497 pending settlement),
 and both Pods plus volumes were verified absent before the full-run ledger row opened.
 
+### Phase 4 remediation protocol v5 — full live result 2026-09-18
+
+Run `vllm-bench-be12675628805a53`, bound to commit
+`615285e0e63f85eb2ee0661ae21bd36a4cbf8f8d`, completed all seven admitted levels: AWQ and
+BF16 at c1/c8/c32 plus the production `awq-bf16-unconstrained` cascade at c32, each over the full
+1,000-case measured population. The three coordinator/role exports are byte-identical at SHA-256
+`4ba9307f1a2c8bbe059d2e402f94e2c4e16f61e251a303fea297976da908fd6a`.
+
+The production cascade made 1,089 model calls with zero serving errors. AWQ served 905 cases,
+92 escalated and passed at BF16, and three evidence-free cases stopped at preflight without a model
+call. Final pass was 997/1,000 (99.7%) versus 995/1,000 (99.5%) for BF16 alone; accepted-output
+reference validity was 1.0 and token-accounting drift was zero. Cascade case p50/p95/p99 was
+11.0085/17.18425/19.31831 seconds. Against BF16's 13.225-second p50 and 16.1639-second p95, the
+cascade improved typical latency 16.8% but added 6.3% at the tail. This is a passed quality-first
+cascade result, not evidence for a p95 reduction.
+
+At full c32, raw AWQ p95 was 16.22815 seconds versus 16.1639 for BF16 (+0.4%), and request
+throughput was 2.4594 versus 2.3987 requests/second (+2.5%). The 40-case development performance
+deltas did not reproduce. These raw levels used the same RTX 4090 SKU/image/protocol but separate
+physical hosts with different driver revisions, so the small full-run raw deltas are diagnostic,
+not a new equal-host headline; the immutable v1 report remains the equal-hardware quantization
+evidence. AWQ parsed weight memory remained 63.5% lower. The two-endpoint cascade peaked at
+43,540 MiB aggregate device memory and used 76.2% more provisioned GPU-hours per case than BF16.
+
+The approximately 5.006 summed endpoint-hours estimate $3.70 pending settlement, above the
+$2.873566 admission-with-margin projection because the model omitted idle second-endpoint time
+during sequential raw levels, but within the $37 allocation. Both Pods and matching volumes were
+deleted after export and independently verified absent. The post-run composer now treats preflight
+stops as zero-model-call cases, evaluates quality only on analyst-visible accepted drafts, and has
+139 passing benchmark tests at 91.26% branch coverage. Phase 4 live execution is complete. The
+scenario-shaped publication, disclosures, and resume/README wording are Phase 5 work.
+
 ### Dependencies
 Phases 2 and 3.
 
@@ -830,9 +862,9 @@ Remove what the new architecture supersedes, publish accurate evidence, verify d
 
 ### Carried into Phase 5 from the Phase 3 and Phase 4 risk registers
 
-These are decided or closed here; none of them blocks Phase 4's committable scope. Items 1-2 were
-already closed in Phase 3 and are listed so the audit trail is not re-opened; items 3-10 are open
-work for whoever implements Phase 5.
+These are decided or closed here; none of them blocks Phase 4's committable scope. Items already
+closed are retained so the audit trail is not re-opened; the remaining publication and product
+decisions belong to Phase 5.
 
 | # | Item | Source | What Phase 5 must do |
 |---|---|---|---|
@@ -841,8 +873,8 @@ work for whoever implements Phase 5.
 | 3 | `escalation_tier` is reconstructable but not surfaced | P3 risk 3 | Decide whether the analyst surface needs the field. It is persisted on the draft and derivable from `sar_generation_attempts`; if the UI is to show "this draft came from tier 2", expose it through the alert/SAR read model and the frontend type rather than making clients join attempts. If not, record the decision in ADR-030 so it is not re-litigated. |
 | 4 | Tier-3 pilot set is 88 both-tier failures plus 12 AWQ-only | P3 risk 4 | The composition is declared in `config/experiments/sar-tier3-pilot.yaml` and asserted by `test_sar_tier3_pilot.py`. Before the pilot is RUN, the owner confirms the top-up is acceptable, since the both-tier population is genuinely smaller than the fixed set of 100. Record the confirmation in the ledger row for the pilot's spend. |
 | 5 | `citation_recall_min` bound to a recorded number | P3 risk 5 | **Closed in Phase 4.** The committed replay pilot now derives `armRecallMean` and `armPassRate` from the full 1,000-case run, and `test_citation_quality.py` plus `test_sar_cascade_quality.py` assert the corpus's provenance block equals those derived values. The floor still binds at the population where it was measured; nothing is typed into the fixture unchecked. |
-| 6 | Reserve draw applied with no ledger row open | P4 risk 1 | **Closed.** Every paid session has a ledger row. Final session `vllm-bench-ba468433f6fd893a` is reconciled at 1.523099 estimated endpoint-hours with provider billing pending and clean teardown. |
-| 7 | Live escalation may diverge from the replayed 26.4% | P4 risk 2 | **Observed and blocking.** The constrained smoke diverged to 100% escalation and 0% final pass. Preserve the adverse artifact, remediate prompt/gate compatibility, and repeat smoke plus admission before any full matrix. |
+| 6 | Reserve draw applied with no ledger row open | P4 risk 1 | **Closed.** Every paid session has a ledger row. Final full run `vllm-bench-be12675628805a53` is reconciled at approximately 5.006 endpoint-hours pending provider billing, with clean teardown. |
+| 7 | Live escalation may diverge from the replayed 26.4% | P4 risk 2 | **Closed as a measured finding.** Protocol v5 full live escalation was 9.2%, final pass was 99.7%, and the earlier v2/v4 adverse results remain retained. Publication must use the live v5 rate, not the replay projection. |
 | 8 | Two-endpoint p95 can read as a same-resource loss/gain | P4 risk 4 | In the published cascade report, p95 must appear next to `gpuHoursPerCase` and `aggregateMemoryPeakMib`, and the report must state which comparison each figure describes (AD-4.3, AD-4.4). |
 | 9 | `awq-bf16-unconstrained` exists only to isolate scenario 3 vs 4 | P4 risk 5 | Decide its disposition: keep it as a shipped production profile, or mark it benchmark-only in `config/llm/sar-vllm.yml` and the ADR. Do not delete it before the constrained-versus-unconstrained comparison is published. |
 | 10 | Run-level provenance still partly manual | P4 gap | The live manifests capture `gitCommit`, role-specific driver identity, connection, served model, policy hash, tokens, and provider cost. Still to capture at run time: the CUDA version and the OpenRouter ZDR eligibility snapshot taken at readiness. Add both to the published report's provenance block. |
@@ -850,7 +882,7 @@ work for whoever implements Phase 5.
 | 13 | RunPod REST v1 is drifting under us | P4 live run | Three breakages surfaced on 2026-09-17: `volumeEncrypted` rejected on create, `publicIp: ""` before placement crashing response parsing AFTER the Pod existed (a billing orphan), and encryption no longer reported at all. Each is patched on `/v1`, but the v2 shape nests GPU and mount settings entirely differently (`gpu.{id,count}`, `mounts.persistent.{size,path}`) and drops `interruptible`, `locked`, `computeType`, `gpuTypePriority` and `minDownloadMbps`. Migrate the operator to REST v2 — the `runpod:migrate` skill inventories and rewrites — before the next paid session, or expect the next drift to land mid-run. |
 | 14 | Volume encryption is no longer obtainable | P4 live run | The frozen contract required an encrypted Pod volume AND its verification; the provider supplies neither. Accepted for this run because the corpus is the public IBM AML synthetic dataset, with the observed value recorded on each session. ADR-030 must state this as a judged exception with reconsideration criteria, and the published report must disclose it. Rotating `VLLM_API_KEY` after teardown is prudent: it is written to an unencrypted volume at `/workspace/.fraudlens/vllm-api-key`. |
 | 12 | `prod.yaml` app-path budget | P4 4.10 | **Closed for this session.** The approved temporary ceiling was raised to $22.00 for the production-path run and restored to $0.25 immediately after teardown; release-checklist item 18 keeps verifying the restored value. |
-| 15 | Live production cascade fails quality and cost admission | P4 live validation | Treat 0/8 final pass and `projection_exceeds_allocation` as release blockers. Diagnose constrained-generation compatibility, reduce measured latency/cost without changing the frozen comparison after seeing results, then repeat smoke → development → admission. Do not use the replayed 95.8% as a live claim. |
+| 15 | Live production cascade fails quality and cost admission | P4 live validation | **Closed by protocol v5.** Smoke, development, admission, and the full matrix completed; final pass was 99.7%. The earlier 0/8 constrained result remains adverse evidence and the published report must explain why guided decoding was excluded after its latency canary. |
 
 ### Changes required
 

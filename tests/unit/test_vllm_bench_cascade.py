@@ -24,6 +24,7 @@ from pydantic import ValidationError
 from vllm_bench_fakes import HASH, NOW, benchmark_case, replay_gate, telemetry
 
 from lib.vllm_bench.cascade import (
+    UNSERVED_STAGE,
     CascadeCase,
     CascadeMetrics,
     CascadeStageTotals,
@@ -87,6 +88,89 @@ def test_non_contiguous_attempts_are_rejected_rather_than_silently_composed() ->
     """A missing attempt means a dropped measurement; composing it would hide evidence loss."""
     with pytest.raises(ValueError, match="non-contiguous"):
         compose_cases((attempt("case-0", 1, "bf16", passed=True),))
+
+
+def test_preflight_rejection_is_a_zero_attempt_case_not_a_model_stage() -> None:
+    """A policy rejection before generation is a terminal case without model accounting."""
+    preflight = attempt(
+        "case-0", 0, UNSERVED_STAGE, passed=False, reasons=("no_citations",), latency_s=0
+    ).model_copy(update={"error_code": "sar_quality_gate_failed", "usage": None})
+
+    (case,) = compose_cases((preflight,))
+    metrics = cascade_metrics((case,), stages=("awq", "bf16"), measurements=(preflight,))
+
+    assert case.stages == ()
+    assert case.escalation_tier is None
+    assert metrics.final_pass_rate == 0
+    assert metrics.terminal_failure_rate == 1
+    assert metrics.escalation_rate == 0
+    assert metrics.reason_counts == {"no_citations": 1}
+    assert metrics.stage_totals.latency_ms == {"awq": 0.0, "bf16": 0.0}
+    assert metrics.stage_totals.errors == {"awq": {}, "bf16": {}}
+
+
+def test_preflight_rejection_counts_as_a_case_but_not_as_a_model_request() -> None:
+    """Request/error throughput must not fabricate a provider call for a preflight stop."""
+    case_a = benchmark_case("case-0")
+    case_b = benchmark_case("case-1")
+    served = attempt("case-0", 0, "awq", passed=True, sequence=0)
+    preflight = attempt(
+        "case-1", 0, UNSERVED_STAGE, passed=False, reasons=("no_citations",), sequence=1
+    ).model_copy(update={"error_code": "sar_quality_gate_failed", "usage": None})
+
+    metrics = build_level_metrics(
+        _checkpoint((served, preflight)),
+        cases={case_a.case_id: case_a, case_b.case_id: case_b},
+        hourly_rates_usd={"pay_as_you_go": 3.6},
+        purchase_option="pay_as_you_go",
+        drafts_per_unit=1000,
+        quality_policy=load_config().quality,
+        gate=replay_gate(),
+        stages=("awq", "bf16"),
+        endpoints=2,
+    )
+
+    assert metrics.requests == 1
+    assert metrics.successful == 1
+    assert metrics.error_rate == 0
+    assert metrics.quality.evaluated == 1
+    assert metrics.cascade is not None
+    assert metrics.cascade.cases == 2
+    assert metrics.cascade.terminal_failure_rate == 0.5
+
+
+def test_all_preflight_rejections_report_zero_model_requests_without_division() -> None:
+    """A population stopped before generation has zero calls and therefore zero call errors."""
+    case = benchmark_case("case-0")
+    preflight = attempt("case-0", 0, UNSERVED_STAGE, passed=False).model_copy(
+        update={"error_code": "sar_quality_gate_failed", "usage": None}
+    )
+
+    metrics = build_level_metrics(
+        _checkpoint((preflight,)),
+        cases={case.case_id: case},
+        hourly_rates_usd={"pay_as_you_go": 3.6},
+        purchase_option="pay_as_you_go",
+        drafts_per_unit=1000,
+        quality_policy=load_config().quality,
+        gate=replay_gate(),
+        stages=("awq", "bf16"),
+        endpoints=2,
+    )
+
+    assert metrics.requests == 0
+    assert metrics.successful == 0
+    assert metrics.error_rate == 0
+    assert metrics.quality.evaluated == 0
+
+
+def test_preflight_marker_cannot_be_mixed_with_model_attempts() -> None:
+    """A synthetic zero-attempt marker plus a model call would double-count one case."""
+    preflight = attempt("case-0", 0, UNSERVED_STAGE, passed=False)
+    generated = attempt("case-0", 1, "awq", passed=True)
+
+    with pytest.raises(ValueError, match="mixes a preflight rejection"):
+        compose_cases((preflight, generated))
 
 
 def test_rates_are_measured_over_reaching_cases_against_the_configured_stages() -> None:
@@ -167,6 +251,7 @@ def test_level_metrics_count_model_calls_but_normalize_cost_and_gpu_time_per_cas
     assert metrics.gpu_hours_per_case == pytest.approx(4 * 2 / 3600 / 2)
     assert metrics.cost_usd == pytest.approx(3.6 * 2 * 4 / 3600)
     assert metrics.cost_per_1000_drafts_usd == pytest.approx(metrics.cost_usd / 2 * 1000)
+    assert metrics.quality.evaluated == 2
 
 
 def test_a_raw_level_has_no_cascade_block_and_prices_one_endpoint() -> None:
@@ -242,6 +327,8 @@ def test_composed_case_invariants_reject_impossible_outcomes() -> None:
         CascadeCase(**fields, passed=False, served_stage="awq")
     with pytest.raises(ValidationError, match="must index an attempted stage"):
         CascadeCase(**{**fields, "escalation_tier": 3}, passed=False)
+    with pytest.raises(ValidationError, match="preflight failure"):
+        CascadeCase(**{**fields, "stages": (), "escalation_tier": 0}, passed=False)
 
 
 def test_cascade_rate_totals_must_account_for_every_case() -> None:

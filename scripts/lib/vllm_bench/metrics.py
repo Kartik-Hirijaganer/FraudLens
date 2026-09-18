@@ -30,7 +30,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from fraudlens_backend.sar.quality_gate import SarQualityGate
-from lib.vllm_bench.cascade import CascadeMetrics, cascade_metrics, compose_cases
+from lib.vllm_bench.cascade import (
+    UNSERVED_STAGE,
+    CascadeMetrics,
+    cascade_metrics,
+    compose_cases,
+)
 from lib.vllm_bench.config import PurchaseOption, QualityConfig
 from lib.vllm_bench.quality import QualitySummary, summarize_quality
 from lib.vllm_bench.state import BenchmarkCase, LevelCheckpoint
@@ -48,7 +53,7 @@ class LevelMetrics(BaseModel):
     model_config = _MODEL_CONFIG
 
     concurrency: int = Field(..., gt=0, description="Closed-loop concurrency.")
-    requests: int = Field(..., gt=0, description="Measured request count.")
+    requests: int = Field(..., ge=0, description="Measured model-call count.")
     successful: int = Field(..., ge=0, description="Successful requests.")
     retries: int = Field(..., ge=0, description="Additional attempts.")
     error_rate: float = Field(..., ge=0, le=1, description="Terminal request error rate.")
@@ -118,11 +123,21 @@ def build_level_metrics(  # noqa: PLR0913 - pricing context stays explicit and i
     endpoints: int = 1,
 ) -> LevelMetrics:
     """Derive one checkpoint's performance, quality, telemetry, token, cost, and cascade metrics."""
-    success = [item for item in checkpoint.measurements if item.error_code is None]
+    model_measurements = (
+        tuple(item for item in checkpoint.measurements if item.stage != UNSERVED_STAGE)
+        if stages
+        else checkpoint.measurements
+    )
+    success = [item for item in model_measurements if item.error_code is None]
     latencies = [item.latency_s * 1000 for item in success]
     ttfts = [float(item.ttft_s) * 1000 for item in success if item.ttft_s is not None]
     duration = (checkpoint.completed_at - checkpoint.started_at).total_seconds()
-    quality, _details = summarize_quality(cases, checkpoint.measurements, quality_policy, gate)
+    quality_measurements = (
+        tuple(item for item in checkpoint.measurements if item.gate_passed)
+        if stages
+        else checkpoint.measurements
+    )
+    quality, _details = summarize_quality(cases, quality_measurements, quality_policy, gate)
     cascade = (
         cascade_metrics(
             compose_cases(checkpoint.measurements),
@@ -132,7 +147,7 @@ def build_level_metrics(  # noqa: PLR0913 - pricing context stays explicit and i
         if stages
         else None
     )
-    completed = len(checkpoint.measurements)
+    completed = len(model_measurements)
     drafts = cascade.cases if cascade is not None else completed
     roles = {sample.role for sample in checkpoint.telemetry if sample.role is not None}
     by_role = {
@@ -150,8 +165,8 @@ def build_level_metrics(  # noqa: PLR0913 - pricing context stays explicit and i
         concurrency=checkpoint.concurrency,
         requests=completed,
         successful=len(success),
-        retries=sum(item.attempts - 1 for item in checkpoint.measurements),
-        error_rate=(completed - len(success)) / completed,
+        retries=sum(item.attempts - 1 for item in model_measurements),
+        error_rate=(completed - len(success)) / completed if completed else 0.0,
         latency_p50_ms=percentile(latencies, 0.50),
         latency_p95_ms=percentile(latencies, 0.95),
         latency_p99_ms=percentile(latencies, 0.99),

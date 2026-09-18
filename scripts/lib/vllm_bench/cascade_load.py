@@ -52,6 +52,7 @@ from fraudlens_ml.sar import (
     SarInput,
 )
 from lib.study import sha256_hex
+from lib.vllm_bench.cascade import UNSERVED_STAGE
 from lib.vllm_bench.config import ArmName, TelemetryConfig, VllmBenchConfig, resolve_profile
 from lib.vllm_bench.load import bind_server, ordered_cases
 from lib.vllm_bench.scenarios import ScenarioConfig
@@ -69,7 +70,6 @@ from lib.vllm_bench.state import (
 from lib.vllm_bench.telemetry import GpuSampler, TelemetrySample
 
 CASE_ERROR_CODE = "cascade_case_error"
-_UNSERVED = "unserved"
 
 
 def prepared_inputs(
@@ -134,8 +134,13 @@ def _measurements(
                 started_at=started_at,
                 latency_s=0.0,
                 error_code=result.error_code or CASE_ERROR_CODE,
-                stage=_UNSERVED,
+                stage=UNSERVED_STAGE,
                 gate_passed=False,
+                gate_reasons=(
+                    tuple(reason.value for reason in result.quality.reasons)
+                    if result.quality is not None
+                    else ()
+                ),
             ),
         )
     return tuple(
@@ -186,7 +191,7 @@ async def _draft_case(
                 started_at=started_at,
                 latency_s=(datetime.now(UTC) - started_at).total_seconds(),
                 error_code=CASE_ERROR_CODE,
-                stage=_UNSERVED,
+                stage=UNSERVED_STAGE,
                 gate_passed=False,
             ),
         )

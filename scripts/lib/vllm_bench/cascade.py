@@ -50,6 +50,7 @@ _MODEL_CONFIG = ConfigDict(
     frozen=True, extra="forbid", alias_generator=to_camel, populate_by_name=True
 )
 _RATE_TOLERANCE = 1e-9
+UNSERVED_STAGE = "unserved"
 
 
 class CascadeCase(BaseModel):
@@ -59,13 +60,15 @@ class CascadeCase(BaseModel):
 
     case_id: str = Field(..., min_length=1, description="Stable synthetic case identity.")
     stages: tuple[str, ...] = Field(
-        ..., min_length=1, description="Stage names attempted, in order."
+        ..., description="Stage names attempted, in order; empty for a preflight rejection."
     )
     served_stage: str | None = Field(
         default=None, description="Stage whose draft passed the gate, or None when exhausted."
     )
-    escalation_tier: int = Field(
-        ..., ge=0, description="Zero-based index of the serving stage (last attempted when failed)."
+    escalation_tier: int | None = Field(
+        ...,
+        ge=0,
+        description="Serving/terminal attempt index, or None when preflight prevented generation.",
     )
     passed: bool = Field(..., description="Whether any stage produced a gate-passing draft.")
     reasons: tuple[str, ...] = Field(
@@ -86,7 +89,11 @@ class CascadeCase(BaseModel):
             raise ValueError("a passing case must name the stage that served it")
         if not self.passed and self.served_stage is not None:
             raise ValueError("a failed case cannot name a serving stage")
-        if self.escalation_tier >= len(self.stages):
+        if not self.stages:
+            if self.passed or self.escalation_tier is not None:
+                raise ValueError("a case with no attempted stage must be a preflight failure")
+            return self
+        if self.escalation_tier is None or self.escalation_tier >= len(self.stages):
             raise ValueError("escalation tier must index an attempted stage")
         return self
 
@@ -177,6 +184,23 @@ def _attempt_groups(
 
 def _composed_case(case_id: str, attempts: Sequence[RequestMeasurement]) -> CascadeCase:
     """Compose one case from its ordered attempts under the plan's case-latency definition."""
+    unserved = [item for item in attempts if item.stage == UNSERVED_STAGE]
+    if unserved:
+        if len(attempts) != 1:
+            raise ValueError(f"case '{case_id}' mixes a preflight rejection with model attempts")
+        terminal = unserved[0]
+        return CascadeCase(
+            case_id=case_id,
+            stages=(),
+            served_stage=None,
+            escalation_tier=None,
+            passed=False,
+            reasons=terminal.gate_reasons,
+            error_code=terminal.error_code,
+            latency_ms=terminal.latency_s * 1000,
+            prompt_tokens=0,
+            completion_tokens=0,
+        )
     stages = tuple(item.stage or "primary" for item in attempts)
     served = next((index for index, item in enumerate(attempts) if item.gate_passed), None)
     terminal = attempts[served if served is not None else -1]
@@ -233,6 +257,8 @@ def _stage_totals(
     errors: dict[str, dict[str, int]] = {stage: {} for stage in stages}
     cost = {stage: Decimal("0") for stage in stages}
     for item in measurements:
+        if item.stage == UNSERVED_STAGE:
+            continue
         stage = item.stage or stages[0]
         latency[stage] += item.latency_s * 1000
         retries[stage] += item.attempts - 1

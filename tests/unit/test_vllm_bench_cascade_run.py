@@ -27,11 +27,14 @@ from cascade_fakes import (
     ledger_row,
     replay_manifest,
 )
-from vllm_bench_fakes import HASH, FakeSampler, replay_gate, server, small_config
+from vllm_bench_fakes import HASH, NOW, FakeSampler, replay_gate, server, small_config
 
 from fraudlens_backend.sar.factory import load_sar_llm_config
+from fraudlens_ml.sar import SarDraftResult, SarDraftStatus, SarGateReason
 from lib.experiments.budget import load_budget_config
+from lib.vllm_bench.cascade import UNSERVED_STAGE
 from lib.vllm_bench.cascade_load import (
+    _measurements,
     prepared_inputs,
     role_command_prefix,
     role_telemetry,
@@ -147,6 +150,25 @@ async def test_a_case_whose_drafter_never_terminates_is_recorded_not_dropped() -
     failed = [item for item in checkpoint.measurements if item.case_id == "case-1"]
     assert [item.error_code for item in failed] == ["cascade_case_error"]
     assert {item.case_id for item in checkpoint.measurements} == {"case-0", "case-1"}
+
+
+def test_preflight_failure_retains_its_gate_reason_without_a_model_attempt() -> None:
+    """A zero-spend policy rejection must remain explainable in the final cascade report."""
+    verdict = replay_gate().rejected(SarGateReason.NO_CITATIONS)
+    result = SarDraftResult(
+        status=SarDraftStatus.FAILED,
+        model_id="awq",
+        prompt_version="v5",
+        prompt_hash=HASH,
+        error_code="sar_quality_gate_failed",
+        quality=verdict,
+    )
+
+    (measurement,) = _measurements("case-0", 0, 1700, NOW, result)
+
+    assert measurement.stage == UNSERVED_STAGE
+    assert measurement.gate_reasons == ("no_citations",)
+    assert measurement.usage is None
 
 
 async def test_a_failed_warm_up_stops_the_level_before_it_is_measured() -> None:
