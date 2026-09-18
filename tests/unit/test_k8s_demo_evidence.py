@@ -25,11 +25,14 @@ from lib.k8s_demo.evidence import (
     config_sha256,
     evidence_sha256,
     load_evidence,
+    load_success_disclosure,
     validate_evidence,
 )
 from lib.k8s_demo.load import LoadSummary
 from lib.k8s_demo.report import publish_evidence, render_markdown
 from lib.k8s_demo.secrets import load_secret_sets, sync_secrets
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _report(**updates: object) -> HpaEvidenceReport:
@@ -37,6 +40,7 @@ def _report(**updates: object) -> HpaEvidenceReport:
         "schema_version": "1.0",
         "generated_at": datetime(2026, 9, 14, tzinfo=UTC),
         "platform": "kind",
+        "run_id": "k8s-demo-0123456789abcdef",
         "commit": "a" * 40,
         "config_sha256": "b" * 64,
         "cluster": ClusterFacts(
@@ -152,6 +156,58 @@ def test_valid_aks_evidence_uses_non_kind_context_and_docs_only(tmp_path: Path) 
                 update={"workload": report.workload.model_copy(update={"image": "mutable:tag"})}
             )
         )
+
+
+def test_a_rate_limited_scaling_load_must_publish_the_rate_it_actually_served() -> None:
+    """Scaling proven while the API refused 99.85% of requests is not a throughput result.
+
+    Before release 0.5.0 the only bar was `succeeded > 0`, so an artifact could report a scale-out
+    beside 1,147 of 783,498 served requests and read as a clean load test. Now the evidence either
+    clears the served-share floor or states the measured counts in its own disclosures.
+    """
+    cluster = ClusterFacts(
+        name="fraudlens-aks-demo-aks",
+        context="fraudlens-aks-demo-aks",
+        kubernetes_version="v1.32.8",
+        node_count=2,
+        architectures=["amd64"],
+    )
+    throttled = _report().load.model_copy(
+        update={"mode": "authenticated", "requests": 783498, "succeeded": 1147, "failed": 782351}
+    )
+    report = _report(
+        platform="aks",
+        cluster=cluster,
+        run_id="aks-demo-20260915-01",
+        paid_session=_paid_session(),
+        load=throttled,
+        workload=_report().workload.model_copy(
+            update={"image": f"ghcr.io/example/fraudlens-backend@sha256:{'d' * 64}"}
+        ),
+    )
+
+    with pytest.raises(EvidenceError, match="without publishing the measured-rate disclosure"):
+        validate_evidence(report)
+
+    disclosure = load_success_disclosure(throttled)
+    assert "1147 of 783498" in disclosure and "0.15%" in disclosure
+    validate_evidence(report.model_copy(update={"disclosures": [*report.disclosures, disclosure]}))
+    # A healthy served share needs no disclosure at all.
+    validate_evidence(
+        report.model_copy(
+            update={"load": throttled.model_copy(update={"succeeded": 783498, "failed": 0})}
+        )
+    )
+
+
+def test_the_published_aks_artifact_carries_its_own_load_caveat() -> None:
+    """The committed evidence is the thing a reader sees; the caveat must live in it."""
+    published = load_evidence(
+        (_REPO_ROOT / "docs/reference/benchmarks/aks-hpa-scaling.json").read_text(encoding="utf-8")
+    )
+
+    assert load_success_disclosure(published.load) in published.disclosures
+    validate_evidence(published)
 
 
 @pytest.mark.parametrize(

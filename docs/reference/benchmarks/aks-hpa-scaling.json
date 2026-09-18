@@ -15,7 +15,8 @@
     "The durability pass uses synthetic transactions; it measures recovery, not the separate GPU benchmark's model latency.",
     "This is paid AKS evidence and must carry its resource-session ledger record.",
     "Paid session aks-demo-20260915-01 ran through the governed local execution local-20260916-140528.",
-    "The user pool uses Standard_D2as_v4 instead of the ADR-021 Standard_D2as_v5 shape because the DASv5 family quota is zero."
+    "The user pool uses Standard_D2as_v4 instead of the ADR-021 Standard_D2as_v5 shape because the DASv5 family quota is zero.",
+    "Only 1147 of 783498 scaling-load requests succeeded (0.15%); the remainder were rejected by the API rate limiter. The load proves CPU-driven HPA scale-out and convergence, NOT sustained served throughput."
   ],
   "durability": {
     "max_run_attempts": 2,

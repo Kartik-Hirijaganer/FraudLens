@@ -123,6 +123,7 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "aks-demo-20260915-01",
         "data-batch-20260914-pilot1",
         "gfp-c41b1fbb266f44d4",
+        "k8s-demo-d1dfd6be47b2f876",
         "sar-eval-e5c9a36b5f8a33f3",
         "vllm-bench-042a265fdc42c9d4",
         "vllm-bench-0a721bc3b5831216",
@@ -142,6 +143,14 @@ def test_committed_ledger_covers_all_published_reports() -> None:
     # The AKS session is closed and tied to its published paid-cluster evidence.
     aks = next(entry for entry in entries if entry.run_id == "aks-demo-20260915-01")
     assert aks.allocation == "supporting_resources"
+    # The zero-cost kind run is recorded too: a published report with no row is invisible to
+    # coverage, and "this one was free" belongs in the ledger rather than in an absence.
+    kind = next(entry for entry in entries if entry.run_id == "k8s-demo-d1dfd6be47b2f876")
+    assert (kind.budget_scope, kind.projected_cost_usd, kind.teardown_verified) == (
+        "historical",
+        Decimal("0"),
+        "not-applicable",
+    )
     assert aks.projected_cost_usd == Decimal("0.790000")
     assert aks.started_at == "2026-09-16T14:05:28Z"
     assert aks.stopped_at == "2026-09-16T17:19:25Z"

@@ -15,6 +15,7 @@ Key classes:
 Key functions:
 - validate_evidence: fail closed unless scaling and durability acceptance are proven.
 - evidence_sha256: stable content hash used to bind the Markdown projection.
+- load_success_disclosure: the exact sentence a rate-limited scaling load must publish.
 - config_sha256: hash the exact committed harness configuration.
 - load_evidence: parse JSON through the strict evidence model.
 
@@ -35,6 +36,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.k8s_demo.load import LoadSummary
 
 _MIN_RECOVERY_ATTEMPTS = 2
+# A scaling load that scaled the cluster while the API refused almost every request is a real
+# result, but it is not a throughput result. Below this served share the published evidence
+# must SAY so, in the measured numbers (release 0.5.0 Phase 5).
+MIN_LOAD_SUCCESS_RATE = 0.95
 
 
 class EvidenceError(RuntimeError):
@@ -202,6 +207,39 @@ def config_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def load_success_disclosure(load: LoadSummary) -> str:
+    """Render the exact, data-derived sentence a rate-limited scaling load must be published with.
+
+    It carries the raw counts rather than an adjective, so the disclosure cannot drift from the
+    measurement it describes, and a reader cannot mistake "the cluster scaled" for "the cluster
+    served". Generating it here is what lets the validator demand it verbatim.
+    """
+    rate = load.succeeded / load.requests if load.requests else 0.0
+    return (
+        f"Only {load.succeeded} of {load.requests} scaling-load requests succeeded "
+        f"({rate:.2%}); the remainder were rejected by the API rate limiter. The load proves "
+        "CPU-driven HPA scale-out and convergence, NOT sustained served throughput."
+    )
+
+
+def _load_success_failures(report: HpaEvidenceReport) -> list[str]:
+    """Require a healthy served share, or the exact disclosure that says it was not healthy."""
+    if report.platform != "aks":
+        return []
+    load = report.load
+    if load.succeeded == 0:
+        return ["AKS authenticated scaling load completed no protected requests"]
+    if load.succeeded >= load.requests * MIN_LOAD_SUCCESS_RATE:
+        return []
+    if load_success_disclosure(load) in report.disclosures:
+        return []
+    return [
+        "AKS scaling load served "
+        f"{load.succeeded}/{load.requests} requests, below the "
+        f"{MIN_LOAD_SUCCESS_RATE:.0%} floor, without publishing the measured-rate disclosure"
+    ]
+
+
 def validate_evidence(report: HpaEvidenceReport) -> None:
     """Fail unless the report proves full HPA scale-out/convergence and zero lost runs."""
     failures: list[str] = []
@@ -215,16 +253,17 @@ def validate_evidence(report: HpaEvidenceReport) -> None:
         failures.append("AKS evidence lacks paid-session provenance")
     if report.platform == "aks" and report.load.mode != "authenticated":
         failures.append("AKS scaling load did not exercise an authenticated API")
-    if report.platform == "aks" and report.load.succeeded == 0:
-        failures.append("AKS authenticated scaling load completed no protected requests")
+    failures.extend(_load_success_failures(report))
     if (
         report.platform == "aks"
         and report.paid_session is not None
         and not report.workload.image.endswith(report.paid_session.image_digest)
     ):
         failures.append("AKS workload image does not match the recorded immutable digest")
-    if report.platform == "kind" and (report.run_id is not None or report.paid_session is not None):
+    if report.platform == "kind" and report.paid_session is not None:
         failures.append("local evidence cannot claim a paid session")
+    if report.run_id is None:
+        failures.append("evidence without a run id cannot be reconciled against the ledger")
     if report.summary.replicas_min_observed != report.hpa.min_replicas:
         failures.append("minimum replicas were not observed")
     if report.summary.replicas_max_observed < report.hpa.max_replicas:

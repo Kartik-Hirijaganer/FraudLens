@@ -1,6 +1,6 @@
 # Kubernetes HPA and durable-worker evidence
 
-Evidence SHA-256: `40ec1249de3fa950f9c2da343bfc8e1f267f27b50f25fa6e710f1627034c5bea`
+Evidence SHA-256: `397b610eebeb1a73b7150c4f976b2eea6122403fa4d95a153242e5f5fb4835d8`
 
 Measured commit: `67aa7949ab69850fc9e03cbe3143e1ea6f817829` on `kind` / `v1.32.8`.
 

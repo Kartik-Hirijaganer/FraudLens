@@ -7,6 +7,9 @@ current-plan row before admission, an allocation from
 published study run remains traceable; they do not consume the new plan's $75 ceiling.
 When a resource session produces an aggregate with a distinct logical run ID, **Evidence run IDs**
 binds that report to the session without recording or charging the same spend twice.
+Zero-cost local sessions are recorded too. A published report with no row is invisible to
+`ledger-check`, and "this one was free" is a claim the ledger should carry rather than one a
+reader has to infer from an absence (release 0.5.0 Phase 5).
 
 Validate the resource sessions and published-report coverage with:
 
@@ -49,6 +52,7 @@ invent an identifier or infer permission to mutate a cloud or secret account.
 | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | 2026-07-14 | local | developer workstation | owned | — | — | 0 | 0 | 0 | 0 | gfp-c41b1fbb266f44d4 | — | historical | historical | not-applicable |
 | 2026-08-17 | OpenRouter | multi-model SAR evaluation | metered API | — | — | 0 | 0 | 7.600000 | 5.486233 | sar-eval-e5c9a36b5f8a33f3 | — | historical | historical | not-applicable |
+| 2026-09-16 | local | developer workstation (kind) | owned | — | — | 0 | 0 | 0 | 0 | k8s-demo-d1dfd6be47b2f876 | — | historical | historical | not-applicable |
 | 2026-09-14 | Azure | Standard_E16ads_v5 | pay-as-you-go | 2026-09-14T01:49:31Z | 2026-09-14T17:35:34Z | 9.955459 | 1.048000 | 3.235985 | — | data-batch-20260914-pilot1 | fulldata-b55c4ae63ed8bbae | current-plan | azure_cpu_batch | yes |
 | 2026-09-14 | RunPod Secure Cloud | NVIDIA GeForce RTX 4090 | on-demand | 2026-09-14T21:59:09Z | 2026-09-15T04:01:53Z | 6.045556 | 0.740000 | 5.920000 | — | vllm-bench-f810b57a7b8ae05a | vllm-e2e-61dcda4aef97b74a | current-plan | gpu_benchmark | yes |
 | 2026-09-16 | Azure | Standard_B2s + 2×Standard_D2as_v4 | pay-as-you-go | 2026-09-16T14:05:28Z | 2026-09-16T17:19:25Z | 3.232500 | 0.233600 | 0.790000 | — | aks-demo-20260915-01 | — | current-plan | supporting_resources | yes |
@@ -163,3 +167,15 @@ idle second-endpoint time during sequential raw levels, but remained inside the 
 Both Pods and matching volumes were deleted and independently verified absent. Four dollars had
 moved from unused `supporting_resources` to `gpu_benchmark`; the overall $75 ceiling and $2 reserve
 remain unchanged.
+Release 0.5.0 closed without running the Tier-3 external-model pilot. Its case set, candidates,
+thresholds, and selection rule stay frozen in
+[`config/experiments/sar-tier3-pilot.yaml`](../../../config/experiments/sar-tier3-pilot.yaml) and
+are asserted by `test_sar_tier3_pilot.py`, but no hosted candidate was invoked, no spend was
+incurred, and no row is opened. The 88-plus-12 composition therefore never needed the owner's
+top-up confirmation: that question arises only when the pilot is admitted. The external tier ships
+configured and unmeasured, and the published cascade report claims nothing about it
+([ADR-030](../../architecture/adr/ADR-030-quality-gated-sar-model-cascade.md)).
+The zero-cost kind session `k8s-demo-d1dfd6be47b2f876` is recorded above so its published HPA and
+durability evidence reconciles against this ledger. It created no cloud resource; its run id is
+derived from the commit, config hash, and generation time of the artifact it produced.
+

@@ -22,6 +22,7 @@ from typing import Literal
 
 from lib.k8s_demo.config import K8sDemoConfig
 from lib.k8s_demo.evidence import (
+    MIN_LOAD_SUCCESS_RATE,
     ClusterFacts,
     DurabilityEvidence,
     HpaEvidenceReport,
@@ -32,10 +33,12 @@ from lib.k8s_demo.evidence import (
     ScalingSummary,
     WorkloadSnapshot,
     config_sha256,
+    load_success_disclosure,
 )
 from lib.k8s_demo.kubectl import CommandResult, Kubectl
 from lib.k8s_demo.load import LoadSummary
 from lib.k8s_demo.render import Platform
+from lib.study import derive_run_id
 
 __all__ = ["build_live_report"]
 
@@ -128,8 +131,20 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
     commit = command_runner(["git", "rev-parse", "HEAD"]).stdout.strip()
     context = kubectl.current_context()
     is_kind = platform == "kind"
+    # A local run creates no paid resource, but it still publishes evidence — and an artifact with
+    # no run id is invisible to `experiment_budget.py ledger-check`, which reconciles published
+    # reports against the ledger. It therefore carries a run id DERIVED from what it measured, so
+    # the zero-cost session is traceable without ever claiming a paid one (release 0.5.0 Phase 5).
+    config_hash = config_sha256(config_path.read_bytes())
     run_id, paid_session = (
-        (None, None) if is_kind else _paid_session_evidence(nodes["items"], generated_at)
+        (derive_run_id("k8s-demo", f"{commit}:{config_hash}:{generated_at.isoformat()}"), None)
+        if is_kind
+        else _paid_session_evidence(nodes["items"], generated_at)
+    )
+    rate_limited_disclosures = (
+        []
+        if is_kind or load.succeeded >= load.requests * MIN_LOAD_SUCCESS_RATE
+        else [load_success_disclosure(load)]
     )
     paid_disclosures = (
         []
@@ -146,7 +161,7 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
         generated_at=generated_at,
         platform=platform,
         commit=commit,
-        config_sha256=config_sha256(config_path.read_bytes()),
+        config_sha256=config_hash,
         run_id=run_id,
         cluster=ClusterFacts(
             name=config.cluster_name if is_kind else context,
@@ -194,5 +209,6 @@ def build_live_report(  # noqa: PLR0913 - binds every measured proof component e
             if is_kind
             else "This is paid AKS evidence and must carry its resource-session ledger record.",
             *paid_disclosures,
+            *rate_limited_disclosures,
         ],
     )

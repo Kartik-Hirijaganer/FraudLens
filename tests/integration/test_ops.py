@@ -9,56 +9,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from ops_probes import BadEngine, OkEngine, build_fixture_index, readiness_check
 
 from fraudlens_backend.api import ops
 from fraudlens_backend.api.ops import DependencyCheck, get_readiness_probes
-from fraudlens_ml.rag import HashingEmbedder, RegulationDocument, build_index, chunk_corpus
-
-
-class _FakeConn:
-    """Async-context-manager connection used to stub a reachable database."""
-
-    async def __aenter__(self) -> _FakeConn:
-        return self
-
-    async def __aexit__(self, *_exc: object) -> bool:
-        return False
-
-    async def execute(self, _statement: object) -> None:
-        return None
-
-
-class _OkEngine:
-    """Engine stub whose connect() yields a working connection."""
-
-    def connect(self) -> _FakeConn:
-        return _FakeConn()
-
-
-class _BadEngine:
-    """Engine stub whose connect() fails (unreachable database)."""
-
-    def connect(self) -> _FakeConn:
-        raise OSError("connection refused")
-
-
-def _check(body: dict, name: str) -> dict:
-    """Return a named dependency check from a /readyz body."""
-    return next(check for check in body["checks"] if check["name"] == name)
-
-
-def _build_fixture_index(directory: Path, collection: str) -> Path:
-    """Build a tiny ready ChromaDB index at a directory and return it (for the 'ok' probe)."""
-    doc = RegulationDocument(
-        doc_id="d", title="T", citation="31 CFR 1010.314", source="FinCEN", text="structuring cash"
-    )
-    build_index(
-        chunk_corpus([doc]),
-        embedder=HashingEmbedder(),
-        persist_dir=directory,
-        collection=collection,
-    )
-    return directory
 
 
 def test_healthz_is_ok(client_factory: Callable[..., TestClient]) -> None:
@@ -103,33 +57,33 @@ def test_readyz_reports_database_ok_when_engine_reachable(
     client_factory: Callable[..., TestClient],
 ) -> None:
     client = client_factory()
-    client.app.state.db_engine = _OkEngine()
+    client.app.state.db_engine = OkEngine()
     client.app.state.rag_index_dir = None  # isolate the database check
     response = client.get("/readyz")
     assert response.status_code == 200
-    assert _check(response.json(), "database")["status"] == "ok"
+    assert readiness_check(response.json(), "database")["status"] == "ok"
 
 
 def test_readyz_reports_database_down_when_engine_unreachable(
     client_factory: Callable[..., TestClient],
 ) -> None:
     client = client_factory()
-    client.app.state.db_engine = _BadEngine()
+    client.app.state.db_engine = BadEngine()
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert _check(response.json(), "database")["status"] == "down"
+    assert readiness_check(response.json(), "database")["status"] == "down"
 
 
 def test_readyz_reports_chromadb_ok_when_index_present(
     client_factory: Callable[..., TestClient], tmp_path: Path
 ) -> None:
     client = client_factory()
-    client.app.state.rag_index_dir = _build_fixture_index(
+    client.app.state.rag_index_dir = build_fixture_index(
         tmp_path / "chroma", client.app.state.settings.rag_collection
     )
     response = client.get("/readyz")
     assert response.status_code == 200
-    assert _check(response.json(), "chromadb")["status"] == "ok"
+    assert readiness_check(response.json(), "chromadb")["status"] == "ok"
 
 
 def test_readyz_chromadb_down_when_index_required_but_missing(
@@ -139,7 +93,7 @@ def test_readyz_chromadb_down_when_index_required_but_missing(
     client.app.state.rag_index_dir = tmp_path / "absent"  # required but never built
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert _check(response.json(), "chromadb")["status"] == "down"
+    assert readiness_check(response.json(), "chromadb")["status"] == "down"
 
 
 def test_readyz_chromadb_down_when_required_embedding_space_mismatches(
@@ -151,12 +105,12 @@ def test_readyz_chromadb_down_when_required_embedding_space_mismatches(
         rag_index_required=True,
         rag_index_dir=str(index_dir),
     )
-    client.app.state.rag_index_dir = _build_fixture_index(
+    client.app.state.rag_index_dir = build_fixture_index(
         index_dir, client.app.state.settings.rag_collection
     )
     response = client.get("/readyz")
     assert response.status_code == 503
-    check = _check(response.json(), "chromadb")
+    check = readiness_check(response.json(), "chromadb")
     assert check["status"] == "down"
     assert check["detail"] == "index mismatch"
 
@@ -166,7 +120,7 @@ def test_readyz_chromadb_skipped_when_index_dir_unset(
 ) -> None:
     client = client_factory()
     client.app.state.rag_index_dir = None
-    assert _check(client.get("/readyz").json(), "chromadb")["status"] == "skipped"
+    assert readiness_check(client.get("/readyz").json(), "chromadb")["status"] == "skipped"
 
 
 def test_readyz_reports_supabase_auth_ok_when_configured_and_reachable(
@@ -180,7 +134,7 @@ def test_readyz_reports_supabase_auth_ok_when_configured_and_reachable(
     client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
     response = client.get("/readyz")
     assert response.status_code == 200
-    assert _check(response.json(), "supabaseAuth")["status"] == "ok"
+    assert readiness_check(response.json(), "supabaseAuth")["status"] == "ok"
 
 
 def test_readyz_reports_supabase_auth_down_when_configured_but_unreachable(
@@ -194,7 +148,7 @@ def test_readyz_reports_supabase_auth_down_when_configured_but_unreachable(
     client = client_factory(auth_jwks_url="https://supabase.example.test/auth/v1/jwks")
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert _check(response.json(), "supabaseAuth")["status"] == "down"
+    assert readiness_check(response.json(), "supabaseAuth")["status"] == "down"
 
 
 def test_readyz_live_profile_rejects_skipped_dependencies(
@@ -222,8 +176,8 @@ def test_readyz_live_profile_requires_all_dependencies_ok(
         llm_mode="live",
         auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
     )
-    client.app.state.db_engine = _OkEngine()
-    client.app.state.rag_index_dir = _build_fixture_index(
+    client.app.state.db_engine = OkEngine()
+    client.app.state.rag_index_dir = build_fixture_index(
         tmp_path / "live-chroma", client.app.state.settings.rag_collection
     )
     client.app.state.infisical_readiness_probe = lambda: DependencyCheck(
@@ -236,104 +190,14 @@ def test_readyz_live_profile_requires_all_dependencies_ok(
     assert response.json()["status"] == "ready"
     assert all(check["status"] == "ok" for check in response.json()["checks"])
     # The detail names the last STAGE probed: a cascade has several, a single route has one.
-    assert _check(response.json(), "llmProvider")["detail"] == "primary"
-
-
-def test_readyz_reports_active_vllm_provider(
-    client_factory: Callable[..., TestClient],
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The live provider probe follows the selected SAR profile and resolved endpoint."""
-    calls: list[tuple[str, dict[str, str] | None]] = []
-
-    async def ok(
-        url: str,
-        _timeout: float,
-        *,
-        headers: dict[str, str] | None = None,
-    ) -> int:
-        calls.append((url, headers))
-        return 200
-
-    monkeypatch.setenv("VLLM_AWQ_API_KEY", "synthetic-test-value")
-    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
-    monkeypatch.setenv("VLLM_BF16_API_KEY", "synthetic-test-value")
-    monkeypatch.setenv("VLLM_BF16_BASE_URL", "http://127.0.0.1:8001/v1")
-    monkeypatch.setattr(ops, "_fetch_status", ok)
-    client = client_factory(
-        llm_mode="live",
-        sar_config_file="llm/sar-vllm.yml",
-        sar_profile="awq-bf16",
-        auth_jwks_url="https://supabase.example.test/auth/v1/jwks",
-        infisical_secrets_delivery="externally_injected",
-        infisical_required_env_keys=["VLLM_AWQ_API_KEY"],
-    )
-    client.app.state.db_engine = _OkEngine()
-    client.app.state.rag_index_dir = _build_fixture_index(
-        tmp_path / "vllm-chroma", client.app.state.settings.rag_collection
-    )
-
-    response = client.get("/readyz")
-
-    assert response.status_code == 200
-    assert _check(response.json(), "llmProvider") == {
-        "name": "llmProvider",
-        "status": "ok",
-        "detail": "bf16",
-    }
-    # Both tiers are probed on their OWN injected endpoint: one `vllm` governance entry, two
-    # named connections. Before release 0.5.0 both stages resolved to a single base URL.
-    assert {url for url, _headers in calls} >= {
-        "http://127.0.0.1:8000/v1/models",
-        "http://127.0.0.1:8001/v1/models",
-    }
-
-
-@pytest.mark.asyncio
-async def test_vllm_readiness_fails_closed_without_api_key(
-    client_factory: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The selected provider is down when its configured key was not injected."""
-    monkeypatch.delenv("VLLM_AWQ_API_KEY", raising=False)
-    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
-    client = client_factory(
-        llm_mode="live", sar_config_file="llm/sar-vllm.yml", sar_profile="awq-bf16"
-    )
-
-    check = await ops._probe_llm_provider(client.app.state.settings, timeout=1.0)
-
-    assert check == DependencyCheck(name="llmProvider", status="down", detail="awq")
-
-
-@pytest.mark.asyncio
-async def test_readiness_fails_closed_when_a_later_cascade_stage_is_unreachable(
-    client_factory: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A cascade is ready only when EVERY stage is: a dead BF16 tier is not a healthy service."""
-
-    async def only_awq(url: str, _timeout: float, **_kwargs: object) -> int:
-        return 200 if url.startswith("http://127.0.0.1:8000") else 503
-
-    monkeypatch.setenv("VLLM_AWQ_API_KEY", "synthetic-test-value")
-    monkeypatch.setenv("VLLM_AWQ_BASE_URL", "http://127.0.0.1:8000/v1")
-    monkeypatch.setenv("VLLM_BF16_API_KEY", "synthetic-test-value")
-    monkeypatch.setenv("VLLM_BF16_BASE_URL", "http://127.0.0.1:8001/v1")
-    monkeypatch.setattr(ops, "_fetch_status", only_awq)
-    client = client_factory(
-        llm_mode="live", sar_config_file="llm/sar-vllm.yml", sar_profile="awq-bf16"
-    )
-
-    check = await ops._probe_llm_provider(client.app.state.settings, timeout=1.0)
-
-    assert check == DependencyCheck(name="llmProvider", status="down", detail="bf16")
+    assert readiness_check(response.json(), "llmProvider")["detail"] == "primary"
 
 
 def test_readyz_infisical_skipped_when_no_delivery_declared(
     client_factory: Callable[..., TestClient],
 ) -> None:
     """With no declared delivery mechanism the Infisical check stays informational."""
-    check = _check(client_factory().get("/readyz").json(), "infisical")
+    check = readiness_check(client_factory().get("/readyz").json(), "infisical")
     assert check["status"] == "skipped"
     assert check["detail"] == "not configured"
 
@@ -351,7 +215,7 @@ def test_readyz_infisical_ok_when_injected_secrets_present(
     )
     response = client.get("/readyz")
     assert response.status_code == 200
-    check = _check(response.json(), "infisical")
+    check = readiness_check(response.json(), "infisical")
     assert check["status"] == "ok"
     assert check["detail"] == "2 injected secret(s) present"
 
@@ -368,7 +232,7 @@ def test_readyz_infisical_down_when_an_injected_secret_is_missing(
     )
     response = client.get("/readyz")
     assert response.status_code == 503
-    check = _check(response.json(), "infisical")
+    check = readiness_check(response.json(), "infisical")
     assert check["status"] == "down"
     assert check["detail"] == "1 injected secret(s) missing"
     # The response is unauthenticated: it must never disclose the secret inventory.
@@ -387,7 +251,7 @@ def test_readyz_infisical_down_when_an_injected_secret_is_blank(
     )
     response = client.get("/readyz")
     assert response.status_code == 503
-    assert _check(response.json(), "infisical")["status"] == "down"
+    assert readiness_check(response.json(), "infisical")["status"] == "down"
 
 
 def test_readyz_live_profile_is_ready_without_an_app_state_infisical_probe(
@@ -414,8 +278,8 @@ def test_readyz_live_profile_is_ready_without_an_app_state_infisical_probe(
         infisical_secrets_delivery="externally_injected",
         infisical_required_env_keys=["OPENROUTER_API_KEY"],
     )
-    client.app.state.db_engine = _OkEngine()
-    client.app.state.rag_index_dir = _build_fixture_index(
+    client.app.state.db_engine = OkEngine()
+    client.app.state.rag_index_dir = build_fixture_index(
         tmp_path / "live-chroma", client.app.state.settings.rag_collection
     )
     assert not hasattr(client.app.state, "infisical_readiness_probe")
@@ -424,7 +288,7 @@ def test_readyz_live_profile_is_ready_without_an_app_state_infisical_probe(
 
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
-    assert _check(response.json(), "infisical")["status"] == "ok"
+    assert readiness_check(response.json(), "infisical")["status"] == "ok"
 
 
 def test_readyz_live_profile_is_503_when_the_secret_injection_failed(
@@ -446,8 +310,8 @@ def test_readyz_live_profile_is_503_when_the_secret_injection_failed(
         infisical_secrets_delivery="externally_injected",
         infisical_required_env_keys=["FRAUDLENS_TEST_INJECTED_A"],
     )
-    client.app.state.db_engine = _OkEngine()
-    client.app.state.rag_index_dir = _build_fixture_index(
+    client.app.state.db_engine = OkEngine()
+    client.app.state.rag_index_dir = build_fixture_index(
         tmp_path / "live-chroma-degraded", client.app.state.settings.rag_collection
     )
 
@@ -455,7 +319,7 @@ def test_readyz_live_profile_is_503_when_the_secret_injection_failed(
 
     assert response.status_code == 503
     assert response.json()["status"] == "not_ready"
-    assert _check(response.json(), "infisical")["status"] == "down"
+    assert readiness_check(response.json(), "infisical")["status"] == "down"
 
 
 def test_resolve_index_dir_keeps_absolute_paths(

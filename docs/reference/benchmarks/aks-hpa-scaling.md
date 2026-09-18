@@ -1,6 +1,6 @@
 # Kubernetes HPA and durable-worker evidence
 
-Evidence SHA-256: `f3daea474f0a8d193cdf9795aa8fe53598dab35507237e3d96f845bccce90e9b`
+Evidence SHA-256: `34fa26d68c4db3136bff971dcf81f7403f8dc4566c4d3c26463f708e654a0416`
 
 Measured commit: `11166600b6e240f71ba2302e3c15fce8d3b0ed40` on `aks` / `v1.35.7`.
 
@@ -90,3 +90,4 @@ xychart-beta
 - This is paid AKS evidence and must carry its resource-session ledger record.
 - Paid session aks-demo-20260915-01 ran through the governed local execution local-20260916-140528.
 - The user pool uses Standard_D2as_v4 instead of the ADR-021 Standard_D2as_v5 shape because the DASv5 family quota is zero.
+- Only 1147 of 783498 scaling-load requests succeeded (0.15%); the remainder were rejected by the API rate limiter. The load proves CPU-driven HPA scale-out and convergence, NOT sustained served throughput.
