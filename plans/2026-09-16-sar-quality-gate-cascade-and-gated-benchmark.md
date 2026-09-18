@@ -924,14 +924,15 @@ Bump **all seven** lockstep locations 0.4.0 → 0.5.0; `make release-gate`. Veri
 | 8 | `no-hardcoding-check`, `secrets-scan`, `demo-literals-check`, `tenancy-check` green | blocking |
 | 9 | `make deadcode` reviewed; superseded code deleted | blocking |
 | 10 | `make docs-check` green (skill mirror byte-identical) | blocking |
-| 11 | Two-endpoint RunPod smoke + 100-case pilot pass; external model frozen | blocking |
+| 11 | Two-endpoint RunPod smoke + 100-case pilot pass | blocking |
+| 11a | External model frozen **or** the Tier-3 pilot recorded as deliberately not run, with the external tier shipping unmeasured and claiming nothing | blocking |
 | 12 | Full matrix completes and validates; headlines mechanically derived | blocking |
 | 13 | v1 raw benchmark evidence unchanged | blocking |
 | 14 | Ledger complete, teardown verified, both pods + volumes verified deleted | blocking |
 | 15 | AKS load caveat disclosed or re-measured; `k8s-validate` green | blocking |
 | 16 | Claims register updated; no claim ahead of evidence | blocking |
 | 16a | Carried risk-register items 3, 4, 9 decided and recorded (ADR-030 or ledger) | blocking |
-| 16b | Report provenance carries CUDA version and the ZDR eligibility snapshot | blocking |
+| 16b | Report provenance carries the CUDA-version and ZDR-eligibility **fields**, populated where the run observed them and explicitly absent where it did not — never inferred | blocking |
 | 17 | Versions at 0.5.0; CHANGELOG `[0.5.0]` via `git-cliff` | blocking |
 | 18 | `prod.yaml` daily budget restored | blocking |
 | 19 | `make attribution-check` over every local ref | blocking |

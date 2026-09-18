@@ -29,6 +29,19 @@ analyst review, grounded SAR drafts, and governed model operations.**
 > approval on a protected environment. Recurring cost is ~$2.72/month under enforced hard caps
 > ([cost model](docs/reference/cost-model.md), [ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md)).
 
+**Three different things run in this repository, and only the first one is standing right now:**
+
+| | What it is | Status | Evidence |
+| --- | --- | --- | --- |
+| **The deployment** | Azure Container Apps + Vercel + Supabase behind one public origin | **Standing.** ~$2.72/month under hard caps | [Live URL](https://fraud-lens-amber.vercel.app), [cost model](docs/reference/cost-model.md) |
+| **The Kubernetes demonstration** | One Kustomize base on local kind and on Azure AKS, with a real HPA | **Ephemeral.** Applied, measured, destroyed in one approved session; $0 standing | [kind](docs/reference/benchmarks/k8s-hpa-scaling.md) · [AKS](docs/reference/benchmarks/aks-hpa-scaling.md) |
+| **The inference benchmark** | Two RunPod RTX 4090 endpoints serving BF16 and AWQ for a 1,000-case matrix | **Ephemeral.** Both Pods and volumes verified deleted after export | [Gated cascade](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) · [raw arms](docs/reference/benchmarks/vllm-awq-sar-benchmark.md) |
+
+> The demonstration runtime and the benchmark are **not** how the application is served. AKS is not
+> the deploy target ([ADR-021](docs/architecture/adr/ADR-021-aks-ephemeral-kubernetes-demonstration.md)),
+> and no GPU is provisioned outside an approved, torn-down session
+> ([ADR-028](docs/architecture/adr/ADR-028-paid-experiment-governance.md)).
+
 **Keywords:** AML · fraud detection · explainable AI · XGBoost · SHAP · LangGraph · regulatory RAG
 · SAR drafting · multi-tenant SaaS · FastAPI · React · MLOps
 
@@ -330,8 +343,9 @@ before using either live-service command.
 
 The frozen study compares BF16 and AWQ-Marlin on the same GPU, image, model family, prompt, and
 1,000-case synthetic workload at concurrency 1, 8, and 32. The measured run used a temporary
-RunPod Secure Cloud RTX 4090 after the admission gate passed. The Pod and encrypted volume were
-deleted after export. AWQ is presented as an efficiency result, not a quality-equivalent default.
+RunPod Secure Cloud RTX 4090 after the admission gate passed; the Pod and its volume were deleted
+and independently verified absent after export. AWQ is presented as an efficiency result, not a
+quality-equivalent default — and release 0.5.0 measured exactly how far from equivalent it is.
 
 <!-- AUTOGEN:vllm-benchmark -->
 | Cases | BF16 weight memory | AWQ weight memory | Reduction | Acceptance |
@@ -343,6 +357,34 @@ Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory 
 
 See the [protocol and operator runbook](docs/runbooks/vllm-benchmark.md) and
 [ADR-020](docs/architecture/adr/ADR-020-vllm-awq-self-hosted-sar-inference.md).
+
+## Quality-gated SAR cascade
+
+Quantization did not cost fluency; it cost **grounding**. Over the same 1,000 cases at concurrency
+32, raw AWQ fabricated citations on 85 of them and BF16 on none. Every draft is therefore judged by
+a deterministic gate before it is persisted or streamed, a citation-failed draft escalates to the
+next model tier, and a cascade that exhausts every tier **fails explicitly** rather than serving a
+plausible narrative. Nothing is silently repaired.
+
+Each row below is one scenario at its highest measured concurrency, over the same 1,000 cases:
+
+<!-- AUTOGEN:cascade-benchmark -->
+| Scenario | Cases served | Citation fabrications | Escalated | Case p95 | GPU-hours / case | Endpoints |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| bf16-baseline | 99.5% | 0 | 0.0% | 16,164 ms | 0.000116 | 1 |
+| awq-raw | 90.9% | 85 | 0.0% | 16,228 ms | 0.000113 | 1 |
+| awq-bf16-unconstrained | 99.7% | 0 | 9.2% | 17,184 ms | 0.000204 | 2 |
+
+Gated awq-bf16-unconstrained served 99.7% of 1000 cases with 9.2% escalated; case p95 latency 6.3% higher than bf16-baseline at concurrency 32 across two endpoints, not one; AWQ model weights 63.5% smaller.
+<!-- /AUTOGEN:cascade-benchmark -->
+
+The cascade's p95 and GPU-time are measured across **two** simultaneously provisioned endpoints
+against a one-endpoint baseline — an architecture comparison, not a same-hardware one. The published
+report labels every row accordingly, and no figure in it is authored: the headline, the acceptance
+table, and the comparisons are all derived from the persisted run.
+
+See the [gated-cascade report](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) and
+[ADR-030](docs/architecture/adr/ADR-030-quality-gated-sar-model-cascade.md).
 
 ## Training at scale: 68.2M IBM transactions
 
@@ -377,6 +419,11 @@ cluster autoscaler — that is node autoscaling on top of pod autoscaling, not a
 | kind | 1 → 5 → 1 | 46 s | 92 s | 100/100 | 0 |
 | aks | 1 → 5 → 1 | 101 s | 117 s | 100/100 | 0 |
 <!-- /AUTOGEN:k8s-benchmark -->
+
+The AKS load exercised an authenticated API hard enough to drive scale-out, but the rate limiter
+rejected almost all of it: **1,147 of 783,498 requests succeeded (0.15%)**. The rows above are a
+real autoscaling result and are **not** a sustained-throughput result. The evidence validator now
+refuses to publish a sub-95% served share unless the artifact states the measured counts.
 
 Evidence: [kind report](docs/reference/benchmarks/k8s-hpa-scaling.md),
 [AKS report](docs/reference/benchmarks/aks-hpa-scaling.md),

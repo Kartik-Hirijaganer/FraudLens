@@ -41,3 +41,4 @@ canonical record.
 | ADR-027 | Durable investigation execution uses leases, fencing, and bounded replay | Accepted (2026-09-14) | [ADR-027-durable-investigation-execution.md](ADR-027-durable-investigation-execution.md) |
 | ADR-028 | Paid experiments use measured admission gates and verified teardown | Accepted (2026-09-14) | [ADR-028-paid-experiment-governance.md](ADR-028-paid-experiment-governance.md) |
 | ADR-029 | Recurring operational budget: hard caps bound the permanent URL; AKS stays ephemeral | Accepted (2026-09-16) | [ADR-029-recurring-operational-budget.md](ADR-029-recurring-operational-budget.md) |
+| ADR-030 | SAR drafting is a quality-gated model cascade that fails explicitly | Accepted (2026-09-18) | [ADR-030-quality-gated-sar-model-cascade.md](ADR-030-quality-gated-sar-model-cascade.md) |

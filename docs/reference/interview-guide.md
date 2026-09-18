@@ -67,12 +67,39 @@ throughput by 60.8% at concurrency 32 on the measured RTX 4090 run. The same rep
 reference-validity failure and quality regressions, so the result is an efficiency demonstration,
 not an unconditional recommendation or quality-parity claim.
 
+Have the honest number ready: at concurrency 1 AWQ is 49.5% faster than BF16, at 8 it is 19.5%
+faster, and at 32 it is 0.4% **slower**. The memory reduction holds at every level; the latency win
+does not. Say that before you are asked.
+
 Why equal utilisation: matching KV-cache utilisation controls one major memory/capacity confound for
 the primary comparison. Maximum safe concurrency is reported separately because each arm may have a
 different capacity ceiling. The temporary RunPod Pod and encrypted volume were deleted after the
 benchmark and the provider cleanup query returned no matching resources.
 
-## 9:00–10:00 — Quality, governance, and close
+## 9:00–10:00 — The quality-gated cascade, governance, and close
+
+Lead with the finding, not the architecture. Quantization did not cost fluency — it cost grounding:
+over the same 1,000 cases at concurrency 32, raw AWQ fabricated citations on **85** and BF16 on
+**none**. Before release 0.5.0 the production path hid exactly that, because `parse_and_ground`
+silently deleted fabricated ids and returned a draft that looked clean.
+
+Open the [gated-cascade report](benchmarks/vllm-gated-cascade-benchmark.md) and walk three rows: the
+cascade served 99.7% versus 99.5% for BF16 alone and 90.9% for AWQ alone; it escalated 9.2% of cases
+and BF16 resolved every one of them; it cost 6.3% more p95 and 76% more GPU-time **across two
+endpoints, not one** — point at the `Compares` column, because that distinction is the first thing a
+good interviewer will probe.
+
+Then the part worth the most: `gate_verdict_parity`. The report refuses to publish unless the gate
+verdict the production drafter recorded at request time equals the verdict re-derived from the
+persisted output on all 1,092 attempts. That is what makes the benchmark evidence about the shipped
+path rather than a second implementation agreeing with itself — and it is why the old model-only
+measurement runner could be deleted.
+
+Have the rejections ready too: constrained decoding would make fabrication structurally impossible
+and was measured at a 441.6-second p95, so it ships configured and unshipped. The hosted third tier
+ships configured and unmeasured, so the report claims nothing about it.
+
+## Governance and close
 
 Show the claim register and root Makefile. Summarize the provider-free citation/hallucination/egress
 gates, 90% coverage, source-file cap, deterministic docs, dependency/IaC scans, and the experiment
@@ -94,3 +121,4 @@ artifacts; validate-only cloud infrastructure is labeled as such.
 | Full-data method | [`data-batch.md`](../runbooks/data-batch.md) |
 | Inference protocol | [`vllm-benchmark.md`](../runbooks/vllm-benchmark.md) |
 | Paid governance | [`ADR-028`](../architecture/adr/ADR-028-paid-experiment-governance.md) |
+| Quality-gated cascade | [`ADR-030`](../architecture/adr/ADR-030-quality-gated-sar-model-cascade.md) and [`vllm-gated-cascade-benchmark.md`](benchmarks/vllm-gated-cascade-benchmark.md) |
