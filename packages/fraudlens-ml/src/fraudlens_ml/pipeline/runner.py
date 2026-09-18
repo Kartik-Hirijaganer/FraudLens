@@ -75,9 +75,20 @@ _TRACEBACK_FRAME_LIMIT = 5
 # path so a vendored copy or a renamed directory cannot silently turn our frames into foreign ones.
 _FIRST_PARTY_MODULE_PREFIX = "fraudlens"
 
+# A wrapped DBAPI error carries the two facts an ORM failure otherwise hides. `session.flush()`
+# writes EVERY pending object, so the frame that raises names where the flush happened, not which
+# row lost -- the first IntegrityError logged here pointed at a flush covering one table while the
+# violated constraint was still a matter of inference. The driver exception's own class names the
+# KIND of violation (unique / foreign key / not null) and `constraint_name` names the constraint
+# exactly. Both are schema identity, not row content: a constraint name is in the migration, the
+# values that collided are not. `str(orig)` stays out -- Postgres appends a DETAIL line carrying
+# the offending key values, which is precisely the PHI this function exists to withhold.
+_DBAPI_CAUSE_ATTR = "orig"
+_CONSTRAINT_ATTR = "constraint_name"
+
 
 def log_core_failure(exc: BaseException, *, run_id: str) -> None:
-    """Record a core failure's exception type and frame chain — never `str(exc)` (PHI)."""
+    """Record a core failure's type, constraint and frame chain — never `str(exc)` (PHI)."""
     frames: list[str] = []
     origin = "unknown"
     traceback = exc.__traceback__
@@ -88,12 +99,16 @@ def log_core_failure(exc: BaseException, *, run_id: str) -> None:
         if module.startswith(_FIRST_PARTY_MODULE_PREFIX):
             origin = f"{module}:{traceback.tb_lineno}"
         traceback = traceback.tb_next
+    cause = getattr(exc, _DBAPI_CAUSE_ATTR, None)
     _LOGGER.error(
-        "run.failed code=%s run_id=%s error_type=%s error_module=%s origin=%s frames=%s",
+        "run.failed code=%s run_id=%s error_type=%s error_module=%s cause_type=%s constraint=%s "
+        "origin=%s frames=%s",
         _RUN_FAILED_CODE,
         run_id,
         type(exc).__name__,
         type(exc).__module__,
+        type(cause).__name__ if cause is not None else "none",
+        getattr(cause, _CONSTRAINT_ATTR, None) or "none",
         origin,
         ">".join(frames[-_TRACEBACK_FRAME_LIMIT:]) or "unknown",
     )
