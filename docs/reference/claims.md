@@ -28,6 +28,7 @@ A demonstrated row always links to its committed evidence.
 | Backend and frontend coverage are gated at 90% and local/CI checks share Make targets. | implemented | [Makefile](../../Makefile) and [reusable CI workflow](../../.github/workflows/_ci-reusable.yml) |
 | Azure Container Apps, Vercel, and Supabase serve the live application at one public origin, with every deploy job gated behind required production approval. | demonstrated | Live at [fraud-lens-amber.vercel.app](https://fraud-lens-amber.vercel.app) and the [Azure deployment runbook](../runbooks/azure-deploy.md) |
 | A dated monthly cost projection is generated from the committed deployment shapes, with budget alerts at two scopes and hard caps that bound the bill. | implemented | [Generated cost model](cost-model.md) and [ADR-029](../architecture/adr/ADR-029-recurring-operational-budget.md) |
+| The README's *By the numbers* line — 68,228,066 IBM source rows, 99.7% of 1,000 cases served under the gated cascade, ≥90% gated branch coverage on both stacks, ~$2.72/month recurring — restates four already-evidenced rows and introduces no new claim. | demonstrated | [Full-data training](benchmarks/ibm-full-data-training.md), [gated cascade](benchmarks/vllm-gated-cascade-benchmark.md), [Makefile](../../Makefile), and [cost model](cost-model.md) |
 
 ## Release 0.3.0 target claims
 

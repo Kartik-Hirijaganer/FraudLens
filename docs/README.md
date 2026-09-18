@@ -30,6 +30,9 @@ reviewable and diffable, but they are produced by a `make` target and must never
   (architecture/C4, sequence, ER, flow). They render natively in GitHub/Markdown and diff as text,
   so don't commit binary image exports. The architecture doc's generated ERD and module maps are
   Mermaid too.
+- **Product media is the one carve-out.** The rule above governs *diagrams*. Screenshots and demo
+  recordings of the running application cannot be Mermaid, so they are committed as binary under
+  [`screenshots/`](screenshots/) and [`demo/`](demo/) and referenced from the README.
 - Office / PDF docs (`.docx`, `.xlsx`, `.pptx`, `.pdf`) are tracked as binary (see
   [`.gitattributes`](../.gitattributes)) and are fine to commit here.
 - **Never** put secrets, credentials, or raw PHI in documents committed to the repo.
