@@ -308,3 +308,9 @@ async def test_core_failure_logs_the_exception_type_but_never_its_message(
     assert "error_module=builtins" in rendered
     assert "pipeline_fakes.py:" in rendered  # the frame chain names the raise site
     assert "scorer boom" not in rendered  # the PHI invariant: no exception message, ever
+
+    # `origin` must name OUR code, not whichever library detected the problem. The first version
+    # reported the deepest frame overall and its first real failure named `asyncpg.py:797` — true,
+    # and three libraries below anything actionable.
+    origin = rendered.split("origin=", 1)[1].split(" ", 1)[0]
+    assert origin.startswith("fraudlens"), origin
