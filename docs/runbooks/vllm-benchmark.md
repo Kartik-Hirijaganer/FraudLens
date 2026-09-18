@@ -21,7 +21,9 @@ for release evidence.
 ## STOP 3 provider decision
 
 Refresh Azure A100/A10 and regional Spot quotas, current Azure/RunPod prices, and the projected
-runtime with the required 30% margin. Select Azure only when quota and the $25 allocation both fit;
+runtime with the required 30% margin. Select Azure only when quota and the committed
+`gpu_benchmark` allocation in [`config/experiments/budget.yaml`](../../config/experiments/budget.yaml)
+both fit;
 otherwise choose RunPod immediately. Record hardware, purchase option, quote date, risks, and exact
 commands in the decision report. Creation still requires a separate explicit approval.
 
@@ -56,14 +58,25 @@ captures the image digest, GPU/driver/CUDA facts, vLLM version, startup logs, KV
 4. Run all 1,000 cases at concurrency 1, 8, and 32 on both arms without changing host or protocol.
 5. Run the 100-case application pass, build, validate, and publish the report.
 
-The per-arm command surface is:
+Every level is executed as a SCENARIO through the production quality-gated drafter — there is no
+model-only runner any more. A raw quantization arm is simply a single-stage scenario, so the
+comparison and the cascade are measured by the same code the product runs:
 
 ```bash
 ARM=awq make vllm-bench-serve
-RUN=$RUN ARM=awq PROFILE=smoke SOURCE=sar-eval HOST=runpod-rtx4090 make vllm-bench-run
+RUN=$RUN SCENARIO=awq-raw PROFILE=smoke SOURCE=sar-eval HOST=runpod-rtx4090 PURCHASE=pay_as_you_go \
+  make vllm-bench-scenario
 make vllm-bench-stop
+```
+
+The two-arm v1 report stays buildable for its already-published evidence; new scenario matrices
+publish through the cascade report:
+
+```bash
 RUN=$RUN VLLM_CASES=.local/vllm-bench/cases-ibm-final-test-full.json make vllm-bench-report
 RUN=$RUN make vllm-bench-publish
+RUN=$RUN make vllm-bench-cascade-report
+RUN=$RUN make vllm-bench-cascade-publish
 ```
 
 For the functional pass, keep the AWQ process running behind the SSH tunnel. Register the

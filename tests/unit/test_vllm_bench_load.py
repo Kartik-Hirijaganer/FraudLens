@@ -1,4 +1,4 @@
-"""Summary: Closed-loop concurrency, fairness, checkpoint, and resume tests.
+"""Summary: Deterministic request-order and per-arm server-binding tests.
 
 Key classes:
 - (none)
@@ -7,19 +7,17 @@ Key functions:
 - (none)
 
 Notes:
-- Injected fake clients and samplers keep execution provider-free.
+- Level EXECUTION is tested in `test_vllm_bench_cascade_run.py`, against the scenario runner
+  that drives the production quality-gated drafter. Concurrency, warm-up exclusion, resume,
+  corpus drift, and provenance drift all have their equivalents there; the model-only runner
+  they used to be tested through was retired in release 0.5.0.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from vllm_bench_fakes import (
     HASH,
-    RUN_ID,
-    FakeSampler,
-    FakeStreamClient,
     benchmark_case,
     complete_benchmark,
     server,
@@ -27,8 +25,8 @@ from vllm_bench_fakes import (
 )
 
 from lib.vllm_bench.config import load_config
-from lib.vllm_bench.load import ordered_cases, run_arm, run_level
-from lib.vllm_bench.state import CaseArtifact, load_run, write_run
+from lib.vllm_bench.load import bind_server, ordered_cases
+from lib.vllm_bench.state import CaseArtifact
 
 
 def _artifact(config) -> CaseArtifact:
@@ -74,146 +72,20 @@ def test_development_profile_selects_only_the_sequestered_pilot_partition() -> N
     assert tuple(case.case_id for case in selected) == ("dev-0",)
 
 
-@pytest.mark.asyncio
-async def test_level_honors_concurrency_and_excludes_warmup_and_abstention() -> None:
-    config = small_config(load_config())
-    client = FakeStreamClient()
-    checkpoint = await run_level(
-        arm="bf16",
-        concurrency=2,
-        artifact=_artifact(config),
-        cases_sha256=HASH,
-        config=config,
-        profile="full",
-        client=client,  # type: ignore[arg-type]
-        sampler=FakeSampler(),
+def test_binding_a_server_twice_accepts_reported_memory_jitter_but_not_a_different_machine() -> (
+    None
+):
+    """Resuming an arm on another GPU would silently compare two populations as if they were one."""
+    config, _artifact_unused, manifest = complete_benchmark(load_config())
+    provenance = server(config, "bf16")
+    empty = manifest.model_copy(update={"servers": {}})
+
+    bound = bind_server(empty, provenance)
+
+    assert bound.servers["bf16"] == provenance
+    jittered = provenance.model_copy(
+        update={"weight_memory_gib": provenance.weight_memory_gib * 1.001}
     )
-    assert client.maximum_active == 2
-    assert checkpoint.warmup_completed == 1
-    assert len(checkpoint.measurements) == 2
-    assert len(checkpoint.quality_measurements) == 0
-    assert checkpoint.telemetry
-
-
-@pytest.mark.asyncio
-async def test_primary_level_runs_abstention_and_warmup_failure_stops() -> None:
-    config = small_config(load_config())
-    client = FakeStreamClient()
-    checkpoint = await run_level(
-        arm="bf16",
-        concurrency=1,
-        artifact=_artifact(config),
-        cases_sha256=HASH,
-        config=config,
-        profile="full",
-        client=client,  # type: ignore[arg-type]
-        sampler=FakeSampler(),
-    )
-    assert len(checkpoint.quality_measurements) == 1
-
-    missing_warmup = _artifact(config).model_copy(
-        update={
-            "cases": tuple(case for case in _artifact(config).cases if case.case_set != "warmup")
-        }
-    )
-    with pytest.raises(ValueError, match="warm-up"):
-        await run_level(
-            arm="bf16",
-            concurrency=1,
-            artifact=missing_warmup,
-            cases_sha256=HASH,
-            config=config,
-            profile="full",
-            client=client,  # type: ignore[arg-type]
-            sampler=FakeSampler(),
-        )
-
-
-@pytest.mark.asyncio
-async def test_arm_checkpoints_resumes_and_completes_matrix(sandbox: Path) -> None:
-    config = small_config(load_config())
-    artifact = _artifact(config)
-    run_path = sandbox / "run.json"
-    bf16_client = FakeStreamClient()
-    first = await run_arm(
-        run_path=run_path,
-        run_id=RUN_ID,
-        arm="bf16",
-        artifact=artifact,
-        cases_sha256=HASH,
-        config=config,
-        profile="full",
-        provenance=server(config, "bf16"),
-        client=bf16_client,  # type: ignore[arg-type]
-        sampler=FakeSampler(),
-    )
-    calls = len(bf16_client.calls)
-    assert first.completed_at is None
-    await run_arm(
-        run_path=run_path,
-        run_id=RUN_ID,
-        arm="bf16",
-        artifact=artifact,
-        cases_sha256=HASH,
-        config=config,
-        profile="full",
-        provenance=server(config, "bf16"),
-        client=bf16_client,  # type: ignore[arg-type]
-        sampler=FakeSampler(),
-    )
-    assert len(bf16_client.calls) == calls
-
-    final = await run_arm(
-        run_path=run_path,
-        run_id=RUN_ID,
-        arm="awq",
-        artifact=artifact,
-        cases_sha256=HASH,
-        config=config,
-        profile="full",
-        provenance=server(config, "awq"),
-        client=FakeStreamClient(),  # type: ignore[arg-type]
-        sampler=FakeSampler(),
-    )
-    assert final.completed_at is not None
-    assert len(load_run(run_path).levels) == 4
-
-
-@pytest.mark.asyncio
-async def test_resume_rejects_checkpoint_hash_and_server_drift(sandbox: Path) -> None:
-    config, artifact, manifest = complete_benchmark(load_config())
-    run_path = sandbox / "run.json"
-    bad_level = manifest.levels["bf16:1"].model_copy(update={"cases_sha256": "b" * 64})
-    write_run(
-        run_path,
-        manifest.model_copy(update={"completed_at": None, "levels": {"bf16:1": bad_level}}),
-    )
-    with pytest.raises(ValueError, match="case hash"):
-        await run_arm(
-            run_path=run_path,
-            run_id=RUN_ID,
-            arm="bf16",
-            artifact=artifact,
-            cases_sha256=manifest.cases_sha256,
-            config=config,
-            profile="full",
-            provenance=server(config, "bf16"),
-            client=FakeStreamClient(),  # type: ignore[arg-type]
-            sampler=FakeSampler(),
-        )
-
-    drifted = server(config, "bf16").model_copy(update={"gpu_name": "different"})
-    write_run(run_path, manifest.model_copy(update={"completed_at": None, "levels": {}}))
+    assert bind_server(bound, jittered).servers["bf16"] == provenance
     with pytest.raises(ValueError, match="provenance drifted"):
-        await run_arm(
-            run_path=run_path,
-            run_id=RUN_ID,
-            arm="bf16",
-            artifact=artifact,
-            cases_sha256=manifest.cases_sha256,
-            config=config,
-            profile="full",
-            provenance=drifted,
-            client=FakeStreamClient(),  # type: ignore[arg-type]
-            sampler=FakeSampler(),
-        )
+        bind_server(bound, provenance.model_copy(update={"gpu_name": "different"}))
