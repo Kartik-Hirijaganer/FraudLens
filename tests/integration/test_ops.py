@@ -328,3 +328,84 @@ def test_resolve_index_dir_keeps_absolute_paths(
     absolute = tmp_path / "abs-index"
     client = client_factory(rag_index_dir=str(absolute))
     assert client.app.state.rag_index_dir == absolute
+
+
+class _FakeTokenProvider:
+    """Record every audience a readiness probe asks for, and optionally fail on demand."""
+
+    def __init__(self, recorded: list[str], *, fail: bool) -> None:
+        self._recorded = recorded
+        self._fail = fail
+
+    def token(self, resource: str) -> str:
+        self._recorded.append(resource)
+        if self._fail:
+            raise RuntimeError("token endpoint unreachable")
+        return "token"
+
+
+@pytest.fixture
+def fake_token_provider(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[str]]:
+    """Install a recording token provider and return the list of audiences it is asked for."""
+
+    def _install(*, fail: bool = False) -> list[str]:
+        recorded: list[str] = []
+        monkeypatch.setattr(
+            ops,
+            "ManagedIdentityTokenProvider",
+            lambda _settings: _FakeTokenProvider(recorded, fail=fail),
+        )
+        return recorded
+
+    return _install
+
+
+def _azure_client(client_factory: Callable[..., TestClient]) -> TestClient:
+    """Build a client whose backend selection actually uses the Azure managed identity."""
+    client = client_factory(
+        storage_backend="azure_blob",
+        queue_backend="container_apps_jobs",
+        azure_storage_token_resource="https://storage.azure.com/",
+        azure_arm_token_resource="https://management.azure.com/",
+    )
+    client.app.state.rag_index_dir = None  # isolate the identity check
+    return client
+
+
+def test_readyz_probes_managed_identity_for_every_selected_azure_audience(
+    client_factory: Callable[..., TestClient],
+    fake_token_provider: Callable[..., list[str]],
+) -> None:
+    recorded = fake_token_provider()
+    response = _azure_client(client_factory).get("/readyz")
+
+    assert response.status_code == 200
+    check = readiness_check(response.json(), "azureIdentity")
+    assert check["status"] == "ok"
+    assert check["detail"] == "2 audience(s)"
+    assert recorded == ["https://storage.azure.com/", "https://management.azure.com/"]
+
+
+def test_readyz_is_503_when_the_managed_identity_cannot_issue_a_token(
+    client_factory: Callable[..., TestClient],
+    fake_token_provider: Callable[..., list[str]],
+) -> None:
+    """The prod IMDS misconfiguration was invisible precisely because nothing probed this."""
+    fake_token_provider(fail=True)
+    response = _azure_client(client_factory).get("/readyz")
+
+    assert response.status_code == 503
+    check = readiness_check(response.json(), "azureIdentity")
+    assert check["status"] == "down"
+    assert check["detail"] == "blob token unavailable"
+
+
+def test_readyz_omits_the_identity_probe_for_local_backends(
+    client_factory: Callable[..., TestClient], tmp_path: Path
+) -> None:
+    client = client_factory(storage_backend="local", queue_backend="local")
+    client.app.state.rag_index_dir = tmp_path / "absent"
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert "azureIdentity" not in {check["name"] for check in response.json()["checks"]}

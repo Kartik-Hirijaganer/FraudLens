@@ -89,6 +89,9 @@ def test_managed_identity_token_provider_requests_and_caches(
         return 200, b'{"access_token":"token-1","expires_on":"9999999999"}'
 
     monkeypatch.setattr(azure_module, "azure_http_request", fake_request)
+    # Hermetic: a real Container Apps environment would otherwise select the other flavor.
+    for name in ("IDENTITY_ENDPOINT", "IDENTITY_HEADER"):
+        monkeypatch.delenv(name, raising=False)
     provider = azure_module.ManagedIdentityTokenProvider(
         AppSettings(
             environment="dev",
@@ -282,3 +285,72 @@ def test_local_job_backend_returns_job_id() -> None:
     assert isinstance(backend, LocalJobBackend)
     job_id = backend.submit("train_model", {"version": "v1"})
     assert isinstance(job_id, str) and len(job_id) == 32
+
+
+def test_token_endpoint_prefers_container_apps_flavor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Container Apps injects a replica-local endpoint and a rotated header; both must be used."""
+    calls: list[dict[str, object]] = []
+
+    def fake_request(**kwargs: object) -> tuple[int, bytes]:
+        calls.append(dict(kwargs))
+        return 200, b'{"access_token":"ca-token","expires_on":"9999999999"}'
+
+    monkeypatch.setattr(azure_module, "azure_http_request", fake_request)
+    monkeypatch.setenv("IDENTITY_ENDPOINT", "http://localhost:12356/msi/token")
+    monkeypatch.setenv("IDENTITY_HEADER", "rotated-guid")
+    provider = azure_module.ManagedIdentityTokenProvider(
+        AppSettings(
+            environment="dev",
+            # The IMDS URL stays configured and must be IGNORED on Container Apps, where it is
+            # unroutable: this is the exact production misconfiguration this flavor check fixes.
+            azure_managed_identity_token_url="http://169.254.169.254/metadata/identity/oauth2/token",
+            azure_managed_identity_client_id="client-id",
+            azure_rest_timeout_seconds=2.5,
+        )
+    )
+
+    assert provider.token("https://storage.azure.com/") == "ca-token"
+    assert calls == [
+        {
+            "method": "GET",
+            "url": "http://localhost:12356/msi/token?api-version=2019-08-01"
+            "&resource=https%3A%2F%2Fstorage.azure.com%2F&client_id=client-id",
+            "headers": {"X-IDENTITY-HEADER": "rotated-guid"},
+            "timeout_seconds": 2.5,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "present",
+    [{}, {"IDENTITY_ENDPOINT": "http://localhost:12356/msi/token"}, {"IDENTITY_HEADER": "guid"}],
+    ids=["neither", "endpoint-only", "header-only"],
+)
+def test_token_endpoint_falls_back_to_imds(
+    monkeypatch: pytest.MonkeyPatch, present: dict[str, str]
+) -> None:
+    """A partially injected environment falls back rather than sending an unprovable request."""
+    for name in ("IDENTITY_ENDPOINT", "IDENTITY_HEADER"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in present.items():
+        monkeypatch.setenv(name, value)
+
+    endpoint = azure_module.resolve_token_endpoint(
+        AppSettings(environment="dev", azure_managed_identity_token_url="http://metadata/token")
+    )
+
+    assert endpoint.flavor == "imds"
+    assert endpoint.url == "http://metadata/token"
+    assert endpoint.api_version == "2018-02-01"
+    assert endpoint.headers == {"Metadata": "true"}
+
+
+def test_token_endpoint_requires_a_url_when_no_flavor_is_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With neither IMDS config nor Container Apps env, the failure is config, not a bad request."""
+    for name in ("IDENTITY_ENDPOINT", "IDENTITY_HEADER"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(BackendConfigurationError, match="azure_managed_identity_token_url"):
+        azure_module.resolve_token_endpoint(AppSettings(environment="dev"))

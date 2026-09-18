@@ -22,7 +22,13 @@ class AzureRuntimeFields(BaseModel):
     )
     azure_managed_identity_api_version: str = Field(
         default="2018-02-01",
-        description="Managed-identity token API version.",
+        description="Managed-identity token API version used against the IMDS token endpoint.",
+    )
+    azure_container_apps_identity_api_version: str = Field(
+        default="2019-08-01",
+        description=(
+            "Managed-identity token API version used against the Container Apps identity endpoint."
+        ),
     )
     azure_managed_identity_client_id: str | None = Field(
         default=None,

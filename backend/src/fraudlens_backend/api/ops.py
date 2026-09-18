@@ -1,6 +1,7 @@
 """Summary: Operational endpoints used by the deploy platform and smoke tests.
 GET /healthz is liveness (the process is up). GET /readyz is readiness: it runs a
-set of dependency probes (database / ChromaDB / JWKS / Infisical / active LLM provider) and returns
+set of dependency probes (database / ChromaDB / JWKS / Infisical / active LLM provider / Azure
+managed identity when an Azure backend is selected) and returns
 200 only when none report "down", else 503 — and, under a live LLM profile, only when
 every probe reports "ok". Both are UNPREFIXED (no /api/v1) per the endpoint contract.
 The probes are pluggable via a dependency so tests can simulate a degraded dependency;
@@ -41,6 +42,12 @@ Notes:
   upstreams have all disappeared reports down instead of silently drafting through an ungoverned
   one. The ZDR request options themselves ride on every call; readiness proves a permitted
   upstream still exists to honour them.
+- The Azure identity probe is registered ONLY when a backend selection actually authenticates with
+  the managed identity (`azure_blob` storage or `container_apps_jobs` queue), and it acquires a
+  real token for each selected audience. Blob and ARM calls happen on user request, not at boot,
+  so without this probe a runtime whose identity plumbing is broken reports ready and fails later
+  on the first artifact write or job dispatch. Because the probe set is conditional, the live-mode
+  required-check set is derived per selection rather than being a static constant.
 - The two REMOTE probes (Supabase JWKS, active LLM provider) are cached for 5 minutes on
   app.state.readiness_probe_cache, so a 30-second platform probe cadence no longer turns
   readiness into thousands of outbound provider calls a day. The database and local ChromaDB
@@ -66,6 +73,7 @@ from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import Response
 
+from fraudlens_backend.backends.azure import ManagedIdentityTokenProvider
 from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
 from fraudlens_backend.sar.factory import SarTierConfig, load_sar_llm_config
@@ -82,9 +90,25 @@ from fraudlens_llm import (
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
 _REMOTE_PROBE_CACHE_SECONDS = 300.0
-_LIVE_REQUIRED_CHECKS = frozenset(
+_BASE_LIVE_REQUIRED_CHECKS = frozenset(
     {"database", "chromadb", "supabaseAuth", "infisical", "llmProvider"}
 )
+_AZURE_IDENTITY_CHECK = "azureIdentity"
+
+
+def _uses_managed_identity(settings: AppSettings) -> bool:
+    """Report whether any selected backend authenticates with the Azure managed identity."""
+    return (
+        settings.storage_backend == "azure_blob" or settings.queue_backend == "container_apps_jobs"
+    )
+
+
+def _live_required_checks(settings: AppSettings) -> frozenset[str]:
+    """Name every probe that must report ok under a live LLM profile, for this backend selection."""
+    if _uses_managed_identity(settings):
+        return _BASE_LIVE_REQUIRED_CHECKS | {_AZURE_IDENTITY_CHECK}
+    return _BASE_LIVE_REQUIRED_CHECKS
+
 
 ReadinessProbe = Callable[[], "DependencyCheck | Awaitable[DependencyCheck]"]
 RemoteProbe = Callable[[], "Awaitable[DependencyCheck]"]
@@ -276,15 +300,39 @@ def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
             name="infisical", status="ok", detail=f"{injected} injected secret(s) present"
         )
 
+    async def _azure_identity() -> DependencyCheck:
+        """Prove the managed identity actually issues tokens for every selected Azure backend."""
+        provider = ManagedIdentityTokenProvider(settings)
+        audiences = []
+        if settings.storage_backend == "azure_blob":
+            audiences.append(("blob", settings.azure_storage_token_resource))
+        if settings.queue_backend == "container_apps_jobs":
+            audiences.append(("arm", settings.azure_arm_token_resource))
+        for label, resource in audiences:
+            try:
+                await asyncio.to_thread(provider.token, resource)
+            except Exception:  # config, flavor, or endpoint failures all fail closed
+                # Label only — the audience is non-secret but the response is unauthenticated,
+                # so the detail names which backend is broken and nothing about the identity.
+                return DependencyCheck(
+                    name=_AZURE_IDENTITY_CHECK, status="down", detail=f"{label} token unavailable"
+                )
+        return DependencyCheck(
+            name=_AZURE_IDENTITY_CHECK, status="ok", detail=f"{len(audiences)} audience(s)"
+        )
+
     infisical_probe = getattr(request.app.state, "infisical_readiness_probe", None)
     cache = _remote_probe_cache(request)
-    return [
+    probes: list[ReadinessProbe] = [
         _database,
         _chromadb,
         lambda: _cached(cache, "supabaseAuth", _supabase_auth),
         infisical_probe or _infisical,
         lambda: _cached(cache, "llmProvider", lambda: _probe_llm_provider(settings, timeout)),
     ]
+    if _uses_managed_identity(settings):
+        probes.append(lambda: _cached(cache, _AZURE_IDENTITY_CHECK, _azure_identity))
+    return probes
 
 
 async def _fetch_status(
@@ -340,7 +388,7 @@ async def readyz(request: Request, response: Response, probes: ProbesDep) -> Rea
         checks.append(await result if inspect.isawaitable(result) else result)
     settings = cast(AppSettings, request.app.state.settings)
     ready = (
-        {check.name for check in checks} == _LIVE_REQUIRED_CHECKS
+        {check.name for check in checks} == _live_required_checks(settings)
         and all(check.status == "ok" for check in checks)
         if settings.llm_mode == "live"
         else all(check.status != "down" for check in checks)

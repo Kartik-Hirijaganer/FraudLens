@@ -528,7 +528,8 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `azure_managed_identity_token_url` | `str` | `''` | Managed-identity token endpoint URL, supplied by config/env in Azure. |
-| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version. |
+| `azure_managed_identity_api_version` | `str` | `'2018-02-01'` | Managed-identity token API version used against the IMDS token endpoint. |
+| `azure_container_apps_identity_api_version` | `str` | `'2019-08-01'` | Managed-identity token API version used against the Container Apps identity endpoint. |
 | `azure_managed_identity_client_id` | `str | None` | `None` | User-assigned identity client id for Azure data/control-plane calls. |
 | `azure_arm_endpoint` | `str` | `''` | Azure Resource Manager endpoint base URL, supplied by config/env. |
 | `azure_arm_token_resource` | `str` | `''` | Token resource/audience for Azure Resource Manager. |
