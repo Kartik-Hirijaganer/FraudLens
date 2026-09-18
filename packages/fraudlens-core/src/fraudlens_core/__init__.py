@@ -23,7 +23,7 @@ from fraudlens_core.schema import (
     compute_feature_hash,
 )
 from fraudlens_core.tenancy import TenantIsolationError, require_agency_id
-from fraudlens_core.types import RiskBand, TransactionSummary
+from fraudlens_core.types import RiskBand
 
 __all__ = [
     "BUILTIN_RULES",
@@ -44,7 +44,6 @@ __all__ = [
     "SchemaValidationError",
     "TenantIsolationError",
     "TransactionDirection",
-    "TransactionSummary",
     "build_canonical",
     "compute_feature_hash",
     "compute_rules_version",

@@ -34,5 +34,8 @@ if [ "$status" -ne 0 ]; then
     exit 1
   fi
   echo "deadcode: findings above are advisory (set DEADCODE_STRICT=1 to fail)."
+  echo "deadcode: knip's standing 'unused exported types' are members of exported interfaces"
+  echo "deadcode: or signatures of exported functions; un-exporting them would make the public"
+  echo "deadcode: API unnameable by a consumer. Reviewed release 0.5.0; not dead surface."
 fi
 exit 0

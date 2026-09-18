@@ -38,8 +38,6 @@ import {
   summaryFor,
 } from "./sarEvalStudyMetrics";
 
-export { sarEvalHeadline } from "./sarEvalStudyMetrics";
-
 function createAdrHref(): string {
   if (typeof URL.createObjectURL === "function") {
     return URL.createObjectURL(new Blob([adr019Text], { type: "text/plain;charset=utf-8" }));

@@ -6,7 +6,6 @@
  *
  * Key functions:
  * - caseStepReady: report whether a wizard step has renderable evidence.
- * - upsertAgentRun: merge an attempt by stable run id.
  * - initialInvestigationState: construct the empty state.
  * - reduceInvestigation: fold one SSE frame into state.
  * - investigationStateFromSnapshot: reconcile the authoritative saved snapshot.
@@ -130,7 +129,7 @@ function agentStatusOf(value: unknown, fallback: AgentRunStatus): AgentRunStatus
 type AgentRunUpdate = Pick<AgentRun, "agentRunId" | "agent" | "attempt"> &
   Partial<Omit<AgentRun, "agentRunId" | "agent" | "attempt">>;
 
-export function upsertAgentRun(runs: AgentRun[], update: AgentRunUpdate): AgentRun[] {
+function upsertAgentRun(runs: AgentRun[], update: AgentRunUpdate): AgentRun[] {
   const index = runs.findIndex((run) => run.agentRunId === update.agentRunId);
   const previous = index >= 0 ? runs[index] : undefined;
   const merged: AgentRun = {
