@@ -26,7 +26,7 @@ from fraudlens_llm.security.phi import mask_texts
 from fraudlens_llm.security.policy import system_policy_message
 from fraudlens_ml.pipeline import PipelineInput, RagResult, ScoreResult, ShapResult
 from fraudlens_ml.pipeline.steps import build_rag_query, build_sar_input
-from fraudlens_ml.rag import build_rag_context, chunk_corpus, extract_citations, load_corpus
+from fraudlens_ml.rag import chunk_corpus, extract_citations, load_corpus
 from fraudlens_ml.rag.retriever import RetrievedChunk
 from fraudlens_ml.sar import SarCitation, SarFeature, SarInput
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
@@ -168,7 +168,6 @@ def _rag_result(expected_ids: tuple[str, ...]) -> RagResult:
     )
     return RagResult(
         citations=citations,
-        rag_context=build_rag_context(selected, max_chars=policy.regulation_corpus.snippet_chars),
         mode="lexical",
         rag_version="rag-v1",
     )

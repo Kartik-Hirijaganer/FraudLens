@@ -283,6 +283,7 @@ def test_scenario_matrix_rejects_duplicate_names_profiles_and_unknown_roles() ->
         "allocation": "gpu_benchmark",
         "rate_key": "runpod_rtx4090_secure_payg",
         "endpoints": {"awq": {"arm": "awq", "connection": "runpod-awq"}},
+        "report": {"baseline": "a", "disclosures": ["measured on one endpoint"]},
     }
     one = {"name": "a", "profile": "awq-raw", "endpoints": ["awq"], "concurrency_levels": [1]}
 
@@ -296,6 +297,14 @@ def test_scenario_matrix_rejects_duplicate_names_profiles_and_unknown_roles() ->
         CascadeConfig.model_validate({**base, "scenarios": [{**one, "endpoints": ["bf16"]}]})
     with pytest.raises(ValidationError, match="must be unique"):
         CascadeConfig.model_validate({**base, "scenarios": [{**one, "concurrency_levels": [1, 1]}]})
+    with pytest.raises(ValidationError, match="baseline must name a declared scenario"):
+        CascadeConfig.model_validate(
+            {
+                **base,
+                "report": {"baseline": "absent", "disclosures": ["x"]},
+                "scenarios": [one],
+            }
+        )
 
 
 def test_scenario_lookup_and_endpoint_count_fail_closed_on_an_unknown_name() -> None:

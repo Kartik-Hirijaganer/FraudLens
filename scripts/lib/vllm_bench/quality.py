@@ -11,7 +11,11 @@ Key functions:
 - summarize_quality: aggregate aligned measurements and cases.
 
 Notes:
-- Fabricated references are counted from ungrounded model JSON before any filtering can hide them.
+- Fabricated references are counted from ungrounded model JSON before any filtering can hide
+  them.
+- Abstention correctness is None, never 1.0, when no abstention case was evaluated. A scenario
+  run accepts only served drafts, so a default of 1.0 published a perfect score for something
+  the run never measured — exactly the self-agreeing metric release 0.5.0 exists to remove.
 - The pass/fail half of `useful` is the SHIPPED gate (`evaluate_sar_quality`), not a locally
   re-derived predicate (AD-4.1): a draft the benchmark calls useful is one production would have
   served. What stays local is only what the gate cannot know at runtime — expected-citation recall
@@ -73,7 +77,12 @@ class QualitySummary(BaseModel):
     reference_validity: float = Field(..., ge=0, le=1, description="Mean reference validity.")
     citation_recall: float = Field(..., ge=0, le=1, description="Mean expected-reference recall.")
     required_fact_coverage: float = Field(..., ge=0, le=1, description="Mean fact coverage.")
-    abstention_correctness: float = Field(..., ge=0, le=1, description="Evidence-free accuracy.")
+    abstention_correctness: float | None = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Evidence-free accuracy, or None when no abstention case was evaluated.",
+    )
     fabricated_reference_attempts: int = Field(..., ge=0, description="Fabricated-id total.")
     truncation_rate: float = Field(..., ge=0, le=1, description="Length-finish rate.")
     unsupported_claim_flags: int = Field(..., ge=0, description="Unsupported-claim total.")
@@ -210,7 +219,7 @@ def summarize_quality(
                 reference_validity=0,
                 citation_recall=0,
                 required_fact_coverage=0,
-                abstention_correctness=0,
+                abstention_correctness=None,
                 fabricated_reference_attempts=0,
                 truncation_rate=0,
                 unsupported_claim_flags=0,
@@ -227,7 +236,7 @@ def summarize_quality(
         reference_validity=mean(item.reference_validity for item in results),
         citation_recall=mean(item.citation_recall for item in results),
         required_fact_coverage=mean(item.required_fact_coverage for item in results),
-        abstention_correctness=mean(abstentions) if abstentions else 1.0,
+        abstention_correctness=mean(abstentions) if abstentions else None,
         fabricated_reference_attempts=sum(item.fabricated_reference_attempts for item in results),
         truncation_rate=mean(item.truncated for item in results),
         unsupported_claim_flags=sum(item.unsupported_claim_flags for item in results),

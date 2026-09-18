@@ -5,6 +5,7 @@ Key classes:
 
 Key functions:
 - render_vllm_benchmark: render measured inference evidence or an explicit pending state.
+- render_cascade_benchmark: render the measured gated-cascade comparison, one row per scenario.
 - render_fulldata_training: render measured training evidence or an explicit pending state.
 - render_k8s_benchmark: render every published Kubernetes HPA and durability run, one row each.
 - render_make_targets: derive the curated developer-command table from Makefile help text.
@@ -22,10 +23,12 @@ from pydantic import BaseModel
 
 from lib.fulldata.report import FrontendFullDataProjection
 from lib.k8s_demo.evidence import HpaEvidenceReport, validate_evidence
+from lib.vllm_bench.cascade_report_models import CascadeBenchReport
 from lib.vllm_bench.report_models import FrontendVllmBenchData
 
 _VLLM_PATH = Path("frontend/src/data/vllm-awq-sar-benchmark.json")
 _FULLDATA_PATH = Path("frontend/src/data/ibm-full-data-training.json")
+_CASCADE_PATH = Path("docs/reference/benchmarks/vllm-gated-cascade-benchmark.json")
 _K8S_PATHS = (
     Path("docs/reference/benchmarks/k8s-hpa-scaling.json"),
     Path("docs/reference/benchmarks/aks-hpa-scaling.json"),
@@ -81,6 +84,46 @@ def render_vllm_benchmark(repo_root: Path) -> str:
             report.headline,
         ]
     )
+
+
+def render_cascade_benchmark(repo_root: Path) -> str:
+    """Render each measured scenario at its highest concurrency, from the published report.
+
+    Every figure is read off the typed report rather than typed into the README, because a
+    hand-copied benchmark number is exactly the drift this release exists to remove.
+    """
+    parsed = _optional_model(repo_root / _CASCADE_PATH, CascadeBenchReport)
+    if parsed is None:
+        return "\n".join(
+            [
+                "| Status | Evidence |",
+                "| --- | --- |",
+                "| Pending | No gated-cascade matrix has been published. |",
+            ]
+        )
+    report = CascadeBenchReport.model_validate(parsed)
+    lines = [
+        "| Scenario | Cases served | Citation fabrications | Escalated | Case p95 | "
+        "GPU-hours / case | Endpoints |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for scenario in report.scenarios:
+        level = max(scenario.levels, key=lambda item: item.concurrency)
+        if level.cascade is None:
+            continue
+        fabricated = level.cascade.reason_counts.get("citation_fabricated", 0)
+        gpu_hours = level.gpu_hours_per_case
+        lines.append(
+            f"| {scenario.name} | {level.cascade.final_pass_rate:.1%} | {fabricated} | "
+            f"{level.cascade.escalation_rate:.1%} | {level.cascade.latency_p95_ms:,.0f} ms | "
+            f"{gpu_hours:.6f} | {len(scenario.endpoint_roles)} |"
+            if gpu_hours is not None
+            else f"| {scenario.name} | {level.cascade.final_pass_rate:.1%} | {fabricated} | "
+            f"{level.cascade.escalation_rate:.1%} | {level.cascade.latency_p95_ms:,.0f} ms | "
+            f"n/a | {len(scenario.endpoint_roles)} |"
+        )
+    lines += ["", report.headline]
+    return "\n".join(lines)
 
 
 def render_fulldata_training(repo_root: Path) -> str:

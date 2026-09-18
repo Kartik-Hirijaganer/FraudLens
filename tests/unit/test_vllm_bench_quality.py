@@ -84,5 +84,6 @@ def test_abstention_and_aggregate_quality() -> None:
 
     empty, empty_details = summarize_quality({}, (), policy, gate)
     assert empty.evaluated == 0
-    assert empty.abstention_correctness == 0
+    # Absent, never a perfect score: nothing was evaluated, so there is no rate to report.
+    assert empty.abstention_correctness is None
     assert empty_details == ()

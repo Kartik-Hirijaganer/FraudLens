@@ -17,7 +17,6 @@ Notes:
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 from fraudlens_backend.sar.quality_gate import SarQualityGate, load_sar_gate_policy
@@ -36,6 +35,7 @@ from lib.vllm_bench.report_models import (
     VllmBenchReport,
     mechanical_headline,
 )
+from lib.vllm_bench.server import verify_provenance
 from lib.vllm_bench.state import (
     BenchmarkCase,
     CaseArtifact,
@@ -124,42 +124,7 @@ def _validate_provenance(manifest: RunManifest, config: VllmBenchConfig) -> None
     if any(getattr(left, field) != getattr(right, field) for field in shared):
         raise ValueError("BF16 and AWQ execution provenance is not comparable")
     for arm in config.arms:
-        server = manifest.servers[arm]
-        selected = config.arms[arm]
-        host = config.cost.hosts.get(server.host_key)
-        if host is None or server.purchase_option not in host.prices:
-            raise ValueError("server cost provenance is absent from the frozen protocol")
-        expected = (
-            selected.model,
-            selected.revision,
-            selected.tokenizer,
-            selected.tokenizer_revision,
-            f"{config.server.image}:{config.server.image_tag}",
-            config.server.image_tag,
-            float(selected.safetensors_total_gib),
-            host.provider,
-            host.sku,
-            host.region,
-            host.price_source_url,
-            host.price_verified_at.isoformat(),
-        )
-        observed = (
-            server.model,
-            server.model_revision,
-            server.tokenizer,
-            server.tokenizer_revision,
-            server.image,
-            server.vllm_version,
-            server.safetensors_total_gib,
-            server.provider,
-            server.sku,
-            server.region,
-            server.price_source_url,
-            server.price_verified_at,
-        )
-        rate = float(host.prices[server.purchase_option])
-        if observed != expected or not math.isclose(server.hourly_rate_usd, rate):
-            raise ValueError(f"{arm} server provenance drifted from the frozen protocol")
+        verify_provenance(config, manifest.servers[arm], arm)
 
 
 def _validate_checkpoints(
@@ -201,19 +166,21 @@ def _validate_checkpoints(
 def _quality_deltas(
     bf16: QualitySummary, awq: QualitySummary, warning_limit_pp: float
 ) -> tuple[QualityDelta, ...]:
-    """Build AWQ-minus-BF16 percentage-point comparisons for every bounded rate."""
-    return tuple(
-        QualityDelta(
-            metric=field,
-            delta_percentage_points=(float(getattr(awq, field)) - float(getattr(bf16, field)))
-            * 100,
-            warning=(
-                abs(float(getattr(awq, field)) - float(getattr(bf16, field))) * 100
-                > warning_limit_pp
-            ),
+    """Build AWQ-minus-BF16 comparisons for every bounded rate BOTH arms actually measured."""
+    deltas = []
+    for field in _QUALITY_FIELDS:
+        left, right = getattr(bf16, field), getattr(awq, field)
+        if left is None or right is None:
+            continue
+        points = (float(right) - float(left)) * 100
+        deltas.append(
+            QualityDelta(
+                metric=field,
+                delta_percentage_points=points,
+                warning=abs(points) > warning_limit_pp,
+            )
         )
-        for field in _QUALITY_FIELDS
-    )
+    return tuple(deltas)
 
 
 def _token_comparison(

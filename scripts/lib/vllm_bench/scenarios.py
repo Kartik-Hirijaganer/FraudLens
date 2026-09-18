@@ -11,6 +11,7 @@ provenance the raw comparison uses.
 Key classes:
 - EndpointRoleConfig: one named endpoint role bound to a frozen arm and a production connection.
 - ScenarioConfig: one measured scenario referencing a production SAR profile.
+- CascadeReportConfig: which scenario is the baseline and what the report discloses.
 - CascadeConfig: the complete v2 cascade matrix, replay-pilot binding, and spend provenance.
 
 Key functions:
@@ -72,6 +73,22 @@ class ScenarioConfig(BaseModel):
         return values
 
 
+class CascadeReportConfig(BaseModel):
+    """What the published cascade report compares against, and what it admits about itself."""
+
+    model_config = _MODEL_CONFIG
+
+    baseline: str = Field(
+        ..., min_length=1, description="Scenario every published comparison is measured against."
+    )
+    disclosures: tuple[str, ...] = Field(
+        ...,
+        min_length=1,
+        description="Limitations published WITH the evidence, declared here rather than authored "
+        "into the renderer so what the report admits stays reviewable next to the protocol.",
+    )
+
+
 class CascadeConfig(BaseModel):
     """The frozen cascade scenario matrix, replay-pilot binding, and spend provenance."""
 
@@ -98,6 +115,9 @@ class CascadeConfig(BaseModel):
     scenarios: tuple[ScenarioConfig, ...] = Field(
         ..., min_length=1, description="Ordered measured scenarios."
     )
+    report: CascadeReportConfig = Field(
+        ..., description="Published-report baseline and disclosures."
+    )
 
     @model_validator(mode="after")
     def _resolvable_matrix(self) -> CascadeConfig:
@@ -117,6 +137,8 @@ class CascadeConfig(BaseModel):
             raise ValueError(
                 f"cascade scenarios reference unknown endpoint roles: {sorted(unknown)}"
             )
+        if self.report.baseline not in names:
+            raise ValueError("the report baseline must name a declared scenario")
         return self
 
     def scenario(self, name: str) -> ScenarioConfig:

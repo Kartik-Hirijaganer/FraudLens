@@ -37,6 +37,7 @@ from lib.sar_eval.scenarios import (
     generate_scenarios,
 )
 from lib.study.artifacts import atomic_write_model
+from lib.vllm_bench.config import ApplicationPassConfig
 
 _MODEL_CONFIG = ConfigDict(
     frozen=True,
@@ -47,8 +48,6 @@ _MODEL_CONFIG = ConfigDict(
 )
 _HTTP_READY = frozenset({200, 503})
 _PROVIDER_CHECK = "llmProvider"
-_MAX_CASES = 1000
-_MAX_CONCURRENCY = 64
 _ACCOUNT_SLOTS_PER_CASE = 16
 
 
@@ -321,6 +320,7 @@ def run_e2e(  # noqa: PLR0913 - explicit transport/time inputs keep paid executi
     run_id: str,
     cases: int,
     concurrency: int,
+    limits: ApplicationPassConfig,
     output_path: Path,
     model_override: str | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -328,8 +328,13 @@ def run_e2e(  # noqa: PLR0913 - explicit transport/time inputs keep paid executi
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> E2eApplicationReport:
     """Execute and persist a bounded functional API/worker/vLLM pass."""
-    if not 1 <= cases <= _MAX_CASES or not 1 <= concurrency <= min(cases, _MAX_CONCURRENCY):
-        raise ValueError("e2e cases/concurrency must satisfy 1 <= concurrency <= cases <= 1000")
+    ceiling = min(cases, limits.max_concurrency)
+    if not 1 <= cases <= limits.max_cases or not 1 <= concurrency <= ceiling:
+        raise ValueError(
+            "e2e cases/concurrency must satisfy "
+            f"1 <= concurrency <= min(cases, {limits.max_concurrency}) "
+            f"and 1 <= cases <= {limits.max_cases}"
+        )
     started = now()
     readiness_status, provider_status, provider = _readiness(client)
     base = generate_scenarios(config, config_bytes).scenarios

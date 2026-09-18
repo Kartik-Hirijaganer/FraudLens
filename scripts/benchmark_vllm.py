@@ -4,7 +4,7 @@ Key classes:
 - (none)
 
 Key functions:
-- main: build cases, manage servers, run arms or cascade scenarios, report, or publish.
+- main: build cases, manage servers, run cascade scenarios, report, or publish.
 
 Notes:
 - IBM full-profile case generation fails closed until Phase 6 application artifacts exist.
@@ -42,9 +42,13 @@ from lib.study import (
 )
 from lib.vllm_bench.cascade_load import role_command_prefix, role_telemetry, run_scenario
 from lib.vllm_bench.cascade_pilot import CascadeReplayPilot, project_replay_pilot
+from lib.vllm_bench.cascade_report import (
+    build_cascade_report,
+    load_cascade_report,
+    write_cascade_report,
+)
 from lib.vllm_bench.cases_fixture import build_fixture_cases
 from lib.vllm_bench.cases_ibm import build_ibm_cases
-from lib.vllm_bench.client import OpenAiCompatibleStreamClient
 from lib.vllm_bench.config import (
     DEFAULT_VLLM_BENCH_CONFIG,
     ArmName,
@@ -54,8 +58,12 @@ from lib.vllm_bench.config import (
     resolve_profile,
 )
 from lib.vllm_bench.e2e import run_e2e
-from lib.vllm_bench.load import run_arm
-from lib.vllm_bench.publish import publish_report, validate_published_artifacts
+from lib.vllm_bench.publish import (
+    publish_cascade_report,
+    publish_report,
+    validate_published_artifacts,
+    validate_published_cascade_artifacts,
+)
 from lib.vllm_bench.report import build_report, load_report, write_report
 from lib.vllm_bench.scenario_runtime import build_scenario_drafter
 from lib.vllm_bench.server import (
@@ -79,6 +87,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOCS_REPORT = REPO_ROOT / "docs/reference/benchmarks/vllm-awq-sar-benchmark.json"
 _FRONTEND_REPORT = REPO_ROOT / "frontend/src/data/vllm-awq-sar-benchmark.json"
 _DOCS_PILOT = REPO_ROOT / "docs/reference/benchmarks/vllm-cascade-replay-pilot.json"
+_DOCS_CASCADE = REPO_ROOT / "docs/reference/benchmarks/vllm-gated-cascade-benchmark.json"
 _RUN_PROFILES = ("smoke", "development", "full")
 
 
@@ -102,23 +111,13 @@ def _parser() -> argparse.ArgumentParser:
     release.add_argument("--run", required=True)
     release.add_argument("--confirm-upload", action="store_true")
 
-    for name in ("serve", "run"):
-        command = commands.add_parser(name)
-        command.add_argument("--arm", choices=("bf16", "awq"), required=True)
-        if name == "run":
-            command.add_argument("--profile", choices=_RUN_PROFILES, required=True)
-            command.add_argument("--source", choices=("sar-eval", "ibm-final-test"), required=True)
-            command.add_argument("--cases", type=Path)
-            command.add_argument("--run")
-            command.add_argument("--host", required=True)
-            command.add_argument(
-                "--purchase-option", choices=("spot", "pay_as_you_go"), required=True
-            )
+    serve_command = commands.add_parser("serve")
+    serve_command.add_argument("--arm", choices=("bf16", "awq"), required=True)
     commands.add_parser("stop")
 
     e2e = commands.add_parser("e2e")
-    e2e.add_argument("--cases", type=int, default=100)
-    e2e.add_argument("--concurrency", type=int, default=4)
+    e2e.add_argument("--cases", type=int)
+    e2e.add_argument("--concurrency", type=int)
     e2e.add_argument("--run")
     e2e.add_argument("--model-override")
 
@@ -129,6 +128,14 @@ def _parser() -> argparse.ArgumentParser:
     publish = commands.add_parser("publish")
     publish.add_argument("--run", required=True)
     publish.add_argument("--allow-unmet-acceptance", action="store_true")
+
+    cascade_report = commands.add_parser("cascade-report")
+    cascade_report.add_argument("--run", required=True)
+    cascade_report.add_argument("--cases", type=Path)
+
+    cascade_publish = commands.add_parser("cascade-publish")
+    cascade_publish.add_argument("--run", required=True)
+    cascade_publish.add_argument("--allow-unmet-acceptance", action="store_true")
 
     scenario = commands.add_parser("run-scenario")
     scenario.add_argument("--scenario", required=True)
@@ -234,62 +241,6 @@ def _release_cases(
     return manifest
 
 
-async def _run(args: argparse.Namespace, config: VllmBenchConfig) -> None:
-    """Execute or resume one local/remote arm against an already running endpoint."""
-    api_key = os.environ.get(config.server.api_key_env, "")
-    if not api_key.strip():
-        raise ValueError(f"{config.server.api_key_env} is required")
-    default_case_path, root = _paths(config, profile=args.profile, source=args.source)
-    case_path = getattr(args, "cases", None) or default_case_path
-    artifact, cases_sha = load_case_bundle(case_path)
-    if (
-        artifact.profile != args.profile
-        or artifact.case_source != args.source
-        or artifact.config_sha256 != config.config_sha256
-    ):
-        raise ValueError("case artifact identity does not match the requested protocol")
-    run_id = args.run or derive_run_id(
-        "vllm-bench",
-        f"{config.config_sha256}:{cases_sha}:{args.profile}",
-    )
-    logs = read_startup_logs(config, repo_root=REPO_ROOT)
-    digest = os.environ.get(config.server.image_digest_env) or image_digest(config)
-    provenance = server_provenance(
-        config,
-        arm=args.arm,
-        host_key=args.host,
-        purchase_option=args.purchase_option,
-        startup_logs=logs,
-        digest=digest,
-    )
-    base_url = os.environ.get(config.server.base_url_env, config.server.base_url)
-    client = OpenAiCompatibleStreamClient(
-        base_url=base_url,
-        api_key=api_key,
-        model=config.arms[args.arm].model,
-        request=config.request,
-    )
-    try:
-        await run_arm(
-            run_path=root / run_id / "run.json",
-            run_id=run_id,
-            arm=args.arm,
-            artifact=artifact,
-            cases_sha256=cases_sha,
-            config=config,
-            profile=args.profile,
-            provenance=provenance,
-            client=client,
-            sampler=build_sampler(config.telemetry),
-            git_commit=resolve_git_commit(
-                REPO_ROOT, injected=os.environ.get("VLLM_BENCH_GIT_COMMIT")
-            ),
-        )
-    finally:
-        await client.close()
-    print(f"vllm-bench run OK: {run_id} {args.arm}")
-
-
 async def _run_scenario(args: argparse.Namespace, config: VllmBenchConfig) -> None:
     """Execute or resume one cascade scenario against the production quality-gated drafter."""
     selected = config.cascade.scenario(args.scenario)
@@ -345,6 +296,25 @@ def _report(config: VllmBenchConfig, run_id: str, case_path: Path) -> None:
     print(f"vllm-bench report OK: {run_dir / 'report.json'}")
 
 
+def _cascade_report(config: VllmBenchConfig, run_id: str, case_path: Path | None) -> None:
+    """Build the typed scenario-shaped cascade report from one complete scenario matrix."""
+    resolved = case_path or _find_run_cases(config, run_id)[0]
+    artifact, cases_sha = load_case_bundle(resolved)
+    run_dir = REPO_ROOT / config.paths.output_dir / run_id
+    manifest = load_run(run_dir / "run.json")
+    if manifest.cases_sha256 != cases_sha:
+        raise ValueError("run does not bind the provided case artifact")
+    report = build_cascade_report(
+        manifest,
+        artifact,
+        config,
+        load_sar_llm_config(REPO_ROOT / "config" / config.cascade.sar_config_file),
+        cases_sha256=cases_sha,
+    )
+    write_cascade_report(run_dir, report)
+    print(f"vllm-bench cascade report OK: {run_dir / 'cascade-report.json'}")
+
+
 def _e2e(args: argparse.Namespace, config: VllmBenchConfig) -> None:
     """Run the functional application pass against the configured local gateway."""
     from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config  # noqa: PLC0415
@@ -358,9 +328,9 @@ def _e2e(args: argparse.Namespace, config: VllmBenchConfig) -> None:
     token = os.environ.get(config.application_pass.auth_token_env, "").strip()
     headers = {"Authorization": f"Bearer {token}"} if token else None
     started = datetime.now(UTC)
-    run_id = args.run or derive_run_id(
-        "vllm-e2e", f"{started.isoformat()}:{args.cases}:{args.concurrency}"
-    )
+    cases = args.cases or config.application_pass.default_cases
+    concurrency = args.concurrency or config.application_pass.default_concurrency
+    run_id = args.run or derive_run_id("vllm-e2e", f"{started.isoformat()}:{cases}:{concurrency}")
     output_path = REPO_ROOT / config.paths.output_dir / run_id / "e2e.json"
     with httpx.Client(base_url=base_url, headers=headers, timeout=sar_eval.api.timeout_s) as client:
         result = run_e2e(
@@ -368,8 +338,9 @@ def _e2e(args: argparse.Namespace, config: VllmBenchConfig) -> None:
             config=sar_eval,
             config_bytes=DEFAULT_SAR_EVAL_CONFIG.read_bytes(),
             run_id=run_id,
-            cases=args.cases,
-            concurrency=args.concurrency,
+            cases=cases,
+            concurrency=concurrency,
+            limits=config.application_pass,
             output_path=output_path,
             model_override=args.model_override,
         )
@@ -451,6 +422,8 @@ def _validate(config: VllmBenchConfig) -> None:
         raise ValueError("published benchmark report/frontend pair is incomplete")
     if _DOCS_REPORT.exists():
         validate_published_artifacts(_DOCS_REPORT, _FRONTEND_REPORT, config)
+    if _DOCS_CASCADE.exists():
+        validate_published_cascade_artifacts(_DOCS_CASCADE, config)
     print("vllm-bench validation OK (provider-free smoke protocol)")
 
 
@@ -469,14 +442,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         serve(config, args.arm, repo_root=REPO_ROOT)
     elif args.command == "stop":
         stop(config, repo_root=REPO_ROOT)
-    elif args.command == "run":
-        asyncio.run(_run(args, config))
     elif args.command == "run-scenario":
         asyncio.run(_run_scenario(args, config))
     elif args.command == "e2e":
         _e2e(args, config)
     elif args.command == "report":
         _report(config, args.run, args.cases)
+    elif args.command == "cascade-report":
+        _cascade_report(config, args.run, args.cases)
+    elif args.command == "cascade-publish":
+        run_dir = REPO_ROOT / config.paths.output_dir / args.run
+        print(
+            canonical_json(
+                publish_cascade_report(
+                    load_cascade_report(run_dir / "cascade-report.json"),
+                    config,
+                    REPO_ROOT,
+                    allow_unmet_acceptance=args.allow_unmet_acceptance,
+                )
+            ),
+            end="",
+        )
     elif args.command == "cascade-pilot":
         print(canonical_json(_cascade_pilot(args, config)), end="")
     elif args.command == "publish":

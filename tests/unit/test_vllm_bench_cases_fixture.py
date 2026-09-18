@@ -65,7 +65,7 @@ def test_benchmark_case_bands_and_abstention_contract(
         case_id="case-abstain",
         case_set="abstention",
         source_dataset="fixture",
-        sar_input=make_sar_input(citations=(), rag_context=""),
+        sar_input=make_sar_input(citations=()),
         required_facts=(),
         expected_citation_ids=(),
         history_length=0,

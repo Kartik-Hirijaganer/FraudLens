@@ -5,6 +5,12 @@ A cascade scenario drives the PRODUCTION drafter, so the fixture that stands in 
 stub that returns metrics. That keeps the recorded evidence (stage names, gate verdicts, token
 usage, escalation tier) shaped exactly like a live run's, so a test cannot pass against a shape the
 product never produces. Nothing here performs socket, GPU, provider, or database IO.
+
+The served draft is the schema-valid grounded `sar_response()` rather than loose prose, because a
+recorded gate verdict and the verdict a report re-derives from the persisted output must AGREE —
+that agreement is what the cascade report's `gate_verdict_parity` criterion exists to prove. A
+drafter whose "passing" output the real gate would reject makes the fixture, not the product,
+decide the test.
 """
 
 from __future__ import annotations
@@ -212,17 +218,14 @@ class ScriptedCascadeDrafter:
             if escalated
             else (_attempt_row(0, self._stages[0], passed=True),)
         )
-        yield SarStreamEvent(type=SarEventType.TOKEN, token="Suspicious activity.")
+        served = SarDraftContent.model_validate_json(sar_response())
+        yield SarStreamEvent(type=SarEventType.TOKEN, token=served.narrative)
         yield SarStreamEvent(
             type=SarEventType.COMPLETED,
             result=SarDraftResult(
                 status=SarDraftStatus.DRAFT,
-                content="Suspicious activity.",
-                structured=SarDraftContent(
-                    subject="Structuring",
-                    narrative="The transaction shows structuring indicators.",
-                    recommended_action="Escalate for human review.",
-                ),
+                content=served.narrative,
+                structured=served,
                 model_id=attempts[-1].model_id,
                 prompt_version="v2",
                 prompt_hash=HASH,

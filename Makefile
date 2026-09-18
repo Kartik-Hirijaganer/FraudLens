@@ -142,7 +142,8 @@ endef
         run rebuild run-live run-live-vllm run-live-vllm-worker run-live-demo local-demo local-demo-down local-demo-reset local-demo-smoke \
         portfolio-demo-bootstrap portfolio-demo-probe portfolio-demo-verify portfolio-demo-reset portfolio-demo-smoke \
         db-migrate db-seed import-ieee ingest-aml-demo ingest-rag ingest-rag-live fetch-data fetch-gfp-data gfp-container gfp-reference-test gfp-test gfp-benchmark gfp-publish sar-eval-scenarios sar-eval-run sar-eval-judge sar-eval-publish sar-eval-validate sar-eval-test train-model train-aml train-aml-sample activate-model batch-score retrain drift-scan fulldata-verify fulldata-ingest fulldata-features fulldata-parity fulldata-folds fulldata-train fulldata-evaluate fulldata-report fulldata-publish fulldata-validate fulldata-pilot fulldata-test tf-validate \
-        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-run vllm-bench-scenario vllm-bench-e2e vllm-bench-report vllm-bench-publish vllm-bench-test vllm-bench-validate vllm-bench-cascade-pilot \
+        vllm-bench-cases vllm-bench-cases-release vllm-bench-serve vllm-bench-stop vllm-bench-scenario vllm-bench-e2e vllm-bench-report vllm-bench-publish vllm-bench-cascade-report vllm-bench-cascade-publish \
+        vllm-bench-test vllm-bench-validate vllm-bench-cascade-pilot \
         docker-build docker-build-base docker-build-base-if-changed \
         pr-title-check ci pre-pr pr-check worker upgrade dev
 
@@ -471,12 +472,6 @@ vllm-bench-serve: ## Start one pinned local vLLM arm (ARM=bf16|awq; GPU required
 	$(VLLM_BENCH) serve --arm "$(ARM)"
 vllm-bench-stop: ## Stop the configured local vLLM container.
 	$(VLLM_BENCH) stop
-vllm-bench-run: ## Run/resume one arm (RUN + ARM; server must already be ready).
-	@test -n "$(ARM)" || { echo "ARM=bf16|awq is required"; exit 2; }
-	$(VLLM_BENCH) run $(if $(RUN),--run "$(RUN)",) --arm "$(ARM)" \
-		--profile "$(PROFILE)" --source "$(SOURCE)" \
-		$(if $(CASES),--cases "$(CASES)",) \
-		--host "$(HOST)" --purchase-option "$(PURCHASE)"
 vllm-bench-scenario: ## Run/resume one cascade scenario through the production drafter (SCENARIO).
 	@test -n "$(SCENARIO)" || { echo "SCENARIO=<declared cascade scenario> is required"; exit 2; }
 	$(VLLM_BENCH) run-scenario --scenario "$(SCENARIO)" $(if $(RUN),--run "$(RUN)",) \
@@ -492,6 +487,13 @@ vllm-bench-report: ## Build the local report (RUN; VLLM_CASES may override the c
 vllm-bench-publish: ## Publish an accepted full run (RUN; optional ALLOW_UNMET=1).
 	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
 	$(VLLM_BENCH) publish --run "$(RUN)" \
+		$(if $(filter 1 true yes,$(ALLOW_UNMET)),--allow-unmet-acceptance,)
+vllm-bench-cascade-report: ## Build the local scenario-shaped gated-cascade report (RUN).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) cascade-report --run "$(RUN)" $(if $(VLLM_CASES),--cases "$(VLLM_CASES)",)
+vllm-bench-cascade-publish: ## Publish an accepted cascade report (RUN; optional ALLOW_UNMET=1).
+	@test -n "$(RUN)" || { echo "RUN=vllm-bench-<16 hex> is required"; exit 2; }
+	$(VLLM_BENCH) cascade-publish --run "$(RUN)" \
 		$(if $(filter 1 true yes,$(ALLOW_UNMET)),--allow-unmet-acceptance,)
 vllm-bench-test: ## Portable fake-server suite with >=90% benchmark-harness branch coverage.
 	$(UV) run --group fulldata pytest $(VLLM_BENCH_TESTS) -q -o addopts='' \

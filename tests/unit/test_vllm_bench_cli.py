@@ -137,33 +137,6 @@ def test_e2e_uses_configured_environment_indirection(sandbox, monkeypatch) -> No
     assert calls["e2e"]["client"] is client  # type: ignore[index]
 
 
-@pytest.mark.asyncio
-async def test_run_without_api_key_refuses_before_transport(sandbox, monkeypatch) -> None:
-    config, artifact, _manifest = complete_benchmark(load_config())
-    root = sandbox / config.paths.output_dir
-    case_path = root / "cases-ibm-final-test-full.json"
-    write_case_bundle(case_path, artifact)
-    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
-    monkeypatch.setattr(benchmark_vllm, "read_startup_logs", lambda *_args, **_kwargs: "logs")
-    monkeypatch.setattr(benchmark_vllm, "image_digest", lambda _config: f"sha256:{'c' * 64}")
-    monkeypatch.setattr(
-        benchmark_vllm,
-        "server_provenance",
-        lambda *_args, **_kwargs: server(config, "bf16"),
-    )
-    monkeypatch.delenv(config.server.api_key_env, raising=False)
-    args = argparse.Namespace(
-        profile="full",
-        source="ibm-final-test",
-        arm="bf16",
-        run="vllm-bench-0123456789abcdef",
-        host=config.cost.default_host,
-        purchase_option="pay_as_you_go",
-    )
-    with pytest.raises(ValueError, match="VLLM_API_KEY is required"):
-        await benchmark_vllm._run(args, config)
-
-
 def test_cases_release_is_hash_named_licensed_and_external_call_is_explicit(
     sandbox, monkeypatch
 ) -> None:
@@ -237,52 +210,6 @@ def test_case_builder_dispatches_both_sources_and_writes_stable_path(sandbox, mo
     assert ibm_path.name == "cases-ibm-final-test-full.json"
 
 
-@pytest.mark.asyncio
-async def test_run_with_injected_endpoint_executes_and_closes_client(sandbox, monkeypatch) -> None:
-    config, artifact, _manifest = complete_benchmark(load_config())
-    root = sandbox / config.paths.output_dir
-    write_case_bundle(root / "cases-ibm-final-test-full.json", artifact)
-    monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
-    monkeypatch.setattr(benchmark_vllm, "read_startup_logs", lambda *_args, **_kwargs: "logs")
-    monkeypatch.setattr(benchmark_vllm, "image_digest", lambda _config: f"sha256:{'c' * 64}")
-    monkeypatch.setattr(
-        benchmark_vllm,
-        "server_provenance",
-        lambda *_args, **_kwargs: server(config, "bf16"),
-    )
-    seen = {"closed": False, "run_id": "", "git_commit": None}
-
-    class Client:
-        def __init__(self, **_kwargs) -> None:
-            pass
-
-        async def close(self) -> None:
-            seen["closed"] = True
-
-    async def run_arm(**_kwargs):
-        seen["run_id"] = _kwargs["run_id"]
-        seen["git_commit"] = _kwargs["git_commit"]
-
-    monkeypatch.setattr(benchmark_vllm, "OpenAiCompatibleStreamClient", Client)
-    monkeypatch.setattr(benchmark_vllm, "run_arm", run_arm)
-    monkeypatch.setattr(benchmark_vllm, "build_sampler", lambda _config: object())
-    monkeypatch.setenv(config.server.api_key_env, "test-key")
-    monkeypatch.setenv("VLLM_BENCH_GIT_COMMIT", "a" * 40)
-    args = argparse.Namespace(
-        profile="full",
-        source="ibm-final-test",
-        arm="bf16",
-        run=None,
-        host=config.cost.default_host,
-        purchase_option="pay_as_you_go",
-    )
-    await benchmark_vllm._run(args, config)
-    assert seen["closed"] is True
-    assert str(seen["run_id"]).startswith("vllm-bench-")
-    assert len(str(seen["run_id"])) == len("vllm-bench-") + 16
-    assert seen["git_commit"] == "a" * 40
-
-
 def test_report_builds_from_hash_bound_local_inputs(sandbox, monkeypatch) -> None:
     config, artifact, manifest = complete_benchmark(load_config())
     root = sandbox / config.paths.output_dir
@@ -295,6 +222,17 @@ def test_report_builds_from_hash_bound_local_inputs(sandbox, monkeypatch) -> Non
     monkeypatch.setattr(benchmark_vllm, "REPO_ROOT", sandbox)
     benchmark_vllm._report(config, manifest.run_id, case_path)
     assert (root / manifest.run_id / "report.json").is_file()
+
+
+def test_the_cli_no_longer_exposes_a_model_only_runner() -> None:
+    """Every level is a scenario now; a second execution path would measure a second product."""
+    parser = benchmark_vllm._parser()
+    commands = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+
+    assert "run" not in commands.choices
+    assert {"run-scenario", "cascade-report", "cascade-publish"} <= set(commands.choices)
 
 
 def test_validate_success_and_incomplete_published_pair(sandbox, monkeypatch) -> None:

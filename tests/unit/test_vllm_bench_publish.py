@@ -119,7 +119,7 @@ def test_evidence_published_under_a_superseded_protocol_stays_hash_bound_to_it(s
     published = publish_report(report, config, sandbox)
     superseded = config.model_copy(
         update={
-            "protocol_version": "vllm-sar-bench-v6",
+            "protocol_version": "vllm-sar-bench-next",
             "protocol_lineage": {report.protocol_version: report.config_sha256},
         }
     )

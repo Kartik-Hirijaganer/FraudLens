@@ -44,7 +44,7 @@ import math
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -81,6 +81,10 @@ class BenchmarkMessage(BaseModel):
     content: str = Field(..., min_length=1, description="PHI-masked message content.")
 
 
+# `SarInput` fields removed after a corpus was recorded. Read-only migration; see the validator.
+_SUPERSEDED_SAR_INPUT_FIELDS = frozenset({"ragContext", "rag_context"})
+
+
 class BenchmarkCase(BaseModel):
     """One deterministic synthetic SAR benchmark request and its quality expectations."""
 
@@ -109,6 +113,31 @@ class BenchmarkCase(BaseModel):
         default=None,
         description="Production SAR input a cascade scenario drafts from (absent in v1 corpora).",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_superseded_corpora(cls, value: Any) -> Any:
+        """Drop `SarInput` fields a superseded protocol recorded and the current contract removed.
+
+        A measured corpus is immutable evidence: the 1,000-case protocol-v5 artifact the published
+        cascade run consumed carries `ragContext`, which release 0.5.0 deleted. Regenerating the
+        corpus would change its hash and orphan the run that measured it, and loosening `SarInput`
+        would weaken a production contract to accommodate a benchmark file. Normalising on READ
+        keeps both strict: the artifact's identity stays its exact bytes (`load_case_bundle` hashes
+        the file, not a re-serialization), and production still refuses the removed field.
+        """
+        if not isinstance(value, dict):
+            return value
+        sar_input = value.get("sarInput") or value.get("sar_input")
+        if isinstance(sar_input, dict) and _SUPERSEDED_SAR_INPUT_FIELDS & sar_input.keys():
+            trimmed = {
+                key: item
+                for key, item in sar_input.items()
+                if key not in _SUPERSEDED_SAR_INPUT_FIELDS
+            }
+            key = "sarInput" if "sarInput" in value else "sar_input"
+            return {**value, key: trimmed}
+        return value
 
     @model_validator(mode="after")
     def _closed_expectations(self) -> BenchmarkCase:
@@ -279,6 +308,11 @@ class ServerProvenance(BaseModel):
     vllm_version: str = Field(..., min_length=1, description="Pinned vLLM release.")
     gpu_name: str = Field(..., min_length=1, description="Observed GPU model.")
     driver_version: str = Field(..., min_length=1, description="Observed NVIDIA driver.")
+    cuda_version: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Observed CUDA runtime; None on runs recorded before it was captured.",
+    )
     host_key: str = Field(..., min_length=1, description="Configured cost host key.")
     provider: str = Field(..., min_length=1, description="Hosting provider.")
     sku: str = Field(..., min_length=1, description="Host SKU.")

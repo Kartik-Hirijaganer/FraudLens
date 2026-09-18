@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from fraudlens_core.phi import mask_identifier
 from lib.sar_eval.config import DEFAULT_SAR_EVAL_CONFIG, load_sar_eval_config
 from lib.sar_eval.scenarios import generate_scenarios
+from lib.vllm_bench.config import ApplicationPassConfig, load_config
 from lib.vllm_bench.e2e import (
     E2eApplicationReport,
     E2eCaseOutcome,
@@ -31,6 +32,13 @@ from lib.vllm_bench.e2e import (
 )
 
 _RUN_ID = "vllm-e2e-0123456789abcdef"
+
+
+def _limits() -> ApplicationPassConfig:
+    """Use the committed workload bounds, so a test can never assert a limit config denies."""
+    return load_config().application_pass
+
+
 _MODEL = "xgb-ibm-aml-hi-medium-5835992a6919"
 
 
@@ -123,6 +131,7 @@ def _run(tmp_path: Path, *, provider: str = "vllm", attempt: int = 1):
             run_id=_RUN_ID,
             cases=4,
             concurrency=2,
+            limits=_limits(),
             output_path=tmp_path / "e2e.json",
             model_override=_MODEL,
             sleep=lambda _seconds: None,
@@ -195,6 +204,7 @@ def test_e2e_rejects_unbounded_load(tmp_path: Path, cases: int, concurrency: int
             run_id=_RUN_ID,
             cases=cases,
             concurrency=concurrency,
+            limits=_limits(),
             output_path=tmp_path / "e2e.json",
         )
 
