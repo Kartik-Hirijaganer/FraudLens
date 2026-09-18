@@ -1,16 +1,15 @@
 """The portfolio-demo bootstrap must produce the CONFIGURED story through the real pipeline, and do
 it idempotently (plan §16 Phase 6).
 
-Two tiers, for the same reason `test_portfolio_demo_calibration.py` has two:
-  * the guards, operational-state detection, content-drift detection, the model-state matrix, the
-    story's `job_executions` upsert, and `--reset` need no model bundle, so they run everywhere;
-  * a full `apply_story` needs the pinned artifact, which `.gitignore` does not track, so those
-    tests skip with a clear reason rather than silently proving the story on a substitute model.
+A full `apply_story` needs the pinned artifact, and that artifact IS tracked (`.gitignore` negates
+it by label, so the deploy runner can read it from the checkout). The end-to-end tier therefore
+runs everywhere: `_pinned_bundle` is a safety net, not an expected skip.
 
-The end-to-end tier fakes ONLY the retriever and the SAR drafter (RAG has no chroma index in tests
-and the drafter is keyless-mock by config anyway). Rules, the scorer, the explainer, the run store,
-and the risk policy are all real — they are what decides bands, alerts, and SAR drafts, so faking
-them would prove nothing about the pinned distribution.
+That tier fakes ONLY the RETRIEVER PORT and the SAR drafter, yet still needs a real ChromaDB index
+on disk — `preflight` refuses without one, because a story SAR offered no citation fails its
+quality gate terminally. Faking the port proves the pipeline; building the index proves the guard.
+Rules, the scorer, the explainer, the run store, and the risk policy are all real — they are what
+decides bands, alerts, and SAR drafts, so faking them would prove nothing about the distribution.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from pathlib import Path
 
 import pytest
 from pipeline_fakes import FakeRetrieverPort, FakeSarDrafter
+from rag_index import build_offline_rag_index
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -75,13 +75,20 @@ def story() -> PortfolioDemoConfig:
 
 
 @pytest.fixture
-def settings(make_settings: Callable[..., AppSettings], story: PortfolioDemoConfig) -> AppSettings:
-    """Return settings whose provider modes match the ones the story was calibrated against."""
-    return make_settings(
+def settings(
+    make_settings: Callable[..., AppSettings], story: PortfolioDemoConfig, tmp_path: Path
+) -> AppSettings:
+    """Return settings on the story's provider modes, over a freshly built throwaway RAG index."""
+    resolved = make_settings(
         llm_mode=story.execution.llm_mode,
         rag_embedding_mode=story.execution.rag_embedding_mode,
         model_artifacts_dir=str(_MODELS_DIR),
+        rag_index_dir=str(tmp_path / "chroma"),
     )
+    # Per test and under tmp_path, never the repo's `.local/chroma`: a developer machine that has
+    # run `make ingest-rag` would otherwise pass while CI, which never builds one, failed.
+    build_offline_rag_index(resolved)
+    return resolved
 
 
 @pytest.fixture

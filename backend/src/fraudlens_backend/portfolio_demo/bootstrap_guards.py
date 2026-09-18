@@ -11,6 +11,7 @@ Key functions:
 - assert_configured_tenant: enforce single-tenant demo ownership.
 - assert_enabled_in_prod:
 - assert_execution_modes:
+- assert_rag_index: require a queryable RAG index before any story write.
 - verify_model_bundle: validate the pinned model artifact.
 - detect_operational_state:
 - ensure_active_model: apply the guarded model-state matrix.
@@ -39,6 +40,7 @@ from fraudlens_backend.settings import AppSettings
 _MANIFEST_SIDECAR = "manifest.json"
 _METADATA_SIDECAR = "metadata.json"
 _POSTGRES_DIALECT = "postgresql"
+_RAG_INDEX_READY = "ready"
 
 
 class BootstrapRefusedError(RuntimeError):
@@ -149,6 +151,37 @@ def assert_execution_modes(config: PortfolioDemoConfig, settings: AppSettings) -
     ]
     if mismatches:
         raise BootstrapRefusedError("; ".join(mismatches))
+
+
+def assert_rag_index(settings: AppSettings) -> None:
+    """Confirm the retriever can serve the citations every story SAR has to carry.
+
+    Retrieval is a soft enhancer everywhere else — it degrades to empty and the investigation
+    continues — but the quality-gated SAR cascade (ADR-030) rejects a draft citing no regulation,
+    and a case retrieval offered NOTHING for is TERMINAL: no later tier can cite what was never
+    retrieved. The story pins five drafted SARs and no failed one, so an index the retriever cannot
+    query turns every one of them into `failed`, which stamps `sar_unavailable` on its alert and
+    raises it `pending_review` instead of the `open` the story declares.
+
+    That makes a usable index a precondition of the pinned distribution exactly as the provider
+    modes above are, so it is asserted HERE, at zero writes — before `--reset` deletes a live story
+    the rebuild could not then reproduce. The index is resolved through the same anchor, collection
+    and embedder `build_pipeline_components` builds the retriever from, so this checks the index
+    that will actually be queried rather than a second guess at where it lives.
+    """
+    # Lazy, like `verify_model_bundle` below: keeps heavy chromadb out of the import graph.
+    from fraudlens_backend.pipeline_wiring import _anchored  # noqa: PLC0415 - heavy import
+    from fraudlens_backend.rag import build_embedder  # noqa: PLC0415 - heavy import
+    from fraudlens_ml.rag import index_status  # noqa: PLC0415 - heavy import
+
+    index_dir = _anchored(settings.rag_index_dir)
+    status = index_status(index_dir, settings.rag_collection, build_embedder(settings).provenance)
+    if status != _RAG_INDEX_READY:
+        raise BootstrapRefusedError(
+            f"the RAG index is '{status}' for the configured embedding space, so retrieval would "
+            "offer no citation and the SAR quality gate would fail every draft the story pins — "
+            "build it with `make ingest-rag` before bootstrapping"
+        )
 
 
 def verify_model_bundle(config: PortfolioDemoConfig, models_dir: Path) -> None:

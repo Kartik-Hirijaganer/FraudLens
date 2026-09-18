@@ -28,6 +28,7 @@ from fraudlens_backend.portfolio_demo.bootstrap_guards import (
     assert_configured_tenant,
     assert_enabled_in_prod,
     assert_execution_modes,
+    assert_rag_index,
     detect_operational_state,
     ensure_active_model,
     verify_model_bundle,
@@ -58,6 +59,7 @@ __all__ = [
     "assert_configured_tenant",
     "assert_enabled_in_prod",
     "assert_execution_modes",
+    "assert_rag_index",
     "detect_operational_state",
     "ensure_active_model",
     "preflight",
@@ -80,6 +82,7 @@ async def preflight(
     await assert_configured_tenant(session, config)
     assert_enabled_in_prod(settings)
     assert_execution_modes(config, settings)
+    assert_rag_index(settings)
     verify_model_bundle(config, models_dir)
     state = await detect_operational_state(session, config)
     if state is OperationalState.FOREIGN and not reset:

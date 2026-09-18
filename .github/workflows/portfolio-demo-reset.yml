@@ -50,6 +50,16 @@ jobs:
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
           secret-path: /
+      # The rebuild drafts a real SAR per alerting row, and the quality-gated cascade (ADR-030)
+      # rejects a draft that cites no regulation — a case retrieval offered NOTHING for is
+      # terminal. The FinCEN/BSA index is baked into the CONTAINER image, not into this runner, so
+      # it is built here or every SAR the story pins fails its gate. Offline hashing: deterministic,
+      # keyless, free; `assert_rag_index` refuses the rebuild outright if it is ever skipped.
+      - name: Install the workspace and build the offline RAG index
+        run: |
+          set -euo pipefail
+          uv sync --all-packages
+          make ingest-rag
       # --reset rebuilds through the same ensure path the bootstrap uses and verifies the result,
       # so a rebuild that no longer matches the configured story exits non-zero and fails the run.
       - name: Reset and rebuild the pinned story
@@ -57,5 +67,4 @@ jobs:
           FRAUDLENS_PORTFOLIO_DEMO_ENABLED: "true"
         run: |
           set -euo pipefail
-          uv sync --all-packages
           uv run python scripts/bootstrap_portfolio_demo.py --reset
