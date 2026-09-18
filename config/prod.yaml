@@ -9,6 +9,21 @@ auth_dev_bypass: false
 cors_allow_origins: []
 cors_allow_credentials: true
 
+# The public portfolio demo surface. `is_dev_bypass_enabled` is already False here regardless of
+# its own flag, so this gate is the only thing that can expose `GET /api/v1/portfolio-demo/config`
+# in production; without it the login persona picker loads and reports "Demo personas
+# unavailable". The projection carries synthetic personas and the public synthetic password by
+# design (config/portfolio-demo.yaml) and grants nothing on its own: every persona still completes
+# a real Supabase sign-in, and every request is authorized from the verified `agency_id` claim.
+#
+# This is the FLOOR, not the last word. Env beats YAML in `settings_customise_sources`, and
+# `deploy-backend.yml` deliberately stamps `FRAUDLENS_PORTFOLIO_DEMO_ENABLED` onto the Container
+# App from the same variable that gates the bootstrap, so a revision carrying no story cannot
+# advertise a demo endpoint. Declaring it here is what makes the prod overlay honest for every
+# other prod-config runtime, instead of leaving the public demo's headline feature implied by an
+# absent key.
+portfolio_demo_enabled: true
+
 # Cloud backends + live SAR drafter (Anthropic Haiku). Accounts do not exist yet, so
 # the deploy is inert until provisioned; the selection itself is just config.
 storage_backend: azure_blob

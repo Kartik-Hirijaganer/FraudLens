@@ -30,7 +30,14 @@ so there is nothing a private network would buy.
 
 One hostname reaches the user. `frontend/vercel.json` rewrites `/api/*` to `AZURE_API_ORIGIN` — the
 **stable** ingress FQDN — before the SPA fallback, and `frontend/.env.production` pins
-`VITE_API_BASE_URL` empty, so the browser never learns the Container Apps hostname. CORS is a
+`VITE_API_BASE_URL` empty, so the browser never learns the Container Apps hostname.
+
+Vercel substitutes nothing in `vercel.json`, so `deploy-frontend.yml` resolves the origin itself
+before `vercel build` reads the file. A deployment created any other way would ship the literal
+placeholder and drop every `/api` request into the SPA catch-all, answering JSON routes with
+`text/html`. That is why the same file sets `git.deploymentEnabled: false`: automatic Git
+deployments are the one publisher that cannot perform the substitution, and disabling them is also
+what keeps the `environment: production` approval gate on the only path that can. CORS is a
 defence-in-depth backstop behind a same-origin request, not the mechanism that makes it work.
 Authorization headers and unbuffered SSE streams pass through the rewrite unchanged.
 

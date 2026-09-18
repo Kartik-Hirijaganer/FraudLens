@@ -53,7 +53,7 @@ Deliberately **not** here, because they belong to other owners:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `portfolio_demo_enabled` | `false` **in Python and in YAML** | Gates the projection route and is required before the bootstrap will run in prod. It is a security gate, so it fails closed in code — deleting the YAML key leaves it off rather than crashing the app. `make run-live-demo` overlays it to `true` for its own children (the demo is what that command is for); `make run-live` leaves it closed. |
+| `portfolio_demo_enabled` | `false` **in Python and in `config/default.yaml`**; `true` in `config/prod.yaml` | Gates the projection route and is required before the bootstrap will run in prod. It is a security gate, so it fails closed in code — deleting the YAML key leaves it off rather than crashing the app. The prod overlay turns it on deliberately: the public portfolio site *is* the demo, and without it the picker renders "Demo personas unavailable". It is a floor, not the last word — env beats YAML, and `deploy-backend.yml` stamps `FRAUDLENS_PORTFOLIO_DEMO_ENABLED` onto the Container App from the bootstrap variable so a revision carrying no story cannot advertise the endpoint. `make run-live-demo` overlays it to `true` for its own children; `make run-live` runs the dev overlay and leaves it closed. |
 | `portfolio_demo_config_file` | `portfolio-demo.yaml` | A **filename**, resolved under `find_config_dir()`. Absolute paths, `~`, upward traversal, and symlinks escaping the config dir are rejected by the loader. |
 | `demo_auth_password` | unset | The public synthetic demo credential; supplied by `FRAUDLENS_DEMO_AUTH_PASSWORD`. |
 

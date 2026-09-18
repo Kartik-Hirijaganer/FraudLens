@@ -46,8 +46,12 @@ and path setup.
    no `AZURE_ACR_NAME` needed unless `acr_enabled = true`; the staged-revision URL is derived at
    deploy time, so no `BACKEND_STAGING_URL`.)
 3. Configure the Vercel production project with publishable `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_ANON_KEY`. The workflow explicitly bakes `VITE_DEMO_AUTH_ENABLED=true`; it
-   never enables `VITE_AUTH_DEV_BYPASS`, so every public demo persona uses Supabase + `/api/v1/me`.
+   `VITE_SUPABASE_ANON_KEY`. `vercel build` reads the Project Settings that `vercel pull` fetches,
+   so this is the channel that reaches the build — and it is the only one, because
+   `frontend/vercel.json` sets `git.deploymentEnabled: false` and leaves `deploy-frontend.yml` as
+   the sole publisher. `VITE_DEMO_AUTH_ENABLED=true` is pinned in the committed
+   `frontend/.env.production`; nothing enables `VITE_AUTH_DEV_BYPASS`, so every public demo persona
+   uses Supabase + `/api/v1/me`.
 4. Flip `AZURE_DEPLOY_ENABLED=true` and/or `VERCEL_DEPLOY_ENABLED=true`.
 
 ## Deploy verification
