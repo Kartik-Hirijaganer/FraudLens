@@ -15,14 +15,14 @@ with the weight) lives in `test_pipeline_wiring.py` beside the other `load_risk_
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Alert,
@@ -42,12 +42,11 @@ from fraudlens_backend.db.repositories import (
 )
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
 from fraudlens_backend.pipeline_wiring import PipelineRunStore, load_risk_policy
-from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig
 from fraudlens_backend.portfolio_demo.probe import _render_policy, _resolve_policy
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RiskBand
 from fraudlens_ml.pipeline import AlertRecord
-from seed import seed  # scripts/ is on sys.path via conftest
 
 # A confident, strongly corroborated run: high enough on both axes that BOTH configurations below
 # resolve it somewhere, so the difference between them is the configuration and nothing else.
@@ -56,28 +55,11 @@ _RULES_SUBSCORE = Decimal("0.6")
 
 
 @pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story (the source of every boundary these tests move)."""
-    return load_portfolio_demo_config()
-
-
-@pytest.fixture
 def settings(make_settings: Callable[..., AppSettings], story: PortfolioDemoConfig) -> AppSettings:
     """Return settings whose provider modes match the ones the story was calibrated against."""
     return make_settings(
         llm_mode=story.execution.llm_mode, rag_embedding_mode=story.execution.rag_embedding_mode
     )
-
-
-@pytest.fixture
-async def seeded(
-    db_sessionmaker: async_sessionmaker[AsyncSession], settings: AppSettings
-) -> AsyncIterator[AsyncSession]:
-    """Yield a session over the seeded foundation (agency, personas, config, baseline rules)."""
-    async with db_sessionmaker() as session:
-        await seed(session, settings)
-        await session.commit()
-        yield session
 
 
 async def _set_global_config(session: AsyncSession, key: str, value: object) -> None:

@@ -20,14 +20,14 @@ them, in isolation and without a database.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from rag_index import build_offline_rag_index
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import (
     Alert,
@@ -46,7 +46,7 @@ from fraudlens_backend.db.repositories import (
     TransactionRepository,
 )
 from fraudlens_backend.pipeline_wiring import build_pipeline_input
-from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig
 from fraudlens_backend.portfolio_demo.bootstrap import BootstrapRefusedError, preflight
 from fraudlens_backend.portfolio_demo.bootstrap_workflow import apply_workflow_targets
 from fraudlens_backend.portfolio_demo.ingest import ensure_story_transactions
@@ -55,15 +55,8 @@ from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RuleRegistry
 from fraudlens_ml.pipeline.steps import build_rag_query
 from fraudlens_ml.rag import Retriever
-from seed import seed  # scripts/ is on sys.path via conftest
 
 _MODELS_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
-
-
-@pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story the rebuild has to reproduce or refuse."""
-    return load_portfolio_demo_config()
 
 
 @pytest.fixture
@@ -77,17 +70,6 @@ def settings(
         model_artifacts_dir=str(_MODELS_DIR),
         rag_index_dir=str(tmp_path / "chroma"),
     )
-
-
-@pytest.fixture
-async def seeded(
-    db_sessionmaker: async_sessionmaker[AsyncSession], settings: AppSettings
-) -> AsyncIterator[AsyncSession]:
-    """Yield a session over the seeded foundation (agency, personas, rules)."""
-    async with db_sessionmaker() as session:
-        await seed(session, settings)
-        await session.commit()
-        yield session
 
 
 async def _count(session: AsyncSession, model: type[object]) -> int:

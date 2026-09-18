@@ -26,7 +26,7 @@ from sar_inputs import build_sar_input
 
 from fraudlens_backend.db.models import AlertStatus, SarStatus
 from fraudlens_backend.db.repositories.alerts import compute_review_flags
-from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig
 from fraudlens_backend.portfolio_demo.bootstrap import BootstrapRefusedError, assert_rag_index
 from fraudlens_backend.portfolio_demo.verification import PIPELINE_RAISED_STATUSES
 from fraudlens_backend.sar.drafter_mock import MockSarDrafter
@@ -36,12 +36,6 @@ from fraudlens_core import RiskBand
 from fraudlens_ml.sar import SarDraftResult, SarDraftStatus, SarGateReason
 
 _SAR_UNAVAILABLE = "sar_unavailable"
-
-
-@pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story whose SAR states this precondition protects."""
-    return load_portfolio_demo_config()
 
 
 @pytest.fixture

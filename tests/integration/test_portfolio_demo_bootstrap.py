@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
@@ -41,7 +41,7 @@ from fraudlens_backend.db.models import (
     User,
 )
 from fraudlens_backend.db.repositories import AuditLogRepository
-from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.portfolio_demo import PortfolioDemoConfig
 from fraudlens_backend.portfolio_demo.bootstrap import (
     BootstrapRefusedError,
     OperationalState,
@@ -63,15 +63,8 @@ from fraudlens_backend.portfolio_demo.verification import (
 )
 from fraudlens_backend.settings import AppSettings
 from fraudlens_ml.pipeline import PipelineDeps
-from seed import seed  # scripts/ is on sys.path via conftest
 
 _MODELS_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
-
-
-@pytest.fixture
-def story() -> PortfolioDemoConfig:
-    """Return the committed story the bootstrap must reproduce."""
-    return load_portfolio_demo_config()
 
 
 @pytest.fixture
@@ -91,30 +84,27 @@ def settings(
     return resolved
 
 
-@pytest.fixture
-async def seeded(
-    db_sessionmaker: async_sessionmaker[AsyncSession], settings: AppSettings
-) -> AsyncIterator[AsyncSession]:
-    """Yield a session over a database holding the seeded foundation (agency, personas, rules)."""
-    async with db_sessionmaker() as session:
-        await seed(session, settings)
-        await session.commit()
-        yield session
-
-
 def _audit(story: PortfolioDemoConfig, session: AsyncSession) -> AuditLogRepository:
     """Build the story-correlated audit writer the bootstrap uses."""
     return AuditLogRepository(session, agency_id=story.agency.id, request_id=story.audit_request_id)
 
 
 def _pinned_bundle(story: PortfolioDemoConfig) -> Path:
-    """Return the pinned bundle dir, skipping when the untracked artifact is not present."""
-    if not (_MODELS_DIR / story.model.version_label / "model.json").is_file():
-        pytest.skip(
-            "the pinned model bundle is not tracked in git (only v0-fixture is); "
-            "train/fetch it to exercise the full bootstrap"
+    """Return the pinned bundle dir, failing loudly when the TRACKED artifact is missing.
+
+    This skipped once, on the premise that the bundle was untracked. It is not: .gitignore
+    negates it by exact path so the deploy runner reads it from the checkout. The skip could
+    therefore never fire, and its message asserted the opposite of the truth — which is what
+    talked a reader out of suspecting this tier at all. Absence means a damaged checkout now,
+    and saying so beats reporting green.
+    """
+    bundle = _MODELS_DIR / story.model.version_label
+    if not (bundle / "model.json").is_file():
+        pytest.fail(
+            f"the pinned bundle {story.model.version_label} is tracked in git but missing from "
+            f"{_MODELS_DIR}; restore it with `git checkout -- data/models/`"
         )
-    return _MODELS_DIR / story.model.version_label
+    return bundle
 
 
 async def _fake_promoter(session: AsyncSession, *, version_label: str) -> str:
