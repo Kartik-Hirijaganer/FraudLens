@@ -15,6 +15,8 @@ Key functions:
 
 Notes:
 - Private key files are referenced by path and are never opened by this module.
+- A session is keyed by run AND endpoint role, so a two-endpoint cascade run keeps one independent
+  state file, Pod name, and watchdog per role instead of overwriting a single session.
 """
 
 from __future__ import annotations
@@ -27,15 +29,28 @@ from lib.runpod_gpu.api import RunpodApi, RunpodPod
 from lib.runpod_gpu.config import RunpodGpuConfig
 from lib.runpod_gpu.models import PodStatus, RunpodSession
 
+_SSH_TRANSPORT_OPTIONS = (
+    "-o",
+    "ServerAliveInterval=10",
+    "-o",
+    "ServerAliveCountMax=6",
+    "-o",
+    "TCPKeepAlive=yes",
+)
 
-def state_path(config: RunpodGpuConfig, repo_root: Path, run_id: str) -> Path:
-    """Return the bounded gitignored state path for one validated run."""
-    return repo_root / config.state_dir / config.validate_run_id(run_id) / "session.json"
+
+def state_path(
+    config: RunpodGpuConfig, repo_root: Path, run_id: str, role: str | None = None
+) -> Path:
+    """Return the bounded gitignored state path for one validated run and endpoint role."""
+    validated = config.validate_role(role)
+    name = f"session-{validated}.json" if validated else "session.json"
+    return repo_root / config.state_dir / config.validate_run_id(run_id) / name
 
 
 def write_session(config: RunpodGpuConfig, repo_root: Path, state: RunpodSession) -> RunpodSession:
     """Atomically persist one non-secret RunPod session."""
-    path = state_path(config, repo_root, state.run_id)
+    path = state_path(config, repo_root, state.run_id, state.role)
     path.parent.mkdir(parents=True, exist_ok=True)
     staging = path.with_suffix(".tmp")
     staging.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
@@ -43,12 +58,18 @@ def write_session(config: RunpodGpuConfig, repo_root: Path, state: RunpodSession
     return state
 
 
-def load_session(config: RunpodGpuConfig, repo_root: Path, run_id: str) -> RunpodSession:
-    """Load and identity-check one local RunPod session."""
+def load_session(
+    config: RunpodGpuConfig, repo_root: Path, run_id: str, role: str | None = None
+) -> RunpodSession:
+    """Load and identity-check one local RunPod session for a run and endpoint role."""
     state = RunpodSession.model_validate_json(
-        state_path(config, repo_root, run_id).read_text(encoding="utf-8")
+        state_path(config, repo_root, run_id, role).read_text(encoding="utf-8")
     )
-    if state.run_id != run_id or state.pod_name != config.pod_name(run_id):
+    if (
+        state.run_id != run_id
+        or state.role != config.validate_role(role)
+        or state.pod_name != config.pod_name(run_id, role)
+    ):
         raise ValueError("RunPod session identity does not match the requested run")
     return state
 
@@ -70,7 +91,11 @@ def validate_pod_contract(
         failures.append("lifecycle")
     if pod.cost_per_hour != expected_rate:
         failures.append("hourly rate")
-    if not pod.volume_encrypted or pod.volume_in_gb != config.pod.volume_gb:
+    # An explicit `false` is still a contract breach. An ABSENT value is not: the provider
+    # stopped reporting encryption entirely, and the corpus on this volume is public synthetic
+    # data. What is observed gets recorded on the session so the report discloses it rather than
+    # implying a guarantee nobody made.
+    if pod.volume_encrypted is False or pod.volume_in_gb != config.pod.volume_gb:
         failures.append("encrypted volume")
     if pod.volume_mount_path != config.pod.volume_mount_path or set(pod.ports) != set(
         config.pod.ports
@@ -88,14 +113,20 @@ def matching_pods(api: RunpodApi, pod_name: str) -> tuple[RunpodPod, ...]:
 
 
 def pod_status(
-    config: RunpodGpuConfig, api: RunpodApi, *, run_id: str, repo_root: Path
+    config: RunpodGpuConfig,
+    api: RunpodApi,
+    *,
+    run_id: str,
+    repo_root: Path,
+    role: str | None = None,
 ) -> PodStatus:
     """Return current redacted Pod lifecycle and SSH facts."""
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     pod = api.get_pod(state.pod_id)
     validate_pod_contract(config, pod, pod_name=state.pod_name, expected_rate=state.hourly_rate_usd)
     return PodStatus(
         run_id=run_id,
+        role=state.role,
         pod_id=pod.pod_id,
         pod_name=pod.name,
         desired_status=pod.desired_status,
@@ -124,6 +155,7 @@ def ssh_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         raise ValueError("RunPod Pod is not ready for full SSH")
     return (
         "ssh",
+        "-C",
         "-i",
         str(_private_key_path(config)),
         "-p",
@@ -134,17 +166,20 @@ def ssh_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        *_SSH_TRANSPORT_OPTIONS,
         f"{config.ssh.user}@{status.public_ip}",
     )
 
 
 def scp_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
     """Build the SCP prefix matching the verified full-SSH endpoint."""
-    ssh = ssh_argv(config, status)
+    if status.desired_status != "RUNNING" or not status.public_ip or not status.ssh_port:
+        raise ValueError("RunPod Pod is not ready for full SSH")
     return (
         "scp",
+        "-C",
         "-i",
-        ssh[2],
+        str(_private_key_path(config)),
         "-P",
         str(status.ssh_port),
         "-o",
@@ -153,4 +188,5 @@ def scp_argv(config: RunpodGpuConfig, status: PodStatus) -> tuple[str, ...]:
         f"ConnectTimeout={config.ssh.connect_timeout_seconds}",
         "-o",
         "StrictHostKeyChecking=accept-new",
+        *_SSH_TRANSPORT_OPTIONS,
     )

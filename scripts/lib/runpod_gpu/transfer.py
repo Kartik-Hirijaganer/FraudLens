@@ -4,7 +4,8 @@ Key classes:
 - (none)
 
 Key functions:
-- sync_session: copy a committed tree, validated cases, and vLLM token to encrypted storage.
+- check_session_egress: prove the Pod can reach its pinned model revision before expensive setup.
+- sync_session: copy committed source/cases and place the vLLM token on private container storage.
 - export_session: retrieve and validate benchmark results before Pod teardown.
 
 Notes:
@@ -19,11 +20,11 @@ import shlex
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from lib.runpod_gpu.api import RunpodApi
 from lib.runpod_gpu.config import RunpodGpuConfig
-from lib.runpod_gpu.models import RunpodSession
-from lib.runpod_gpu.planning import git_commit
+from lib.runpod_gpu.models import EgressEvidence, RunpodSession
 from lib.runpod_gpu.session import (
     load_session,
     pod_status,
@@ -31,8 +32,9 @@ from lib.runpod_gpu.session import (
     ssh_argv,
     write_session,
 )
-from lib.vllm_bench.config import VllmBenchConfig
-from lib.vllm_bench.state import load_case_bundle, load_run
+from lib.study import git_commit
+from lib.vllm_bench.config import ArmName, VllmBenchConfig
+from lib.vllm_bench.state import case_manifest_path, load_case_bundle, load_run
 
 
 def _now() -> datetime:
@@ -50,6 +52,8 @@ def _remote_sync_command(config: RunpodGpuConfig, commit: str) -> str:
     output_root = shlex.quote(config.remote.local_output_link)
     source_link = shlex.quote(config.remote.source_link)
     source_target = shlex.quote(f"{config.remote.state_root}/source-{commit}")
+    commit_path = shlex.quote(config.remote.git_commit_path)
+    commit_value = shlex.quote(commit)
     return " ".join(
         (
             "set -Eeuo pipefail;",
@@ -58,9 +62,49 @@ def _remote_sync_command(config: RunpodGpuConfig, commit: str) -> str:
             f"rm -rf -- {source_target};",
             f"mkdir -p {source_target};",
             f"tar -xf - -C {source_target};",
+            f"printf '%s\\n' {commit_value} > {commit_path};",
             f"ln -s {output_root} {source_target}/.local;",
             f"ln -sfn {source_target} {source_link}",
         )
+    )
+
+
+def check_session_egress(  # noqa: PLR0913 - identity inputs are explicit governance boundaries.
+    config: RunpodGpuConfig,
+    vllm_config: VllmBenchConfig,
+    api: RunpodApi,
+    *,
+    run_id: str,
+    role: str | None,
+    arm: ArmName | None = None,
+    repo_root: Path,
+) -> EgressEvidence:
+    """Require the role's or an explicitly selected arm's pinned model config from the Pod."""
+    validated_role = config.validate_role(role)
+    if validated_role is None:
+        raise ValueError("RunPod egress check requires an endpoint role")
+    if validated_role not in vllm_config.cascade.endpoints:
+        raise ValueError("RunPod egress role is not declared by the cascade protocol")
+    endpoint = vllm_config.cascade.endpoints[validated_role]
+    selected_arm = arm or cast(ArmName, endpoint.arm)
+    selected = vllm_config.arms[selected_arm]
+    registry = str(config.model_registry_base_url).rstrip("/")
+    url = f"{registry}/{selected.model}/resolve/{selected.revision}/config.json"
+    status = pod_status(config, api, run_id=run_id, role=validated_role, repo_root=repo_root)
+    script = (
+        "import urllib.request; "
+        f"response=urllib.request.urlopen({url!r}, timeout=15); "
+        "response.read(1); "
+        "assert response.status == 200"
+    )
+    _run_ssh(ssh_argv(config, status), shlex.join(("python3", "-c", script)))
+    return EgressEvidence(
+        run_id=run_id,
+        role=validated_role,
+        model=selected.model,
+        revision=selected.revision,
+        url=url,
+        checked_at=_now(),
     )
 
 
@@ -70,6 +114,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     api: RunpodApi,
     *,
     run_id: str,
+    role: str | None = None,
     cases_path: Path,
     repo_root: Path,
     confirmed: bool,
@@ -77,7 +122,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     """Sync committed source, validated cases, and the vLLM token over full SSH."""
     if not confirmed:
         raise PermissionError("RunPod sync requires explicit confirmation")
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     if git_commit(repo_root) != state.git_commit or config.config_sha256 != state.config_sha256:
         raise ValueError("local Git or RunPod configuration changed after Pod creation")
     if re.fullmatch(r"cases-[a-z0-9-]+\.json", cases_path.name) is None:
@@ -88,7 +133,7 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
     token = os.environ.get(vllm_config.server.api_key_env, "")
     if not token.strip():
         raise ValueError(f"{vllm_config.server.api_key_env} is required")
-    status = pod_status(config, api, run_id=run_id, repo_root=repo_root)
+    status = pod_status(config, api, run_id=run_id, role=role, repo_root=repo_root)
     ssh = ssh_argv(config, status)
     archive = subprocess.run(
         ("git", "archive", "--format=tar", state.git_commit),
@@ -97,11 +142,16 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
         capture_output=True,
     ).stdout
     _run_ssh(ssh, _remote_sync_command(config, state.git_commit), input_bytes=archive)
+    venv_path = f"{config.remote.secret_root}/venv"
     setup_command = " ".join(
         (
             "set -Eeuo pipefail;",
             f"cd {shlex.quote(config.remote.source_link)};",
-            "uv sync --all-packages --group fulldata --frozen",
+            f"install -d -m 0700 {shlex.quote(config.remote.secret_root)};",
+            f"UV_PROJECT_ENVIRONMENT={shlex.quote(venv_path)} UV_LINK_MODE=copy "
+            "uv sync --all-packages --group fulldata --frozen;",
+            "rm -rf -- .venv;",
+            f"ln -s {shlex.quote(venv_path)} .venv",
         )
     )
     _run_ssh(ssh, setup_command)
@@ -109,15 +159,25 @@ def sync_session(  # noqa: PLR0913 - explicit operator inputs are security bound
         (
             "set -Eeuo pipefail;",
             "umask 077;",
-            f"mkdir -p {shlex.quote(config.remote.state_root)};",
-            f"cat > {shlex.quote(config.remote.api_key_path)}",
+            f"install -d -m 0700 {shlex.quote(config.remote.secret_root)};",
+            f"rm -f -- {shlex.quote(config.remote.api_key_path)};",
+            f"cat > {shlex.quote(config.remote.api_key_path)};",
+            f"chmod 0600 {shlex.quote(config.remote.api_key_path)}",
         )
     )
     _run_ssh(ssh, secret_command, input_bytes=token.encode())
     remote_case_dir = f"{config.remote.source_link}/{vllm_config.paths.output_dir}"
     _run_ssh(ssh, f"mkdir -p {shlex.quote(remote_case_dir)}")
-    destination = f"{config.ssh.user}@{status.public_ip}:{remote_case_dir}/{cases_path.name}"
-    subprocess.run((*scp_argv(config, status), str(cases_path), destination), check=True)
+    destination = f"{config.ssh.user}@{status.public_ip}:{remote_case_dir}/"
+    subprocess.run(
+        (
+            *scp_argv(config, status),
+            str(cases_path),
+            str(case_manifest_path(cases_path)),
+            destination,
+        ),
+        check=True,
+    )
     return write_session(
         config,
         repo_root,
@@ -137,12 +197,13 @@ def export_session(
     *,
     run_id: str,
     repo_root: Path,
+    role: str | None = None,
 ) -> RunpodSession:
     """Retrieve the bound run directory and validate its case lineage locally."""
-    state = load_session(config, repo_root, run_id)
+    state = load_session(config, repo_root, run_id, role)
     if not state.cases_sha256:
         raise ValueError("RunPod session must be synced before artifact export")
-    status = pod_status(config, api, run_id=run_id, repo_root=repo_root)
+    status = pod_status(config, api, run_id=run_id, role=role, repo_root=repo_root)
     local_run = repo_root / ".local" / "vllm-bench" / run_id
     if local_run.exists():
         raise ValueError("local run directory already exists; refusing an ambiguous overwrite")

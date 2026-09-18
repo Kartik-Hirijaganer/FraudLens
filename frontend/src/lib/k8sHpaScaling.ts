@@ -70,6 +70,8 @@ export function parseK8sHpaScalingData(value: unknown): K8sHpaScalingData {
       "schema_version",
       "generated_at",
       "platform",
+      "run_id",
+      "paid_session",
       "commit",
       "config_sha256",
       "cluster",

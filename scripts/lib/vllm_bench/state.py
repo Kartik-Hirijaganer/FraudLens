@@ -27,19 +27,31 @@ Key functions:
 
 Notes:
 - Partial levels are never represented; a level enters the manifest only after every request ends.
+- A cascade attempt records the connection it used, the model the provider actually served, and
+  the policy hash it was judged under, so a reported rate can be traced to the exact route, model,
+  and rules that produced it rather than to the ones config says should have.
+- A cascade attempt has no meaningful time-to-first-token: the drafter BUFFERS a tier's output and
+  emits tokens only for the tier the gate accepted, so TTFT is required of raw-arm measurements and
+  optional for cascade attempts rather than being invented.
+- A protocol-v1 arm records exactly one measurement per case; a v2+ cascade scenario
+  records ONE MEASUREMENT PER ATTEMPT, sharing the case's `sequence` and ordered by
+  `attempt_ordinal`, so an escalated case's rejected tier is never dropped from the evidence.
 """
 
 from __future__ import annotations
 
 import math
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
+from fraudlens_ml.sar import SarInput
 from lib.study import (
+    GIT_SHA_PATTERN,
     atomic_write_model,
     canonical_json,
     install_bound_artifacts,
@@ -69,6 +81,10 @@ class BenchmarkMessage(BaseModel):
     content: str = Field(..., min_length=1, description="PHI-masked message content.")
 
 
+# `SarInput` fields removed after a corpus was recorded. Read-only migration; see the validator.
+_SUPERSEDED_SAR_INPUT_FIELDS = frozenset({"ragContext", "rag_context"})
+
+
 class BenchmarkCase(BaseModel):
     """One deterministic synthetic SAR benchmark request and its quality expectations."""
 
@@ -93,6 +109,35 @@ class BenchmarkCase(BaseModel):
     history_length_band: str = Field(..., min_length=1, description="Stratification category.")
     prompt_length_band: str = Field(..., min_length=1, description="Stratification category.")
     prompt_chars: int = Field(..., gt=0, description="Exact outbound prompt character count.")
+    sar_input: SarInput | None = Field(
+        default=None,
+        description="Production SAR input a cascade scenario drafts from (absent in v1 corpora).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_superseded_corpora(cls, value: Any) -> Any:
+        """Drop `SarInput` fields a superseded protocol recorded and the current contract removed.
+
+        A measured corpus is immutable evidence: the 1,000-case protocol-v5 artifact the published
+        cascade run consumed carries `ragContext`, which release 0.5.0 deleted. Regenerating the
+        corpus would change its hash and orphan the run that measured it, and loosening `SarInput`
+        would weaken a production contract to accommodate a benchmark file. Normalising on READ
+        keeps both strict: the artifact's identity stays its exact bytes (`load_case_bundle` hashes
+        the file, not a re-serialization), and production still refuses the removed field.
+        """
+        if not isinstance(value, dict):
+            return value
+        sar_input = value.get("sarInput") or value.get("sar_input")
+        if isinstance(sar_input, dict) and _SUPERSEDED_SAR_INPUT_FIELDS & sar_input.keys():
+            trimmed = {
+                key: item
+                for key, item in sar_input.items()
+                if key not in _SUPERSEDED_SAR_INPUT_FIELDS
+            }
+            key = "sarInput" if "sarInput" in value else "sar_input"
+            return {**value, key: trimmed}
+        return value
 
     @model_validator(mode="after")
     def _closed_expectations(self) -> BenchmarkCase:
@@ -191,7 +236,7 @@ class TokenUsage(BaseModel):
 
 
 class RequestMeasurement(BaseModel):
-    """One measured terminal request observation, including errors and raw quality input."""
+    """One measured terminal request or cascade attempt, including errors and raw quality input."""
 
     model_config = _MODEL_CONFIG
 
@@ -206,13 +251,45 @@ class RequestMeasurement(BaseModel):
     finish_reason: str | None = Field(default=None, description="Provider finish reason.")
     usage: TokenUsage | None = Field(default=None, description="Required usage on success.")
     error_code: str | None = Field(default=None, description="Stable terminal failure category.")
+    stage: str | None = Field(
+        default=None, description="Cascade stage that produced this attempt; None for a raw arm."
+    )
+    attempt_ordinal: int = Field(
+        default=0, ge=0, description="Zero-based cascade attempt index within one case."
+    )
+    gate_passed: bool | None = Field(
+        default=None, description="Deterministic gate verdict, or None when never evaluated."
+    )
+    gate_reasons: tuple[str, ...] = Field(
+        default=(), description="PHI-free gate rejection reason codes for this attempt."
+    )
+    connection: str | None = Field(
+        default=None, description="Named connection route this attempt was served over."
+    )
+    served_model: str | None = Field(
+        default=None, description="Model reference the provider reported actually serving."
+    )
+    policy_hash: str | None = Field(
+        default=None, description="Hash of the quality policy this attempt was judged under."
+    )
+    cost_usd: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Provider-billed cost of this attempt; None for a self-hosted arm request.",
+    )
 
     @model_validator(mode="after")
     def _success_shape(self) -> RequestMeasurement:
-        if self.error_code is None and (self.usage is None or self.ttft_s is None):
-            raise ValueError("successful measurements require TTFT and token usage")
+        if self.error_code is None and self.usage is None:
+            raise ValueError("successful measurements require token usage")
+        if self.error_code is None and self.ttft_s is None and self.stage is None:
+            raise ValueError("successful raw-arm measurements require TTFT")
         if self.error_code is not None and self.usage is not None:
             raise ValueError("failed measurements cannot claim token usage")
+        if self.gate_passed and self.gate_reasons:
+            raise ValueError("a passing gate verdict cannot carry rejection reasons")
+        if self.attempt_ordinal and self.stage is None:
+            raise ValueError("a cascade attempt must name the stage that produced it")
         return self
 
 
@@ -231,6 +308,11 @@ class ServerProvenance(BaseModel):
     vllm_version: str = Field(..., min_length=1, description="Pinned vLLM release.")
     gpu_name: str = Field(..., min_length=1, description="Observed GPU model.")
     driver_version: str = Field(..., min_length=1, description="Observed NVIDIA driver.")
+    cuda_version: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Observed CUDA runtime; None on runs recorded before it was captured.",
+    )
     host_key: str = Field(..., min_length=1, description="Configured cost host key.")
     provider: str = Field(..., min_length=1, description="Hosting provider.")
     sku: str = Field(..., min_length=1, description="Host SKU.")
@@ -251,6 +333,9 @@ class LevelCheckpoint(BaseModel):
     model_config = _MODEL_CONFIG
 
     arm: ArmName = Field(..., description="Benchmark arm.")
+    scenario: str | None = Field(
+        default=None, description="Protocol-v2 scenario name; None for a raw protocol-v1 arm."
+    )
     concurrency: int = Field(..., gt=0, description="Closed-loop concurrency.")
     case_order_sha256: str = Field(..., pattern=_HASH, description="Ordered case-id hash.")
     cases_sha256: str = Field(..., pattern=_HASH, description="Case artifact hash.")
@@ -267,8 +352,13 @@ class LevelCheckpoint(BaseModel):
 
     @model_validator(mode="after")
     def _complete_order(self) -> LevelCheckpoint:
-        if [item.sequence for item in self.measurements] != list(range(len(self.measurements))):
+        attempts: dict[int, list[int]] = {}
+        for item in self.measurements:
+            attempts.setdefault(item.sequence, []).append(item.attempt_ordinal)
+        if list(attempts) != list(range(len(attempts))):
             raise ValueError("measurements must cover a contiguous ordered level")
+        if any(ordinals != list(range(len(ordinals))) for ordinals in attempts.values()):
+            raise ValueError("each case's cascade attempts must be contiguous and ordered")
         if self.completed_at < self.started_at:
             raise ValueError("level completion cannot precede start")
         return self
@@ -286,6 +376,11 @@ class RunManifest(BaseModel):
     cases_sha256: str = Field(..., pattern=_HASH, description="Case artifact hash.")
     started_at: datetime = Field(..., description="UTC run start.")
     completed_at: datetime | None = Field(default=None, description="UTC full-matrix completion.")
+    git_commit: str | None = Field(
+        default=None,
+        pattern=GIT_SHA_PATTERN,
+        description="Committed source revision this run was produced from.",
+    )
     servers: dict[ArmName, ServerProvenance] = Field(
         default_factory=dict, description="Arm servers."
     )
@@ -354,6 +449,7 @@ def initialize_run(  # noqa: PLR0913 - immutable identity fields make resume fai
     profile: str,
     cases_sha256: str,
     started_at: datetime,
+    git_commit: str | None = None,
 ) -> RunManifest:
     """Create a new manifest or validate immutable identity fields on resume."""
     if path.is_file():
@@ -376,6 +472,7 @@ def initialize_run(  # noqa: PLR0913 - immutable identity fields make resume fai
         config_sha256=config.config_sha256,
         cases_sha256=cases_sha256,
         started_at=started_at,
+        git_commit=git_commit,
     )
     write_run(path, manifest)
     return manifest

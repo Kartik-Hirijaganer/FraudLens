@@ -18,6 +18,7 @@ from pipeline_fakes import (
     FakeRulesPort,
     FakeSarDrafter,
     FakeScorerPort,
+    passing_quality,
 )
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -260,6 +261,7 @@ async def test_multi_agent_draft_does_not_emit_a_duplicate_aggregate_llm_call(
                 prompt_version="v1",
                 prompt_hash="h",
                 workflow="multi_agent",
+                quality=passing_quality(),
             )
         )
 

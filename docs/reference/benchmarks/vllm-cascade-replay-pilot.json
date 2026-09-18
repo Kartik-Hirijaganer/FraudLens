@@ -1,0 +1,307 @@
+{
+  "admitted": true,
+  "allocation": "gpu_benchmark",
+  "allocationUsd": "28.00",
+  "billedHours": "6.045556",
+  "casesSha256": "b3367d9e742a73f0cad90c6388fb587f96838a2c8830a8d098e9dd99e9fcee0b",
+  "costWithMarginUsd": "6.867590740080634311559532930",
+  "levels": [
+    {
+      "armGpuSecondsPerCase": {
+        "awq": 3.193062600883655,
+        "bf16": 8.378107865695842
+      },
+      "armPassRate": {
+        "awq": 0.75,
+        "bf16": 0.944
+      },
+      "armRecallMean": {
+        "awq": 0.9298888888888882,
+        "bf16": 0.904837570621468
+      },
+      "baselineGpuSecondsPerCase": 8.378107865695842,
+      "baselineLatencyP50Ms": 8299.172909930348,
+      "baselineLatencyP95Ms": 10738.9440913219,
+      "baselinePassRate": 0.944,
+      "baselineStage": "bf16",
+      "cascade": {
+        "cases": 1000,
+        "escalationRate": 0.25,
+        "externalRate": 0.25,
+        "finalPassRate": 0.965,
+        "gpuSecondsPerCase": 5.353908455709926,
+        "latencyP50Ms": 3332.4055946432054,
+        "latencyP95Ms": 13397.920399485154,
+        "latencyP99Ms": 14987.747106552124,
+        "reasonCounts": {
+          "citation_duplicated": 1,
+          "citation_fabricated": 32,
+          "no_citations": 3
+        },
+        "stageMix": {
+          "awq": 0.75,
+          "bf16": 0.215
+        },
+        "stagePassRate": {
+          "awq": 0.75,
+          "bf16": 0.86
+        },
+        "stageTotals": {
+          "completionTokens": {
+            "awq": 448997,
+            "bf16": 127982
+          },
+          "costUsd": {
+            "awq": "0",
+            "bf16": "0"
+          },
+          "errors": {
+            "awq": {},
+            "bf16": {}
+          },
+          "latencyMs": {
+            "awq": 3193062.6008836553,
+            "bf16": 2160845.8548262715
+          },
+          "promptTokens": {
+            "awq": 1103831,
+            "bf16": 301385
+          },
+          "retries": {
+            "awq": 0,
+            "bf16": 0
+          }
+        },
+        "terminalFailureRate": 0.035
+      },
+      "concurrency": 1,
+      "gpuTimeDeltaPct": -36.09644872643021,
+      "latencyP95DeltaPct": 24.760128049385806
+    },
+    {
+      "armGpuSecondsPerCase": {
+        "awq": 4.554391012326814,
+        "bf16": 9.874167395122349
+      },
+      "armPassRate": {
+        "awq": 0.755,
+        "bf16": 0.947
+      },
+      "armRecallMean": {
+        "awq": 0.929801324503311,
+        "bf16": 0.900915170714536
+      },
+      "baselineGpuSecondsPerCase": 9.874167395122349,
+      "baselineLatencyP50Ms": 9732.324475888163,
+      "baselineLatencyP95Ms": 12527.918080426753,
+      "baselinePassRate": 0.947,
+      "baselineStage": "bf16",
+      "cascade": {
+        "cases": 1000,
+        "escalationRate": 0.245,
+        "externalRate": 0.245,
+        "finalPassRate": 0.964,
+        "gpuSecondsPerCase": 7.0503058298882095,
+        "latencyP50Ms": 4777.090701740235,
+        "latencyP95Ms": 16961.945503996685,
+        "latencyP99Ms": 18625.55057611316,
+        "reasonCounts": {
+          "citation_fabricated": 33,
+          "no_citations": 3
+        },
+        "stageMix": {
+          "awq": 0.755,
+          "bf16": 0.209
+        },
+        "stagePassRate": {
+          "awq": 0.755,
+          "bf16": 0.8530612244897959
+        },
+        "stageTotals": {
+          "completionTokens": {
+            "awq": 449525,
+            "bf16": 125186
+          },
+          "costUsd": {
+            "awq": "0",
+            "bf16": "0"
+          },
+          "errors": {
+            "awq": {},
+            "bf16": {}
+          },
+          "latencyMs": {
+            "awq": 4554391.012326814,
+            "bf16": 2495914.8175613955
+          },
+          "promptTokens": {
+            "awq": 1103831,
+            "bf16": 298492
+          },
+          "retries": {
+            "awq": 0,
+            "bf16": 0
+          }
+        },
+        "terminalFailureRate": 0.036
+      },
+      "concurrency": 8,
+      "gpuTimeDeltaPct": -28.598477747390362,
+      "latencyP95DeltaPct": 35.39317063780554
+    },
+    {
+      "armGpuSecondsPerCase": {
+        "awq": 9.466997009593062,
+        "bf16": 15.209339109660126
+      },
+      "armPassRate": {
+        "awq": 0.736,
+        "bf16": 0.938
+      },
+      "armRecallMean": {
+        "awq": 0.9288949275362315,
+        "bf16": 0.9079601990049742
+      },
+      "baselineGpuSecondsPerCase": 15.209339109660126,
+      "baselineLatencyP50Ms": 15036.29216691479,
+      "baselineLatencyP95Ms": 19425.521181244403,
+      "baselinePassRate": 0.938,
+      "baselineStage": "bf16",
+      "cascade": {
+        "cases": 1000,
+        "escalationRate": 0.264,
+        "externalRate": 0.264,
+        "finalPassRate": 0.958,
+        "gpuSecondsPerCase": 13.643830651940778,
+        "latencyP50Ms": 9939.041581004858,
+        "latencyP95Ms": 28929.90190302953,
+        "latencyP99Ms": 32515.16457043588,
+        "reasonCounts": {
+          "citation_duplicated": 1,
+          "citation_fabricated": 39,
+          "no_citations": 3
+        },
+        "stageMix": {
+          "awq": 0.736,
+          "bf16": 0.222
+        },
+        "stagePassRate": {
+          "awq": 0.736,
+          "bf16": 0.8409090909090909
+        },
+        "stageTotals": {
+          "completionTokens": {
+            "awq": 446511,
+            "bf16": 136635
+          },
+          "costUsd": {
+            "awq": "0",
+            "bf16": "0"
+          },
+          "errors": {
+            "awq": {},
+            "bf16": {}
+          },
+          "latencyMs": {
+            "awq": 9466997.009593062,
+            "bf16": 4176833.642347716
+          },
+          "promptTokens": {
+            "awq": 1103831,
+            "bf16": 319775
+          },
+          "retries": {
+            "awq": 0,
+            "bf16": 0
+          }
+        },
+        "terminalFailureRate": 0.042
+      },
+      "concurrency": 32,
+      "gpuTimeDeltaPct": -10.293073528257544,
+      "latencyP95DeltaPct": 48.927288143814295
+    }
+  ],
+  "matrix": [
+    {
+      "cases": 1000,
+      "concurrencyLevels": [
+        1,
+        8,
+        32
+      ],
+      "endpoints": 1,
+      "profile": "bf16-baseline",
+      "projectedCostUsd": "3.190281624318851820872863513",
+      "projectedHours": "4.311191384214664622801166909",
+      "scenario": "bf16-baseline"
+    },
+    {
+      "cases": 1000,
+      "concurrencyLevels": [
+        1,
+        8,
+        32
+      ],
+      "endpoints": 1,
+      "profile": "awq-raw",
+      "projectedCostUsd": "1.283429815681148179127136487",
+      "projectedHours": "1.734364615785335377198833091",
+      "scenario": "awq-raw"
+    },
+    {
+      "cases": 1000,
+      "concurrencyLevels": [
+        32
+      ],
+      "endpoints": 2,
+      "profile": "awq-bf16-unconstrained",
+      "projectedCostUsd": "0.2696835559181113619383417773",
+      "projectedHours": "0.3644372377271775161328942936",
+      "scenario": "awq-bf16-unconstrained"
+    },
+    {
+      "cases": 1000,
+      "concurrencyLevels": [
+        32
+      ],
+      "endpoints": 2,
+      "profile": "awq-bf16",
+      "projectedCostUsd": "0.2696835559181113619383417773",
+      "projectedHours": "0.3644372377271775161328942936",
+      "scenario": "awq-bf16"
+    },
+    {
+      "cases": 1000,
+      "concurrencyLevels": [
+        32
+      ],
+      "endpoints": 2,
+      "profile": "awq-bf16-external",
+      "projectedCostUsd": "0.2696835559181113619383417773",
+      "projectedHours": "0.3644372377271775161328942936",
+      "scenario": "awq-bf16-external"
+    }
+  ],
+  "measuredHours": "3.929409936454806805555555557",
+  "pilotVersion": "vllm-cascade-replay-pilot-v1",
+  "policyHash": "93b9d75421ecbc58d124da24d7fbb3c89be7d19f93940307ed4c8519e3113d36",
+  "policyVersion": "sar-gate-replay-v1",
+  "profile": "awq-bf16",
+  "projectedCostUsd": "5.282762107754334085815025331",
+  "projectedHours": "7.138867713181532548398682882",
+  "protocolVersion": "vllm-sar-bench-v2",
+  "reason": "projection_within_allocation",
+  "replayedStages": [
+    "awq",
+    "bf16"
+  ],
+  "runId": "vllm-bench-f810b57a7b8ae05a",
+  "sessionOverheadRatio": "1.538540416440851934563953824",
+  "sourceConfigSha256": "b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240",
+  "sourceProtocolVersion": "vllm-sar-bench-v1",
+  "stages": [
+    "awq",
+    "bf16"
+  ]
+}

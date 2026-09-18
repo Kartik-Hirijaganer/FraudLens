@@ -7,10 +7,12 @@ PHI-free `RuleHit` + `RiskBand`) and pydantic only, never `fraudlens_ml.scoring`
 `fraudlens_ml.rag` — so importing it never drags in xgboost/shap/chromadb and the keyless mock
 path stays cheap. `SarFeature` / `SarCitation` are the light value mirrors of the heavy modules'
 `FeatureContribution` / `Citation`: the Phase 8 pipeline maps the SHAP + RAG outputs onto them
-when it assembles a `SarInput` (and passes the already-fenced `build_rag_context` block as
-`rag_context`), so this contract never touches the heavy packages. Every field is PHI-free by
-construction (structured non-PHI facts + the PHI-free rule hits + SHAP feature names + escaped
-regulatory citations), which is what makes "PHI masked before the prompt" hold by construction.
+when it assembles a `SarInput`, so this contract never touches the heavy packages. Citations are
+the ONLY regulation carrier — the prompt renders its own fenced block from them, so there is no
+second pre-rendered copy of the same text to drift out of sync (release 0.5.0 Phase 5). Every
+field is PHI-free by construction (structured non-PHI facts + the PHI-free rule hits + SHAP
+feature names + escaped regulatory citations), which is what makes "PHI masked before the
+prompt" hold by construction.
 
 Key classes:
 - SarDraftStatus: the lifecycle state a freshly produced draft can be in (draft | failed).
@@ -18,12 +20,14 @@ Key classes:
 - SarFeature: one SHAP driver (feature name + value + signed contribution); PHI-free.
 - SarCitation: one grounded regulatory citation (id + title + source + escaped snippet).
 - SarSection: one titled section of the structured SAR body.
-- SarClaim: one narrative claim linked to evidence and regulatory citation ids.
+- SarClaim: one narrative claim linked to evidence, citation ids, and asserted facts.
 - SarDraftContent: the structured SAR body the drafter produces (validated, grounded).
 - SarTokenUsage: normalized token usage recorded for the audit/cost trail.
 - SarInput: the PHI-free assembled input a drafter turns into a SAR.
 - SarDraftResult: the terminal result of a draft (content + provenance + cost + status).
 - SarAgentEvent: stable identity and lifecycle metadata for one agent execution event.
+- SarGenerationAttempt: one tier's generation attempt in the quality-gated cascade.
+- SarStageEvent: PHI-free lifecycle metadata for one cascade stage decision.
 - SarStreamEvent: one streamed event — a token, or the terminal completed/failed result.
 - SarDrafter: the protocol the pipeline depends on; mock/live impls live in the backend.
 
@@ -39,6 +43,9 @@ Notes:
   importing the backend enum (layering) — no duplicated vocabulary beyond the two reachable states.
 - `SarDraftContent.cited_regulations` is the drafter's claim; the backend grounds it against
   `SarInput.citations` so a fabricated regulation id can never reach the persisted SAR (plan §8.1).
+- The quality-gate value types (`SarQualityGateResult` and friends) live in
+  `fraudlens_ml.sar.quality` and are re-exported from `fraudlens_ml.sar`; the evaluator that
+  produces them is a backend module, so ml still imports neither backend nor llm.
 """
 
 from __future__ import annotations
@@ -54,6 +61,7 @@ from pydantic.alias_generators import to_camel
 
 from fraudlens_core import RiskBand, TransactionDirection
 from fraudlens_core.rules.base import RuleHit
+from fraudlens_ml.sar.quality import SarClaimFact, SarGateReason, SarQualityGateResult
 
 
 class SarDraftStatus(StrEnum):
@@ -73,6 +81,10 @@ class SarEventType(StrEnum):
     AGENT_COMPLETED = "agent.completed"
     AGENT_REVISION_REQUESTED = "agent.revision.requested"
     AGENT_TOOL_COMPLETED = "agent.tool.completed"
+    STAGE_STARTED = "sar.stage.started"
+    STAGE_REJECTED = "sar.stage.rejected"
+    ESCALATED = "sar.escalated"
+    CASCADE_FAILED = "sar.cascade.failed"
 
 
 class SarFeature(BaseModel):
@@ -122,6 +134,10 @@ class SarClaim(BaseModel):
     )
     citation_ids: tuple[str, ...] = Field(
         default=(), description="Regulatory citation identifiers supporting the claim."
+    )
+    asserted_facts: tuple[SarClaimFact, ...] = Field(
+        default=(),
+        description="Machine-readable facts this claim asserts against evidence references.",
     )
 
 
@@ -205,10 +221,6 @@ class SarInput(BaseModel):
     citations: tuple[SarCitation, ...] = Field(
         default=(), description="The grounded regulatory citations available to cite."
     )
-    rag_context: str = Field(
-        default="",
-        description="Pre-fenced, escaped regulation block for the prompt (RAG-as-data, plan §8.1).",
-    )
 
 
 class SarDraftResult(BaseModel):
@@ -262,6 +274,60 @@ class SarDraftResult(BaseModel):
     revision_count: int = Field(
         default=0, ge=0, description="Number of writer revisions completed for this artifact."
     )
+    quality: SarQualityGateResult | None = Field(
+        default=None,
+        description="Deterministic gate verdict for this artifact (None when never evaluated).",
+    )
+    attempts: tuple[SarGenerationAttempt, ...] = Field(
+        default=(), description="Ordered per-tier generation attempts behind this result."
+    )
+    escalation_tier: int = Field(
+        default=0, ge=0, description="Zero-based index of the tier that produced this result."
+    )
+    escalated_from: tuple[str, ...] = Field(
+        default=(), description="Ordered names of tiers rejected before the serving tier."
+    )
+
+
+class SarGenerationAttempt(BaseModel):
+    """One tier's generation attempt in the quality-gated cascade (PHI-free audit row)."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra="forbid",
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    ordinal: int = Field(..., ge=0, description="Zero-based position of this attempt.")
+    stage: str = Field(..., min_length=1, description="Configured cascade stage name.")
+    model_id: str = Field(..., min_length=1, description="Requested model reference.")
+    connection: str | None = Field(
+        default=None, description="Named connection route used, or None for the default provider."
+    )
+    served_model: str | None = Field(
+        default=None, description="Model reference the provider actually served."
+    )
+    outcome: str = Field(..., min_length=1, description="Stable attempt outcome code.")
+    error_code: str | None = Field(
+        default=None, description="Stable transport/policy failure code when the call failed."
+    )
+    quality: SarQualityGateResult | None = Field(
+        default=None, description="Gate verdict for this attempt when output was evaluated."
+    )
+    latency_ms: int = Field(default=0, ge=0, description="Wall-clock duration of the attempt.")
+    retry_count: int = Field(
+        default=0, ge=0, description="Bounded transport retries the connection performed."
+    )
+    token_usage: SarTokenUsage = Field(
+        default_factory=SarTokenUsage, description="Token usage recorded for this attempt."
+    )
+    cost_usd: Decimal = Field(default=Decimal("0"), ge=0, description="Estimated USD spend.")
+    prompt_hash: str = Field(..., min_length=1, description="Hash of the exact prompt used.")
+    policy_hash: str = Field(
+        default="", description="Hash of the quality policy evaluated for this attempt."
+    )
 
 
 class SarAgentEvent(BaseModel):
@@ -285,6 +351,23 @@ class SarAgentEvent(BaseModel):
     )
 
 
+class SarStageEvent(BaseModel):
+    """PHI-free lifecycle metadata for one cascade stage decision (reason codes only)."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", frozen=True
+    )
+
+    stage: str = Field(..., min_length=1, description="Configured cascade stage name.")
+    ordinal: int = Field(..., ge=0, description="Zero-based position of the stage in the cascade.")
+    reasons: tuple[SarGateReason, ...] = Field(
+        default=(), description="Deterministic rejection reason codes for a rejected stage."
+    )
+    error_code: str | None = Field(
+        default=None, description="Stable transport/policy failure code when the call failed."
+    )
+
+
 class SarStreamEvent(BaseModel):
     """One streamed drafting event: a token, agent lifecycle update, or terminal result."""
 
@@ -299,6 +382,9 @@ class SarStreamEvent(BaseModel):
     )
     agent: SarAgentEvent | None = Field(
         default=None, description="Agent lifecycle payload for AGENT_* events, else None."
+    )
+    stage: SarStageEvent | None = Field(
+        default=None, description="Cascade stage payload for sar.stage/escalation events."
     )
 
 

@@ -9,12 +9,19 @@ run so a re-draft (e.g. after a transient provider failure) is recorded, not ove
 the auditable attempt (plan §7.5).
 
 Key classes:
-- SarDraftRepository: agency-scoped persistence + lookup for the `sar_drafts` table.
+- SarQualityGateNotSatisfiedError: the repository boundary refusing an ungated draft.
+- SarDraftRepository: agency-scoped persistence + lookup for `sar_drafts` and its attempts.
 
 Key functions:
 - (none)
 
 Notes:
+- **The gate is enforced HERE, not by convention** (release 0.5.0 Phase 2.9): `create_from_result`
+  refuses to persist a `draft` whose `quality` is missing or failing, so no reviewable SAR can
+  exist without a passing deterministic verdict regardless of which drafter produced it. A failed
+  result still persists — with its verdict — because a rejected attempt is auditable evidence.
+- Each cascade stage behind a draft is written to the tenant-scoped `sar_generation_attempts`
+  table, so route, spend, latency, and reason codes are reconstructable without any PHI.
 - `structured` / `citations` / `token_usage` are dumped `mode="json"` + `by_alias`, so the persisted
   JSON is camelCase and JSON-native (tuples→arrays) — matching the API surface with no remapping.
 - `get_for_run` returns the latest version for a run; `list_for_alert` returns an alert's drafts
@@ -32,10 +39,14 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import SarDraft
+from fraudlens_backend.db.models import SarDraft, SarGenerationAttempt
 from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
-from fraudlens_ml.sar import SarDraftResult
+from fraudlens_ml.sar import SarDraftResult, SarDraftStatus
+
+
+class SarQualityGateNotSatisfiedError(RuntimeError):
+    """Raised when a reviewable draft is offered for persistence without a passing gate."""
 
 
 class SarDraftRepository(TenantScopedRepository[SarDraft]):
@@ -54,6 +65,12 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         created_by: uuid.UUID | None = None,
     ) -> SarDraft:
         """Persist a SarDraftResult as the next `sar_drafts` version for the run (agency-scoped)."""
+        if result.status is SarDraftStatus.DRAFT and not (
+            result.quality is not None and result.quality.passed
+        ):
+            raise SarQualityGateNotSatisfiedError(
+                "A reviewable SAR draft requires a passing deterministic quality verdict"
+            )
         structured = (
             result.structured.model_dump(by_alias=True, mode="json")
             if result.structured is not None
@@ -74,7 +91,12 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             citations=[
                 citation.model_dump(by_alias=True, mode="json") for citation in result.citations
             ],
-            quality_status=SarQualityStatus.EVALUATED,
+            quality_status=_quality_status(result),
+            quality=(
+                result.quality.model_dump(by_alias=True, mode="json")
+                if result.quality is not None
+                else {}
+            ),
             status=SarStatus(result.status.value),
             token_usage=result.token_usage.model_dump(by_alias=True, mode="json"),
             cost_usd=result.cost_usd,
@@ -82,7 +104,53 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         )
         self._session.add(draft)
         await self._session.flush()
+        await self._record_attempts(draft, result)
         return draft
+
+    async def _record_attempts(self, draft: SarDraft, result: SarDraftResult) -> None:
+        """Write one PHI-free, agency-scoped audit row per cascade stage behind this draft."""
+        for attempt in result.attempts:
+            reasons = attempt.quality.reasons if attempt.quality is not None else ()
+            self._session.add(
+                SarGenerationAttempt(
+                    agency_id=self._agency_id,
+                    run_id=draft.run_id,
+                    draft_id=draft.id,
+                    ordinal=attempt.ordinal,
+                    stage=attempt.stage,
+                    model_id=attempt.model_id,
+                    connection=attempt.connection,
+                    served_model=attempt.served_model,
+                    outcome=attempt.outcome,
+                    error_code=attempt.error_code,
+                    reason_codes=[reason.value for reason in reasons],
+                    quality=(
+                        attempt.quality.model_dump(by_alias=True, mode="json")
+                        if attempt.quality is not None
+                        else {}
+                    ),
+                    latency_ms=attempt.latency_ms,
+                    retry_count=attempt.retry_count,
+                    token_usage=attempt.token_usage.model_dump(by_alias=True, mode="json"),
+                    cost_usd=attempt.cost_usd,
+                    prompt_hash=attempt.prompt_hash,
+                    policy_hash=attempt.policy_hash,
+                )
+            )
+        if result.attempts:
+            await self._session.flush()
+
+    async def list_attempts(self, draft_id: uuid.UUID) -> Sequence[SarGenerationAttempt]:
+        """Return this agency's ordered cascade attempts for one draft (agency-scoped)."""
+        stmt = (
+            select(SarGenerationAttempt)
+            .where(
+                SarGenerationAttempt.agency_id == self._agency_id,
+                SarGenerationAttempt.draft_id == draft_id,
+            )
+            .order_by(SarGenerationAttempt.ordinal)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
 
     async def create_edited_version(
         self,
@@ -111,7 +179,8 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             content=content,
             structured=base.structured,
             citations=base.citations,
-            quality_status=SarQualityStatus.UNEVALUATED,
+            quality_status=SarQualityStatus.NOT_RUN,
+            quality={},
             status=SarStatus.REVIEWED,
             token_usage=base.token_usage,
             cost_usd=base.cost_usd,
@@ -163,3 +232,10 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         )
         current = (await self._session.execute(stmt)).scalar_one_or_none()
         return (current or 0) + 1
+
+
+def _quality_status(result: SarDraftResult) -> SarQualityStatus:
+    """Map a result's deterministic verdict onto the persisted tri-state gate status."""
+    if result.quality is None:
+        return SarQualityStatus.NOT_RUN
+    return SarQualityStatus.PASSED if result.quality.passed else SarQualityStatus.FAILED

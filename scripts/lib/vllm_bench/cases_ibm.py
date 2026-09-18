@@ -430,7 +430,7 @@ def build_ibm_cases(
             case_id=f"abstention-{index:03d}",
             case_set="abstention",
             source_dataset=item.case.source_dataset,
-            sar_input=item.sar_input.model_copy(update={"citations": (), "rag_context": ""}),
+            sar_input=item.sar_input.model_copy(update={"citations": ()}),
             required_facts=item.case.required_facts,
             expected_citation_ids=(),
             history_length=0 if item.case.history_length_band == "none" else 1,

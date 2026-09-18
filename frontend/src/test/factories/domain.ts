@@ -63,7 +63,8 @@ export function sarDraft(overrides: Partial<SarDraftView> = {}): SarDraftView {
     alertId: "alert-1",
     version: 1,
     status: "draft",
-    qualityStatus: "evaluated",
+    qualityStatus: "passed",
+    quality: {},
     modelInput: {
       caseAlias: "case",
       subjectAlias: "subject",

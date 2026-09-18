@@ -18,6 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from fraudlens_backend.sar.egress import load_egress_policy, project_for_model
+from fraudlens_backend.sar.evidence import build_evidence_catalog
 from fraudlens_backend.sar.prompt import SarPromptTemplate, build_messages
 from fraudlens_core import DEFAULT_RULE_DEFINITIONS, RiskPolicy, RuleRegistry
 from fraudlens_llm import get_llm_settings
@@ -25,7 +26,7 @@ from fraudlens_llm.security.phi import mask_texts
 from fraudlens_llm.security.policy import system_policy_message
 from fraudlens_ml.pipeline import PipelineInput, RagResult, ScoreResult, ShapResult
 from fraudlens_ml.pipeline.steps import build_rag_query, build_sar_input
-from fraudlens_ml.rag import build_rag_context, chunk_corpus, extract_citations, load_corpus
+from fraudlens_ml.rag import chunk_corpus, extract_citations, load_corpus
 from fraudlens_ml.rag.retriever import RetrievedChunk
 from fraudlens_ml.sar import SarCitation, SarFeature, SarInput
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
@@ -45,7 +46,6 @@ from lib.vllm_bench.state import (
     CaseSet,
 )
 
-_EVIDENCE_REFS = ("case-evidence-transaction", "case-evidence-rules", "case-evidence-model")
 # The provider-free corpus must be reproducible from a clean checkout, so it scores through the
 # committed fixture bundle rather than config/sar-eval.yaml's calibration model — that one pins a
 # locally trained candidate which .gitignore (correctly) keeps out of the repository.
@@ -96,6 +96,8 @@ def build_benchmark_case(  # noqa: PLR0913 - explicit case metadata is persisted
     messages = _production_messages(sar_input)
     prompt_chars = sum(len(message.content) for message in messages)
     offered = tuple(citation.citation for citation in sar_input.citations)
+    model_input = project_for_model(sar_input, load_egress_policy())
+    evidence_refs = tuple(fact.ref for fact in build_evidence_catalog(model_input).facts)
     return BenchmarkCase(
         case_id=case_id,
         case_set=case_set,
@@ -106,8 +108,9 @@ def build_benchmark_case(  # noqa: PLR0913 - explicit case metadata is persisted
         required_facts=required_facts,
         offered_citation_ids=offered,
         expected_citation_ids=expected_citation_ids,
-        available_evidence_refs=() if case_set == "abstention" else _EVIDENCE_REFS,
+        available_evidence_refs=() if case_set == "abstention" else evidence_refs,
         payment_format=payment_format,
+        sar_input=sar_input,
         amount_band=_band(
             sar_input.amount,
             (Decimal("1000"), Decimal("10000"), Decimal("100000"), Decimal("Infinity")),
@@ -165,7 +168,6 @@ def _rag_result(expected_ids: tuple[str, ...]) -> RagResult:
     )
     return RagResult(
         citations=citations,
-        rag_context=build_rag_context(selected, max_chars=policy.regulation_corpus.snippet_chars),
         mode="lexical",
         rag_version="rag-v1",
     )

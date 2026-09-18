@@ -330,13 +330,63 @@ Prompts are **versioned templates** at `config/llm/prompts/sar/<id>.md` (YAML fr
 semantic version + a static instruction body). Every draft records the template's
 `prompt_version` (`<id>@<semver>`) and a `prompt_hash` (SHA-256 of the exact template bytes) on
 `sar_drafts`, so which prompt produced which SAR is auditable and any template edit is detectable.
-The model output is parsed into a strict structured schema. On the agent path, deterministic claim
-and citation-set checks run before the reviewer, then citation grounding drops any id absent from the
-supplied corpus only after review. The masked narrative, structured body, grounded citations, token
+The model output is parsed into a strict structured schema and judged by the shipped deterministic
+`SarQualityGate` **before** anything is persisted or streamed. On the agent path, the same claim and
+citation-set checks also run before the reviewer. The masked narrative, structured body, grounded citations, token
 usage, estimated USD cost, served model, workflow mode, and agent attempt provenance persist for the
 audit trail. Provider, guardrail, or agent-path failures either use the configured **live**
 single-writer fallback or record a failed SAR while preserving score + SHAP + RAG; live mode never
 silently substitutes the mock. Below-threshold runs never invoke RAG or SAR drafting.
+
+### The quality-gated cascade
+
+A SAR routing **profile** (`config/llm/sar-vllm.yml`) is an ordered list of stages. A one-stage
+profile behaves exactly as the pre-0.5.0 single-model path did; a multi-stage profile is a cascade.
+Each stage is attempted once, in order. Quality escalation is deliberately *not* the client's
+transport fallback: `LlmClient.fallbacks` handles a provider that is unreachable, a cascade stage
+handles a draft that is wrong, and no cascade stage carries `fallbacks`
+([ADR-030](adr/ADR-030-quality-gated-sar-model-cascade.md)).
+
+```mermaid
+flowchart LR
+    input["SarModelInput<br/>(projected, digest-verified)"] --> awq
+
+    subgraph tier1["Tier 1 — fast"]
+        awq["vLLM AWQ<br/>runpod-awq"]
+    end
+    subgraph tier2["Tier 2 — escalation"]
+        bf16["vLLM BF16<br/>runpod-bf16"]
+    end
+    subgraph tier3["Tier 3 — hosted (configured, unmeasured)"]
+        ext["OpenRouter ZDR<br/>synthetic-class only"]
+    end
+
+    awq --> g1{"SarQualityGate"}
+    g1 -- passed --> served["Served draft<br/>escalationTier recorded"]
+    g1 -- "citation_fabricated /<br/>schema_invalid / …" --> bf16
+    bf16 --> g2{"SarQualityGate"}
+    g2 -- passed --> served
+    g2 -- rejected --> ext
+    ext --> g3{"SarQualityGate"}
+    g3 -- passed --> served
+    g3 -- rejected --> failed["sar.cascade.failed<br/>reason codes, no narrative"]
+
+    classDef gate fill:#fff3cd,stroke:#a9862a;
+    classDef bad fill:#f8d7da,stroke:#a94442;
+    class g1,g2,g3 gate;
+    class failed bad;
+```
+
+A rejected stage's narrative is **never** emitted — not to SSE, not to the database, not to a
+reconnecting client replaying the stream. What is retained is the stage decision and its PHI-free
+reason codes, so an analyst can see that tier 1 was rejected and why, without ever seeing what it
+wrote. An exhausted cascade fails explicitly rather than degrading, and `sar_drafts.quality_status`
+becomes a real `not_run` / `passed` / `failed` driven by an evaluator that actually ran.
+
+The measured behaviour of this path over 1,000 synthetic cases is published in the
+[gated-cascade benchmark](../reference/benchmarks/vllm-gated-cascade-benchmark.md); the benchmark
+invokes these same profiles through the production drafter, so it cannot measure a path the product
+does not run.
 
 ## FraudLens governance mapping
 
@@ -519,6 +569,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `local_retrain_command` | `list` | `['uv', 'run', 'python', 'scripts/retrain.py']` | Command the local job backend runs for a retrain submission. |
 | `llm_mode` | `Literal` | `'mock'` | SAR drafter mode: 'mock' needs no keys/cost; 'live' calls a provider. |
 | `sar_config_file` | `str` | `'llm/sar.yml'` | SAR model-routing config resolved below the config directory. |
+| `sar_profile` | `str` | `''` | Named cascade profile to run when the routing config declares profiles; empty selects the config's single-model route. |
 | `multi_agent_sar_enabled` | `bool` | `False` | Process-level gate for bounded multi-agent SAR drafting; the feature is active only when the tenant-scoped system_config flag is also enabled. |
 | `multi_agent_config_file` | `str` | `'llm/agents.yml'` | Multi-agent configuration filename resolved below the config directory; absolute paths and upward traversal are rejected by the loader. |
 | `model_artifacts_dir` | `str` | `'data/models'` | Root dir (by version label) for model artifact bundles; the committed fixture lives here, candidates are written here, prod points it at Blob. |
@@ -777,6 +828,7 @@ erDiagram
         string pdf_blob_url
         string prompt_hash
         string prompt_version
+        json quality
         enum quality_status
         uuid reviewed_by FK
         integer revision_count
@@ -787,6 +839,28 @@ erDiagram
         datetime updated_at
         integer version
         string workflow
+    }
+    sar_generation_attempts {
+        uuid id PK
+        uuid agency_id FK
+        string connection
+        numeric cost_usd
+        datetime created_at
+        uuid draft_id FK
+        string error_code
+        integer latency_ms
+        string model_id
+        integer ordinal
+        string outcome
+        string policy_hash
+        string prompt_hash
+        json quality
+        json reason_codes
+        integer retry_count
+        uuid run_id FK
+        string served_model
+        string stage
+        json token_usage
     }
     system_config {
         uuid id PK
@@ -856,6 +930,7 @@ erDiagram
     agencies ||--o{ model_inference_logs : "agency_id"
     agencies ||--o{ rag_retrievals : "agency_id"
     agencies ||--o{ sar_drafts : "agency_id"
+    agencies ||--o{ sar_generation_attempts : "agency_id"
     agencies ||--o{ system_config : "agency_id"
     agencies ||--o{ training_labels : "agency_id"
     agencies ||--o{ transactions : "agency_id"
@@ -869,6 +944,7 @@ erDiagram
     analysis_runs ||--o{ model_inference_logs : "run_id"
     analysis_runs ||--o{ rag_retrievals : "run_id"
     analysis_runs ||--o{ sar_drafts : "run_id"
+    analysis_runs ||--o{ sar_generation_attempts : "run_id"
     analysis_runs ||--o{ training_labels : "run_id"
     model_training_runs ||--o{ model_versions : "training_run_id"
     model_versions ||--o{ drift_reports : "model_version_id"
@@ -878,6 +954,7 @@ erDiagram
     model_versions ||--o{ model_evaluations : "baseline_version_id"
     model_versions ||--o{ model_evaluations : "model_version_id"
     model_versions ||--o{ model_inference_logs : "model_version_id"
+    sar_drafts ||--o{ sar_generation_attempts : "draft_id"
     training_datasets ||--o{ model_training_runs : "dataset_id"
     transactions ||--o{ alerts : "transaction_id"
     transactions ||--o{ analysis_runs : "transaction_id"

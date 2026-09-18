@@ -72,6 +72,10 @@ class PipelineEventType(StrEnum):
     STEP_SHAP_COMPLETED = "step.shap.completed"
     STEP_RAG_COMPLETED = "step.rag.completed"
     SAR_STARTED = "sar.started"
+    SAR_STAGE_STARTED = "sar.stage.started"
+    SAR_STAGE_REJECTED = "sar.stage.rejected"
+    SAR_ESCALATED = "sar.escalated"
+    SAR_CASCADE_FAILED = "sar.cascade.failed"
     AGENT_STARTED = "agent.started"
     AGENT_COMPLETED = "agent.completed"
     AGENT_REVISION_REQUESTED = "agent.revision.requested"
@@ -129,15 +133,12 @@ class ShapResult(BaseModel):
 
 
 class RagResult(BaseModel):
-    """The light retriever output: grounded citations, the fenced prompt block, and chunks."""
+    """The light retriever output: grounded citations and the PHI-free chunks they came from."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     citations: tuple[SarCitation, ...] = Field(
         default=(), description="Deduplicated, escaped regulatory citations for the run."
-    )
-    rag_context: str = Field(
-        default="", description="Pre-fenced, escaped regulation block for the prompt (RAG-as-data)."
     )
     mode: str = Field(
         default="empty", description="Retrieval degradation mode: 'vector' | 'lexical' | 'empty'."

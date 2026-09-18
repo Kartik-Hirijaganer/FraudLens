@@ -27,11 +27,9 @@ from sqlalchemy.pool import StaticPool
 from fraudlens_backend.db.models import Base
 from fraudlens_backend.main import create_app
 from fraudlens_backend.settings import AppSettings
-from fraudlens_core import RiskBand, RuleContext
-from fraudlens_core.rules.base import AmlRuleType, RuleHit, RuleTransaction, TransactionDirection
-from fraudlens_ml.rag.citations import escape_as_data
-from fraudlens_ml.rag.ingest import chunk_corpus, load_corpus
-from fraudlens_ml.sar import SarCitation, SarFeature, SarInput
+from fraudlens_core import RuleContext
+from fraudlens_core.rules.base import RuleTransaction, TransactionDirection
+from fraudlens_ml.sar import SarCitation, SarInput
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,20 +44,15 @@ _FIXTURES_DIR = str(Path(__file__).resolve().parent / "fixtures")
 if _FIXTURES_DIR not in sys.path:
     sys.path.insert(0, _FIXTURES_DIR)
 
+from sar_inputs import build_sar_input, structuring_citation  # noqa: E402 - needs the path above
+
 # The committed Phase 5 fixture model bundle the scorer/explainer tests load.
 FIXTURE_MODEL_DIR = _REPO_ROOT / "data" / "models" / "v0-fixture"
 
 
 def _structuring_citation() -> SarCitation:
     """Return one exact, digest-verifiable citation from the committed corpus."""
-    chunks = chunk_corpus(load_corpus(_REPO_ROOT / "data" / "regulations"))
-    chunk = next(item for item in chunks if item.citation == "31 CFR 1010.314")
-    return SarCitation(
-        citation=chunk.citation,
-        title=chunk.title,
-        source=chunk.source,
-        snippet=escape_as_data(chunk.text),
-    )
+    return structuring_citation()
 
 
 # Test templates are examples to copy, not live tests.
@@ -109,39 +102,7 @@ def make_sar_input() -> Callable[..., SarInput]:
     """Return a factory building a PHI-free SarInput for the SAR-drafting tests."""
 
     def _make(**overrides: Any) -> SarInput:
-        params: dict[str, Any] = {
-            "agency_id": "agency-1",
-            "transaction_id": "txn-1",
-            "source": "synthetic-generator",
-            "risk_band": RiskBand.HIGH,
-            "fraud_probability": 0.91,
-            "amount": Decimal("9500.00"),
-            "currency": "USD",
-            "country": "US",
-            "channel": "wire",
-            "direction": TransactionDirection.OUTBOUND,
-            "occurred_at": datetime(2024, 6, 1, 14, 0, tzinfo=UTC),
-            "model_version": "v0-fixture",
-            "rules_version": "rules-abc",
-            "rag_version": "rag-v1",
-            "rule_hits": (
-                RuleHit(
-                    code="STRUCT",
-                    rule_type=AmlRuleType.STRUCTURING,
-                    severity="high",
-                    weight=Decimal("1.0"),
-                    reason="Multiple sub-threshold deposits",
-                ),
-            ),
-            "top_features": (
-                SarFeature(feature="amount_log", value=9.16, shap_value=0.8),
-                SarFeature(feature="velocity_24h", value=5.0, shap_value=-0.2),
-            ),
-            "citations": (_structuring_citation(),),
-            "rag_context": "<<REGS>>\n[31 CFR 1010.314] Structuring\nsafe reference text\n<<END>>",
-        }
-        params.update(overrides)
-        return SarInput(**params)
+        return build_sar_input(**overrides)
 
     return _make
 

@@ -5,11 +5,21 @@ Key classes:
 - QualitySummary: aggregate quality rates and pre-filter fabrication counts for one level or arm.
 
 Key functions:
+- evidence_catalog: rebuild one case's production evidence catalog, or an empty one for v1.
+- case_verdict: judge one persisted output with the shipped gate over a case's vocabulary.
 - evaluate_case: score one raw model output against its closed case expectations.
 - summarize_quality: aggregate aligned measurements and cases.
 
 Notes:
-- Fabricated references are counted from ungrounded model JSON before any filtering can hide them.
+- Fabricated references are counted from ungrounded model JSON before any filtering can hide
+  them.
+- Abstention correctness is None, never 1.0, when no abstention case was evaluated. A scenario
+  run accepts only served drafts, so a default of 1.0 published a perfect score for something
+  the run never measured — exactly the self-agreeing metric release 0.5.0 exists to remove.
+- The pass/fail half of `useful` is the SHIPPED gate (`evaluate_sar_quality`), not a locally
+  re-derived predicate (AD-4.1): a draft the benchmark calls useful is one production would have
+  served. What stays local is only what the gate cannot know at runtime — expected-citation recall
+  and required-fact coverage need the ground truth a benchmark case carries and a request does not.
 """
 
 from __future__ import annotations
@@ -20,16 +30,22 @@ from statistics import mean
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from fraudlens_backend.agents.checks import evaluate_draft_checks
+from fraudlens_backend.sar.egress import EgressPolicy, load_egress_policy, project_for_model
+from fraudlens_backend.sar.evidence import SarEvidenceCatalog, build_evidence_catalog
+from fraudlens_backend.sar.quality_gate import SarQualityGate, evaluate_sar_quality
 from fraudlens_backend.sar.schema import SarSchemaError, parse_content
 from fraudlens_ml.evaluation.citations import citation_precision_recall, required_fact_coverage
-from fraudlens_ml.sar import SarCitation
+from fraudlens_ml.sar import SarCitation, SarGateReason, SarQualityGateResult
 from lib.vllm_bench.config import QualityConfig
 from lib.vllm_bench.state import BenchmarkCase, RequestMeasurement
 
 _MODEL_CONFIG = ConfigDict(
     frozen=True, extra="forbid", alias_generator=to_camel, populate_by_name=True
 )
+# A protocol-v1 case carries only ground-truth citation and fact expectations, so its asserted-fact
+# rules have nothing to judge; a v2+ case carries the production SAR input, whose catalog is
+# rebuilt through the production projection exactly as the drafter does at request time.
+_EMPTY_CATALOG = SarEvidenceCatalog(facts=())
 
 
 class CaseQuality(BaseModel):
@@ -61,7 +77,12 @@ class QualitySummary(BaseModel):
     reference_validity: float = Field(..., ge=0, le=1, description="Mean reference validity.")
     citation_recall: float = Field(..., ge=0, le=1, description="Mean expected-reference recall.")
     required_fact_coverage: float = Field(..., ge=0, le=1, description="Mean fact coverage.")
-    abstention_correctness: float = Field(..., ge=0, le=1, description="Evidence-free accuracy.")
+    abstention_correctness: float | None = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Evidence-free accuracy, or None when no abstention case was evaluated.",
+    )
     fabricated_reference_attempts: int = Field(..., ge=0, description="Fabricated-id total.")
     truncation_rate: float = Field(..., ge=0, le=1, description="Length-finish rate.")
     unsupported_claim_flags: int = Field(..., ge=0, description="Unsupported-claim total.")
@@ -76,10 +97,38 @@ def _available(ids: Sequence[str]) -> tuple[SarCitation, ...]:
     )
 
 
+def evidence_catalog(case: BenchmarkCase, policy: EgressPolicy | None = None) -> SarEvidenceCatalog:
+    """Rebuild the production evidence catalog for one case; empty for a protocol-v1 corpus."""
+    if case.sar_input is None:
+        return _EMPTY_CATALOG
+    return build_evidence_catalog(project_for_model(case.sar_input, policy or load_egress_policy()))
+
+
+def case_verdict(
+    case: BenchmarkCase,
+    measurement: RequestMeasurement,
+    gate: SarQualityGate,
+    catalog: SarEvidenceCatalog | None = None,
+) -> SarQualityGateResult:
+    """Judge one persisted output with the shipped gate over this case's closed vocabulary."""
+    if measurement.error_code is not None:
+        return gate.rejected(SarGateReason.SCHEMA_INVALID)
+    return evaluate_sar_quality(
+        gate,
+        measurement.content,
+        available=_available(case.offered_citation_ids),
+        catalog=catalog if catalog is not None else evidence_catalog(case),
+        finish_reason=measurement.finish_reason,
+        available_evidence_refs=case.available_evidence_refs,
+    )
+
+
 def evaluate_case(
     case: BenchmarkCase,
     measurement: RequestMeasurement,
     policy: QualityConfig,
+    gate: SarQualityGate,
+    catalog: SarEvidenceCatalog | None = None,
 ) -> CaseQuality:
     """Evaluate one raw output before citation grounding or rendering can alter it."""
     if measurement.error_code is not None:
@@ -122,18 +171,14 @@ def evaluate_case(
         produced, case.offered_citation_ids, case.expected_citation_ids
     )
     facts = required_fact_coverage(case.required_facts, measurement.content)
-    checks = evaluate_draft_checks(
-        content,
-        _available(case.offered_citation_ids),
-        available_evidence_refs=case.available_evidence_refs,
-    )
+    verdict = case_verdict(case, measurement, gate, catalog)
+    checks = verdict.checks
     abstention = not produced and not content.claims if case.case_set == "abstention" else None
     truncated = measurement.finish_reason == "length"
     useful = (
-        citation.precision >= policy.reference_validity_min
+        verdict.passed
+        and citation.precision >= policy.reference_validity_min
         and facts.coverage >= policy.coverage_warn_min
-        and checks.passed
-        and not truncated
         and abstention is not False
     )
     return CaseQuality(
@@ -154,9 +199,18 @@ def summarize_quality(
     cases: Mapping[str, BenchmarkCase],
     measurements: Sequence[RequestMeasurement],
     policy: QualityConfig,
+    gate: SarQualityGate,
 ) -> tuple[QualitySummary, tuple[CaseQuality, ...]]:
     """Aggregate deterministic quality over aligned case measurements."""
-    results = tuple(evaluate_case(cases[item.case_id], item, policy) for item in measurements)
+    egress = load_egress_policy()
+    catalogs = {
+        case_id: evidence_catalog(cases[case_id], egress)
+        for case_id in {item.case_id for item in measurements}
+    }
+    results = tuple(
+        evaluate_case(cases[item.case_id], item, policy, gate, catalogs[item.case_id])
+        for item in measurements
+    )
     if not results:
         return (
             QualitySummary(
@@ -165,7 +219,7 @@ def summarize_quality(
                 reference_validity=0,
                 citation_recall=0,
                 required_fact_coverage=0,
-                abstention_correctness=0,
+                abstention_correctness=None,
                 fabricated_reference_attempts=0,
                 truncation_rate=0,
                 unsupported_claim_flags=0,
@@ -182,7 +236,7 @@ def summarize_quality(
         reference_validity=mean(item.reference_validity for item in results),
         citation_recall=mean(item.citation_recall for item in results),
         required_fact_coverage=mean(item.required_fact_coverage for item in results),
-        abstention_correctness=mean(abstentions) if abstentions else 1.0,
+        abstention_correctness=mean(abstentions) if abstentions else None,
         fabricated_reference_attempts=sum(item.fabricated_reference_attempts for item in results),
         truncation_rate=mean(item.truncated for item in results),
         unsupported_claim_flags=sum(item.unsupported_claim_flags for item in results),

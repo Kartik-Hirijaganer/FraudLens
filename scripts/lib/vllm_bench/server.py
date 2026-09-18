@@ -13,6 +13,7 @@ Key functions:
 - stop: stop the configured Docker container or direct vLLM process.
 - image_digest: resolve the locally installed image digest.
 - server_provenance: bind startup, image, GPU, host, and price observations.
+- verify_provenance: assert one observed server still matches the frozen protocol and rate.
 
 Notes:
 - Command construction never interpolates secret values or invokes a shell.
@@ -39,6 +40,7 @@ _KV_CACHE = re.compile(r"GPU KV cache size:\s*(?P<value>[0-9,]+)\s+tokens", re.I
 _CONCURRENCY = re.compile(r"Maximum concurrency[^:]*:\s*(?P<value>[0-9.]+)x", re.IGNORECASE)
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _RESTART_MEMORY_TOLERANCE = 0.01
+_RATE_TOLERANCE = 1e-9
 _RUNTIME_ENV = "VLLM_BENCH_RUNTIME"
 _PROCESS_STATE_NAME = "server-process.json"
 _PROCESS_LOG_NAME = "server-startup.log"
@@ -80,7 +82,6 @@ def _server_arguments(config: VllmBenchConfig, arm: ArmName, *, host: str) -> tu
     selected = config.arms[arm]
     server = config.server
     arguments = [
-        "--model",
         selected.model,
         "--revision",
         selected.revision,
@@ -182,10 +183,15 @@ def _command_output(command: Sequence[str]) -> str:
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout
 
 
-def read_startup_logs(config: VllmBenchConfig, *, repo_root: Path) -> str:
-    """Read configured startup logs from a file, Docker container, or Kubernetes pod."""
+def read_startup_logs(
+    config: VllmBenchConfig, *, repo_root: Path, command_prefix: Sequence[str] = ()
+) -> str:
+    """Read startup logs locally or through one runtime-only remote-command prefix."""
     if _runtime() == "process":
-        return (repo_root / config.paths.output_dir / _PROCESS_LOG_NAME).read_text(encoding="utf-8")
+        path = repo_root / config.paths.output_dir / _PROCESS_LOG_NAME
+        if command_prefix:
+            return _command_output((*command_prefix, "cat", str(path)))
+        return path.read_text(encoding="utf-8")
     source = config.server.log_source
     if source.kind == "file":
         path = Path(source.target)
@@ -335,6 +341,7 @@ def server_provenance(  # noqa: PLR0913 - provenance binds explicit observed evi
         vllm_version=config.server.image_tag,
         gpu_name=facts.gpu_name,
         driver_version=facts.driver_version,
+        cuda_version=facts.cuda_version,
         host_key=host_key,
         provider=host.provider,
         sku=host.sku,
@@ -348,3 +355,42 @@ def server_provenance(  # noqa: PLR0913 - provenance binds explicit observed evi
         kv_cache_tokens=startup.kv_cache_tokens,
         maximum_concurrency=startup.maximum_concurrency,
     )
+
+
+def verify_provenance(config: VllmBenchConfig, server: ServerProvenance, arm: ArmName) -> None:
+    """Fail closed when one observed server drifted from the frozen protocol or its rate quote."""
+    selected = config.arms[arm]
+    host = config.cost.hosts.get(server.host_key)
+    if host is None or server.purchase_option not in host.prices:
+        raise ValueError("server cost provenance is absent from the frozen protocol")
+    expected = (
+        selected.model,
+        selected.revision,
+        selected.tokenizer,
+        selected.tokenizer_revision,
+        f"{config.server.image}:{config.server.image_tag}",
+        config.server.image_tag,
+        float(selected.safetensors_total_gib),
+        host.provider,
+        host.sku,
+        host.region,
+        host.price_source_url,
+        host.price_verified_at.isoformat(),
+    )
+    observed = (
+        server.model,
+        server.model_revision,
+        server.tokenizer,
+        server.tokenizer_revision,
+        server.image,
+        server.vllm_version,
+        server.safetensors_total_gib,
+        server.provider,
+        server.sku,
+        server.region,
+        server.price_source_url,
+        server.price_verified_at,
+    )
+    rate = float(host.prices[server.purchase_option])
+    if observed != expected or abs(server.hourly_rate_usd - rate) > _RATE_TOLERANCE:
+        raise ValueError(f"{arm} server provenance drifted from the frozen protocol")

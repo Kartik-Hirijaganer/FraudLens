@@ -20,7 +20,7 @@ import pytest
 from pydantic import ValidationError
 from runpod_gpu_fakes import RUN_ID, pod
 
-from lib.runpod_gpu.api import RunpodApi, api_key_from_env, read_gpu_inventory
+from lib.runpod_gpu.api import RunpodApi, RunpodPod, api_key_from_env, read_gpu_inventory
 from lib.runpod_gpu.config import RunpodGpuConfig, load_config
 from lib.runpod_gpu.models import CreatePodRequest
 
@@ -36,6 +36,7 @@ def test_config_pins_secure_single_gpu_and_bounded_paths() -> None:
     assert config.pod.gpu_count == 1
     assert config.pod.volume_encrypted is True
     assert config.pod.ports == ("22/tcp",)
+    assert str(config.model_registry_base_url) == "https://huggingface.co/"
     assert "@sha256:" in config.pod.image_reference
     assert config.pod_name(RUN_ID) == f"fraudlens-{RUN_ID}"
     with pytest.raises(ValueError, match="16 lowercase hex"):
@@ -59,7 +60,20 @@ def test_config_pins_secure_single_gpu_and_bounded_paths() -> None:
         ),
         (
             lambda value: value["remote"].update({"api_key_path": "/tmp/key"}),
+            "contained by secret_root",
+        ),
+        (
+            lambda value: value["remote"].update({"git_commit_path": "/tmp/commit"}),
             "contained by state_root",
+        ),
+        (
+            lambda value: value["remote"].update(
+                {
+                    "secret_root": "/workspace/.fraudlens/secrets",
+                    "api_key_path": "/workspace/.fraudlens/secrets/key",
+                }
+            ),
+            "must not overlap",
         ),
     ),
 )
@@ -105,7 +119,6 @@ def test_rest_client_uses_header_auth_and_typed_lifecycle() -> None:
             "containerDiskInGb": 50,
             "volumeInGb": 50,
             "volumeMountPath": "/workspace",
-            "volumeEncrypted": True,
             "ports": ["22/tcp"],
             "globalNetworking": False,
             "allowedCudaVersions": ["12.8"],
@@ -129,7 +142,10 @@ def test_rest_client_uses_header_auth_and_typed_lifecycle() -> None:
         api.stop_pod(current.pod_id)
         api.delete_pod(current.pod_id)
         assert api.list_network_volumes()[0].size_gb == 50
-    assert any(method == "POST" and body and "volumeEncrypted" in body for method, _, body in seen)
+    assert any(method == "POST" and body and "gpuTypeIds" in body for method, _, body in seen)
+    assert not any(
+        method == "POST" and body and "volumeEncrypted" in body for method, _, body in seen
+    )
 
 
 def test_rest_client_accepts_current_sparse_pod_response() -> None:
@@ -206,3 +222,27 @@ def test_api_key_env_and_runpodctl_inventory(monkeypatch) -> None:
         lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout=output),
     )
     assert read_gpu_inventory()[0].secure_cloud is True
+
+
+def test_a_freshly_created_pod_without_an_address_still_parses() -> None:
+    """A Pod reports `publicIp: ""` until placement completes, and it is already billing.
+
+    Parsing that as an address used to fail the whole create response, leaving a running Pod
+    with no local session — the exact orphan the teardown evidence is supposed to prevent.
+    """
+    pod = RunpodPod.model_validate(
+        {
+            "id": "pod-1",
+            "name": "fraudlens-vllm-bench-0123456789abcdef-awq",
+            "desiredStatus": "RUNNING",
+            "costPerHr": "0.740000",
+            "publicIp": "",
+            "volumeEncrypted": True,
+            "volumeInGb": 50,
+            "volumeMountPath": "/workspace",
+        }
+    )
+
+    assert pod.public_ip is None
+    assert pod.ssh_port is None
+    assert pod.name.endswith("-awq")

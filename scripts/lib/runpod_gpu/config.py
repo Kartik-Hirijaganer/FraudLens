@@ -26,6 +26,10 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "runpod-gpu.yaml"
 RUN_ID_PATTERN = r"^vllm-bench-[0-9a-f]{16}$"
+# A cascade scenario needs two endpoints at once, so a session is identified by run AND role.
+# The role is part of the Pod name and of the local state path, which is what keeps `verify-clean`
+# able to prove each endpoint is gone rather than only the first one.
+ROLE_PATTERN = r"^[a-z][a-z0-9]{0,15}$"
 IMAGE_DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _ENV_NAME_PATTERN = r"^[A-Z][A-Z0-9_]+$"
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -104,19 +108,28 @@ class SshConfig(BaseModel):
 
 
 class RemoteConfig(BaseModel):
-    """Bounded locations within the encrypted RunPod volume."""
+    """Bounded persistent and container-disk locations on a RunPod Pod."""
 
     model_config = _MODEL_CONFIG
 
     source_link: str = Field(..., description="Stable symlink to the synced commit tree.")
     state_root: str = Field(..., description="Private operator state root on the Pod volume.")
+    secret_root: str = Field(..., description="Private state root on the Pod container disk.")
     local_output_link: str = Field(..., description="Persistent target for repository .local.")
     api_key_path: str = Field(..., description="Mode-0600 vLLM bearer-token path.")
+    git_commit_path: str = Field(..., description="Session-injected source commit path.")
     uv_version: str = Field(
         ..., pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$", description="Pinned remote uv version."
     )
 
-    @field_validator("source_link", "state_root", "local_output_link", "api_key_path")
+    @field_validator(
+        "source_link",
+        "state_root",
+        "secret_root",
+        "local_output_link",
+        "api_key_path",
+        "git_commit_path",
+    )
     @classmethod
     def _absolute_remote_path(cls, value: str) -> str:
         path = PurePosixPath(value)
@@ -131,11 +144,17 @@ class RemoteConfig(BaseModel):
     @model_validator(mode="after")
     def _contained_paths(self) -> RemoteConfig:
         state = PurePosixPath(self.state_root)
+        secret = PurePosixPath(self.secret_root)
         if not all(
             state == PurePosixPath(value) or state in PurePosixPath(value).parents
-            for value in (self.local_output_link, self.api_key_path)
+            for value in (self.local_output_link, self.git_commit_path)
         ):
-            raise ValueError("remote state paths must be contained by state_root")
+            raise ValueError("persistent remote state paths must be contained by state_root")
+        key_path = PurePosixPath(self.api_key_path)
+        if secret != key_path and secret not in key_path.parents:
+            raise ValueError("api_key_path must be contained by secret_root")
+        if state == secret or state in secret.parents or secret in state.parents:
+            raise ValueError("secret_root and persistent state_root must not overlap")
         return self
 
 
@@ -145,6 +164,9 @@ class RunpodGpuConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     api_base_url: HttpUrl = Field(..., description="RunPod REST API base URL.")
+    model_registry_base_url: HttpUrl = Field(
+        ..., description="Model-registry origin checked from each paid Pod before setup."
+    )
     api_key_env: str = Field(
         ..., pattern=_ENV_NAME_PATTERN, description="Environment name holding the API key."
     )
@@ -177,9 +199,19 @@ class RunpodGpuConfig(BaseModel):
             raise ValueError("run ID must match vllm-bench-<16 lowercase hex>")
         return run_id
 
-    def pod_name(self, run_id: str) -> str:
+    def validate_role(self, role: str | None) -> str | None:
+        """Accept a short endpoint-role label, or None for a single-endpoint session."""
+        if role is None:
+            return None
+        if re.fullmatch(ROLE_PATTERN, role) is None:
+            raise ValueError("RunPod endpoint role must be a short lowercase label")
+        return role
+
+    def pod_name(self, run_id: str, role: str | None = None) -> str:
         """Derive the sole managed Pod name for one validated run."""
-        return f"{self.name_prefix}-{self.validate_run_id(run_id)}"
+        validated = self.validate_role(role)
+        name = f"{self.name_prefix}-{self.validate_run_id(run_id)}"
+        return f"{name}-{validated}" if validated else name
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> RunpodGpuConfig:

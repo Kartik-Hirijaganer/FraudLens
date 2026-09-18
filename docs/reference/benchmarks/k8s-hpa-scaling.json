@@ -44,7 +44,9 @@
     "runs_submitted": 0,
     "succeeded": 1317568
   },
+  "paid_session": null,
   "platform": "kind",
+  "run_id": "k8s-demo-d1dfd6be47b2f876",
   "samples": [
     {
       "cpu_percent": null,

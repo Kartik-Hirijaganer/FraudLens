@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from quality_gates import grounding_gate
 
 from fraudlens_backend.agents.checks import evaluate_draft_checks
 from fraudlens_backend.agents.config import AgentRole, AgentsConfig, load_agents_config
@@ -36,6 +37,7 @@ from fraudlens_ml.sar import (
     SarDraftContent,
     SarDraftStatus,
     SarEventType,
+    SarGateReason,
     SarInput,
     SarStreamEvent,
 )
@@ -367,7 +369,13 @@ async def test_degraded_reviewer_defers_to_passing_deterministic_checks(make_sar
 
 
 @pytest.mark.asyncio
-async def test_fabricated_citation_reaches_reviewer_then_is_grounded(make_sar_input) -> None:
+async def test_fabricated_citation_reaches_reviewer_then_is_rejected(make_sar_input) -> None:
+    """Release 0.5.0 rejects a fabricated id instead of grounding it away (Phase 2.8).
+
+    Before the production gate reached this path the same draft was persisted with an empty
+    `citedRegulations` list and `status=draft` — the fabrication silently deleted, the artifact
+    indistinguishable from a correctly uncited one.
+    """
     completed = AgentExecutionStatus.COMPLETED
     runtime = _FakeRuntime(
         _outcomes(
@@ -388,6 +396,7 @@ async def test_fabricated_citation_reaches_reviewer_then_is_grounded(make_sar_in
         config=config,
         prompts=_prompts(),
         budget=BudgetGuard(session_limit_usd=Decimal("1")),
+        gate=grounding_gate(),
     )
 
     events = [event async for event in drafter.draft(make_sar_input())]
@@ -396,10 +405,12 @@ async def test_fabricated_citation_reaches_reviewer_then_is_grounded(make_sar_in
 
     assert reviewer_payload["draft"]["citedRegulations"] == ["99 FAKE 1"]
     assert reviewer_payload["deterministicChecks"]["fabricatedCitationIds"] == ["99 FAKE 1"]
-    assert terminal is not None and terminal.status is SarDraftStatus.DRAFT
-    assert terminal.structured is not None
-    assert terminal.structured.cited_regulations == ()
-    assert terminal.structured.claims[0].citation_ids == ()
+    assert terminal is not None and terminal.status is SarDraftStatus.FAILED
+    assert terminal.error_code == "sar_quality_gate_failed"
+    assert terminal.structured is None  # nothing reviewable is produced from a fabricated id
+    assert terminal.quality is not None
+    assert SarGateReason.CITATION_FABRICATED in terminal.quality.reasons
+    assert terminal.quality.fabricated_citation_ids == ("99 FAKE 1",)
     assert terminal.workflow == "multi_agent" and terminal.revision_count == 1
 
 
@@ -414,6 +425,7 @@ async def test_writer_failure_drafter_emits_failed_terminal_result(make_sar_inpu
         config=config,
         prompts=_prompts(),
         budget=BudgetGuard(session_limit_usd=Decimal("1")),
+        gate=grounding_gate(),
     )
 
     events = [event async for event in drafter.draft(make_sar_input())]

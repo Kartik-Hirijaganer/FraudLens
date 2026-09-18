@@ -31,6 +31,16 @@ Notes:
   every `infisical_required_env_keys` name is present and non-blank — "down" (503) when a
   secret sync fails — and reports "skipped" while no delivery is declared. Its detail carries
   a COUNT, never key names, because /readyz is unauthenticated.
+- The LLM probe validates EVERY active cascade stage, resolving each stage's NAMED CONNECTION
+  from providers.yml at probe time rather than trusting a static single provider entry: two vLLM
+  tiers share one governance entry but must answer on two different injected endpoints, so a
+  cascade whose BF16 route is down must not report ready (release 0.5.0 Phase 2).
+- A stage whose connection declares `allowed_upstreams` (the hosted ZDR route) additionally has
+  its eligibility REVALIDATED from live route metadata rather than trusted from static YAML:
+  which upstreams may serve a hosted model changes over time, so a route whose permitted
+  upstreams have all disappeared reports down instead of silently drafting through an ungoverned
+  one. The ZDR request options themselves ride on every call; readiness proves a permitted
+  upstream still exists to honour them.
 - The two REMOTE probes (Supabase JWKS, active LLM provider) are cached for 5 minutes on
   app.state.readiness_probe_cache, so a 30-second platform probe cadence no longer turns
   readiness into thousands of outbound provider calls a day. The database and local ChromaDB
@@ -44,6 +54,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -57,9 +68,16 @@ from starlette.responses import Response
 
 from fraudlens_backend.db.session import ping_database
 from fraudlens_backend.models.common import CamelModel
-from fraudlens_backend.sar.factory import load_sar_llm_config
+from fraudlens_backend.sar.factory import SarTierConfig, load_sar_llm_config
 from fraudlens_backend.settings import AppSettings, _config_anchored
-from fraudlens_llm import Protocol, get_llm_settings, load_providers, resolve_base_url
+from fraudlens_llm import (
+    LlmSettings,
+    Protocol,
+    Providers,
+    get_llm_settings,
+    load_providers,
+    resolve_base_url,
+)
 
 router = APIRouter(tags=["ops"])
 _HTTP_OK = 200
@@ -123,33 +141,76 @@ async def _cached(
 
 
 async def _probe_llm_provider(settings: AppSettings, timeout: float) -> DependencyCheck:
-    """Probe the active SAR provider's OpenAI-compatible models endpoint."""
+    """Probe EVERY active SAR stage's route; a cascade is only ready when all stages are."""
     if settings.llm_mode != "live":
         return _skipped("llmProvider")
-    provider_name = "unconfigured"
+    detail = "unconfigured"
     try:
         llm_settings = get_llm_settings()
         sar_config = load_sar_llm_config(_config_anchored(settings.sar_config_file))
-        provider_name, separator, _model_id = sar_config.model.partition("/")
-        if not separator:
-            raise ValueError("SAR model reference has no provider")
-        provider = load_providers(llm_settings.providers_path).get(provider_name)
-        if provider.protocol != Protocol.OPENAI_COMPATIBLE:
-            raise ValueError("SAR provider does not expose an OpenAI-compatible models route")
-        base_url = resolve_base_url(provider, llm_settings)
-        api_key = os.environ.get(provider.api_key_env)
-        if not api_key:
-            raise ValueError("SAR provider API key was not injected")
-        status = await _fetch_status(
-            f"{base_url.rstrip('/')}/models",
-            min(timeout, provider.timeout_s),
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
+        stages = sar_config.stages(settings.sar_profile or None)
+        providers = load_providers(llm_settings.providers_path)
+        for stage in stages:
+            detail = stage.name
+            await _probe_stage(stage, providers, llm_settings, timeout)
     except Exception:  # provider/config/reachability failures all fail closed
-        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
+        return DependencyCheck(name="llmProvider", status="down", detail=detail)
+    return DependencyCheck(name="llmProvider", status="ok", detail=detail)
+
+
+async def _probe_stage(
+    stage: SarTierConfig,
+    providers: Providers,
+    llm_settings: LlmSettings,
+    timeout: float,
+) -> None:
+    """Resolve one stage's named route and assert its endpoint answers; raise otherwise."""
+    provider_name, separator, model_id = stage.model.partition("/")
+    if not separator:
+        raise ValueError("SAR model reference has no provider")
+    provider = providers.route(provider_name, stage.connection)
+    if provider.protocol != Protocol.OPENAI_COMPATIBLE:
+        raise ValueError("SAR stage provider does not expose an OpenAI-compatible models route")
+    base_url = resolve_base_url(provider, llm_settings)
+    api_key = os.environ.get(provider.api_key_env)
+    if not api_key:
+        raise ValueError("SAR stage API key was not injected")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    stage_timeout = min(timeout, provider.timeout_s)
+    status = await _fetch_status(f"{base_url.rstrip('/')}/models", stage_timeout, headers=headers)
     if status != _HTTP_OK:
-        return DependencyCheck(name="llmProvider", status="down", detail=provider_name)
-    return DependencyCheck(name="llmProvider", status="ok", detail=provider_name)
+        raise ValueError("SAR stage route did not answer")
+    allowed = providers.connection(stage.connection).allowed_upstreams if stage.connection else ()
+    if allowed:
+        await _revalidate_route_eligibility(
+            base_url, model_id, allowed, stage_timeout, headers=headers
+        )
+
+
+async def _revalidate_route_eligibility(
+    base_url: str,
+    model_id: str,
+    allowed_upstreams: tuple[str, ...],
+    timeout_seconds: float,
+    *,
+    headers: dict[str, str],
+) -> None:
+    """Re-derive a hosted route's live upstream eligibility; raise when none remains permitted."""
+    payload = await _fetch_json(
+        f"{base_url.rstrip('/')}/models/{model_id}/endpoints", timeout_seconds, headers=headers
+    )
+    data = payload.get("data")
+    endpoints = data.get("endpoints") if isinstance(data, dict) else None
+    if not isinstance(endpoints, list):
+        raise ValueError("SAR stage route metadata is unreadable")
+    permitted = {name.casefold() for name in allowed_upstreams}
+    served_by = {
+        str(endpoint.get("provider_name", "")).casefold()
+        for endpoint in endpoints
+        if isinstance(endpoint, dict)
+    }
+    if not served_by.intersection(permitted):
+        raise ValueError("SAR stage route has no permitted upstream")
 
 
 def get_readiness_probes(request: Request) -> list[ReadinessProbe]:
@@ -238,6 +299,25 @@ async def _fetch_status(
         request = url_request.Request(url, headers=headers or {})
         with url_request.urlopen(request, timeout=timeout_seconds) as response:
             return int(response.status)
+
+    return await asyncio.to_thread(_open)
+
+
+async def _fetch_json(
+    url: str,
+    timeout_seconds: float,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Fetch a URL in a worker thread and return its decoded JSON object."""
+
+    def _open() -> dict[str, object]:
+        request = url_request.Request(url, headers=headers or {})
+        with url_request.urlopen(request, timeout=timeout_seconds) as response:
+            decoded = json.loads(response.read().decode("utf-8"))
+        if not isinstance(decoded, dict):
+            raise ValueError("SAR stage route metadata is not an object")
+        return decoded
 
     return await asyncio.to_thread(_open)
 

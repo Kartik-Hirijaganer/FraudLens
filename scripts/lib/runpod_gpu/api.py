@@ -27,7 +27,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
 
 from lib.runpod_gpu.config import RunpodGpuConfig
 from lib.runpod_gpu.models import CreatePodRequest
@@ -95,12 +95,26 @@ class RunpodPod(BaseModel):
     public_ip: IPvAnyAddress | None = Field(
         default=None, alias="publicIp", description="Public SSH address when assigned."
     )
+
+    @field_validator("public_ip", mode="before")
+    @classmethod
+    def _unassigned_ip_is_absent(cls, value: object) -> object:
+        """Treat the provider's empty-string placeholder as "no address yet", not as an address.
+
+        A freshly created Pod reports `publicIp: ""` until placement completes. Parsing that as
+        an address fails the whole response, which previously left a BILLING Pod with no local
+        session because the create call raised after the provider had already made it.
+        """
+        return None if isinstance(value, str) and not value.strip() else value
+
     port_mappings: dict[str, int] | None = Field(
         default=None, alias="portMappings", description="Container-to-public TCP port mappings."
     )
     ports: tuple[str, ...] = Field(default=(), description="Declared exposed Pod ports.")
-    volume_encrypted: bool = Field(
-        ..., alias="volumeEncrypted", description="Whether Pod-local volume encryption is on."
+    volume_encrypted: bool | None = Field(
+        default=None,
+        alias="volumeEncrypted",
+        description="Reported Pod-local volume encryption; None when the provider omits it.",
     )
     volume_in_gb: int = Field(..., alias="volumeInGb", ge=0, description="Pod volume size.")
     volume_mount_path: str = Field(

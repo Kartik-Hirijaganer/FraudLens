@@ -25,8 +25,9 @@ Key functions:
 Notes:
 - A caller-provided data-class label is never accepted; source-to-class mapping comes only from
 policy and the persisted transaction source carried by SarInput.
-- Raw rag_context is intentionally ignored. Approved excerpts are reconstructed from citations
-only after their exact escaped snippet digest matches a chunk from the committed corpus.
+- Approved regulation excerpts are reconstructed from citations only after their exact escaped
+snippet digest matches a chunk from the committed corpus. There is no second pre-rendered
+regulation block to project: `SarInput.citations` is the only carrier (release 0.5.0 Phase 5).
 """
 
 from __future__ import annotations

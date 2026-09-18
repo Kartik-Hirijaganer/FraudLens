@@ -30,12 +30,14 @@ def test_committed_budget_has_the_exact_ceiling_allocations_margin_and_quotes() 
     config = load_budget_config(REPO_ROOT)
     assert config.ceiling_usd == Decimal("75.00")
     assert config.admission_margin == Decimal("0.30")
+    # Release 0.5.0 Phase 4 drew from reserve as governed live sessions exposed provider defects;
+    # the ceiling did not move, which is what the paired edit and exact-sum contract prove.
     assert config.allocations == {
         "azure_cpu_batch": Decimal("15.00"),
-        "gpu_benchmark": Decimal("10.00"),
+        "gpu_benchmark": Decimal("37.00"),
         "e2e_application_pass": Decimal("5.00"),
-        "supporting_resources": Decimal("20.00"),
-        "reserve": Decimal("25.00"),
+        "supporting_resources": Decimal("16.00"),
+        "reserve": Decimal("2.00"),
     }
     assert sum(config.allocations.values()) == config.ceiling_usd
     assert set(config.watchdog_hours) == set(config.allocations) - {"reserve"}
@@ -121,7 +123,19 @@ def test_committed_ledger_covers_all_published_reports() -> None:
         "aks-demo-20260915-01",
         "data-batch-20260914-pilot1",
         "gfp-c41b1fbb266f44d4",
+        "k8s-demo-d1dfd6be47b2f876",
         "sar-eval-e5c9a36b5f8a33f3",
+        "vllm-bench-042a265fdc42c9d4",
+        "vllm-bench-0a721bc3b5831216",
+        "vllm-bench-39007a09a3c83bcb",
+        "vllm-bench-445a5c1f412a96c8",
+        "vllm-bench-4c656331f7ce9466",
+        "vllm-bench-4ded2e5f759f7e82",
+        "vllm-bench-5de63d0b0fe17634",
+        "vllm-bench-82cddfec5c550250",
+        "vllm-bench-ba468433f6fd893a",
+        "vllm-bench-be12675628805a53",
+        "vllm-bench-ff008c8fe1668e25",
         "vllm-bench-f810b57a7b8ae05a",
     }
     batch = next(entry for entry in entries if entry.run_id == "data-batch-20260914-pilot1")
@@ -129,6 +143,14 @@ def test_committed_ledger_covers_all_published_reports() -> None:
     # The AKS session is closed and tied to its published paid-cluster evidence.
     aks = next(entry for entry in entries if entry.run_id == "aks-demo-20260915-01")
     assert aks.allocation == "supporting_resources"
+    # The zero-cost kind run is recorded too: a published report with no row is invisible to
+    # coverage, and "this one was free" belongs in the ledger rather than in an absence.
+    kind = next(entry for entry in entries if entry.run_id == "k8s-demo-d1dfd6be47b2f876")
+    assert (kind.budget_scope, kind.projected_cost_usd, kind.teardown_verified) == (
+        "historical",
+        Decimal("0"),
+        "not-applicable",
+    )
     assert aks.projected_cost_usd == Decimal("0.790000")
     assert aks.started_at == "2026-09-16T14:05:28Z"
     assert aks.stopped_at == "2026-09-16T17:19:25Z"

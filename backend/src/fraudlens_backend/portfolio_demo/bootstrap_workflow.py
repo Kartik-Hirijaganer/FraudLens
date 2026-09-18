@@ -38,6 +38,7 @@ from fraudlens_backend.db.models import (
     ModelInferenceLog,
     RagRetrieval,
     SarDraft,
+    SarGenerationAttempt,
     SarStatus,
     TrainingLabel,
     Transaction,
@@ -80,6 +81,7 @@ _SAR_DECISIONS: dict[SarStatus, SarReviewDecision] = {
 }
 _RESET_ORDER: tuple[type[Any], ...] = (
     AlertAction,
+    SarGenerationAttempt,
     SarDraft,
     Alert,
     AnalysisResult,

@@ -4,7 +4,7 @@
 
 [project]
 name = "fraudlens-core"
-version = "0.4.0"
+version = "0.5.0"
 description = "FraudLens shared domain types and multi-tenancy (agency_id) helpers."
 requires-python = ">=3.11"
 license = { text = "MIT" }

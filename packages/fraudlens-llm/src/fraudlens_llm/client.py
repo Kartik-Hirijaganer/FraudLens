@@ -14,6 +14,9 @@ Key functions:
 Notes:
 - Private adapters are never exported from fraudlens_llm.__all__.
 - Undeclared tool calls fail closed unless a caller explicitly captures them for audit/refusal.
+- A `StreamGenerationRequest` may name a connection route and a structured-output schema: the
+  quality-gated SAR cascade needs two distinct self-hosted endpoints and a closed citation enum,
+  and a schema requested from a model without `structured_output` still raises before any call.
 """
 
 from __future__ import annotations
@@ -181,8 +184,9 @@ class LlmClient:
             data_class=request.data_class,
             tools=None,
             tool_choice=None,
-            response_schema=None,
+            response_schema=request.response_schema,
             capture_undeclared_tool_calls=False,
+            connection=request.connection,
         )
         return await self._generate_with_fallbacks(
             prepared.resolved,
@@ -261,12 +265,14 @@ class LlmClient:
         tool_choice: str | None,
         response_schema: dict[str, Any] | None,
         capture_undeclared_tool_calls: bool,
+        connection: str | None = None,
     ) -> PreparedGeneration:
         """Resolve policy and input guardrails once for blocking or streaming transport."""
         resolved = resolve_model(
             self._catalog,
             self._providers,
             model or self._settings.default_model,
+            connection,
         )
         require_kind(resolved, Kind.CHAT)
         resolved_data_class = data_class or self._settings.default_data_class
@@ -391,6 +397,7 @@ class LlmClient:
                 card=target.card,
                 messages=messages,
                 params=params,
+                response_schema=response_schema,
             )
         return await self._adapter_for(target).generate(
             model_id=target.model_id,
@@ -438,8 +445,8 @@ class LlmClient:
         return InputGuardrails(messages=masked_messages, report=report)
 
     def _adapter_for(self, resolved: ResolvedModel) -> ProviderAdapter:
-        """Return or create the private adapter for a provider."""
-        adapter = self._adapters.get(resolved.provider)
+        """Return or create the private adapter for one provider or named connection route."""
+        adapter = self._adapters.get(resolved.transport_key)
         if adapter is not None:
             return adapter
         if resolved.provider_config.protocol == Protocol.OPENAI_COMPATIBLE:
@@ -452,12 +459,12 @@ class LlmClient:
             adapter = AnthropicAdapter(resolved.provider, resolved.provider_config)
         else:
             raise CapabilityMismatchError(f"Unsupported provider protocol for {resolved.provider}")
-        self._adapters[resolved.provider] = adapter
+        self._adapters[resolved.transport_key] = adapter
         return adapter
 
-    def _resolve_model(self, ref: str) -> ResolvedModel:
+    def _resolve_model(self, ref: str, connection: str | None = None) -> ResolvedModel:
         """Retain the established private resolution seam used by focused tests."""
-        return resolve_model(self._catalog, self._providers, ref)
+        return resolve_model(self._catalog, self._providers, ref, connection)
 
     def _streaming_adapter_for(self, resolved: ResolvedModel) -> StreamingProviderAdapter:
         """Return the native streaming adapter supported by OpenAI-compatible providers."""

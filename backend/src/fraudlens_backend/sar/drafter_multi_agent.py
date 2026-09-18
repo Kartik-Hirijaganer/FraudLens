@@ -12,6 +12,11 @@ Key functions:
 Notes:
 - `review_unresolved` and `review_unavailable` still produce drafts pending human review.
 - The outer workflow timeout yields a safe failed draft and never exposes an exception detail.
+- Since release 0.5.0 the reviewed writer output passes the SAME production `SarQualityGate` as the
+  single-writer cascade before persistence (Phase 2.8): a draft is a draft, and the gate runs on
+  the UNGROUNDED content so a fabricated id is rejected rather than quietly dropped by grounding.
+  Trusted evidence refs are the union of the deterministic catalog and the ids the graph harvested
+  from completed tool results, so an agent claim may cite either source but never invent one.
 """
 
 from __future__ import annotations
@@ -26,7 +31,14 @@ from fraudlens_backend.agents.graph import AgentGraph, AgentGraphResult
 from fraudlens_backend.agents.prompts import AgentPromptTemplate
 from fraudlens_backend.agents.runtime import AgentBudgetExceededError
 from fraudlens_backend.sar.budget import BudgetGuard, SarBudgetExceededError
-from fraudlens_backend.sar.egress import EgressBlockedError
+from fraudlens_backend.sar.egress import (
+    EgressBlockedError,
+    EgressPolicy,
+    load_egress_policy,
+    project_for_model,
+)
+from fraudlens_backend.sar.evidence import build_evidence_catalog
+from fraudlens_backend.sar.quality_gate import SarQualityGate
 from fraudlens_backend.sar.schema import ground_citations, render_markdown
 from fraudlens_backend.sar.streaming import stream_result
 from fraudlens_llm import GuardrailDecision
@@ -37,6 +49,7 @@ from fraudlens_ml.sar import (
     SarDraftResult,
     SarDraftStatus,
     SarInput,
+    SarQualityGateResult,
     SarStreamEvent,
     SarTokenUsage,
 )
@@ -45,24 +58,29 @@ _WORKFLOW = "multi_agent"
 _WORKFLOW_TIMEOUT = "agent_workflow_timeout"
 _WORKFLOW_ERROR = "agent_workflow_error"
 _QUEUE_END = object()
+_GATE_FAILED = "sar_quality_gate_failed"
 
 
 class MultiAgentSarDrafter:
     """Run the bounded graph and adapt its typed outcome to the shared drafter protocol."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit injected collaborators (DI; no hidden globals).
         self,
         *,
         graph: AgentGraph,
         config: AgentsConfig,
         prompts: dict[AgentRole, AgentPromptTemplate],
         budget: BudgetGuard,
+        gate: SarQualityGate,
+        egress_policy: EgressPolicy | None = None,
     ) -> None:
-        """Bind the compiled graph, frozen config, prompts, and per-run budget guard."""
+        """Bind the compiled graph, frozen config, prompts, budget guard, and quality gate."""
         self._graph = graph
         self._config = config
         self._prompts = prompts.copy()
         self._budget = budget
+        self._gate = gate
+        self._egress_policy = egress_policy or load_egress_policy()
 
     async def draft(self, sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:
         """Stream graph lifecycle events followed by one rendered terminal result."""
@@ -118,6 +136,9 @@ class MultiAgentSarDrafter:
             error_code = writer.error_code if writer is not None else _WORKFLOW_ERROR
             return self._failed_result(error_code or _WORKFLOW_ERROR, graph_result=graph_result)
 
+        verdict = self._evaluate(graph_result, sar_input)
+        if not verdict.passed:
+            return self._failed_result(_GATE_FAILED, graph_result=graph_result, quality=verdict)
         content, citations = _ground_reviewed_content(graph_result.content, sar_input)
         executions = graph_result.executions
         cost = sum((record.cost_usd for record in executions), start=Decimal("0"))
@@ -144,6 +165,21 @@ class MultiAgentSarDrafter:
             guardrail_decision=_strictest_guardrail(graph_result),
             workflow=_WORKFLOW,
             revision_count=graph_result.revision_count,
+            quality=verdict,
+        )
+
+    def _evaluate(
+        self, graph_result: AgentGraphResult, sar_input: SarInput
+    ) -> SarQualityGateResult:
+        """Run the production gate over the reviewed, still-ungrounded writer output."""
+        model_input = project_for_model(sar_input, self._egress_policy)
+        catalog = build_evidence_catalog(model_input)
+        content = cast(SarDraftContent, graph_result.content)
+        return self._gate.evaluate(
+            content,
+            available=sar_input.citations,
+            catalog=catalog,
+            available_evidence_refs=catalog.refs | graph_result.available_evidence_refs,
         )
 
     def _failed_result(
@@ -151,6 +187,7 @@ class MultiAgentSarDrafter:
         error_code: str,
         *,
         graph_result: AgentGraphResult | None = None,
+        quality: SarQualityGateResult | None = None,
     ) -> SarDraftResult:
         """Build a stable failed result while retaining any completed agent usage."""
         executions = graph_result.executions if graph_result is not None else ()
@@ -181,6 +218,7 @@ class MultiAgentSarDrafter:
             error_code=error_code,
             workflow=_WORKFLOW,
             revision_count=graph_result.revision_count if graph_result is not None else 0,
+            quality=quality,
         )
 
 

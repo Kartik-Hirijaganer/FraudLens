@@ -37,6 +37,7 @@ from lib.docs_arch import (
     replace_region,
 )
 from lib.docs_benchmarks import (
+    render_cascade_benchmark,
     render_fulldata_training,
     render_k8s_benchmark,
     render_make_targets,
@@ -93,6 +94,7 @@ def _arch_text(app: FastAPI, current: str) -> str:
 def _readme_text(current: str) -> str:
     """Return README.md with evidence and Makefile-owned regions refreshed."""
     text = replace_region(current, "vllm-benchmark", render_vllm_benchmark(REPO_ROOT))
+    text = replace_region(text, "cascade-benchmark", render_cascade_benchmark(REPO_ROOT))
     text = replace_region(text, "fulldata-training", render_fulldata_training(REPO_ROOT))
     text = replace_region(text, "k8s-benchmark", render_k8s_benchmark(REPO_ROOT))
     return replace_region(text, "make-targets", render_make_targets(REPO_ROOT))

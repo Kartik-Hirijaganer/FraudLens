@@ -2,6 +2,7 @@
 # Secret values are injected at runtime; only environment-variable names live here.
 
 api_base_url: https://rest.runpod.io/v1
+model_registry_base_url: https://huggingface.co
 api_key_env: RUNPOD_API_KEY
 name_prefix: fraudlens
 state_dir: .local/runpod-gpu
@@ -21,6 +22,12 @@ pod:
   container_disk_gb: 50
   volume_gb: 50
   volume_mount_path: /workspace
+  # RunPod removed volume encryption from BOTH the create schema and the Pod response
+  # (observed 2026-09-17); their storage documentation describes persistent volumes as
+  # optionally encrypted at rest. The benchmark corpus is the public IBM AML synthetic dataset
+  # (CDLA-Sharing-1.0, published on Kaggle) and carries no PHI and no production data, so an
+  # UNREPORTED state is accepted and disclosed in the session evidence. A Pod that reports
+  # `false` outright is still refused.
   volume_encrypted: true
   ports: [22/tcp]
   global_networking: false
@@ -38,6 +45,8 @@ ssh:
 remote:
   source_link: /workspace/FraudLens
   state_root: /workspace/.fraudlens
+  secret_root: /root/.fraudlens
   local_output_link: /workspace/.fraudlens/local
-  api_key_path: /workspace/.fraudlens/vllm-api-key
+  api_key_path: /root/.fraudlens/vllm-api-key
+  git_commit_path: /workspace/.fraudlens/git-commit
   uv_version: 0.11.3

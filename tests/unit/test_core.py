@@ -2,47 +2,9 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
-from pydantic import ValidationError
 
-from fraudlens_core import (
-    RiskBand,
-    TenantIsolationError,
-    TransactionSummary,
-    require_agency_id,
-)
-
-
-def test_transaction_summary_valid_defaults_to_low_risk() -> None:
-    summary = TransactionSummary(
-        transaction_id="t1", agency_id="acme", amount=Decimal("10.50"), currency="USD"
-    )
-    assert summary.risk_band is RiskBand.LOW
-    assert summary.currency == "USD"
-
-
-def test_transaction_summary_rejects_bad_currency_length() -> None:
-    with pytest.raises(ValidationError):
-        TransactionSummary(
-            transaction_id="t1", agency_id="acme", amount=Decimal("1"), currency="US"
-        )
-
-
-def test_transaction_summary_rejects_negative_amount() -> None:
-    with pytest.raises(ValidationError):
-        TransactionSummary(
-            transaction_id="t1", agency_id="acme", amount=Decimal("-1"), currency="USD"
-        )
-
-
-def test_transaction_summary_is_frozen() -> None:
-    summary = TransactionSummary(
-        transaction_id="t1", agency_id="acme", amount=Decimal("1"), currency="USD"
-    )
-    with pytest.raises(ValidationError):
-        summary.agency_id = "other"  # type: ignore[misc]
+from fraudlens_core import RiskBand, TenantIsolationError, require_agency_id
 
 
 def test_risk_band_is_str_enum() -> None:

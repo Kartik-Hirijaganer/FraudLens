@@ -117,7 +117,6 @@ def test_retriever_adapter_degrades_to_empty_without_index(tmp_path: Path) -> No
     result = RetrieverAdapter(retriever).retrieve("structuring", top_k=4)
     assert result.mode == "empty"
     assert result.citations == ()
-    assert result.rag_context == ""
     assert result.rag_version == "rag-v1"
 
 

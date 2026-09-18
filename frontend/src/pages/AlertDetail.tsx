@@ -37,6 +37,7 @@ import {
   statusLabel,
   type AlertStatus,
   type ApiClient,
+  type SarDraftView,
   type SarStatus,
   type TrainingLabel,
 } from "../lib/api";
@@ -54,6 +55,15 @@ const SAR_STATUS_TONES: Record<string, StatusTone> = {
   approved: "positive",
   rejected: "negative",
   failed: "warning",
+};
+
+// The deterministic SAR quality gate is tri-state: `passed` is an assertion a gate actually ran
+// and accepted the narrative, `failed` means it was rejected, and `not_run` covers human-edited
+// and pre-0.5.0 narratives no evaluator ever saw.
+const SAR_QUALITY_TONES: Record<SarDraftView["qualityStatus"], StatusTone> = {
+  passed: "positive",
+  failed: "negative",
+  not_run: "warning",
 };
 
 const APPROVED_OUTCOME_OPTIONS = TRAINING_LABEL_OPTIONS.filter(
@@ -187,11 +197,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                         <Badge tone={SAR_STATUS_TONES[detail.sarDraft.status] ?? "neutral"}>
                           {humanize(detail.sarDraft.status)}
                         </Badge>
-                        <Badge
-                          tone={
-                            detail.sarDraft.qualityStatus === "unevaluated" ? "warning" : "neutral"
-                          }
-                        >
+                        <Badge tone={SAR_QUALITY_TONES[detail.sarDraft.qualityStatus]}>
                           Quality {humanize(detail.sarDraft.qualityStatus)}
                         </Badge>
                       </div>

@@ -9,6 +9,8 @@ Key functions:
 
 Notes:
 - Raw stream deltas remain internal until complete-output guardrails pass.
+- `response_schema` makes constrained decoding available on the streaming path too, so a closed
+  citation-id enum can make fabrication structurally impossible rather than merely detectable.
 """
 
 from __future__ import annotations
@@ -70,6 +72,14 @@ class StreamGenerationRequest(BaseModel):
     fallbacks: tuple[str, ...] = Field(
         default=(), description="Ordered governance-eligible fallback model references."
     )
+    connection: str | None = Field(
+        default=None,
+        description="Named provider connection to route through, or None for its default.",
+    )
+    response_schema: dict[str, Any] | None = Field(
+        default=None,
+        description="Strict structured-output schema enforced by the provider during streaming.",
+    )
 
 
 class BoundModel:
@@ -123,13 +133,14 @@ class BoundModel:
         )
 
 
-async def collect_adapter_stream(
+async def collect_adapter_stream(  # noqa: PLR0913 - mirrors adapter capability arguments.
     adapter: StreamingProviderAdapter,
     *,
     model_id: str,
     card: ModelCard,
     messages: Sequence[LlmMessage],
     params: GenerationParams,
+    response_schema: dict[str, Any] | None = None,
 ) -> AdapterGenerateResult:
     """Assemble native provider deltas into the normalized result guardrails consume."""
     text_parts: list[str] = []
@@ -141,6 +152,7 @@ async def collect_adapter_stream(
         card=card,
         messages=messages,
         params=params,
+        response_schema=response_schema,
     ):
         text_parts.append(chunk.text_delta)
         served_model = chunk.served_model or served_model

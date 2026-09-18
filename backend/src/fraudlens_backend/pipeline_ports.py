@@ -20,7 +20,7 @@ from typing import Any
 
 from fraudlens_core import RuleContext, RuleEvaluation, RuleRegistry
 from fraudlens_ml.pipeline import RagResult, ScoreResult, ShapResult
-from fraudlens_ml.rag import Retriever, build_rag_context, extract_citations
+from fraudlens_ml.rag import Retriever, extract_citations
 from fraudlens_ml.sar import SarCitation, SarFeature
 from fraudlens_ml.scoring import DeploymentPointer, Explainer, ModelCache, Scorer
 
@@ -112,7 +112,7 @@ class RetrieverAdapter:
         self._retriever = retriever
 
     def retrieve(self, query: str, *, top_k: int) -> RagResult:
-        """Retrieve grounded citations + the escaped fenced context for the SAR prompt."""
+        """Retrieve the grounded, escaped citations the SAR prompt renders its block from."""
         result = self._retriever.retrieve(query, top_k=top_k)
         citations = tuple(
             SarCitation(
@@ -122,7 +122,6 @@ class RetrieverAdapter:
         )
         return RagResult(
             citations=citations,
-            rag_context=build_rag_context(result.chunks),
             mode=result.mode,
             rag_version=result.rag_version,
             chunks=tuple(chunk.model_dump(mode="json") for chunk in result.chunks),

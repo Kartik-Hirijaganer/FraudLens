@@ -1,0 +1,143 @@
+# =====================================================================
+# FraudLens Tier-3 external-model pilot — FROZEN case set (NON-SECRET).
+# =====================================================================
+# Release 0.5.0 Phase 3 pre-registers this pilot: the case set, the candidate
+# models, the acceptance thresholds, and the selection rule are all fixed HERE,
+# before either candidate has been run, so the Tier-3 model is decided by
+# measurement rather than chosen after seeing results. The selected model is
+# frozen before the Phase 4 full run and is never changed after seeing it.
+#
+# Cases are drawn from REAL escalation traffic in the persisted benchmark run,
+# not synthesised: every case below is one the deterministic gate actually
+# rejected on the self-hosted tiers, which is the only traffic Tier 3 ever sees.
+# The run measured 1,000 cases across concurrency 1/8/32 per arm; exactly
+# 88 of them failed BOTH arms at some level, which is the whole
+# both-tier-failure population and is fewer than the 100 the pilot fixes. The
+# remaining 12 are the hardest escalation candidates left:
+# cases the AWQ tier failed, ordered by case id so the choice is reproducible and
+# carries no selection freedom. Composition is recorded below, not implied.
+#
+# Running the pilot spends money at a hosted provider and is therefore an
+# owner-approved action under Golden Rule 7; this file is its fixed input.
+# =====================================================================
+
+policy_version: sar-tier3-pilot-v1
+source_run_id: vllm-bench-f810b57a7b8ae05a
+source_cases_sha256: b3367d9e742a73f0cad90c6388fb587f96838a2c8830a8d098e9dd99e9fcee0b
+gate_policy_version: sar-gate-replay-v1
+composition:
+  both_tier_failures: 88
+  awq_tier_failures: 12
+  total: 100
+
+# Both candidates run this identical set, prompt, policy, and sampling.
+candidates:
+  - model: openrouter/openai/gpt-5-mini
+  - model: openrouter/anthropic/claude-sonnet-4.6
+
+# Fixed in advance: the cheapest candidate clearing EVERY threshold wins; a tie
+# goes to gpt-5-mini on cost. Thresholds are the committed config/quality.yaml
+# SAR thresholds — this file does not get to invent softer ones.
+tie_break_model: openrouter/openai/gpt-5-mini
+
+cases:
+  - ibm-hi-medium-000098-ffe94c15
+  - ibm-hi-medium-000260-00fd741c
+  - ibm-hi-medium-000414-7e729018
+  - ibm-hi-medium-000428-0ba3453e
+  - ibm-hi-medium-000568-77b2fce5
+  - ibm-hi-medium-000699-62d08cca
+  - ibm-hi-medium-000889-bfdc718c
+  - ibm-hi-medium-000926-04ab787d
+  - ibm-hi-medium-001268-8e2594cb
+  - ibm-hi-medium-001667-589ff053
+  - ibm-hi-medium-001678-eca3caf3
+  - ibm-hi-medium-001719-21459fbf
+  - ibm-hi-medium-001794-9a433310
+  - ibm-hi-medium-001984-ee96e672
+  - ibm-hi-medium-002087-27eb3a44
+  - ibm-hi-medium-002626-f0e99eb3
+  - ibm-hi-medium-002719-173a9623
+  - ibm-hi-medium-002876-d3a31c1e
+  - ibm-hi-medium-003039-6d601992
+  - ibm-hi-medium-003128-4a5ee26f
+  - ibm-hi-medium-003225-e1f48257
+  - ibm-hi-medium-003537-bd63f726
+  - ibm-hi-medium-003875-c7063d8e
+  - ibm-hi-medium-003891-f6807066
+  - ibm-hi-medium-004424-f9e85f56
+  - ibm-hi-medium-004577-36f5b27b
+  - ibm-hi-medium-004926-df17f7de
+  - ibm-hi-medium-004970-a1de03e3
+  - ibm-hi-small-000109-0388da89
+  - ibm-hi-small-000476-2b843665
+  - ibm-hi-small-000596-85b02874
+  - ibm-hi-small-000648-dfc4c339
+  - ibm-hi-small-001228-c23e4e3e
+  - ibm-hi-small-001794-0818cc8d
+  - ibm-hi-small-002030-795274a1
+  - ibm-hi-small-002241-692f435d
+  - ibm-hi-small-002352-9d0cb103
+  - ibm-hi-small-002607-e279d6a7
+  - ibm-hi-small-002978-c07aff6c
+  - ibm-hi-small-003104-595c5549
+  - ibm-hi-small-003287-0ca1fa67
+  - ibm-hi-small-003524-16a9e230
+  - ibm-hi-small-003741-51673d69
+  - ibm-hi-small-004057-4289d908
+  - ibm-hi-small-004104-c42acafe
+  - ibm-hi-small-004395-7fcb690a
+  - ibm-hi-small-004547-e1c50a6a
+  - ibm-hi-small-005093-337cfb7e
+  - ibm-hi-small-005113-1764e1f0
+  - ibm-hi-small-005328-42ab3c76
+  - ibm-hi-small-005330-e133b3ef
+  - ibm-hi-small-005416-c27e1ac8
+  - ibm-hi-small-006496-10400d89
+  - ibm-hi-small-006552-ae8f204d
+  - ibm-hi-small-007196-67972079
+  - ibm-hi-small-007649-d11941c1
+  - ibm-hi-small-008075-73553507
+  - ibm-hi-small-008905-469ef18b
+  - ibm-hi-small-008910-8a003c2a
+  - ibm-hi-small-009186-9ec2778b
+  - ibm-hi-small-009654-27fe12e8
+  - ibm-li-medium-000012-ea4dfc37
+  - ibm-li-medium-000310-cf5c1f05
+  - ibm-li-medium-000443-1d9a03fd
+  - ibm-li-medium-000512-8d1402e3
+  - ibm-li-medium-000846-e83d4d3d
+  - ibm-li-medium-000919-adaffd77
+  - ibm-li-medium-001023-916f594a
+  - ibm-li-medium-001115-80d93b9e
+  - ibm-li-medium-001137-69d89691
+  - ibm-li-medium-001226-b5a6376d
+  - ibm-li-medium-001338-4733acf0
+  - ibm-li-medium-001909-682dfa0e
+  - ibm-li-medium-002140-a5cf1314
+  - ibm-li-medium-002291-c6822d54
+  - ibm-li-medium-002434-ef8546f8
+  - ibm-li-medium-002548-c2dc8bf9
+  - ibm-li-medium-002577-078353c9
+  - ibm-li-medium-002915-3c9280e4
+  - ibm-li-medium-003385-c278215b
+  - ibm-li-medium-003405-247ee54e
+  - ibm-li-medium-003429-be624751
+  - ibm-li-medium-003809-7438fc02
+  - ibm-li-medium-004249-bf5d9834
+  - ibm-li-medium-004294-916e217e
+  - ibm-li-medium-004640-46f79a9e
+  - ibm-li-medium-004742-70fd6f73
+  - ibm-li-medium-004840-fe342c60
+  - ibm-hi-medium-000010-34931694
+  - ibm-hi-medium-000185-12e9f856
+  - ibm-hi-medium-000316-fab895ae
+  - ibm-hi-medium-000331-46907b68
+  - ibm-hi-medium-000372-654ed8f6
+  - ibm-hi-medium-000386-dc15abe9
+  - ibm-hi-medium-000394-662052c0
+  - ibm-hi-medium-000424-d9987467
+  - ibm-hi-medium-000462-003273f8
+  - ibm-hi-medium-000474-c9a23e59
+  - ibm-hi-medium-000635-e86332f3
+  - ibm-hi-medium-000714-7e3742d8

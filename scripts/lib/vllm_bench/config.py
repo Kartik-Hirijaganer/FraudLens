@@ -19,11 +19,16 @@ Key classes:
 - VllmBenchConfig: complete immutable benchmark protocol.
 
 Key functions:
+- resolve_quality_thresholds:
 - load_config: parse YAML and bind its exact byte SHA-256.
 - resolve_profile: apply one named workload profile without changing the frozen protocol.
+- resolve_case_set:
 
 Notes:
 - Secrets are represented only by environment-variable names and never parsed from YAML.
+- `protocol_lineage` records the exact config hash each SUPERSEDED protocol version was published
+under, so bumping the protocol cannot orphan already-published evidence: a report produced under
+an earlier protocol is still validated against a committed hash, just the historical one.
 """
 
 from __future__ import annotations
@@ -37,6 +42,8 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
+
+from lib.vllm_bench.scenarios import CascadeConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_VLLM_BENCH_CONFIG = REPO_ROOT / "config" / "vllm-bench.yaml"
@@ -156,6 +163,10 @@ class RequestConfig(BaseModel):
         ..., ge=0.0, le=0.0, description="Deterministic sampling temperature."
     )
     json_object_mode: Literal[True] = Field(..., description="Request JSON-object mode.")
+    constrained_decoding: bool = Field(
+        ...,
+        description="Whether this protocol may serve a closed-enum JSON schema (v2 and later).",
+    )
     seed_requests: Literal[True] = Field(..., description="Seed every request deterministically.")
     timeout_s: float = Field(..., gt=0, description="Per-attempt HTTP timeout.")
     max_attempts: int = Field(..., ge=1, description="Harness-owned total attempts.")
@@ -191,6 +202,18 @@ class ApplicationPassConfig(BaseModel):
     auth_token_env: str = Field(
         ..., pattern=r"^[A-Z][A-Z0-9_]+$", description="Bearer-token environment variable name."
     )
+    default_cases: int = Field(..., gt=0, description="Cases the pass runs when none is given.")
+    default_concurrency: int = Field(
+        ..., gt=0, description="Closed-loop concurrency the pass runs when none is given."
+    )
+    max_cases: int = Field(..., gt=0, description="Hard ceiling on requested application cases.")
+    max_concurrency: int = Field(..., gt=0, description="Hard ceiling on requested concurrency.")
+
+    @model_validator(mode="after")
+    def _defaults_within_ceilings(self) -> ApplicationPassConfig:
+        if self.default_cases > self.max_cases or self.default_concurrency > self.max_concurrency:
+            raise ValueError("application-pass defaults must sit inside their own ceilings")
+        return self
 
 
 class LoadConfig(BaseModel):
@@ -276,14 +299,31 @@ class CostConfig(BaseModel):
 
 
 class QualityConfig(BaseModel):
-    """Deterministic output-quality gates and warnings."""
+    """Benchmark-only output-quality warnings.
+
+    The two thresholds a benchmark shares with the CI quality suites — citation precision and
+    required-fact coverage — are NOT declared here. They belong to `config/quality.yaml`, which
+    owns every aggregate quality threshold, and `resolve_quality_thresholds` reads them from there
+    at load time. Declaring them twice let the benchmark judge a draft by a floor the shipped gate
+    suite did not enforce (release 0.5.0 Phase 5, configuration consolidation).
+    """
 
     model_config = _MODEL_CONFIG
 
     schema_valid_min: float = Field(..., ge=0, le=1, description="Minimum schema-valid rate.")
-    reference_validity_min: float = Field(..., ge=0, le=1, description="Citation validity floor.")
-    coverage_warn_min: float = Field(..., ge=0, le=1, description="Required-fact warning floor.")
     awq_delta_warn_pp: float = Field(..., ge=0, description="Quality delta warning points.")
+    reference_validity_min: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        description="Citation validity floor, resolved from config/quality.yaml at load time.",
+    )
+    coverage_warn_min: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        description="Required-fact floor, resolved from config/quality.yaml at load time.",
+    )
 
 
 class AcceptanceConfig(BaseModel):
@@ -294,16 +334,26 @@ class AcceptanceConfig(BaseModel):
     weight_memory_reduction_min: float = Field(..., ge=0, le=1, description="AWQ reduction floor.")
     token_accounting_drift_max: float = Field(..., ge=0, le=1, description="Usage drift cap.")
     require_gpu_telemetry: bool = Field(..., description="Whether telemetry is mandatory.")
+    cascade_final_pass_rate_min: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Share of cases a publishable gated cascade must finally serve.",
+    )
 
 
 class BenchmarkProfile(BaseModel):
-    """A bounded workload override for smoke or full execution."""
+    """A bounded workload override for smoke, development-pilot, or full execution."""
 
     model_config = _MODEL_CONFIG
 
     cases_count: int | None = Field(default=None, gt=0, description="Measured case cap override.")
     concurrency_levels: tuple[int, ...] | None = Field(default=None, description="Level override.")
     warmup_requests: int | None = Field(default=None, ge=0, description="Warm-up override.")
+    case_set: Literal["measured", "development"] | None = Field(
+        default=None,
+        description="Corpus partition selected by this profile; measured when omitted.",
+    )
 
 
 class BenchmarkPaths(BaseModel):
@@ -329,6 +379,9 @@ class VllmBenchConfig(BaseModel):
 
     seed: int = Field(..., ge=0, description="Case order and request seed.")
     protocol_version: str = Field(..., min_length=1, description="Immutable protocol version.")
+    protocol_lineage: dict[str, str] = Field(
+        default_factory=dict, description="Config hash each superseded protocol published under."
+    )
     cases: CaseConfig = Field(..., description="Case corpus contract.")
     arms: dict[ArmName, ArmConfig] = Field(..., description="Exactly BF16 and AWQ arms.")
     server: ServerConfig = Field(..., description="Comparable server configuration.")
@@ -341,6 +394,7 @@ class VllmBenchConfig(BaseModel):
     cost: CostConfig = Field(..., description="Cloud-neutral cost model.")
     quality: QualityConfig = Field(..., description="Output quality gates.")
     acceptance: AcceptanceConfig = Field(..., description="Publication criteria.")
+    cascade: CascadeConfig = Field(..., description="Protocol-v2 cascade scenario matrix.")
     kv_cache_mode: Literal["equal_utilization", "equal_kv_gib"] = Field(
         ..., description="Primary or optional KV-cache comparison mode."
     )
@@ -367,19 +421,55 @@ class VllmBenchConfig(BaseModel):
             raise ValueError("profiles must contain smoke and full")
         if self.profiles["full"].model_dump(exclude_none=True):
             raise ValueError("profiles.full must not override the frozen protocol")
+        if self.protocol_version in self.protocol_lineage:
+            raise ValueError("the current protocol version cannot also be a superseded one")
+        if any(role.arm not in self.arms for role in self.cascade.endpoints.values()):
+            raise ValueError("cascade endpoint roles must bind a configured arm")
+        if any(
+            level not in self.load.concurrency_levels
+            for scenario in self.cascade.scenarios
+            for level in scenario.concurrency_levels
+        ):
+            raise ValueError("cascade scenarios cannot measure an unconfigured concurrency level")
         return self
 
 
+def resolve_quality_thresholds(quality: QualityConfig) -> QualityConfig:
+    """Bind the shared aggregate thresholds from their single owner, `config/quality.yaml`."""
+    from lib.quality.config import load_quality_config  # noqa: PLC0415 - avoids an import cycle.
+
+    shared = load_quality_config().sar_quality
+    return quality.model_copy(
+        update={
+            "reference_validity_min": shared.citation_precision_min,
+            "coverage_warn_min": shared.required_fact_coverage_min,
+        }
+    )
+
+
 def load_config(path: Path = DEFAULT_VLLM_BENCH_CONFIG) -> VllmBenchConfig:
-    """Parse the benchmark YAML and bind its exact byte hash."""
+    """Parse the benchmark YAML, resolve shared thresholds, and bind its exact byte hash.
+
+    The byte hash covers the benchmark file only. A shared threshold moving in
+    `config/quality.yaml` is therefore visible in the gate policy hash recorded on every attempt,
+    not hidden inside a second copy of the number.
+    """
     raw = path.read_bytes()
     payload: Any = yaml.safe_load(raw)
     config = VllmBenchConfig.model_validate(payload)
-    return config.model_copy(update={"config_sha256": hashlib.sha256(raw).hexdigest()})
+    config_sha256 = hashlib.sha256(raw).hexdigest()
+    if config_sha256 in config.protocol_lineage.values():
+        raise ValueError("protocol_lineage must record superseded hashes, not the current one")
+    return config.model_copy(
+        update={
+            "config_sha256": config_sha256,
+            "quality": resolve_quality_thresholds(config.quality),
+        }
+    )
 
 
 def resolve_profile(config: VllmBenchConfig, profile: str) -> tuple[int, tuple[int, ...], int]:
-    """Return effective measured cases, concurrency levels, and warm-up requests."""
+    """Return effective case count, concurrency levels, and warm-up requests."""
     selected = config.profiles.get(profile)
     if selected is None:
         raise ValueError(f"unknown benchmark profile '{profile}'")
@@ -390,3 +480,11 @@ def resolve_profile(config: VllmBenchConfig, profile: str) -> tuple[int, tuple[i
         if selected.warmup_requests is not None
         else config.load.warmup_requests,
     )
+
+
+def resolve_case_set(config: VllmBenchConfig, profile: str) -> Literal["measured", "development"]:
+    """Return the corpus partition selected by one declared workload profile."""
+    selected = config.profiles.get(profile)
+    if selected is None:
+        raise ValueError(f"unknown benchmark profile '{profile}'")
+    return selected.case_set or "measured"

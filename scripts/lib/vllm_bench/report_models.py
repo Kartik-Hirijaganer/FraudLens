@@ -13,6 +13,9 @@ Key functions:
 
 Notes:
 - Report models contain aggregate synthetic evidence; case prompts and raw outputs stay local.
+- The headline is keyed by report version rather than mutated in place: the published v1 report
+  still re-derives its own exact wording, and v2 adds the p95 latency figure the resume line claims
+  but which appeared nowhere in v1's mechanically derived text.
 """
 
 from __future__ import annotations
@@ -35,6 +38,11 @@ _MODEL_CONFIG = ConfigDict(
     protected_namespaces=(),
 )
 _HASH = r"^[0-9a-f]{64}$"
+REPORT_VERSION = "vllm-bench-report-v2"
+# Protocol v1 published a memory-and-throughput headline. Later protocols add the latency percentile
+# the resume line is named after, so the derivation is keyed by report version: an already
+# published v1 report keeps re-deriving its own exact headline and stays valid forever (AD-1.3).
+_LATENCY_HEADLINE_VERSIONS = frozenset({REPORT_VERSION})
 
 
 class AcceptanceCheck(BaseModel):
@@ -118,6 +126,7 @@ class VllmBenchReport(BaseModel):
         if self.acceptance_met != all(item.passed for item in self.acceptance):
             raise ValueError("acceptanceMet must equal all acceptance checks")
         expected = mechanical_headline(
+            report_version=self.report_version,
             weight_reduction=self.weight_memory_reduction,
             bf16=self.arms[0],
             awq=self.arms[1],
@@ -143,14 +152,24 @@ class FrontendVllmBenchData(BaseModel):
     quality_deltas: tuple[QualityDelta, ...] = Field(..., description="Quality comparisons.")
 
 
+def _latency_clause(bf16_p95_ms: float, awq_p95_ms: float) -> str:
+    """Describe the p95 change the v1 headline never carried, in the direction measured."""
+    if not bf16_p95_ms:
+        return ""
+    delta = (awq_p95_ms / bf16_p95_ms - 1) * 100
+    direction = "higher" if delta > 0 else "lower"
+    return f"; AWQ p95 latency {direction} by {abs(delta):.1f}%"
+
+
 def mechanical_headline(
     *,
+    report_version: str,
     weight_reduction: float,
     bf16: ArmReport,
     awq: ArmReport,
     failed: tuple[str, ...],
 ) -> str:
-    """Derive memory and highest-concurrency throughput wording without authored claims."""
+    """Derive memory, throughput, and (from v2) p95 latency wording without authored claims."""
     bf16_level = max(bf16.levels, key=lambda item: item.concurrency)
     awq_level = max(awq.levels, key=lambda item: item.concurrency)
     baseline = bf16_level.requests_per_second
@@ -159,7 +178,12 @@ def mechanical_headline(
         speed = f"AWQ slower by {abs(delta):.1f}% at concurrency {awq_level.concurrency}"
     else:
         speed = f"AWQ throughput higher by {delta:.1f}% at concurrency {awq_level.concurrency}"
-    core = f"AWQ reduced parsed model-weight memory by {weight_reduction:.1%}; {speed}."
+    latency = (
+        _latency_clause(bf16_level.latency_p95_ms, awq_level.latency_p95_ms)
+        if report_version in _LATENCY_HEADLINE_VERSIONS
+        else ""
+    )
+    core = f"AWQ reduced parsed model-weight memory by {weight_reduction:.1%}; {speed}{latency}."
     if failed:
         return f"Acceptance NOT met ({', '.join(failed)}). {core}"
     return core

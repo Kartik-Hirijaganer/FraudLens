@@ -1,0 +1,1049 @@
+{
+  "acceptance": [
+    {
+      "name": "scenario_matrix_measured",
+      "observed": "bf16-baseline@1/8/32, awq-raw@1/8/32, awq-bf16-unconstrained@32",
+      "passed": true,
+      "required": "at least one multi-stage scenario measured at a declared level"
+    },
+    {
+      "name": "gate_verdict_parity",
+      "observed": "0 attempts disagree",
+      "passed": true,
+      "required": "0 attempts disagree"
+    },
+    {
+      "name": "zero_serving_errors",
+      "observed": "0 serving errors",
+      "passed": true,
+      "required": "0 serving errors"
+    },
+    {
+      "name": "cascade_final_pass_rate",
+      "observed": "0.9970",
+      "passed": true,
+      "required": ">= 0.99"
+    },
+    {
+      "name": "accepted_reference_validity",
+      "observed": "1.0000",
+      "passed": true,
+      "required": ">= 1.0"
+    },
+    {
+      "name": "token_accounting_drift",
+      "observed": "0.0000",
+      "passed": true,
+      "required": "<= 0.05"
+    },
+    {
+      "name": "gpu_telemetry_per_role",
+      "observed": "sampled ['awq', 'bf16']",
+      "passed": true,
+      "required": "sampled ['awq', 'bf16']"
+    },
+    {
+      "name": "weight_memory_reduction",
+      "observed": "0.6348",
+      "passed": true,
+      "required": ">= 0.5"
+    },
+    {
+      "name": "single_quality_policy",
+      "observed": "c9100eb3bfc30a06914b381c4c337c3dca9d546a18e7cd7164f0e26253bb716a",
+      "passed": true,
+      "required": "exactly one recorded policy hash"
+    }
+  ],
+  "acceptanceMet": true,
+  "baselineScenario": "bf16-baseline",
+  "caseSource": "ibm-final-test",
+  "casesSha256": "2e1df4db3099fcd411158fd18d1a6bcb9cf69bf1dadef8138d68712a049376e2",
+  "comparisons": [
+    {
+      "baseline": 6365.0,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -49.510604870384924,
+      "concurrency": 1,
+      "metric": "cascadeLatencyP95Ms",
+      "observed": 3213.6499999999996,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.994,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -9.657947686116696,
+      "concurrency": 1,
+      "metric": "finalPassRate",
+      "observed": 0.898,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.0015045716683333332,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -47.84655457734937,
+      "concurrency": 1,
+      "metric": "gpuHoursPerCase",
+      "observed": 0.0007846859638888889,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 8379.449999999999,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -19.549612444730858,
+      "concurrency": 8,
+      "metric": "cascadeLatencyP95Ms",
+      "observed": 6741.299999999999,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.993,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -8.761329305135945,
+      "concurrency": 8,
+      "metric": "finalPassRate",
+      "observed": 0.906,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.00024495561972222226,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -31.283131603915237,
+      "concurrency": 8,
+      "metric": "gpuHoursPerCase",
+      "observed": 0.00016832583083333332,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 16163.9,
+      "baselineScenario": "bf16-baseline",
+      "changePct": 0.39749070459482727,
+      "concurrency": 32,
+      "metric": "cascadeLatencyP95Ms",
+      "observed": 16228.150000000001,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.995,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -8.643216080402006,
+      "concurrency": 32,
+      "metric": "finalPassRate",
+      "observed": 0.909,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 0.00011580553166666667,
+      "baselineScenario": "bf16-baseline",
+      "changePct": -2.470160260095422,
+      "concurrency": 32,
+      "metric": "gpuHoursPerCase",
+      "observed": 0.00011294494944444445,
+      "sameResource": true,
+      "scenario": "awq-raw"
+    },
+    {
+      "baseline": 16163.9,
+      "baselineScenario": "bf16-baseline",
+      "changePct": 6.3125235865106655,
+      "concurrency": 32,
+      "metric": "cascadeLatencyP95Ms",
+      "observed": 17184.249999999996,
+      "sameResource": false,
+      "scenario": "awq-bf16-unconstrained"
+    },
+    {
+      "baseline": 0.995,
+      "baselineScenario": "bf16-baseline",
+      "changePct": 0.20100502512563345,
+      "concurrency": 32,
+      "metric": "finalPassRate",
+      "observed": 0.997,
+      "sameResource": false,
+      "scenario": "awq-bf16-unconstrained"
+    },
+    {
+      "baseline": 0.00011580553166666667,
+      "baselineScenario": "bf16-baseline",
+      "changePct": 76.18540261920035,
+      "concurrency": 32,
+      "metric": "gpuHoursPerCase",
+      "observed": 0.00020403244222222223,
+      "sameResource": false,
+      "scenario": "awq-bf16-unconstrained"
+    }
+  ],
+  "completedAt": "2026-09-18T03:14:17.855360Z",
+  "configSha256": "57df143fde48dd7cfee6c14d366ea261d8bfa36c949e1be5ad5cbf0d7d70f169",
+  "disclosures": [
+    "Cascade case latency is measured across TWO simultaneously provisioned endpoints; the BF16 and AWQ raw comparisons use ONE. Every comparison row states which it is, and p95 is published next to GPU-seconds per case and aggregate peak device memory for that reason.",
+    "Guided (constrained) decoding was excluded from the published matrix after its live latency canary: the exact fact-object grammar passed quality at 8/8 but measured a 441.6-second p95 at concurrency 32. The shipped contract is a compact prose envelope the backend hydrates, judged by the identical deterministic gate.",
+    "Three of 1,000 cases carry no evidence and fail preflight before any model call. They are counted as terminal cascade failures, never omitted, and are the entire gap between the 99.7% served share and 100%.",
+    "The RunPod provider stopped reporting Pod volume encryption during this release, so the frozen contract's encrypted-volume verification could not be satisfied. The corpus is the public IBM AML synthetic dataset and contains no PHI; the observed encryption state is recorded on every affected ledger row (ADR-030).",
+    "CUDA runtime capture was added after this matrix ran, so the endpoint provenance publishes it as not captured rather than inferring it from the driver version. The pinned image digest fixes the CUDA toolchain the run actually used.",
+    "Accepted-draft quality is measured over served drafts only, so abstention correctness is published as null rather than as a rate: computed over accepted drafts it would be a vacuous 1.0. Abstention appears instead as the evidence-free cases this run refused before any model call, in the terminal-failure table.",
+    "No hosted external tier was exercised: the published cascade is AWQ then BF16, both self-hosted. The external tier ships configured but unmeasured, so no OpenRouter zero-data-retention eligibility snapshot exists for this run."
+  ],
+  "headline": "Gated awq-bf16-unconstrained served 99.7% of 1000 cases with 9.2% escalated; case p95 latency 6.3% higher than bf16-baseline at concurrency 32 across two endpoints, not one; AWQ model weights 63.5% smaller.",
+  "measuredCases": 1000,
+  "profile": "full",
+  "promptSha256": "7041a9a4f2b5f985cf9ae7861b671d11432bd22c218a7bbb39094d1451cef77d",
+  "promptVersion": "v5@5.0.0",
+  "protocolVersion": "vllm-sar-bench-v5",
+  "provenance": {
+    "endpoints": [
+      {
+        "role": "awq",
+        "server": {
+          "arm": "awq",
+          "cudaVersion": null,
+          "driverVersion": "580.159.04",
+          "gpuName": "NVIDIA GeForce RTX 4090",
+          "hostKey": "runpod-rtx4090",
+          "hourlyRateUsd": 0.74,
+          "image": "vllm/vllm-openai:v0.10.2",
+          "imageDigest": "sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6",
+          "kvCacheTokens": 279040,
+          "maximumConcurrency": 34.06,
+          "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+          "modelRevision": "b25037543e9394b818fdfca67ab2a00ecc7dd641",
+          "priceSourceUrl": "https://www.runpod.io/pricing",
+          "priceVerifiedAt": "2026-09-14",
+          "provider": "runpod",
+          "purchaseOption": "pay_as_you_go",
+          "region": "secure-cloud",
+          "safetensorsTotalGib": 5.2,
+          "sku": "NVIDIA GeForce RTX 4090",
+          "tokenizer": "Qwen/Qwen2.5-7B-Instruct",
+          "tokenizerRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+          "vllmVersion": "v0.10.2",
+          "weightMemoryGib": 5.2036
+        }
+      },
+      {
+        "role": "bf16",
+        "server": {
+          "arm": "bf16",
+          "cudaVersion": null,
+          "driverVersion": "580.178.04",
+          "gpuName": "NVIDIA GeForce RTX 4090",
+          "hostKey": "runpod-rtx4090",
+          "hourlyRateUsd": 0.74,
+          "image": "vllm/vllm-openai:v0.10.2",
+          "imageDigest": "sha256:df2607b26bdda2875de4832f4d08da0055b4b6e3570347f3a849bcc652771dd6",
+          "kvCacheTokens": 109664,
+          "maximumConcurrency": 13.39,
+          "model": "Qwen/Qwen2.5-7B-Instruct",
+          "modelRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+          "priceSourceUrl": "https://www.runpod.io/pricing",
+          "priceVerifiedAt": "2026-09-14",
+          "provider": "runpod",
+          "purchaseOption": "pay_as_you_go",
+          "region": "secure-cloud",
+          "safetensorsTotalGib": 14.19,
+          "sku": "NVIDIA GeForce RTX 4090",
+          "tokenizer": "Qwen/Qwen2.5-7B-Instruct",
+          "tokenizerRevision": "a09a35458c702b33eeacc393d103063234e8bc28",
+          "vllmVersion": "v0.10.2",
+          "weightMemoryGib": 14.2488
+        }
+      }
+    ],
+    "externalRoutes": [],
+    "gitCommit": "615285e0e63f85eb2ee0661ae21bd36a4cbf8f8d",
+    "qualityPolicySha256": "c9100eb3bfc30a06914b381c4c337c3dca9d546a18e7cd7164f0e26253bb716a"
+  },
+  "reportVersion": "vllm-cascade-report-v1",
+  "runId": "vllm-bench-be12675628805a53",
+  "scenarios": [
+    {
+      "endpointRoles": [
+        "bf16"
+      ],
+      "levels": [
+        {
+          "aggregateMemoryPeakMib": 22117.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.994,
+            "gpuSecondsPerCase": 5.411228,
+            "latencyP50Ms": 5413.0,
+            "latencyP95Ms": 6365.0,
+            "latencyP99Ms": 6715.01,
+            "reasonCounts": {
+              "no_citations": 3,
+              "unmapped_narrative_fact": 3
+            },
+            "stageMix": {
+              "bf16": 0.994
+            },
+            "stagePassRate": {
+              "bf16": 0.994
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "bf16": 285958
+              },
+              "costUsd": {
+                "bf16": "0"
+              },
+              "errors": {
+                "bf16": {}
+              },
+              "latencyMs": {
+                "bf16": 5411228.0
+              },
+              "promptTokens": {
+                "bf16": 1916717
+              },
+              "retries": {
+                "bf16": 0
+              }
+            },
+            "terminalFailureRate": 0.006
+          },
+          "concurrency": 1,
+          "costPer1000DraftsUsd": 1.1133830345666667,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 1.1133830345666667
+          },
+          "costUsd": 1.1133830345666667,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 1.1133830345666667
+          },
+          "durationSeconds": 5416.458006,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 52.794279893471774,
+          "gpuHoursPerCase": 0.0015045716683333332,
+          "latencyP50Ms": 5413.0,
+          "latencyP95Ms": 6365.0,
+          "latencyP99Ms": 6715.01,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.9187625754527163,
+            "evaluated": 994,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9803990610328639,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 915
+          },
+          "requests": 1000,
+          "requestsPerSecond": 0.1846224966375194,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 87.77712453233565,
+            "gpuUtilizationP95Pct": 96.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 22117.0,
+            "queuePeak": null,
+            "samples": 1871
+          },
+          "telemetryByRole": {
+            "bf16": {
+              "gpuUtilizationMeanPct": 87.77712453233565,
+              "gpuUtilizationP95Pct": 96.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 22117.0,
+              "queuePeak": null,
+              "samples": 1871
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 0.16892958442333025
+        },
+        {
+          "aggregateMemoryPeakMib": 21728.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.993,
+            "gpuSecondsPerCase": 7.026679,
+            "latencyP50Ms": 7057.0,
+            "latencyP95Ms": 8379.449999999999,
+            "latencyP99Ms": 8870.119999999999,
+            "reasonCounts": {
+              "no_citations": 3,
+              "unmapped_narrative_fact": 4
+            },
+            "stageMix": {
+              "bf16": 0.993
+            },
+            "stagePassRate": {
+              "bf16": 0.993
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "bf16": 286311
+              },
+              "costUsd": {
+                "bf16": "0"
+              },
+              "errors": {
+                "bf16": {}
+              },
+              "latencyMs": {
+                "bf16": 7026679.0
+              },
+              "promptTokens": {
+                "bf16": 1916717
+              },
+              "retries": {
+                "bf16": 0
+              }
+            },
+            "terminalFailureRate": 0.007
+          },
+          "concurrency": 8,
+          "costPer1000DraftsUsd": 0.18126715859444445,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.18126715859444445
+          },
+          "costUsd": 0.18126715859444445,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.18126715859444445
+          },
+          "durationSeconds": 881.840231,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 324.67445908577514,
+          "gpuHoursPerCase": 0.00024495561972222226,
+          "latencyP50Ms": 7057.0,
+          "latencyP95Ms": 8379.449999999999,
+          "latencyP99Ms": 8870.119999999999,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.9168345082242363,
+            "evaluated": 993,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9798086606243706,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 915
+          },
+          "requests": 1000,
+          "requestsPerSecond": 1.1339922639569389,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 92.6038961038961,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 21728.0,
+            "queuePeak": null,
+            "samples": 308
+          },
+          "telemetryByRole": {
+            "bf16": {
+              "gpuUtilizationMeanPct": 92.6038961038961,
+              "gpuUtilizationP95Pct": 100.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 21728.0,
+              "queuePeak": null,
+              "samples": 308
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 1.037602921520599
+        },
+        {
+          "aggregateMemoryPeakMib": 22119.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.995,
+            "gpuSecondsPerCase": 13.169507,
+            "latencyP50Ms": 13225.0,
+            "latencyP95Ms": 16163.9,
+            "latencyP99Ms": 17798.54,
+            "reasonCounts": {
+              "no_citations": 3,
+              "unmapped_narrative_fact": 2
+            },
+            "stageMix": {
+              "bf16": 0.995
+            },
+            "stagePassRate": {
+              "bf16": 0.995
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "bf16": 286956
+              },
+              "costUsd": {
+                "bf16": "0"
+              },
+              "errors": {
+                "bf16": {}
+              },
+              "latencyMs": {
+                "bf16": 13169507.0
+              },
+              "promptTokens": {
+                "bf16": 1916717
+              },
+              "retries": {
+                "bf16": 0
+              }
+            },
+            "terminalFailureRate": 0.005
+          },
+          "concurrency": 32,
+          "costPer1000DraftsUsd": 0.08569609343333334,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.08569609343333334
+          },
+          "costUsd": 0.08569609343333334,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.08569609343333334
+          },
+          "durationSeconds": 416.899914,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 688.3090889771687,
+          "gpuHoursPerCase": 0.00011580553166666667,
+          "latencyP50Ms": 13225.0,
+          "latencyP95Ms": 16163.9,
+          "latencyP99Ms": 17798.54,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.9140703517587939,
+            "evaluated": 995,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9792294807370184,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 913
+          },
+          "requests": 1000,
+          "requestsPerSecond": 2.3986572470245218,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 91.31944444444444,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 22119.0,
+            "queuePeak": null,
+            "samples": 144
+          },
+          "telemetryByRole": {
+            "bf16": {
+              "gpuUtilizationMeanPct": 91.31944444444444,
+              "gpuUtilizationP95Pct": 100.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 22119.0,
+              "queuePeak": null,
+              "samples": 144
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 2.1899740665333884
+        }
+      ],
+      "name": "bf16-baseline",
+      "profile": "bf16-baseline",
+      "quality": {
+        "abstentionCorrectness": null,
+        "citationRecall": 0.9187625754527163,
+        "evaluated": 994,
+        "fabricatedReferenceAttempts": 0,
+        "referenceValidity": 1.0,
+        "requiredFactCoverage": 0.9803990610328639,
+        "schemaValidRate": 1.0,
+        "truncationRate": 0.0,
+        "unsupportedClaimFlags": 0,
+        "usefulCount": 915
+      },
+      "stages": [
+        "bf16"
+      ],
+      "totalCostUsd": 1.3803462865944445
+    },
+    {
+      "endpointRoles": [
+        "awq"
+      ],
+      "levels": [
+        {
+          "aggregateMemoryPeakMib": 22203.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.898,
+            "gpuSecondsPerCase": 2.819181,
+            "latencyP50Ms": 2797.0,
+            "latencyP95Ms": 3213.6499999999996,
+            "latencyP99Ms": 3815.08,
+            "reasonCounts": {
+              "citation_fabricated": 96,
+              "no_citations": 3,
+              "unmapped_narrative_fact": 3
+            },
+            "stageMix": {
+              "awq": 0.898
+            },
+            "stagePassRate": {
+              "awq": 0.898
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "awq": 316256
+              },
+              "costUsd": {
+                "awq": "0"
+              },
+              "errors": {
+                "awq": {}
+              },
+              "latencyMs": {
+                "awq": 2819181.0
+              },
+              "promptTokens": {
+                "awq": 1916717
+              },
+              "retries": {
+                "awq": 0
+              }
+            },
+            "terminalFailureRate": 0.102
+          },
+          "concurrency": 1,
+          "costPer1000DraftsUsd": 0.5806676132777777,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.5806676132777777
+          },
+          "costUsd": 0.5806676132777777,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.5806676132777777
+          },
+          "durationSeconds": 2824.86947,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 111.95419942713318,
+          "gpuHoursPerCase": 0.0007846859638888889,
+          "latencyP50Ms": 2797.0,
+          "latencyP95Ms": 3213.6499999999996,
+          "latencyP99Ms": 3815.08,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.8962509279881218,
+            "evaluated": 898,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9822197475872309,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 833
+          },
+          "requests": 1000,
+          "requestsPerSecond": 0.35399865750257126,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 74.37044745057231,
+            "gpuUtilizationP95Pct": 94.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 22203.0,
+            "queuePeak": null,
+            "samples": 961
+          },
+          "telemetryByRole": {
+            "awq": {
+              "gpuUtilizationMeanPct": 74.37044745057231,
+              "gpuUtilizationP95Pct": 94.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 22203.0,
+              "queuePeak": null,
+              "samples": 961
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 0.29488088169964183
+        },
+        {
+          "aggregateMemoryPeakMib": 21812.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.906,
+            "gpuSecondsPerCase": 4.829589,
+            "latencyP50Ms": 4492.0,
+            "latencyP95Ms": 6741.299999999999,
+            "latencyP99Ms": 11491.02,
+            "reasonCounts": {
+              "citation_fabricated": 87,
+              "no_citations": 3,
+              "unmapped_narrative_fact": 4
+            },
+            "stageMix": {
+              "awq": 0.906
+            },
+            "stagePassRate": {
+              "awq": 0.906
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "awq": 316303
+              },
+              "costUsd": {
+                "awq": "0"
+              },
+              "errors": {
+                "awq": {}
+              },
+              "latencyMs": {
+                "awq": 4829589.0
+              },
+              "promptTokens": {
+                "awq": 1916717
+              },
+              "retries": {
+                "awq": 0
+              }
+            },
+            "terminalFailureRate": 0.094
+          },
+          "concurrency": 8,
+          "costPer1000DraftsUsd": 0.12456111481666665,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.12456111481666665
+          },
+          "costUsd": 0.12456111481666665,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.12456111481666665
+          },
+          "durationSeconds": 605.972991,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 521.9754092967487,
+          "gpuHoursPerCase": 0.00016832583083333332,
+          "latencyP50Ms": 4492.0,
+          "latencyP95Ms": 6741.299999999999,
+          "latencyP99Ms": 11491.02,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.8943156732891833,
+            "evaluated": 906,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9821008094186903,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 841
+          },
+          "requests": 1000,
+          "requestsPerSecond": 1.650238566490829,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 84.78306878306879,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 21812.0,
+            "queuePeak": null,
+            "samples": 189
+          },
+          "telemetryByRole": {
+            "awq": {
+              "gpuUtilizationMeanPct": 84.78306878306879,
+              "gpuUtilizationP95Pct": 100.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 21812.0,
+              "queuePeak": null,
+              "samples": 189
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 1.3878506344187873
+        },
+        {
+          "aggregateMemoryPeakMib": 22203.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.0,
+            "externalRate": 0.0,
+            "finalPassRate": 0.909,
+            "gpuSecondsPerCase": 12.898233,
+            "latencyP50Ms": 12608.5,
+            "latencyP95Ms": 16228.150000000001,
+            "latencyP99Ms": 18025.39,
+            "reasonCounts": {
+              "citation_fabricated": 85,
+              "no_citations": 3,
+              "unmapped_narrative_fact": 4
+            },
+            "stageMix": {
+              "awq": 0.909
+            },
+            "stagePassRate": {
+              "awq": 0.909
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "awq": 315112
+              },
+              "costUsd": {
+                "awq": "0"
+              },
+              "errors": {
+                "awq": {}
+              },
+              "latencyMs": {
+                "awq": 12898233.0
+              },
+              "promptTokens": {
+                "awq": 1916717
+              },
+              "retries": {
+                "awq": 0
+              }
+            },
+            "terminalFailureRate": 0.091
+          },
+          "concurrency": 32,
+          "costPer1000DraftsUsd": 0.08357926258888888,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.08357926258888888
+          },
+          "costUsd": 0.08357926258888888,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.08357926258888888
+          },
+          "durationSeconds": 406.601818,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 774.9891565905394,
+          "gpuHoursPerCase": 0.00011294494944444445,
+          "latencyP50Ms": 12608.5,
+          "latencyP95Ms": 16228.150000000001,
+          "latencyP99Ms": 18025.39,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.8977814448111477,
+            "evaluated": 909,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9810597726439311,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 840
+          },
+          "requests": 1000,
+          "requestsPerSecond": 2.459408580411217,
+          "retries": 0,
+          "successful": 1000,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 77.8062015503876,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 22203.0,
+            "queuePeak": null,
+            "samples": 129
+          },
+          "telemetryByRole": {
+            "awq": {
+              "gpuUtilizationMeanPct": 77.8062015503876,
+              "gpuUtilizationP95Pct": 100.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 22203.0,
+              "queuePeak": null,
+              "samples": 129
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 2.0659032075454222
+        }
+      ],
+      "name": "awq-raw",
+      "profile": "awq-raw",
+      "quality": {
+        "abstentionCorrectness": null,
+        "citationRecall": 0.8962509279881218,
+        "evaluated": 898,
+        "fabricatedReferenceAttempts": 0,
+        "referenceValidity": 1.0,
+        "requiredFactCoverage": 0.9822197475872309,
+        "schemaValidRate": 1.0,
+        "truncationRate": 0.0,
+        "unsupportedClaimFlags": 0,
+        "usefulCount": 833
+      },
+      "stages": [
+        "awq"
+      ],
+      "totalCostUsd": 0.7888079906833333
+    },
+    {
+      "endpointRoles": [
+        "awq",
+        "bf16"
+      ],
+      "levels": [
+        {
+          "aggregateMemoryPeakMib": 43540.0,
+          "cascade": {
+            "cases": 1000,
+            "escalationRate": 0.092,
+            "externalRate": 0.092,
+            "finalPassRate": 0.997,
+            "gpuSecondsPerCase": 11.510066,
+            "latencyP50Ms": 11008.5,
+            "latencyP95Ms": 17184.249999999996,
+            "latencyP99Ms": 19318.31,
+            "reasonCounts": {},
+            "stageMix": {
+              "awq": 0.905,
+              "bf16": 0.092
+            },
+            "stagePassRate": {
+              "awq": 0.9077231695085256,
+              "bf16": 1.0
+            },
+            "stageTotals": {
+              "completionTokens": {
+                "awq": 314647,
+                "bf16": 25175
+              },
+              "costUsd": {
+                "awq": "0",
+                "bf16": "0"
+              },
+              "errors": {
+                "awq": {},
+                "bf16": {}
+              },
+              "latencyMs": {
+                "awq": 10996657.0,
+                "bf16": 513409.0
+              },
+              "promptTokens": {
+                "awq": 1912237,
+                "bf16": 172638
+              },
+              "retries": {
+                "awq": 0,
+                "bf16": 0
+              }
+            },
+            "terminalFailureRate": 0.003
+          },
+          "concurrency": 32,
+          "costPer1000DraftsUsd": 0.15098400724444447,
+          "costPer1000DraftsUsdByPurchaseOption": {
+            "pay_as_you_go": 0.15098400724444447
+          },
+          "costUsd": 0.15098400724444447,
+          "costUsdByPurchaseOption": {
+            "pay_as_you_go": 0.15098400724444447
+          },
+          "durationSeconds": 367.258396,
+          "errorRate": 0.0,
+          "generatedTokensPerSecond": 925.2940264978993,
+          "gpuHoursPerCase": 0.00020403244222222223,
+          "latencyP50Ms": 10649.0,
+          "latencyP95Ms": 14780.199999999997,
+          "latencyP99Ms": 16263.959999999997,
+          "quality": {
+            "abstentionCorrectness": null,
+            "citationRecall": 0.9022066198595787,
+            "evaluated": 997,
+            "fabricatedReferenceAttempts": 0,
+            "referenceValidity": 1.0,
+            "requiredFactCoverage": 0.9827315279170846,
+            "schemaValidRate": 1.0,
+            "truncationRate": 0.0,
+            "unsupportedClaimFlags": 0,
+            "usefulCount": 926
+          },
+          "requests": 1089,
+          "requestsPerSecond": 2.9652147149278516,
+          "retries": 0,
+          "successful": 1089,
+          "telemetry": {
+            "gpuUtilizationMeanPct": 73.448,
+            "gpuUtilizationP95Pct": 100.0,
+            "kvCachePeakPct": null,
+            "memoryPeakMib": 21812.0,
+            "queuePeak": null,
+            "samples": 250
+          },
+          "telemetryByRole": {
+            "awq": {
+              "gpuUtilizationMeanPct": 86.76422764227642,
+              "gpuUtilizationP95Pct": 100.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 21812.0,
+              "queuePeak": null,
+              "samples": 123
+            },
+            "bf16": {
+              "gpuUtilizationMeanPct": 60.55118110236221,
+              "gpuUtilizationP95Pct": 95.0,
+              "kvCachePeakPct": null,
+              "memoryPeakMib": 21728.0,
+              "queuePeak": null,
+              "samples": 127
+            }
+          },
+          "tokenAccountingDrift": 0.0,
+          "ttftP50Ms": 0.0,
+          "ttftP95Ms": 0.0,
+          "usefulDraftsPerSecond": 2.52138551517281
+        }
+      ],
+      "name": "awq-bf16-unconstrained",
+      "profile": "awq-bf16-unconstrained",
+      "quality": {
+        "abstentionCorrectness": null,
+        "citationRecall": 0.9022066198595787,
+        "evaluated": 997,
+        "fabricatedReferenceAttempts": 0,
+        "referenceValidity": 1.0,
+        "requiredFactCoverage": 0.9827315279170846,
+        "schemaValidRate": 1.0,
+        "truncationRate": 0.0,
+        "unsupportedClaimFlags": 0,
+        "usefulCount": 926
+      },
+      "stages": [
+        "awq",
+        "bf16"
+      ],
+      "totalCostUsd": 0.15098400724444447
+    }
+  ],
+  "startedAt": "2026-09-18T00:00:29.434193Z",
+  "weightMemoryReduction": 0.6348043344000898
+}

@@ -15,11 +15,19 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+import yaml
 from pydantic import ValidationError
 from vllm_bench_fakes import HASH, NOW, RUN_ID, benchmark_case, complete_benchmark
 
+from lib.quality.config import load_quality_config
 from lib.study import canonical_json
-from lib.vllm_bench.config import VllmBenchConfig, load_config, resolve_profile
+from lib.vllm_bench.config import (
+    DEFAULT_VLLM_BENCH_CONFIG,
+    VllmBenchConfig,
+    load_config,
+    resolve_case_set,
+    resolve_profile,
+)
 from lib.vllm_bench.state import (
     CaseArtifact,
     LevelCheckpoint,
@@ -43,16 +51,38 @@ def _payload() -> dict[str, object]:
 
 def test_config_pins_full_protocol_and_profiles() -> None:
     config = load_config()
+    assert config.protocol_version == "vllm-sar-bench-v6"
+    assert "vllm-sar-bench-v2" in config.protocol_lineage
+    assert config.protocol_lineage["vllm-sar-bench-v3"] == (
+        "4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534"
+    )
+    assert config.protocol_lineage["vllm-sar-bench-v4"] == (
+        "47349665261b5c0f893b156227003e7192d40928df78bb674fb1796186f6c8cf"
+    )
+    # The 1,000-case full run measured v5. Its exact config bytes stay recorded so the published
+    # cascade evidence keeps reporting against what it actually executed under (AD-1.3).
+    assert config.protocol_lineage["vllm-sar-bench-v5"] == (
+        "57df143fde48dd7cfee6c14d366ea261d8bfa36c949e1be5ad5cbf0d7d70f169"
+    )
     assert resolve_profile(config, "full") == (1000, (1, 8, 32), 10)
     assert resolve_profile(config, "smoke") == (8, (1, 2), 1)
+    assert resolve_profile(config, "development") == (40, (32,), 1)
+    assert resolve_case_set(config, "development") == "development"
+    assert resolve_case_set(config, "full") == "measured"
     assert config.arms["bf16"].dtype == "bfloat16"
     assert config.arms["awq"].quantization == "awq_marlin"
+    assert config.cascade.scenario("awq-constrained").endpoints == ("awq",)
+    assert config.cascade.scenario("bf16-constrained").endpoints == ("bf16",)
+    assert config.cascade.report.baseline == "bf16-baseline"
+    assert config.acceptance.cascade_final_pass_rate_min == 0.99
     assert config.server.enable_prefix_caching is False
     assert config.application_pass.base_url_env == "FRAUDLENS_E2E_BASE_URL"
     assert config.application_pass.auth_token_env == "FRAUDLENS_E2E_AUTH_TOKEN"
     assert config.request.temperature == 0
     with pytest.raises(ValueError, match="unknown benchmark profile"):
         resolve_profile(config, "missing")
+    with pytest.raises(ValueError, match="unknown benchmark profile"):
+        resolve_case_set(config, "missing")
 
 
 @pytest.mark.parametrize(
@@ -247,3 +277,20 @@ def test_case_artifact_rejects_duplicate_ids_and_bad_subject_accounting() -> Non
     base["cases"] = (case,)
     with pytest.raises(ValidationError, match="subject accounting"):
         CaseArtifact(**base)
+
+
+def test_shared_quality_thresholds_have_exactly_one_owner() -> None:
+    """The benchmark and the CI gate suites must never judge by different floors.
+
+    `config/vllm-bench.yaml` used to restate citation precision and required-fact coverage under
+    its own names. Two copies of a threshold drift, and the benchmark would then call a draft
+    useful that the shipped quality suite rejects.
+    """
+    shared = load_quality_config().sar_quality
+    resolved = load_config().quality
+
+    assert resolved.reference_validity_min == shared.citation_precision_min
+    assert resolved.coverage_warn_min == shared.required_fact_coverage_min
+    declared = yaml.safe_load(DEFAULT_VLLM_BENCH_CONFIG.read_text(encoding="utf-8"))["quality"]
+    assert "reference_validity_min" not in declared
+    assert "coverage_warn_min" not in declared

@@ -16,11 +16,11 @@ Key functions:
 - regenerate_sar_for_run: reconstruct the input, draft, and persist the next SAR version for a run.
 
 Notes:
-- `rag_context` is intentionally left empty on the reconstructed input: rebuilding the fenced
-regulation block would import the chromadb-backed RAG retriever into the request path, and it is
-not needed for grounding — the drafter grounds `cited_regulations` against `SarInput.citations`
-(protocol §8.1), which are reconstructed from the prior draft. The keyless mock drafter (the
-local-demo / no-key default) composes purely from those citations.
+- Regeneration never re-runs retrieval: that would import the chromadb-backed retriever into the
+request path and is not needed for grounding. The drafter grounds `cited_regulations` against
+`SarInput.citations` (protocol §8.1), reconstructed from the prior draft, and the prompt
+renders its regulation block from exactly those. The keyless mock drafter (the local-demo /
+no-key default) composes purely from them too.
 - A decided draft (approved/rejected) is not regenerable (`invalid_sar_transition`, 409) — a
 regenerate must not discard a recorded human decision. Regeneration also requires a completed run
 with an `analysis_results` snapshot to reconstruct from (`sar_not_regenerable`, 409).
@@ -81,6 +81,7 @@ def sar_draft_to_view(
         version=draft.version,
         status=draft.status,
         quality_status=draft.quality_status,
+        quality=dict(draft.quality or {}),
         model_input=model_input,
         content=draft.content,
         structured=dict(draft.structured or {}),
@@ -184,7 +185,6 @@ def _sar_input_from_records(
         rule_hits=_rule_hits(list(result.rule_hits or [])),
         top_features=_features(list(result.top_features or [])),
         citations=citations,
-        rag_context="",
     )
 
 

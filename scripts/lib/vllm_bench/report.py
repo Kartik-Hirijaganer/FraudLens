@@ -10,20 +10,24 @@ Key functions:
 
 Notes:
 - Reports contain aggregate synthetic evidence only; raw prompts and model outputs remain local.
+- The gate that decides quality is INJECTED: a live run is judged by the production runtime policy,
+  while replaying already-published prompt-v1 evidence is judged by the policy that output was
+  recorded under. Neither is a second evaluator — it is one evaluator with a declared policy.
 """
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
+from fraudlens_backend.sar.quality_gate import SarQualityGate, load_sar_gate_policy
 from lib.study import atomic_write_model, atomic_write_text, sha256_hex
-from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_profile
+from lib.vllm_bench.config import ArmName, VllmBenchConfig, resolve_case_set, resolve_profile
 from lib.vllm_bench.load import ordered_cases
 from lib.vllm_bench.metrics import build_level_metrics
 from lib.vllm_bench.quality import QualitySummary, summarize_quality
 from lib.vllm_bench.render import render_markdown
 from lib.vllm_bench.report_models import (
+    REPORT_VERSION,
     AcceptanceCheck,
     ArmReport,
     QualityDelta,
@@ -31,6 +35,7 @@ from lib.vllm_bench.report_models import (
     VllmBenchReport,
     mechanical_headline,
 )
+from lib.vllm_bench.server import verify_provenance
 from lib.vllm_bench.state import (
     BenchmarkCase,
     CaseArtifact,
@@ -48,12 +53,14 @@ _QUALITY_FIELDS = (
 )
 
 
-def _quality_for_arm(
+def _quality_for_arm(  # noqa: PLR0913 - the evaluating gate stays an explicit injected input.
     manifest: RunManifest,
     arm: ArmName,
     levels: tuple[int, ...],
+    *,
     cases: dict[str, BenchmarkCase],
     config: VllmBenchConfig,
+    gate: SarQualityGate,
 ) -> QualitySummary:
     """Measure each arm once at the primary level plus its separate abstention fixtures."""
     checkpoint = manifest.levels[f"{arm}:{min(levels)}"]
@@ -61,16 +68,19 @@ def _quality_for_arm(
         cases,
         (*checkpoint.measurements, *checkpoint.quality_measurements),
         config.quality,
+        gate,
     )
     return summary
 
 
-def _arm_report(
+def _arm_report(  # noqa: PLR0913 - the evaluating gate stays an explicit injected input.
     manifest: RunManifest,
     arm: ArmName,
     levels: tuple[int, ...],
+    *,
     cases: dict[str, BenchmarkCase],
     config: VllmBenchConfig,
+    gate: SarQualityGate,
 ) -> ArmReport:
     """Derive one arm report in canonical concurrency order."""
     server = manifest.servers[arm]
@@ -83,6 +93,7 @@ def _arm_report(
             purchase_option=server.purchase_option,
             drafts_per_unit=config.cost.drafts_per_unit,
             quality_policy=config.quality,
+            gate=gate,
         )
         for concurrency in levels
     )
@@ -90,7 +101,7 @@ def _arm_report(
         arm=arm,
         server=server,
         levels=metrics,
-        quality=_quality_for_arm(manifest, arm, levels, cases, config),
+        quality=_quality_for_arm(manifest, arm, levels, cases=cases, config=config, gate=gate),
         total_cost_usd=sum(item.cost_usd for item in metrics),
     )
 
@@ -113,42 +124,7 @@ def _validate_provenance(manifest: RunManifest, config: VllmBenchConfig) -> None
     if any(getattr(left, field) != getattr(right, field) for field in shared):
         raise ValueError("BF16 and AWQ execution provenance is not comparable")
     for arm in config.arms:
-        server = manifest.servers[arm]
-        selected = config.arms[arm]
-        host = config.cost.hosts.get(server.host_key)
-        if host is None or server.purchase_option not in host.prices:
-            raise ValueError("server cost provenance is absent from the frozen protocol")
-        expected = (
-            selected.model,
-            selected.revision,
-            selected.tokenizer,
-            selected.tokenizer_revision,
-            f"{config.server.image}:{config.server.image_tag}",
-            config.server.image_tag,
-            float(selected.safetensors_total_gib),
-            host.provider,
-            host.sku,
-            host.region,
-            host.price_source_url,
-            host.price_verified_at.isoformat(),
-        )
-        observed = (
-            server.model,
-            server.model_revision,
-            server.tokenizer,
-            server.tokenizer_revision,
-            server.image,
-            server.vllm_version,
-            server.safetensors_total_gib,
-            server.provider,
-            server.sku,
-            server.region,
-            server.price_source_url,
-            server.price_verified_at,
-        )
-        rate = float(host.prices[server.purchase_option])
-        if observed != expected or not math.isclose(server.hourly_rate_usd, rate):
-            raise ValueError(f"{arm} server provenance drifted from the frozen protocol")
+        verify_provenance(config, manifest.servers[arm], arm)
 
 
 def _validate_checkpoints(
@@ -190,19 +166,21 @@ def _validate_checkpoints(
 def _quality_deltas(
     bf16: QualitySummary, awq: QualitySummary, warning_limit_pp: float
 ) -> tuple[QualityDelta, ...]:
-    """Build AWQ-minus-BF16 percentage-point comparisons for every bounded rate."""
-    return tuple(
-        QualityDelta(
-            metric=field,
-            delta_percentage_points=(float(getattr(awq, field)) - float(getattr(bf16, field)))
-            * 100,
-            warning=(
-                abs(float(getattr(awq, field)) - float(getattr(bf16, field))) * 100
-                > warning_limit_pp
-            ),
+    """Build AWQ-minus-BF16 comparisons for every bounded rate BOTH arms actually measured."""
+    deltas = []
+    for field in _QUALITY_FIELDS:
+        left, right = getattr(bf16, field), getattr(awq, field)
+        if left is None or right is None:
+            continue
+        points = (float(right) - float(left)) * 100
+        deltas.append(
+            QualityDelta(
+                metric=field,
+                delta_percentage_points=points,
+                warning=abs(points) > warning_limit_pp,
+            )
         )
-        for field in _QUALITY_FIELDS
-    )
+    return tuple(deltas)
 
 
 def _token_comparison(
@@ -328,6 +306,7 @@ def build_report(
     manifest: RunManifest,
     artifact: CaseArtifact,
     config: VllmBenchConfig,
+    gate: SarQualityGate | None = None,
 ) -> VllmBenchReport:
     """Validate fairness/completeness and derive the complete benchmark report."""
     if manifest.completed_at is None or set(manifest.servers) != set(config.arms):
@@ -342,7 +321,8 @@ def build_report(
     _validate_provenance(manifest, config)
     cases = {case.case_id: case for case in artifact.cases}
     requested, levels, warmups = resolve_profile(config, manifest.profile)
-    measured = sum(case.case_set == "measured" for case in artifact.cases)
+    selected_case_set = resolve_case_set(config, manifest.profile)
+    measured = sum(case.case_set == selected_case_set for case in artifact.cases)
     abstention = sum(case.case_set == "abstention" for case in artifact.cases)
     for concurrency in levels:
         left = manifest.levels.get(f"bf16:{concurrency}")
@@ -352,8 +332,9 @@ def build_report(
         if left.case_order_sha256 != right.case_order_sha256:
             raise ValueError("BF16 and AWQ case order differs at a concurrency level")
     _validate_checkpoints(manifest, artifact, config, levels, warmups)
-    bf16 = _arm_report(manifest, "bf16", levels, cases, config)
-    awq = _arm_report(manifest, "awq", levels, cases, config)
+    evaluator = gate or SarQualityGate(load_sar_gate_policy())
+    bf16 = _arm_report(manifest, "bf16", levels, cases=cases, config=config, gate=evaluator)
+    awq = _arm_report(manifest, "awq", levels, cases=cases, config=config, gate=evaluator)
     weight_reduction = 1 - awq.server.weight_memory_gib / bf16.server.weight_memory_gib
     safetensors_reduction = 1 - awq.server.safetensors_total_gib / bf16.server.safetensors_total_gib
     acceptance = _acceptance(
@@ -369,7 +350,7 @@ def build_report(
     )
     failed = tuple(item.name for item in acceptance if not item.passed)
     return VllmBenchReport(
-        report_version="vllm-bench-report-v1",
+        report_version=REPORT_VERSION,
         run_id=manifest.run_id,
         protocol_version=manifest.protocol_version,
         profile=manifest.profile,
@@ -391,6 +372,7 @@ def build_report(
         acceptance=acceptance,
         acceptance_met=not failed,
         headline=mechanical_headline(
+            report_version=REPORT_VERSION,
             weight_reduction=weight_reduction,
             bf16=bf16,
             awq=awq,

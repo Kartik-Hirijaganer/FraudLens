@@ -53,9 +53,13 @@ def _environment_default() -> Literal["dev", "prod"]:
 class LlmSettings(BaseSettings):
     """Runtime settings for the FraudLens LLM client."""
 
+    # `extra="forbid"` matches AppSettings: a typo'd FRAUDLENS_LLM_* variable must fail loudly at
+    # startup rather than being silently ignored while the client runs on its defaults. A misspelled
+    # model or data-class override that no one notices is exactly how an ungoverned route ships
+    # (release 0.5.0 Phase 5).
     model_config = SettingsConfigDict(
         env_prefix="FRAUDLENS_LLM_",
-        extra="ignore",
+        extra="forbid",
         frozen=True,
         use_enum_values=False,
     )

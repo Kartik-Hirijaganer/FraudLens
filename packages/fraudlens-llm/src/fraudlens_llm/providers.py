@@ -1,12 +1,19 @@
-"""Summary: Provider connection and governance schema for the non-secret LLM
-provider registry. Provider configs hold endpoints, env-var key references, retry
-settings, and data-governance posture while secrets stay in Infisical-provided
-environment variables.
+"""Summary: Provider governance and named-connection schema for the non-secret LLM registry.
+A PROVIDER declares governance posture (region, retention, ZDR, training opt-out, permitted data
+classes) and its default transport; a CONNECTION is a named route through that provider with its
+own runtime-injected URL and key env vars plus mandatory request options. The split exists because
+the quality-gated SAR cascade must reach two DIFFERENT self-hosted vLLM endpoints (`runpod-awq`
+and `runpod-bf16`) that share one governance posture — with a single `vllm` entry both tiers
+resolved to the same URL and the cascade could not work at all (release 0.5.0 AD-2.5). A
+connection never weakens its provider's posture: it inherits every governance field unchanged and
+may only add endpoint routing, request options such as zero-data-retention enforcement, and an
+allowed-upstream list. Secrets stay in Infisical-provided environment variables.
 
 Key classes:
 - Protocol: Supported provider adapter protocols.
 - ProviderConfig: Validated provider connection and governance metadata.
-- Providers: Validated provider registry wrapper.
+- ConnectionConfig: One named route through a provider with its own env references.
+- Providers: Validated provider + connection registry wrapper.
 
 Key functions:
 - load_providers: Load and validate provider YAML.
@@ -16,6 +23,8 @@ Key functions:
 
 Notes:
 - Header validation rejects auth-like names and secret-like values.
+- `Providers.route` returns the provider config a named connection resolves to, so callers never
+  handle URLs or keys themselves and an unknown connection name fails closed.
 """
 
 from __future__ import annotations
@@ -33,6 +42,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     TypeAdapter,
     ValidationError,
     field_validator,
@@ -102,6 +112,10 @@ class ProviderConfig(BaseModel):
     timeout_s: float = Field(..., gt=0, le=600, description="Per-request timeout in seconds.")
     max_retries: int = Field(..., ge=0, le=10, description="SDK-native retry count.")
     headers: dict[str, str] = Field(default_factory=dict, description="Non-secret static headers.")
+    request_options: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Mandatory non-secret request body options applied to every call.",
+    )
     region: str = Field(..., min_length=1, description="Provider processing region.")
     data_retention: str = Field(..., min_length=1, description="Provider data retention policy.")
     zdr_supported: bool = Field(..., description="Whether zero-data-retention is supported.")
@@ -151,16 +165,51 @@ class ProviderConfig(BaseModel):
         return self
 
 
+class ConnectionConfig(BaseModel):
+    """One named route through a provider, with its own runtime-injected env references."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider: str = Field(
+        ..., min_length=1, description="Governing provider whose posture this route inherits."
+    )
+    base_url_env: str | None = Field(
+        default=None, description="Uppercase env-var name holding this route's base URL."
+    )
+    api_key_env: str | None = Field(
+        default=None, description="Uppercase env-var name holding this route's API key."
+    )
+    request_options: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Mandatory non-secret request options (e.g. zero-data-retention).",
+    )
+    allowed_upstreams: tuple[str, ...] = Field(
+        default=(), description="Upstream route names this connection may be served by."
+    )
+
+    @field_validator("api_key_env", "base_url_env")
+    @classmethod
+    def _validate_env_reference(cls, value: str | None) -> str | None:
+        """Validate that connection fields name env vars rather than containing values."""
+        if value is not None and not _ENV_VAR_RE.fullmatch(value):
+            raise ValueError("connection env references must be uppercase environment names")
+        return value
+
+
 _ProvidersData = dict[str, ProviderConfig]
+_ConnectionsData = dict[str, ConnectionConfig]
 _PROVIDERS_ADAPTER: TypeAdapter[_ProvidersData] = TypeAdapter(_ProvidersData)
 
 
 class Providers(BaseModel):
-    """Validated provider registry wrapper."""
+    """Validated provider governance registry plus its named connection routes."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     providers: _ProvidersData = Field(..., description="Provider configs keyed by name.")
+    connections: _ConnectionsData = Field(
+        default_factory=dict, description="Named routes keyed by connection name."
+    )
 
     def get(self, provider: str) -> ProviderConfig:
         """Return a provider config or raise when the provider is reference-only."""
@@ -168,6 +217,35 @@ class Providers(BaseModel):
         if config is None:
             raise ProviderNotConfiguredError(f"Provider '{provider}' is not configured")
         return config
+
+    def connection(self, name: str) -> ConnectionConfig:
+        """Return a named connection or raise when the route is not registered."""
+        route = self.connections.get(name)
+        if route is None:
+            raise ProviderNotConfiguredError(f"Connection '{name}' is not configured")
+        return route
+
+    def route(self, provider: str, connection: str | None) -> ProviderConfig:
+        """Return the provider config a call resolves to, applying a named route's env overrides."""
+        config = self.get(provider)
+        if connection is None:
+            return config
+        route = self.connection(connection)
+        if route.provider != provider:
+            raise ProviderNotConfiguredError(
+                f"Connection '{connection}' does not route to provider '{provider}'"
+            )
+        overrides: dict[str, object] = {
+            key: value
+            for key, value in (
+                ("base_url_env", route.base_url_env),
+                ("api_key_env", route.api_key_env),
+            )
+            if value is not None
+        }
+        if route.request_options:
+            overrides["request_options"] = {**config.request_options, **route.request_options}
+        return config.model_copy(update=overrides) if overrides else config
 
 
 def resolve_base_url(
@@ -266,11 +344,18 @@ def _retention_days(value: str) -> int:
 
 
 def load_providers(path: str | Path) -> Providers:
-    """Load and validate provider YAML, wrapping parser/validation errors."""
+    """Load and validate the provider + connection YAML, wrapping parser/validation errors."""
     providers_path = Path(path)
     try:
-        raw: Any = yaml.safe_load(providers_path.read_text(encoding="utf-8"))
-        data = _PROVIDERS_ADAPTER.validate_python(raw)
-        return Providers(providers=data)
+        raw: Any = yaml.safe_load(providers_path.read_text(encoding="utf-8")) or {}
+        registry = Providers.model_validate(
+            raw
+            if isinstance(raw, dict) and "providers" in raw
+            else {"providers": _PROVIDERS_ADAPTER.validate_python(raw)}
+        )
     except (OSError, TypeError, yaml.YAMLError, ValidationError) as exc:
         raise CatalogError(f"Failed to load LLM providers from {providers_path}") from exc
+    for name, route in registry.connections.items():
+        if route.provider not in registry.providers:
+            raise CatalogError(f"Connection '{name}' names an unconfigured provider")
+    return registry

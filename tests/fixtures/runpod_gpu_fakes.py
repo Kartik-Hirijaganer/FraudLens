@@ -67,10 +67,11 @@ def inventory(config: RunpodGpuConfig, **changes: object) -> GpuInventoryItem:
 
 def session(config: RunpodGpuConfig, **changes: object) -> RunpodSession:
     """Build one non-secret synthetic local session."""
+    role = changes.get("role")
     payload: dict[str, object] = {
         "run_id": RUN_ID,
         "pod_id": POD_ID,
-        "pod_name": config.pod_name(RUN_ID),
+        "pod_name": config.pod_name(RUN_ID, role if isinstance(role, str) else None),
         "config_sha256": config.config_sha256,
         "git_commit": GIT_SHA,
         "image_digest": config.pod.image_digest,

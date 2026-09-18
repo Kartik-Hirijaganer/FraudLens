@@ -3,10 +3,10 @@ ceiling_usd: "75.00"
 admission_margin: "0.30"
 allocations:
   azure_cpu_batch: "15.00"
-  gpu_benchmark: "10.00"
+  gpu_benchmark: "37.00"
   e2e_application_pass: "5.00"
-  supporting_resources: "20.00"
-  reserve: "25.00"
+  supporting_resources: "16.00"
+  reserve: "2.00"
 watchdog_hours:
   azure_cpu_batch: "8.00"
   gpu_benchmark: "8.00"

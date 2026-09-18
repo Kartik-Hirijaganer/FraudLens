@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from quality_gates import grounding_gate
 
 from fraudlens_backend.agents.config import AgentRole, AgentsConfig, load_agents_config
 from fraudlens_backend.agents.contracts import (
@@ -308,6 +309,7 @@ async def test_drafter_normalizes_workflow_faults(
         config=config,
         prompts=_prompts(),
         budget=BudgetGuard(session_limit_usd=Decimal("1")),
+        gate=grounding_gate(),
     )
 
     events = [event async for event in drafter.draft(make_sar_input())]
@@ -326,6 +328,7 @@ async def test_drafter_propagates_preflight_budget_refusal(make_sar_input) -> No
         config=_config(),
         prompts=_prompts(),
         budget=BudgetGuard(session_limit_usd=Decimal("1")),
+        gate=grounding_gate(),
     )
 
     with pytest.raises(AgentBudgetExceededError, match="budget refusal"):

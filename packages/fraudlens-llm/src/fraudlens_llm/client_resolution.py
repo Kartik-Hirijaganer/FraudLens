@@ -14,6 +14,9 @@ Key functions:
 
 Notes:
 - These internal Pydantic boundaries fail closed on unexpected fields.
+- A named connection only changes transport: `provider` stays the governance name used for
+  pricing, policy, and safe logging, while `transport_key` keeps one adapter per distinct route
+  so two vLLM tiers never collapse onto a single endpoint.
 """
 
 from __future__ import annotations
@@ -46,9 +49,17 @@ class ResolvedModel(BaseModel):
 
     ref: str = Field(..., description="Provider/model reference.")
     provider: str = Field(..., description="Provider name.")
+    connection: str | None = Field(
+        default=None, description="Named connection route, or None for the provider default."
+    )
     model_id: str = Field(..., description="Provider-native model id.")
     card: ModelCard = Field(..., description="Catalog model card.")
-    provider_config: ProviderConfig = Field(..., description="Provider config.")
+    provider_config: ProviderConfig = Field(..., description="Resolved provider/route config.")
+
+    @property
+    def transport_key(self) -> str:
+        """Return the cache key one adapter instance is shared under."""
+        return self.connection or self.provider
 
 
 class InputGuardrails(BaseModel):
@@ -77,15 +88,18 @@ class PreparedGeneration(BaseModel):
     )
 
 
-def resolve_model(catalog: Catalog, providers: Providers, ref: str) -> ResolvedModel:
-    """Resolve a catalog reference plus provider configuration."""
+def resolve_model(
+    catalog: Catalog, providers: Providers, ref: str, connection: str | None = None
+) -> ResolvedModel:
+    """Resolve a catalog reference plus the provider or named-connection configuration."""
     provider, model_id, card = catalog.get(ref)
     return ResolvedModel(
         ref=ref,
         provider=provider,
+        connection=connection,
         model_id=model_id,
         card=card,
-        provider_config=providers.get(provider),
+        provider_config=providers.route(provider, connection),
     )
 
 

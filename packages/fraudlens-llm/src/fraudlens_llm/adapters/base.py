@@ -101,6 +101,7 @@ class StreamingProviderAdapter(ProviderAdapter, Protocol):
         card: ModelCard,
         messages: Sequence[LlmMessage],
         params: GenerationParams,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncIterator[AdapterGenerateChunk]:
         """Yield normalized provider-native text deltas and terminal metadata."""
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from vllm_bench_fakes import HASH, NOW, benchmark_case, measurement, telemetry
+from vllm_bench_fakes import HASH, NOW, benchmark_case, measurement, replay_gate, telemetry
 
 from lib.vllm_bench.config import load_config
 from lib.vllm_bench.metrics import build_level_metrics, percentile
@@ -57,6 +57,7 @@ def test_level_metrics_derive_performance_retries_cost_and_token_drift() -> None
         purchase_option="pay_as_you_go",
         drafts_per_unit=1000,
         quality_policy=load_config().quality,
+        gate=replay_gate(),
     )
     assert metrics.requests == 2
     assert metrics.successful == 2
@@ -91,6 +92,7 @@ def test_zero_duration_and_terminal_error_are_safe() -> None:
         purchase_option="pay_as_you_go",
         drafts_per_unit=1000,
         quality_policy=load_config().quality,
+        gate=replay_gate(),
     )
     assert metrics.error_rate == 1
     assert metrics.requests_per_second == 0

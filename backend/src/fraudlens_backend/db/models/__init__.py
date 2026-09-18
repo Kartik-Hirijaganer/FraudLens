@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from fraudlens_backend.db.base import Base
 from fraudlens_backend.db.models.agents import AgentExecution
-from fraudlens_backend.db.models.alerts import Alert, AlertAction, SarDraft
+from fraudlens_backend.db.models.alerts import (
+    Alert,
+    AlertAction,
+    SarDraft,
+    SarGenerationAttempt,
+)
 from fraudlens_backend.db.models.analysis import (
     AnalysisResult,
     AnalysisRun,
@@ -95,6 +100,7 @@ __all__ = [
     "RagRetrieval",
     "RunStatus",
     "SarDraft",
+    "SarGenerationAttempt",
     "SarQualityStatus",
     "SarStatus",
     "Severity",

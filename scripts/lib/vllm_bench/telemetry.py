@@ -15,10 +15,14 @@ Key functions:
 - parse_prometheus: extract vLLM cache and queue gauges.
 - summarize: aggregate a benchmark telemetry window.
 - build_sampler: construct the configured sampler.
-- query_host_facts: read non-sensitive GPU and driver identity.
+- query_cuda_version: best-effort CUDA runtime version from the nvidia-smi banner.
+- query_host_facts: read non-sensitive GPU, driver, and CUDA identity.
 
 Notes:
 - No command output is logged; only typed numeric samples and device/version strings persist.
+- The CUDA runtime line is read best-effort and stays OPTIONAL: an image whose `nvidia-smi`
+  omits it must still produce provenance, and an absent value is published as absent rather
+  than inferred from the driver version (release 0.5.0 Phase 5, carried risk 10).
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ _METRIC = re.compile(
 )
 _NVIDIA_TELEMETRY_COLUMNS = 3
 _NVIDIA_IDENTITY_COLUMNS = 2
+_CUDA_VERSION = re.compile(r"CUDA Version:\s*(?P<value>[0-9]+\.[0-9]+)")
 
 
 class TelemetrySample(BaseModel):
@@ -54,6 +59,9 @@ class TelemetrySample(BaseModel):
     model_config = _MODEL_CONFIG
 
     captured_at: datetime = Field(..., description="UTC sampling time.")
+    role: str | None = Field(
+        default=None, description="Endpoint role sampled; None for a single-endpoint window."
+    )
     gpu_utilization_pct: float | None = Field(
         default=None, ge=0, le=100, description="GPU busy percent."
     )
@@ -86,6 +94,11 @@ class HostGpuFacts(BaseModel):
 
     gpu_name: str = Field(..., min_length=1, description="NVIDIA device name.")
     driver_version: str = Field(..., min_length=1, description="NVIDIA driver version.")
+    cuda_version: str | None = Field(
+        default=None,
+        min_length=1,
+        description="CUDA runtime version nvidia-smi reported, or None when it reported none.",
+    )
 
 
 @runtime_checkable
@@ -275,8 +288,17 @@ def build_sampler(config: TelemetryConfig) -> GpuSampler:
     )
 
 
+def query_cuda_version(prefix: tuple[str, ...] = ()) -> str | None:
+    """Read the CUDA runtime version from the nvidia-smi banner, or None when it reports none."""
+    completed = subprocess.run((*prefix, "nvidia-smi"), check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        return None
+    found = _CUDA_VERSION.search(completed.stdout)
+    return found.group("value") if found else None
+
+
 def query_host_facts(prefix: tuple[str, ...] = ()) -> HostGpuFacts:
-    """Read the first GPU name and driver version for immutable provenance."""
+    """Read the first GPU name, driver version, and CUDA runtime for immutable provenance."""
     command = (
         *prefix,
         "nvidia-smi",
@@ -288,4 +310,6 @@ def query_host_facts(prefix: tuple[str, ...] = ()) -> HostGpuFacts:
     parts = [item.strip() for item in line.split(",")]
     if len(parts) != _NVIDIA_IDENTITY_COLUMNS or not all(parts):
         raise ValueError("nvidia-smi did not return GPU and driver identity")
-    return HostGpuFacts(gpu_name=parts[0], driver_version=parts[1])
+    return HostGpuFacts(
+        gpu_name=parts[0], driver_version=parts[1], cuda_version=query_cuda_version(prefix)
+    )

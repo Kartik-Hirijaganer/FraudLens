@@ -3,6 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-09-14
 - **Format:** Decision · Options · Why · Tradeoffs · Reconsider when
+- **Superseded on quality by:** [ADR-030](ADR-030-quality-gated-sar-model-cascade.md). This
+  record's memory, latency, and throughput findings stand and were re-measured in release
+  0.5.0. What it did not measure was grounding: raw AWQ fabricated citations on **85 of 1,000**
+  cases at concurrency 32 where BF16 fabricated none, so AWQ is no longer served ungated.
 - **Related:** implementation plan
   `plans/2026-09-13-vllm-awq-benchmark-fulldata-training-and-aks-deployment.md` (retired; see plans/README.md)
 
@@ -70,6 +74,8 @@ application pass must prove that the normal FastAPI path can use the selected vL
 
 ## Reconsider when
 
+- **Met (2026-09-18).** Release 0.5.0 measured AWQ's grounding failure rate and replaced the raw
+  route with the quality-gated cascade in [ADR-030](ADR-030-quality-gated-sar-model-cascade.md).
 - A different model family, quantization format, vLLM major version, or GPU architecture is selected.
 - Production data or real PHI is proposed for model egress.
 - A managed endpoint meets the same evidence, privacy, and cost requirements with less operational

@@ -16,9 +16,9 @@ queue_backend: container_apps_jobs
 llm_mode: live
 multi_agent_sar_enabled: false
 
-# Hard ceiling on one tenant-day of live LLM spend. A public URL under the standard 120 req/min
-# rate limit otherwise has no dollar bound on OpenRouter; this caps theoretical exposure at
-# $7.50/month. Each tenant's own `system_config` budget is clamped to this value, never above it.
+# Hard ceiling on one tenant-day of live LLM spend. The normal 0.25 value caps theoretical
+# exposure at $7.50/month; each tenant's `system_config` budget is clamped to this value.
+# The governed Phase-4 benchmark raise has been restored; release and deploy keep the normal cap.
 llm_daily_budget_usd: 0.25
 
 # Azure runtime endpoints are non-secret. Resource-specific names (subscription, resource group,

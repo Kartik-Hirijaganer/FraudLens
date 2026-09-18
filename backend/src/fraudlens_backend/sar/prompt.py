@@ -6,7 +6,8 @@ bytes) — so every SAR persists which prompt produced it and any edit to the te
 hash (auditable A/B + golden tests, plan §7.3). `build_messages` turns a closed `SarModelInput` into
 the `[system, user]` chat messages: the system message is the static (hashed) template; the user
 message is assembled from the structured non-PHI facts (band, probability, amount, rule hits, SHAP
-drivers) plus the already-fenced `rag_context` regulation block (RAG-as-data, plan §8.1). As
+drivers), the deterministic EVIDENCE CATALOG a draft must reference and match (release 0.5.0
+Phase 2.2), and the digest-verified regulation block (RAG-as-data, plan §8.1). As
 defense-in-depth the assembled user text is run through the deterministic core masker before it
 leaves this module, so even a crafted free-text field cannot carry a PHI-shaped span into the
 prompt (the "PHI masked before the prompt" guarantee, plan §7.8 — on top of the client's own mask).
@@ -24,6 +25,8 @@ Notes:
 - Messages are returned as plain role/content dicts so this module imports no provider types; the
   live drafter hands them to the guardrailed `fraudlens_llm` client, which masks again and prepends
   its own system-policy message.
+- The default template is `v5`: it emits compact prose while the backend hydrates canonical facts.
+  Prior templates stay immutable for benchmark evidence lineage.
 """
 
 from __future__ import annotations
@@ -39,10 +42,15 @@ from fraudlens_backend.prompting import (
     split_front_matter,
 )
 from fraudlens_backend.sar.egress import SarModelInput
+from fraudlens_backend.sar.evidence import (
+    SarEvidenceCatalog,
+    build_evidence_catalog,
+    required_narrative_facts,
+)
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core.phi import mask_text
 
-DEFAULT_SAR_PROMPT_ID = "v1"
+DEFAULT_SAR_PROMPT_ID = "v5"
 
 
 class SarPromptMeta(PromptMeta):
@@ -102,6 +110,7 @@ def build_messages(
 def _render_user_content(sar_input: SarModelInput) -> str:
     """Render the structured, PHI-free facts + fenced regulation block into the user message."""
     probability_pct = f"{sar_input.fraud_probability * 100:.1f}%"
+    catalog = build_evidence_catalog(sar_input)
     blocks = [
         "Draft a SAR for the following investigation.",
         "\n".join(
@@ -121,6 +130,8 @@ def _render_user_content(sar_input: SarModelInput) -> str:
         ),
         _render_rule_hits(sar_input),
         _render_top_features(sar_input),
+        _render_evidence_catalog(catalog),
+        _render_required_narrative_facts(catalog),
         _render_regulations(sar_input),
     ]
     return "\n\n".join(block for block in blocks if block)
@@ -146,6 +157,25 @@ def _render_top_features(sar_input: SarModelInput) -> str:
     for feature in sar_input.shap_drivers:
         direction = "increases" if feature.shap_value >= 0 else "decreases"
         lines.append(f"- {feature.feature}={feature.value:g} {direction} risk")
+    return "\n".join(lines)
+
+
+def _render_evidence_catalog(catalog: SarEvidenceCatalog) -> str:
+    """Render the closed evidence catalog every claim ref and asserted fact must come from."""
+    if not catalog.facts:
+        return "Evidence catalog: empty — assert no facts."
+    lines = ["Evidence catalog (ref | value | as written):"]
+    lines.extend(f"- {fact.ref} | {fact.value} | {fact.display}" for fact in catalog.facts)
+    return "\n".join(lines)
+
+
+def _render_required_narrative_facts(catalog: SarEvidenceCatalog) -> str:
+    """Render the core facts the backend attaches and the prose must state exactly."""
+    lines = ["Required narrative facts (backend attaches refs; use `as written` in prose):"]
+    lines.extend(
+        f"- {fact.ref} | {fact.value} | {fact.display}"
+        for fact in required_narrative_facts(catalog)
+    )
     return "\n".join(lines)
 
 

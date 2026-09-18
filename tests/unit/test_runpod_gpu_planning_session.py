@@ -39,6 +39,7 @@ from lib.runpod_gpu.session import (
     validate_pod_contract,
     write_session,
 )
+from lib.study import resolve_git_commit
 
 
 def _plan(sandbox, monkeypatch, **inventory_changes):
@@ -59,7 +60,7 @@ def test_plan_admits_eight_hour_secure_cloud_envelope(sandbox, monkeypatch) -> N
     assert plan.admitted is True
     assert plan.projected_cost_usd == Decimal("5.92000000")
     assert plan.cost_with_margin_usd == Decimal("7.6960000000")
-    assert plan.allocation_usd == Decimal("10.00")
+    assert plan.allocation_usd == Decimal("37.00")
     assert plan.gpu_memory_gb == 24
     assert plan.pod_name == config.pod_name(RUN_ID)
 
@@ -71,7 +72,9 @@ def test_create_request_is_ssh_only_secret_free_and_self_stopping(sandbox, monke
     assert payload["cloudType"] == "SECURE"
     assert payload["gpuTypeIds"] == [config.pod.gpu_id]
     assert payload["ports"] == ["22/tcp"]
-    assert payload["volumeEncrypted"] is True
+    # The provider rejects this key on create, so the request must NOT carry it; encryption is
+    # verified on the created Pod instead (see the contract cases below).
+    assert "volumeEncrypted" not in payload
     assert payload["imageName"] == config.pod.image_reference
     assert "28800" in payload["dockerStartCmd"][0]
     assert "runpodctl pod stop" in payload["dockerStartCmd"][0]
@@ -113,17 +116,28 @@ def test_plan_and_request_fail_closed_on_capacity_quote_or_inventory_drift(
 def test_git_commit_rejects_dirty_or_invalid_revision(sandbox, monkeypatch) -> None:
     outputs = iter([" M changed.py"])
     monkeypatch.setattr(
-        "lib.runpod_gpu.planning._command_output", lambda *_args, **_kwargs: next(outputs)
+        "lib.study.provenance._command_output", lambda *_args, **_kwargs: next(outputs)
     )
     with pytest.raises(ValueError, match="clean committed"):
         git_commit(sandbox)
 
     outputs = iter(["", "not-a-sha"])
     monkeypatch.setattr(
-        "lib.runpod_gpu.planning._command_output", lambda *_args, **_kwargs: next(outputs)
+        "lib.study.provenance._command_output", lambda *_args, **_kwargs: next(outputs)
     )
     with pytest.raises(ValueError, match="immutable Git"):
         git_commit(sandbox)
+
+
+def test_injected_git_commit_is_validated_without_a_local_checkout(sandbox, monkeypatch) -> None:
+    """A remote archive uses its session SHA and never shells out to a nonexistent .git tree."""
+    monkeypatch.setattr(
+        "lib.study.provenance._command_output",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Git must not run")),
+    )
+    assert resolve_git_commit(sandbox, injected=GIT_SHA) == GIT_SHA
+    with pytest.raises(ValueError, match="40 lowercase hexadecimal"):
+        resolve_git_commit(sandbox, injected="not-a-commit")
 
 
 def test_public_key_path_is_environment_backed_and_single_line(sandbox, monkeypatch) -> None:
@@ -155,9 +169,11 @@ def test_session_round_trip_status_and_ssh_commands(sandbox, monkeypatch) -> Non
     private.write_text("not-read-by-operator")
     monkeypatch.setenv(config.ssh.private_key_path_env, str(private))
     ssh = ssh_argv(config, status)
-    assert ssh[0] == "ssh" and str(private) in ssh
+    assert ssh[0] == "ssh" and str(private) in ssh and "-C" in ssh
+    assert "ServerAliveInterval=10" in ssh and "ServerAliveCountMax=6" in ssh
     scp = scp_argv(config, status)
-    assert scp[0] == "scp" and "22022" in scp
+    assert scp[0] == "scp" and "22022" in scp and "-C" in scp
+    assert "ServerAliveInterval=10" in scp and "ServerAliveCountMax=6" in scp
 
 
 @pytest.mark.parametrize(
@@ -211,3 +227,25 @@ def test_ssh_refuses_unready_pod_or_missing_key(sandbox, monkeypatch) -> None:
     monkeypatch.delenv(config.ssh.private_key_path_env, raising=False)
     with pytest.raises(ValueError, match="is required"):
         ssh_argv(config, ready)
+
+
+def test_an_unreported_volume_encryption_state_is_accepted_and_recorded() -> None:
+    """The provider stopped reporting encryption; the evidence says so rather than assuming it.
+
+    A Pod that reports `false` is still a contract breach — only silence is tolerated, and only
+    because the corpus on that volume is public synthetic data.
+    """
+    config = load_config()
+    unreported = pod(config).model_copy(update={"volume_encrypted": None})
+
+    validate_pod_contract(
+        config, unreported, pod_name=unreported.name, expected_rate=unreported.cost_per_hour
+    )
+
+    with pytest.raises(ValueError, match="encrypted volume"):
+        validate_pod_contract(
+            config,
+            pod(config).model_copy(update={"volume_encrypted": False}),
+            pod_name=unreported.name,
+            expected_rate=unreported.cost_per_hour,
+        )

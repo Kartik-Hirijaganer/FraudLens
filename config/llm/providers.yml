@@ -1,10 +1,17 @@
 # =====================================================================
-# FraudLens LLM Providers - CONNECTION + GOVERNANCE registry (NON-SECRET).
+# FraudLens LLM providers + named connections - GOVERNANCE registry (NON-SECRET).
 # =====================================================================
 #
-# Keyed by the same provider names used in catalog.yml. This file holds how to
-# reach a provider and what governance posture it advertises. catalog.yml holds
-# model capability and trust metadata.
+# `providers` is keyed by the provider names used in catalog.yml and holds the
+# governance posture (region, retention, ZDR, training opt-out, permitted data
+# classes) plus that provider's default transport.
+#
+# `connections` are NAMED ROUTES through a provider. A route inherits its
+# provider's governance posture unchanged and may only override the env-var
+# references that carry its URL/key, add mandatory request options, and declare
+# which upstreams may serve it. The quality-gated SAR cascade needs this: the AWQ
+# and BF16 tiers are two different self-hosted endpoints behind one `vllm`
+# governance entry, and without named routes both tiers resolve to the same URL.
 #
 # API keys are env-var references resolved at runtime from Infisical /llm:
 #   infisical run --env=prod --path=/llm -- <command>
@@ -12,70 +19,98 @@
 # A catalog provider with no entry here is discoverable but not callable.
 # =====================================================================
 
-openrouter:
-  protocol: openai_compatible
-  base_url: https://openrouter.ai/api/v1
-  api_key_env: OPENROUTER_API_KEY
-  timeout_s: 60
-  max_retries: 2
-  headers:
-    HTTP-Referer: https://fraudlens.local
-    X-Title: FraudLens
-  region: global
-  data_retention: provider-default
-  zdr_supported: false
-  training_opt_out: false
-  baa_required: false
-  allowed_data_classes: [synthetic, deidentified]
+providers:
+  openrouter:
+    protocol: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    timeout_s: 60
+    max_retries: 2
+    headers:
+      HTTP-Referer: https://fraudlens.local
+      X-Title: FraudLens
+    region: global
+    data_retention: provider-default
+    zdr_supported: false
+    training_opt_out: false
+    baa_required: false
+    allowed_data_classes: [synthetic, deidentified]
 
-vllm:
-  protocol: openai_compatible
-  base_url_env: VLLM_BASE_URL
-  allow_plain_http: true
-  api_key_env: VLLM_API_KEY
-  timeout_s: 300
-  max_retries: 0
-  region: self-hosted
-  data_retention: none
-  zdr_supported: true
-  training_opt_out: true
-  baa_required: false
-  allowed_data_classes: [synthetic, deidentified, internal, restricted]
+  vllm:
+    protocol: openai_compatible
+    base_url_env: VLLM_BASE_URL
+    allow_plain_http: true
+    api_key_env: VLLM_API_KEY
+    timeout_s: 300
+    max_retries: 0
+    region: self-hosted
+    data_retention: none
+    zdr_supported: true
+    training_opt_out: true
+    baa_required: false
+    allowed_data_classes: [synthetic, deidentified, internal, restricted]
 
-openai:
-  protocol: openai_compatible
-  base_url: https://api.openai.com/v1
-  api_key_env: OPENAI_API_KEY
-  timeout_s: 45
-  max_retries: 3
-  region: us
-  data_retention: 30d
-  zdr_supported: true
-  training_opt_out: true
-  baa_required: true
-  allowed_data_classes: [synthetic, deidentified, internal, restricted]
+  openai:
+    protocol: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_s: 45
+    max_retries: 3
+    region: us
+    data_retention: 30d
+    zdr_supported: true
+    training_opt_out: true
+    baa_required: true
+    allowed_data_classes: [synthetic, deidentified, internal, restricted]
 
-anthropic:
-  protocol: anthropic
-  api_key_env: ANTHROPIC_API_KEY
-  timeout_s: 60
-  max_retries: 2
-  region: us
-  data_retention: 30d
-  zdr_supported: false
-  training_opt_out: true
-  baa_required: true
-  allowed_data_classes: [synthetic, deidentified, internal]
+  anthropic:
+    protocol: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    timeout_s: 60
+    max_retries: 2
+    region: us
+    data_retention: 30d
+    zdr_supported: false
+    training_opt_out: true
+    baa_required: true
+    allowed_data_classes: [synthetic, deidentified, internal]
 
-gemini:
-  protocol: openai_compatible
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-  api_key_env: GEMINI_API_KEY
-  timeout_s: 45
-  max_retries: 3
-  region: global
-  data_retention: provider-default
-  zdr_supported: false
-  training_opt_out: false
-  baa_required: false
-  allowed_data_classes: [synthetic, deidentified]
+  gemini:
+    protocol: openai_compatible
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    timeout_s: 45
+    max_retries: 3
+    region: global
+    data_retention: provider-default
+    zdr_supported: false
+    training_opt_out: false
+    baa_required: false
+    allowed_data_classes: [synthetic, deidentified]
+
+connections:
+  # Tier 1 of the quality-gated SAR cascade: the 4-bit AWQ endpoint.
+  runpod-awq:
+    provider: vllm
+    base_url_env: VLLM_AWQ_BASE_URL
+    api_key_env: VLLM_AWQ_API_KEY
+
+  # Tier 2: the BF16 endpoint a citation-failed AWQ draft escalates to.
+  runpod-bf16:
+    provider: vllm
+    base_url_env: VLLM_BF16_BASE_URL
+    api_key_env: VLLM_BF16_API_KEY
+
+  # Tier 3: the only hosted route. Every request carries zero-data-retention and
+  # a data-collection denial, and only the listed upstreams may serve it.
+  openrouter-zdr:
+    provider: openrouter
+    api_key_env: OPENROUTER_API_KEY
+    request_options:
+      provider:
+        zdr: true
+        data_collection: deny
+    allowed_upstreams:
+      - openai
+      - anthropic
+      - azure

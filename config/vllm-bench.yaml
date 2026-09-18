@@ -2,7 +2,20 @@
 # Secrets are injected at runtime; this file stores only environment-variable names.
 
 seed: 1729
-protocol_version: vllm-sar-bench-v1
+# Protocol v5 is the latency remediation discovered by the v4 live constrained smoke: the exact
+# fact-object `oneOf` grammar passed quality but produced a 522.8-second p95. The model now emits a
+# compact prose envelope; the backend hydrates canonical facts before the unchanged quality gate.
+# Protocol v6 changes NO generation, request, or measurement semantics. It exists because the
+# config hash covers the whole file byte-for-byte, and release 0.5.0 added the published cascade
+# report's baseline and disclosures here. Versioning rather than mutating keeps the v5 full run
+# bound to the exact bytes it executed under (AD-1.3).
+protocol_version: vllm-sar-bench-v6
+protocol_lineage:
+  vllm-sar-bench-v1: b52e68d9ae6d288a6be3f2b2a158062ce64268c360d5c0446547c53be75bf240
+  vllm-sar-bench-v2: 6c21b558cbb35dcc233c9ea945d5ac0363827d92d86c6b7396298fd8a20472e3
+  vllm-sar-bench-v3: 4f9388d51ec47b0ef1f806e8784e56afcde3c67a66c42ba7d14bdcebdf4f5534
+  vllm-sar-bench-v4: 47349665261b5c0f893b156227003e7192d40928df78bb674fb1796186f6c8cf
+  vllm-sar-bench-v5: 57df143fde48dd7cfee6c14d366ea261d8bfa36c949e1be5ad5cbf0d7d70f169
 
 cases:
   source: ibm-final-test
@@ -63,9 +76,10 @@ server:
     command_prefix: []
 
 request:
-  max_tokens: 1024
+  max_tokens: 512
   temperature: 0.0
   json_object_mode: true
+  constrained_decoding: true
   seed_requests: true
   timeout_s: 300
   max_attempts: 2
@@ -75,6 +89,12 @@ application_pass:
   base_url: http://127.0.0.1:18000
   base_url_env: FRAUDLENS_E2E_BASE_URL
   auth_token_env: FRAUDLENS_E2E_AUTH_TOKEN
+  # Workload bounds for the functional API -> worker -> vLLM pass. These are the ONLY place the
+  # limits are stated; `e2e.py` restated each of them three times before release 0.5.0.
+  default_cases: 100
+  default_concurrency: 4
+  max_cases: 1000
+  max_concurrency: 64
 
 load:
   concurrency_levels: [1, 8, 32]
@@ -125,16 +145,109 @@ cost:
     output_per_million_usd: "2.00"
   drafts_per_unit: 1000
 
+# Benchmark-only quality warnings. Citation precision and required-fact coverage are NOT
+# restated here: config/quality.yaml owns every aggregate quality threshold, and the loader binds
+# them from there so the benchmark and the CI gate suites can never judge by different floors.
 quality:
   schema_valid_min: 0.99
-  reference_validity_min: 1.0
-  coverage_warn_min: 0.95
   awq_delta_warn_pp: 5.0
 
 acceptance:
   weight_memory_reduction_min: 0.50
   token_accounting_drift_max: 0.05
   require_gpu_telemetry: true
+  # A gated cascade exists to serve MORE cases than its first tier alone. Publishing below the
+  # single-model baseline would mean publishing a regression as an improvement.
+  cascade_final_pass_rate_min: 0.99
+
+# Protocol-v2 scenario matrix. A scenario measures the PRODUCTION cascade through a named SAR
+# profile, so no model reference, connection, or decoding mode is restated here — those belong to
+# config/llm/sar-vllm.yml and config/llm/providers.yml. Raw quantization scenarios keep all three
+# levels on ONE endpoint (equal hardware, AD-4.2); cascade scenarios need both endpoints reachable
+# at once and run the level the free replay pilot sized and costed (AD-4.3).
+cascade:
+  sar_config_file: llm/sar-vllm.yml
+  replay_run_id: vllm-bench-f810b57a7b8ae05a
+  replay_policy: replay_gate
+  allocation: gpu_benchmark
+  rate_key: runpod_rtx4090_secure_payg
+  endpoints:
+    awq:
+      arm: awq
+      connection: runpod-awq
+      telemetry_prefix_env: VLLM_AWQ_TELEMETRY_PREFIX
+    bf16:
+      arm: bf16
+      connection: runpod-bf16
+      telemetry_prefix_env: VLLM_BF16_TELEMETRY_PREFIX
+  scenarios:
+    - name: bf16-baseline
+      profile: bf16-baseline
+      endpoints: [bf16]
+      concurrency_levels: [1, 8, 32]
+    - name: awq-raw
+      profile: awq-raw
+      endpoints: [awq]
+      concurrency_levels: [1, 8, 32]
+    # Compact-contract controls. AWQ runs first as the paid canary; BF16 is created only after the
+    # AWQ gate and latency checks pass. Together they isolate quantization from cascade overhead.
+    - name: awq-constrained
+      profile: awq-constrained
+      endpoints: [awq]
+      concurrency_levels: [32]
+    - name: bf16-constrained
+      profile: bf16-constrained
+      endpoints: [bf16]
+      concurrency_levels: [32]
+    - name: awq-bf16-unconstrained
+      profile: awq-bf16-unconstrained
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
+    - name: awq-bf16
+      profile: awq-bf16
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
+    - name: awq-bf16-external
+      profile: awq-bf16-external
+      endpoints: [awq, bf16]
+      concurrency_levels: [32]
+  # What the published cascade report compares against, and what it must admit about itself.
+  # Disclosures live here rather than in the renderer so the limitations stay reviewable next to
+  # the protocol that produced them (release 0.5.0 Phase 5).
+  report:
+    baseline: bf16-baseline
+    disclosures:
+      - >-
+        Cascade case latency is measured across TWO simultaneously provisioned endpoints; the
+        BF16 and AWQ raw comparisons use ONE. Every comparison row states which it is, and p95 is
+        published next to GPU-seconds per case and aggregate peak device memory for that reason.
+      - >-
+        Guided (constrained) decoding was excluded from the published matrix after its live
+        latency canary: the exact fact-object grammar passed quality at 8/8 but measured a
+        441.6-second p95 at concurrency 32. The shipped contract is a compact prose envelope the
+        backend hydrates, judged by the identical deterministic gate.
+      - >-
+        Three of 1,000 cases carry no evidence and fail preflight before any model call. They are
+        counted as terminal cascade failures, never omitted, and are the entire gap between the
+        99.7% served share and 100%.
+      - >-
+        The RunPod provider stopped reporting Pod volume encryption during this release, so the
+        frozen contract's encrypted-volume verification could not be satisfied. The corpus is the
+        public IBM AML synthetic dataset and contains no PHI; the observed encryption state is
+        recorded on every affected ledger row (ADR-030).
+      - >-
+        CUDA runtime capture was added after this matrix ran, so the endpoint provenance publishes
+        it as not captured rather than inferring it from the driver version. The pinned image
+        digest fixes the CUDA toolchain the run actually used.
+      - >-
+        Accepted-draft quality is measured over served drafts only, so abstention correctness is
+        published as null rather than as a rate: computed over accepted drafts it would be a
+        vacuous 1.0. Abstention appears instead as the evidence-free cases this run refused before
+        any model call, in the terminal-failure table.
+      - >-
+        No hosted external tier was exercised: the published cascade is AWQ then BF16, both
+        self-hosted. The external tier ships configured but unmeasured, so no OpenRouter
+        zero-data-retention eligibility snapshot exists for this run.
 
 kv_cache_mode: equal_utilization
 
@@ -146,4 +259,9 @@ profiles:
     cases_count: 8
     concurrency_levels: [1, 2]
     warmup_requests: 1
+  development:
+    cases_count: 40
+    concurrency_levels: [32]
+    warmup_requests: 1
+    case_set: development
   full: {}

@@ -8,7 +8,18 @@ Key functions:
 - build_level_metrics: derive one complete level's performance, quality, telemetry, and cost.
 
 Notes:
-- Useful throughput counts only drafts passing deterministic quality checks.
+- Useful throughput counts only drafts passing the shipped deterministic gate, and is reported
+  NEXT TO raw request throughput, never instead of it: in the v1 run AWQ won on requests per second
+  while losing on quality-passing drafts per second, and one number without the other misleads.
+- `gpu_hours_per_case` multiplies the measured window by the endpoints the scenario kept
+  provisioned, so a two-endpoint cascade can never read as a free same-resource gain (AD-4.3).
+- Telemetry is summarized per endpoint role AND summed into `aggregate_memory_peak_mib`, because a
+  cascade's real device footprint is both GPUs at once — reporting one endpoint's peak next to a
+  single-endpoint arm's would compare two different machines (AD-4.3).
+- Request-level fields (`requests`, `error_rate`, `latency_*`, `requests_per_second`) count MODEL
+  CALLS, so a cascade level counts an escalated case twice — that is the plan's raw-throughput
+  definition. Case-level truth (the analyst-visible latency, the stage mix, the final pass rate)
+  lives in `cascade`, and cost is normalized per case because a draft is a case, not a call.
 """
 
 from __future__ import annotations
@@ -18,6 +29,13 @@ from collections.abc import Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from fraudlens_backend.sar.quality_gate import SarQualityGate
+from lib.vllm_bench.cascade import (
+    UNSERVED_STAGE,
+    CascadeMetrics,
+    cascade_metrics,
+    compose_cases,
+)
 from lib.vllm_bench.config import PurchaseOption, QualityConfig
 from lib.vllm_bench.quality import QualitySummary, summarize_quality
 from lib.vllm_bench.state import BenchmarkCase, LevelCheckpoint
@@ -35,7 +53,7 @@ class LevelMetrics(BaseModel):
     model_config = _MODEL_CONFIG
 
     concurrency: int = Field(..., gt=0, description="Closed-loop concurrency.")
-    requests: int = Field(..., gt=0, description="Measured request count.")
+    requests: int = Field(..., ge=0, description="Measured model-call count.")
     successful: int = Field(..., ge=0, description="Successful requests.")
     retries: int = Field(..., ge=0, description="Additional attempts.")
     error_rate: float = Field(..., ge=0, le=1, description="Terminal request error rate.")
@@ -61,6 +79,22 @@ class LevelMetrics(BaseModel):
     )
     quality: QualitySummary = Field(..., description="Deterministic output quality.")
     telemetry: TelemetrySummary = Field(..., description="GPU/KV/queue telemetry aggregate.")
+    telemetry_by_role: dict[str, TelemetrySummary] = Field(
+        default_factory=dict, description="Per-endpoint-role telemetry for a cascade scenario."
+    )
+    aggregate_memory_peak_mib: float | None = Field(
+        default=None,
+        ge=0,
+        description="Summed peak device memory across simultaneously provisioned endpoints.",
+    )
+    cascade: CascadeMetrics | None = Field(
+        default=None, description="Stage, escalation, and GPU-time rates for a cascade scenario."
+    )
+    gpu_hours_per_case: float | None = Field(
+        default=None,
+        ge=0,
+        description="Provisioned endpoint hours per case; absent in protocol-v1 reports.",
+    )
 
 
 def percentile(values: Sequence[float], quantile: float) -> float:
@@ -84,28 +118,55 @@ def build_level_metrics(  # noqa: PLR0913 - pricing context stays explicit and i
     purchase_option: PurchaseOption,
     drafts_per_unit: int,
     quality_policy: QualityConfig,
+    gate: SarQualityGate,
+    stages: Sequence[str] = (),
+    endpoints: int = 1,
 ) -> LevelMetrics:
-    """Derive one checkpoint's performance, quality, telemetry, token, and cost metrics."""
-    success = [item for item in checkpoint.measurements if item.error_code is None]
+    """Derive one checkpoint's performance, quality, telemetry, token, cost, and cascade metrics."""
+    model_measurements = (
+        tuple(item for item in checkpoint.measurements if item.stage != UNSERVED_STAGE)
+        if stages
+        else checkpoint.measurements
+    )
+    success = [item for item in model_measurements if item.error_code is None]
     latencies = [item.latency_s * 1000 for item in success]
     ttfts = [float(item.ttft_s) * 1000 for item in success if item.ttft_s is not None]
     duration = (checkpoint.completed_at - checkpoint.started_at).total_seconds()
-    quality, _details = summarize_quality(cases, checkpoint.measurements, quality_policy)
-    completed = len(checkpoint.measurements)
+    quality_measurements = (
+        tuple(item for item in checkpoint.measurements if item.gate_passed)
+        if stages
+        else checkpoint.measurements
+    )
+    quality, _details = summarize_quality(cases, quality_measurements, quality_policy, gate)
+    cascade = (
+        cascade_metrics(
+            compose_cases(checkpoint.measurements),
+            stages=stages,
+            measurements=checkpoint.measurements,
+        )
+        if stages
+        else None
+    )
+    completed = len(model_measurements)
+    drafts = cascade.cases if cascade is not None else completed
+    roles = {sample.role for sample in checkpoint.telemetry if sample.role is not None}
+    by_role = {
+        role: summarize([item for item in checkpoint.telemetry if item.role == role])
+        for role in sorted(roles)
+    }
     costs = {
-        option: hourly_rate * duration / 3600 for option, hourly_rate in hourly_rates_usd.items()
+        option: hourly_rate * endpoints * duration / 3600
+        for option, hourly_rate in hourly_rates_usd.items()
     }
     if purchase_option not in costs:
         raise ValueError(f"selected purchase option '{purchase_option}' has no configured rate")
-    normalized_costs = {
-        option: cost / completed * drafts_per_unit for option, cost in costs.items()
-    }
+    normalized_costs = {option: cost / drafts * drafts_per_unit for option, cost in costs.items()}
     return LevelMetrics(
         concurrency=checkpoint.concurrency,
         requests=completed,
         successful=len(success),
-        retries=sum(item.attempts - 1 for item in checkpoint.measurements),
-        error_rate=(completed - len(success)) / completed,
+        retries=sum(item.attempts - 1 for item in model_measurements),
+        error_rate=(completed - len(success)) / completed if completed else 0.0,
         latency_p50_ms=percentile(latencies, 0.50),
         latency_p95_ms=percentile(latencies, 0.95),
         latency_p99_ms=percentile(latencies, 0.99),
@@ -126,4 +187,12 @@ def build_level_metrics(  # noqa: PLR0913 - pricing context stays explicit and i
         cost_per_1000_drafts_usd_by_purchase_option=normalized_costs,
         quality=quality,
         telemetry=summarize(checkpoint.telemetry),
+        cascade=cascade,
+        telemetry_by_role=by_role,
+        aggregate_memory_peak_mib=(
+            sum(item.memory_peak_mib for item in by_role.values() if item.memory_peak_mib)
+            if by_role
+            else None
+        ),
+        gpu_hours_per_case=duration * endpoints / 3600 / drafts if drafts else 0.0,
     )
