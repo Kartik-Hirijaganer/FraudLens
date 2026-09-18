@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import Callable
+from decimal import Decimal
 from typing import cast
 
 import httpx
@@ -38,6 +39,8 @@ from fraudlens_backend.sar.egress import (
     sanitize_model_payload,
 )
 from fraudlens_backend.sar.prompt import SarPromptTemplate
+from fraudlens_core import AmlRuleType
+from fraudlens_core.rules.base import RuleHit
 from fraudlens_llm import (
     Catalog,
     DataClass,
@@ -182,11 +185,19 @@ async def test_serialized_request_retry_and_fallback_contain_only_allowlisted_by
         agency_id="tenant-private-id",
         transaction_id="database-row-id",
         channel=_LOG_PROMPT_SENTINEL,
-        rag_context=(
-            "Jane Synthetic analyst@example.com account=4111111111111111 "
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZW50aW5lbCJ9.signature "
-            "postgresql://synthetic:credential@database.invalid/fraudlens "
-            "CLIENT_SECRET=client-secret-value private transfer memo"
+        rule_hits=(
+            RuleHit(
+                code="STRUCT",
+                rule_type=AmlRuleType.STRUCTURING,
+                severity="high",
+                weight=Decimal("1.0"),
+                reason=(
+                    "Jane Synthetic analyst@example.com account=4111111111111111 "
+                    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZW50aW5lbCJ9.signature "
+                    "postgresql://synthetic:credential@database.invalid/fraudlens "
+                    "CLIENT_SECRET=client-secret-value private transfer memo"
+                ),
+            ),
         ),
     )
     sar_json = _sar_json(sar_input)

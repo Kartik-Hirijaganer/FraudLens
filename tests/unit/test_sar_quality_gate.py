@@ -140,7 +140,7 @@ def test_an_uncited_draft_passes_when_the_policy_does_not_require_a_citation(
     make_sar_input,
 ) -> None:
     """A case whose RAG retrieval offered nothing can still produce a serviceable SAR."""
-    sar_input, catalog, content = _case(make_sar_input, citations=(), rag_context="")
+    sar_input, catalog, content = _case(make_sar_input, citations=())
     uncited = content.model_copy(
         update={
             "cited_regulations": (),
@@ -165,7 +165,7 @@ def test_an_uncited_draft_passes_when_the_policy_does_not_require_a_citation(
 
 def test_an_uncitable_case_is_terminal_rather_than_escalatable(make_sar_input) -> None:
     """Nothing was offered to cite, so no later tier can cite either: escalating is pure spend."""
-    sar_input, catalog, content = _case(make_sar_input, citations=(), rag_context="")
+    sar_input, catalog, content = _case(make_sar_input, citations=())
 
     verdict = _evaluate(production_gate(), sar_input, catalog, content)
 

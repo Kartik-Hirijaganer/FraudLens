@@ -114,9 +114,7 @@ def test_the_response_schema_forbids_any_citation_when_none_are_offered(
     make_sar_input,
 ) -> None:
     """With nothing to cite, constrained decoding makes citing structurally impossible."""
-    model_input = project_for_model(
-        make_sar_input(citations=(), rag_context=""), load_egress_policy()
-    )
+    model_input = project_for_model(make_sar_input(citations=()), load_egress_policy())
     schema = sar_response_schema((), build_evidence_catalog(model_input))
 
     citation_ids = schema["properties"]["citationIds"]

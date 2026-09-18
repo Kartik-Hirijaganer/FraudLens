@@ -25,7 +25,7 @@ from fraudlens_ml.sar import (
 
 def test_sar_input_serializes_camelcase_and_is_phi_free(make_sar_input) -> None:
     dumped = make_sar_input().model_dump(by_alias=True)
-    assert {"fraudProbability", "modelVersion", "ruleHits", "topFeatures", "ragContext"} <= set(
+    assert {"fraudProbability", "modelVersion", "ruleHits", "topFeatures", "citations"} <= set(
         dumped
     )
 

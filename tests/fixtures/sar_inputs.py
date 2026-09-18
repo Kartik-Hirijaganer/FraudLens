@@ -65,7 +65,6 @@ def build_sar_input(**overrides: Any) -> SarInput:
             SarFeature(feature="velocity_24h", value=5.0, shap_value=-0.2),
         ),
         "citations": (structuring_citation(),),
-        "rag_context": "<<REGS>>\n[31 CFR 1010.314] Structuring\nsafe reference text\n<<END>>",
     }
     params.update(overrides)
     return SarInput(**params)

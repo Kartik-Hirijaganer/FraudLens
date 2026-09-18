@@ -280,7 +280,7 @@ async def test_no_forbidden_sentinel_reaches_any_tier_or_any_log(
     sar_input = make_sar_input(
         agency_id="tenant-private-id",
         transaction_id="database-row-id",
-        rag_context=("analyst@example.com account=4111111111111111 private transfer memo"),
+        channel="wire analyst@example.com account=4111111111111111 private transfer memo",
     )
     cascade = _Cascade(
         sar_input,

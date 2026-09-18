@@ -54,11 +54,10 @@ def test_high_latency_live_prompt_v4_remains_loadable_for_lineage() -> None:
 
 
 def test_build_messages_masks_phi_and_fences_regulations(make_sar_input) -> None:
-    # Defense-in-depth: even if PHI-shaped text reaches a rendered field (here the retrieved
-    # regulation block), the assembly masks it before the prompt leaves this module (plan §7.8).
-    sar_input = make_sar_input(
-        rag_context="<<REGS>>\nreach analyst@example.com SSN 123-45-6789\n<<END>>",
-    )
+    # Defense-in-depth: even if PHI-shaped text reached a rendered field, the assembly masks it
+    # before the prompt leaves this module (plan §7.8). The egress projection already refuses an
+    # uncommitted regulation snippet outright, so this asserts the second layer, not the first.
+    sar_input = make_sar_input(channel="wire reach analyst@example.com SSN 123-45-6789")
     messages = _messages(sar_input)
     assert [m["role"] for m in messages] == ["system", "user"]
     user = messages[1]["content"]
@@ -70,7 +69,7 @@ def test_build_messages_masks_phi_and_fences_regulations(make_sar_input) -> None
 
 
 def test_build_messages_handles_empty_rules_features_citations(make_sar_input) -> None:
-    sar_input = make_sar_input(rule_hits=(), top_features=(), citations=(), rag_context="")
+    sar_input = make_sar_input(rule_hits=(), top_features=(), citations=())
     user = _messages(sar_input)[1]["content"]
     assert "Rule indicators: none fired." in user
     assert "Regulations: none available" in user
@@ -78,7 +77,7 @@ def test_build_messages_handles_empty_rules_features_citations(make_sar_input) -
 
 def test_build_messages_lists_citations_without_rag_block(make_sar_input) -> None:
     # Citations present but no retrieved excerpt block: the ids are still listed, no fence embedded.
-    user = _messages(make_sar_input(rag_context=""))[1]["content"]
+    user = _messages(make_sar_input())[1]["content"]
     assert "31 CFR 1010.314: Structuring transactions to evade" in user
     assert "<<" not in user
 
@@ -96,9 +95,7 @@ def test_build_messages_offers_the_closed_evidence_catalog(make_sar_input) -> No
 
 
 def test_build_messages_reports_an_empty_catalog_explicitly(make_sar_input) -> None:
-    user = _messages(make_sar_input(rule_hits=(), top_features=(), citations=(), rag_context=""))[
-        1
-    ]["content"]
+    user = _messages(make_sar_input(rule_hits=(), top_features=(), citations=()))[1]["content"]
     assert "Evidence catalog (ref | value | as written):" in user  # transaction facts always exist
     assert "regulation." not in user
 

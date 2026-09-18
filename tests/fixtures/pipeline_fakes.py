@@ -141,9 +141,6 @@ class FakeRetrieverPort:
         citations = (structuring_citation(),) if self._citations else ()
         return RagResult(
             citations=citations,
-            rag_context="<<REGS>>\n[31 CFR 1010.314] Structuring\nsafe text\n<<END>>"
-            if self._citations
-            else "",
             mode="vector" if self._citations else "empty",
             rag_version="rag-test",
             chunks=(

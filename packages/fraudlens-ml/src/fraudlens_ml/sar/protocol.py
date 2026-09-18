@@ -7,10 +7,12 @@ PHI-free `RuleHit` + `RiskBand`) and pydantic only, never `fraudlens_ml.scoring`
 `fraudlens_ml.rag` — so importing it never drags in xgboost/shap/chromadb and the keyless mock
 path stays cheap. `SarFeature` / `SarCitation` are the light value mirrors of the heavy modules'
 `FeatureContribution` / `Citation`: the Phase 8 pipeline maps the SHAP + RAG outputs onto them
-when it assembles a `SarInput` (and passes the already-fenced `build_rag_context` block as
-`rag_context`), so this contract never touches the heavy packages. Every field is PHI-free by
-construction (structured non-PHI facts + the PHI-free rule hits + SHAP feature names + escaped
-regulatory citations), which is what makes "PHI masked before the prompt" hold by construction.
+when it assembles a `SarInput`, so this contract never touches the heavy packages. Citations are
+the ONLY regulation carrier — the prompt renders its own fenced block from them, so there is no
+second pre-rendered copy of the same text to drift out of sync (release 0.5.0 Phase 5). Every
+field is PHI-free by construction (structured non-PHI facts + the PHI-free rule hits + SHAP
+feature names + escaped regulatory citations), which is what makes "PHI masked before the
+prompt" hold by construction.
 
 Key classes:
 - SarDraftStatus: the lifecycle state a freshly produced draft can be in (draft | failed).
@@ -218,10 +220,6 @@ class SarInput(BaseModel):
     )
     citations: tuple[SarCitation, ...] = Field(
         default=(), description="The grounded regulatory citations available to cite."
-    )
-    rag_context: str = Field(
-        default="",
-        description="Pre-fenced, escaped regulation block for the prompt (RAG-as-data, plan §8.1).",
     )
 
 

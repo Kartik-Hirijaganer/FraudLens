@@ -163,5 +163,4 @@ def build_sar_input(  # noqa: PLR0913 - assembles a SarInput from the five step 
         rule_hits=evaluation.hits,
         top_features=tuple(shap.top_features),
         citations=tuple(rag.citations),
-        rag_context=rag.rag_context,
     )

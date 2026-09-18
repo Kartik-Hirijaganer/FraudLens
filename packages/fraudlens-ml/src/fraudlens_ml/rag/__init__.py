@@ -9,7 +9,6 @@ from __future__ import annotations
 from fraudlens_ml.rag.citations import (
     DEFAULT_SNIPPET_CHARS,
     Citation,
-    build_rag_context,
     escape_as_data,
     extract_citations,
 )
@@ -57,7 +56,6 @@ __all__ = [
     "RetrievedChunk",
     "Retriever",
     "build_index",
-    "build_rag_context",
     "chunk_corpus",
     "chunk_document",
     "connect",

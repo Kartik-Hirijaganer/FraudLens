@@ -200,15 +200,12 @@ async def _draft(drafter, sar_input):
 @pytest.mark.asyncio
 async def test_live_masks_phi_before_provider_and_grounds_citations(make_sar_input) -> None:
     adapter = _FakeAdapter()
-    sar_input = make_sar_input(
-        rag_context="<<REGS>>\n[31 CFR 1010.314] reach analyst@example.com\n<<END>>",
-    )
+    sar_input = make_sar_input(channel="wire reach analyst@example.com")
     events = await _draft(_live(_client(primary=adapter)), sar_input)
     result = events[-1].result
 
     sent = "\n".join(m.content for m in adapter.calls[0])
     assert "analyst@example.com" not in sent  # PHI masked before the provider saw it
-    assert "[REDACTED_EMAIL]" not in sent  # raw RAG context is excluded, not forwarded masked
     assert result.status == SarDraftStatus.DRAFT
     assert result.structured.cited_regulations == ("31 CFR 1010.314",)
     assert result.quality is not None and result.quality.passed is True
