@@ -27,8 +27,7 @@ analyst review, grounded SAR drafts, and governed model operations.**
 **Keywords:** AML · fraud detection · explainable AI · XGBoost · SHAP · LangGraph · regulatory RAG
 · SAR drafting · multi-tenant SaaS · FastAPI · React · MLOps
 
-<!-- Hero screenshot: capture the live demo dashboard, save it to docs/screenshots/ as
-     dashboard.png, then replace this comment with an img tag 860px wide. -->
+<img src="docs/screenshots/dashboard.png" width="860" alt="FraudLens analyst dashboard: open alerts, transactions by risk band, and the review queue" />
 
 </div>
 
@@ -36,13 +35,14 @@ analyst review, grounded SAR drafts, and governed model operations.**
 
 ## Demo video
 
-<!-- Walkthrough GIF: record the five steps in "Try it in 60 seconds" against the live demo,
-     save it to docs/demo/ as fraudlens-demo.gif, then replace this comment with a Markdown
-     image reference to that path. -->
+![FraudLens walkthrough: persona sign-in, an unscored transaction, the investigation streaming
+Risk to Drivers to Citations to SAR draft, and a human approving the SAR](docs/demo/fraudlens-demo.gif)
 
 **What it shows:** the five steps in [Try it in 60 seconds](#try-it-in-60-seconds), end to end —
-persona sign-in, an unscored transaction, the investigation streaming its evidence, the exact
-persisted model input, and a human approving or rejecting the SAR.
+persona sign-in, an unscored transaction, the investigation streaming its evidence, the persisted
+model input the draft was built from, and a human approving the SAR. The clip above is a 17-second
+highlight; the **[full 47-second walkthrough](docs/demo/fraudlens-walkthrough.mp4)** plays at real
+reading speed, on one real run (`INV-3C17`) from sign-in to approval.
 
 ## Why FraudLens exists
 
@@ -86,7 +86,7 @@ outside source control.
 
 1. Open the [live demo](https://fraud-lens-amber.vercel.app) → pick **Fraud Analyst** from
    *Demo · sign in as* (synthetic credentials auto-fill) → **Sign in**.
-2. Open **Transactions** and click any row in the **unscored** band.
+2. Open **Transactions** and press **Investigate** on any row still marked *Unscored*.
 3. Watch the investigation stream: **Risk → Drivers → Citations → SAR draft**. Each step
    unlocks only once its own evidence has arrived — nothing is pre-rendered.
 4. Expand **"What the model saw"** — the exact persisted input the draft was built from.
@@ -121,7 +121,7 @@ flowchart TB
         auth["Supabase Auth<br/><i>email + password → RS256 JWT</i>"]
     end
 
-    subgraph azure["☁️ Azure Container Apps · eastus2 · min 0 / max 1"]
+    subgraph azure["☁️ Azure Container Apps · eastus2 · min 1 / max 1 · always warm"]
         gw["FastAPI gateway<br/><i>request-id → headers → fail-closed JWT → agency_id</i>"]
         pipe["Investigation runtime<br/><i>rules → XGBoost → SHAP → RAG → gated SAR cascade</i>"]
         jobs["Container Apps Jobs<br/><i>batch score · retrain — manual trigger only</i>"]
@@ -129,7 +129,6 @@ flowchart TB
 
     subgraph ops["🔁 Delivery & operations"]
         ghcr["GHCR<br/><i>one versioned image → app and jobs</i>"]
-        warm["Keep-warm cron<br/><i>GitHub Actions · weekday hours only</i>"]
         logs["Log Analytics<br/><i>ingestion capped at 0.1 GB/day</i>"]
     end
 
@@ -154,7 +153,6 @@ flowchart TB
     jobs --> blob
     ghcr -->|"deploy image"| gw
     ghcr -->|"same image"| jobs
-    warm -.->|"GET /healthz — holds one idle replica"| gw
     gw --> logs
     jobs --> logs
     vault -.->|"injected at runtime"| gw
@@ -174,7 +172,7 @@ flowchart TB
     class db,rag,blob store
     class llm ext
     class vault secret
-    class ghcr,warm,logs opsnode
+    class ghcr,logs opsnode
 ```
 
 🔵 browser and identity · 🟢 Azure compute · 🟡 durable state · 🟣 external model provider ·
@@ -193,10 +191,14 @@ model bill is bounded by risk rather than by traffic. **Secrets are injected at 
 application never calls Infisical itself:** the platform supplies them to the container, and
 `/readyz` verifies the injection landed rather than reaching out for it.
 
-Cost follows the same shape: the app scales to zero and is capped at one replica, the keep-warm
-cron holds a single *idle* replica during weekday hours so a visitor does not pay a 20–75 s cold
-start, log ingestion is capped at 0.1 GB/day, and the LLM path is capped at $2.25/day — roughly
-$11.53/month in total, bounded by caps rather than by alerts
+Cost follows the same shape, and one line of it was deliberately bought back. The app holds a
+single **always-warm** replica rather than scaling to zero: a cold start measured **111.8 s**
+against 0.059 s warm, and a keep-warm cron only narrowed the window it happened in — 76% of the
+week still met it, and a best-effort GitHub schedule left a one-minute margin against a 300 s
+cooldown. Committing the replica removes the mechanism instead of tuning it, and moves compute from
+$1.23 to $10.04/month. What still bounds the bill are caps, not alerts: `max_replicas = 1`, log
+ingestion at 0.1 GB/day, the LLM path at $2.25/day, and $25 budgets at two scopes — roughly
+$11.53/month in total
 ([ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md)).
 
 The default developer stack maps those boundaries to Vite, local FastAPI, Docker Postgres, local
@@ -473,8 +475,8 @@ is regenerated from its help text.
 <details>
 <summary><strong>Deployment and cost control</strong></summary>
 
-The backend runs on Azure Container Apps (scale-to-zero, 1-replica hard cap), the SPA on Vercel,
-state in Supabase Postgres, secrets in Infisical. Every deploy job is gated behind required
+The backend runs on Azure Container Apps (one always-warm replica, 1-replica hard
+cap), the SPA on Vercel, state in Supabase Postgres, secrets in Infisical. Every deploy job is gated behind required
 production approval, so a green CI run alone ships nothing.
 
 Recurring spend is bounded by caps, not alerts: one maximum replica, 0.1 GB/day log ingestion, a

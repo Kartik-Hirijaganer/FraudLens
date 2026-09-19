@@ -166,6 +166,14 @@ infra/terraform/environments/*/backend.tf
 *.rej
 
 # ---------------------------------------------------------------------------
+# Raw screen captures
+#   The committed deliverables are the exported GIF/MP4 under docs/demo/. The
+#   source recordings they are cut from run to hundreds of MB and must never
+#   reach history, where they cannot be removed without a rewrite.
+# ---------------------------------------------------------------------------
+*.mov
+
+# ---------------------------------------------------------------------------
 # Keep-tracked (Golden: reproducible builds). Negations document intent even
 # though nothing above currently ignores these.
 # ---------------------------------------------------------------------------
