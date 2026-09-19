@@ -142,38 +142,75 @@ sequenceDiagram
         API-->>Analyst: Review-ready draft for internal approval
     else below threshold
         Graph-->>API: Completed no-alert analysis
-        API-->>Analyst: Score + drivers; no RAG or SAR
+        API-->>Analyst: Score + drivers — no RAG or SAR
     end
 ```
 
 ## Deployment topology
 
 ```mermaid
-graph TD
-    subgraph GitHub
-        ci["GitHub Actions CI<br/>(make ci + docker-build)"]
+flowchart TB
+    subgraph gh["🐙 GitHub"]
+        ci["GitHub Actions<br/><i>make ci · approval-gated deploy jobs</i>"]
+        ghcr["GHCR<br/><i>fraudlens-backend image, tagged by SHA</i>"]
     end
-    subgraph Azure
-        acr["ACR<br/>(backend image)"]
-        aca["Container Apps<br/>(FastAPI)"]
-        blob["Blob Storage"]
+
+    subgraph az["☁️ Azure · eastus2"]
+        aca["Container Apps<br/><i>FastAPI gateway · min 1 / max 1, always warm</i>"]
+        jobs["Container Apps Jobs<br/><i>batch score · retrain — manual only</i>"]
+        blob[("Blob Storage<br/><i>model bundles · approved SAR PDFs</i>")]
+        logs["Log Analytics<br/><i>capped at 0.1 GB/day</i>"]
     end
-    vercel["Vercel<br/>(frontend)"]
-    supabase["Supabase<br/>(Postgres)"]
-    infisical["Infisical<br/>(secrets)"]
-    ci -->|OIDC, no stored secret| acr
-    ci -->|terraform apply| aca
-    acr --> aca
+
+    vercel["Vercel<br/><i>SPA · rewrites /api/* same-origin</i>"]
+    supabase[("Supabase<br/><i>Postgres + Auth JWKS</i>")]
+    infisical[["Infisical prod<br/><i>injected into the container at start</i>"]]
+    browser(["Analyst browser"])
+
+    browser -->|"one public hostname"| vercel
+    vercel -->|"/api/v1 · same-origin rewrite"| aca
+    ci -->|"build + push"| ghcr
+    ci -->|"OIDC · terraform apply"| aca
+    ci -->|"vercel --prod"| vercel
+    ghcr -->|"deploy image"| aca
+    ghcr -->|"same image"| jobs
+    aca --> jobs
     aca --> blob
-    aca -->|TLS| supabase
-    aca -->|runtime fetch| infisical
-    ci -->|vercel --prod| vercel
-    vercel -->|/api/v1| aca
+    jobs --> blob
+    aca -->|"TLS, agency_id-scoped"| supabase
+    jobs -->|"TLS, agency_id-scoped"| supabase
+    aca -.->|"JWKS trust"| supabase
+    infisical -.->|"runtime injection"| aca
+    infisical -.->|"runtime injection"| jobs
+    aca --> logs
+    jobs --> logs
+
+    classDef person fill:#1e293b,stroke:#0f172a,stroke-width:2px,color:#f8fafc
+    classDef web    fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
+    classDef compute fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef store  fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+    classDef opsnode fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef secret fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+
+    class browser person
+    class vercel web
+    class aca,jobs compute
+    class blob,supabase store
+    class ci,ghcr,logs opsnode
+    class infisical secret
 ```
 
 - **Azure via GitHub→Azure OIDC** (federated; no long-lived client secret in GitHub).
+- **One public hostname.** Vercel serves the SPA and rewrites `/api/*` same-origin to the Container
+  App, so the browser never issues a cross-origin request and CORS is defence-in-depth rather than
+  the mechanism.
+- **The image registry is GHCR**, not ACR: one SHA-tagged `fraudlens-backend` image is deployed to
+  both the Container App and the jobs, so the API and its batch work are never version-skewed.
 - **Vercel/Supabase credentials** are injected from Infisical at job/runtime, masked, and never
-  persisted. The frontend and database exist; Azure application deploy jobs remain feature-gated.
+  persisted; the application never calls Infisical itself, and `/readyz` verifies the injection
+  landed.
+- **Deploys are approvable, never automatic.** Every Azure job runs under `environment: production`
+  with the owner as required reviewer, so a push or a green CI run alone deploys nothing.
 
 ## Inference serving and benchmark
 

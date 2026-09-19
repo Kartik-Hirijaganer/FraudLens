@@ -33,10 +33,11 @@ aca_free_grant:
   requests: 2000000
   source_url: https://azure.microsoft.com/en-us/pricing/details/container-apps/
 
-# The warm window the keep-warm cron holds open, and the demand the model prices.
+# The warm window and the demand the model prices. `min_replicas = 1` commits a replica around
+# the clock, so every hour of every day is billable at the idle rate — there is no longer a cron
+# window to widen or miss.
 aca_usage:
-  warm_hours_per_weekday: "8"
-  weekdays_per_month: 22
+  warm_hours_per_day: "24"
   monthly_requests: 20000
   log_expected_gb_per_month: "0.5"
   blob_stored_gb: 5
@@ -51,11 +52,12 @@ aks_session:
   load_balancers: 1
   public_ips: 2
 
-# The scale-to-zero cold start. `min_replicas = 0` is what makes the permanent URL ~$1.23/month of
-# compute instead of ~$10.20, and the keep-warm cron is what hides the cold start that buys. Whether
-# that cron earns its own share of the bill is a MEASUREMENT against the deployed app, so the three
-# measured fields stay null — and the generated document prints the commands instead of a figure —
-# until someone takes them. A derived estimate must never be able to masquerade as evidence here.
+# The cold start that `min_replicas = 1` now buys out. These figures are why: a measured 111.8s
+# against 0.06s warm. Scale-to-zero saved about $9/month and spent it on the first visitor of every
+# idle period, who waited nearly two minutes at a spinner with no way to know the wait was normal.
+# For a portfolio demo opened from a link, that is the whole product failing at the door. The
+# measurement is retained as the evidence behind the decision, not as a live property of the
+# deployment — a replica is committed now, so a visitor no longer meets this path.
 cold_start:
   method: >-
     Force scale-to-zero by idling past the cooldown, then time two sequential requests:

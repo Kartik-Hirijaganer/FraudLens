@@ -119,8 +119,8 @@ describe("Login", () => {
     render(<Login env={LOCAL_DEMO_ENV} personasStatus="loading" />);
     const trigger = screen.getByRole("button", { name: "Demo · sign in as" });
     expect(trigger).toBeDisabled();
-    expect(trigger).toHaveTextContent("Loading demo personas…");
-    expect(screen.getByText("loading personas…")).toBeInTheDocument();
+    expect(trigger).toHaveTextContent("Waking the demo server — this can take up to a minute…");
+    expect(screen.getByText("starting the demo server…")).toBeInTheDocument();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
