@@ -2,13 +2,7 @@
 
 # FraudLens
 
-**Explainable, tenant-safe AML investigations — from masked transaction ingest to risk scoring,
-analyst review, grounded SAR drafts, and governed model operations.**
-
-[![Live demo](https://img.shields.io/badge/demo-live-9fe870)](https://fraud-lens-amber.vercel.app)
-[![Walkthrough](https://img.shields.io/badge/walkthrough-60%20seconds-9fe870)](#try-it-in-60-seconds)
 [![CI](https://github.com/Kartik-Hirijaganer/FraudLens/actions/workflows/ci.yml/badge.svg)](https://github.com/Kartik-Hirijaganer/FraudLens/actions/workflows/ci.yml)
-<br/>
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25%20gated-success)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 <br/>
@@ -18,11 +12,6 @@ analyst review, grounded SAR drafts, and governed model operations.**
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)
 ![XGBoost](https://img.shields.io/badge/ML-XGBoost%20%2B%20SHAP-orange)
-
-**[Why](#why-fraudlens-exists)** · **[What it does](#what-it-does)** ·
-**[Try it](#try-it-in-60-seconds)** · **[How it works](#how-it-works)** ·
-**[Quick start](#quick-start)** · **[Engineering](#engineering-highlights)** ·
-**[Evidence](#measured-evidence)** · **[Docs](#documentation)**
 
 **Keywords:** AML · fraud detection · explainable AI · XGBoost · SHAP · LangGraph · regulatory RAG
 · SAR drafting · multi-tenant SaaS · FastAPI · React · MLOps
@@ -38,61 +27,19 @@ analyst review, grounded SAR drafts, and governed model operations.**
 ![FraudLens walkthrough: persona sign-in, an unscored transaction, the investigation streaming
 Risk to Drivers to Citations to SAR draft, and a human approving the SAR](docs/demo/fraudlens-demo.gif)
 
-**What it shows:** the five steps in [Try it in 60 seconds](#try-it-in-60-seconds), end to end —
-persona sign-in, an unscored transaction, the investigation streaming its evidence, the persisted
-model input the draft was built from, and a human approving the SAR. The clip above is a 17-second
-highlight; the **[full 47-second walkthrough](docs/demo/fraudlens-walkthrough.mp4)** plays at real
-reading speed, on one real run (`INV-3C17`) from sign-in to approval.
+The clip above is a 17-second highlight. A persona sign-in, an unscored transaction, the investigation streaming its evidence, the persisted
+model input the draft was built from, and a human approving the SAR. 
 
-## Why FraudLens exists
+The **[full 47-second walkthrough](docs/demo/fraudlens-walkthrough.mp4)** plays at real reading speed, on one real run (`INV-3C17`) from sign-in to approval.
 
-A fraud score by itself is not an investigation. An analyst also needs to know which signals fired,
-why the model moved the score, what regulatory context applies, what action was taken, and whether
-the whole decision can be reconstructed later. In a multi-tenant system, every one of those steps
-must also preserve tenant isolation and keep sensitive data out of logs, prompts, URLs, and errors.
+## What is it?
+FraudLens is a personal AML investigation project that turns synthetic transactions into explainable risk assessments and citation-backed Suspicious Activity Report (SAR) drafts. It connects detection, investigation, and review while keeping analysts in control of final decisions.
 
-FraudLens explores that complete decision path as a personal, production-hygiene project. It turns
-public, synthetically generated AML transactions into explainable investigations and review-ready
-alerts, while keeping analysts in control of alert decisions and SAR approval. It uses no real PHI,
-stores only masked demo data, validates tenant identity from JWT claims, and keeps every secret
-outside source control.
-
-## What it does
-
-- **Transaction ingest** — single records, batches, or masked CSV uploads; list and search run as
-  tenant-scoped, keyset-paginated queries.
-- **Hybrid risk scoring** — deterministic rules plus a calibrated XGBoost model, banded by the
-  active model's operating points.
-- **Explainable decisions** — rule hits and additive SHAP contributions, so an analyst sees why a
-  transaction moved toward or away from risk.
-- **Thresholded investigation graph** — below-threshold runs stop after scoring; alerted runs
-  continue through regulatory retrieval and SAR drafting, avoiding unnecessary LLM work.
-- **Regulatory RAG** — versioned FinCEN/BSA context from ChromaDB, with a deterministic offline
-  embedder locally and a guarded live path as an opt-in.
-- **Governed SAR drafting** — a bounded four-agent workflow (investigate → interpret → draft →
-  review) composes each cited narrative and degrades to a single writer rather than failing the
-  run, through a synthetic-only model-input allowlist, versioned prompts, strict schema, citation
-  grounding, budget guard, replay cache, and mock/live provider seam.
-- **Analyst workflow** — dashboards, search, live investigation progress, alert and SAR review, and
-  role-aware navigation for analyst, reviewer, auditor, and admin.
-- **Human-gated MLOps** — retrain → candidate → shadow → approval → canary → active, plus rollback,
-  per-tenant promotion gates, last-known-good fallback, and advisory drift reports.
-- **Auditable operations** — request IDs, state transitions, model versions, prompt provenance, and
-  review decisions, all without logging PHI.
-- **Tenant-isolation research** — a committed, redacted graph-feature study that makes the
-  performance-versus-isolation boundary explicit without ever querying live tenant data.
-
-## Try it in 60 seconds
-
-1. Open the [live demo](https://fraud-lens-amber.vercel.app) → pick **Fraud Analyst** from
-   *Demo · sign in as* (synthetic credentials auto-fill) → **Sign in**.
-2. Open **Transactions** and press **Investigate** on any row still marked *Unscored*.
-3. Watch the investigation stream: **Risk → Drivers → Citations → SAR draft**. Each step
-   unlocks only once its own evidence has arrived — nothing is pre-rendered.
-4. Expand **"What the model saw"** — the exact persisted input the draft was built from.
-5. **Approve**, or **reject with a reason**. No SAR is ever filed without a human.
-
-Low-risk transactions terminate at *Risk → Drivers → Outcome* and never imply a SAR exists.
+* **Detect and explain risk:** Rules and XGBoost score transactions; SHAP explains what drives each score.
+* **Investigate and draft:** Flagged transactions trigger regulatory retrieval and a multi-agent workflow to draft SAR narratives with supporting citations.
+* **Review and approve:** Dashboards support investigation tracking, alert decisions, and human approval of SARs.
+* **Manage model changes:** Human-approved rollouts support shadow testing, canary releases, and rollback.
+* **Trace decisions:** Tenant isolation and audit trails track model versions, workflow changes, and reviewer actions.
 
 ## How it works
 
@@ -254,41 +201,6 @@ make run-live           # local app against real Supabase + guarded OpenRouter
 `prod` values; `make run-live-demo` additionally bootstraps the pinned portfolio story. See the
 [local development runbook](docs/runbooks/local-dev.md) and
 [troubleshooting guide](docs/runbooks/troubleshooting.md).
-
-## Engineering highlights
-
-- **Tenant isolation is a boundary, not a filter.** Authorization compares the verified JWT claim
-  against the requested resource instead of trusting a client-supplied tenant ID, and offline graph
-  research never becomes a cross-tenant serving dependency. →
-  [ADR-017](docs/architecture/adr/ADR-017-graph-feature-serving-boundary.md)
-- **Explainability follows the exact served model.** Bundles carry feature metadata, calibration, a
-  SHAP background, and checksums; explanations are additive to the model margin, and the cache
-  reloads when the active pointer changes. → [Model lifecycle](docs/runbooks/model-lifecycle.md)
-- **Alert creation is earned by the pipeline.** Nothing seeds alerts directly, and below-threshold
-  runs short-circuit before any RAG/LLM work. →
-  [Architecture](docs/architecture/ARCHITECTURE.md#fraud-investigation-pipeline-target--opt-in-live-path)
-- **A rejected SAR draft is refused, never silently repaired.** A deterministic gate judges every
-  draft before it is persisted or streamed; a citation-failed draft escalates a tier, and a cascade
-  that exhausts every tier fails with explicit reason codes. →
-  [ADR-030](docs/architecture/adr/ADR-030-quality-gated-sar-model-cascade.md)
-- **SAR drafting is a bounded team, not one call.** An evidence investigator, a regulatory analyst,
-  a writer, and a compliance reviewer each run under per-agent output-token and tool-call ceilings
-  behind a worst-case cost cap checked before the first request; deterministic control and final
-  authority stay outside the models. →
-  [ADR-019](docs/architecture/adr/ADR-019-multi-agent-sar-drafting.md)
-- **Model promotion is quantitative and human-gated.** Candidates clear global and per-tenant checks
-  before shadow/canary/active; canary can auto-abort, and rollback flips the pointer without a
-  redeploy. → [Model lifecycle](docs/runbooks/model-lifecycle.md)
-- **Data provenance is explicit.** Public, synthetic IBM AML-Data; raw files stay gitignored,
-  identifiers are masked before storage, and CI stays reproducible on committed fixtures. →
-  [ADR-018](docs/architecture/adr/ADR-018-portfolio-demo-data-provenance.md)
-- **Model egress is synthetic-only.** An uncommitted or tampered regulation excerpt cannot reach the
-  model at all — the request is refused rather than the payload fenced. →
-  [ADR-026](docs/architecture/adr/ADR-026-synthetic-only-model-egress.md)
-- **Local and CI gates share one contract.** The root [Makefile](Makefile) drives lint, typing,
-  branch and changed-line coverage, tenancy checks, docs generation, duplication, secret scanning,
-  dependency audits, Terraform validation, and container builds — CI invokes the identical targets.
-  → [CI workflow](.github/workflows/ci.yml)
 
 **By the numbers:** 68,228,066 IBM source rows processed · 1,000-case GPU benchmark matrix served at
 99.7% under the gated cascade · ≥90% branch coverage gated on both stacks · ~$11.53/month recurring
@@ -519,27 +431,6 @@ opening a PR — CI mirrors it exactly.
 See [Security](docs/runbooks/security.md), [PHI guardrails](docs/runbooks/phi-guardrails.md), and
 [Infisical secrets](docs/runbooks/infisical-secrets.md) before changing a data or trust boundary.
 
-## Documentation
-
-| Need | Source of truth |
-| --- | --- |
-| Architecture and implemented/target state | [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) |
-| Local setup and live-local mode | [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) |
-| Portfolio demo workflow | [docs/runbooks/portfolio-demo.md](docs/runbooks/portfolio-demo.md) |
-| Model scoring, gates, canary, rollback, and drift | [docs/runbooks/model-lifecycle.md](docs/runbooks/model-lifecycle.md) |
-| Security posture and PHI controls | [docs/runbooks/security.md](docs/runbooks/security.md) · [docs/runbooks/phi-guardrails.md](docs/runbooks/phi-guardrails.md) |
-| Evidence-backed claims register | [docs/reference/claims.md](docs/reference/claims.md) |
-| Database schema and tenancy | [docs/reference/database.md](docs/reference/database.md) |
-| Configuration and secrets boundary | [config/README.md](config/README.md) · [docs/reference/configuration.md](docs/reference/configuration.md) |
-| Generated OpenAPI | [JSON](docs/reference/generated/api/openapi.json) · [YAML](docs/reference/generated/api/openapi.yaml) · [Scalar HTML](docs/reference/generated/api/index.html) |
-| Contributor/agent rules | [AGENTS.md](AGENTS.md) |
-
 ## License
 
 FraudLens is available under the [MIT License](LICENSE).
-
----
-
-**Safety note:** FraudLens is an engineering and research project, not a production compliance
-service or legal determination system. Human review remains required for alert disposition and SAR
-decisions.
