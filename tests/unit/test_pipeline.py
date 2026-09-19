@@ -406,3 +406,44 @@ def test_core_failure_log_reaches_a_constraint_two_links_down(
     rendered = caplog.text
     assert "sqlstate=23505" in rendered
     assert "constraint=uq_sar_generation_attempts_draft_id_ordinal" in rendered
+
+
+def test_core_failure_log_names_the_column_for_a_not_null_violation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A NOT NULL violation has no named constraint, so the column is what locates it.
+
+    Production returned sqlstate=23502 with constraint=none. That was the driver being correct,
+    not the lookup failing: Postgres reports 23502 against a column, and only a unique or foreign
+    key violation carries a constraint name. Collect all three locators rather than choosing one
+    from the SQLSTATE.
+    """
+
+    class _DriverNotNullViolationError(Exception):
+        sqlstate = "23502"
+        constraint_name = None
+        table_name = "sar_generation_attempts"
+        column_name = "policy_hash"
+
+    class _AdaptedIntegrityError(Exception):
+        sqlstate = "23502"
+
+    class _OrmIntegrityError(Exception):
+        def __init__(self, orig: Exception) -> None:
+            super().__init__("wrapped")
+            self.orig = orig
+
+    adapted = _AdaptedIntegrityError()
+    adapted.__cause__ = _DriverNotNullViolationError()
+
+    with caplog.at_level(logging.ERROR, logger="fraudlens.pipeline.runner"):
+        try:
+            raise _OrmIntegrityError(adapted)
+        except _OrmIntegrityError as exc:
+            log_core_failure(exc, run_id="run-4")
+
+    rendered = caplog.text
+    assert "sqlstate=23502" in rendered
+    assert "constraint=none" in rendered  # correct for 23502, not a lookup failure
+    assert "table=sar_generation_attempts" in rendered
+    assert "column=policy_hash" in rendered

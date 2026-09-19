@@ -92,18 +92,27 @@ _CONSTRAINT_ATTR = "constraint_name"
 _SQLSTATE_ATTRS = ("sqlstate", "pgcode")
 _CAUSE_CHAIN_LIMIT = 4
 
+# Which of these the driver fills depends on the violation, so collect all three rather than
+# guessing from the SQLSTATE. A unique violation names its constraint and no column; a NOT NULL
+# violation (23502) has no named constraint to report and names the column instead -- so the first
+# `constraint=none` here was the driver being correct, not the lookup failing. All three are schema
+# identity: a table, a column and a constraint are in the migration; the offending row is not.
+_LOCATOR_ATTRS = ("constraint_name", "table_name", "column_name")
 
-def _constraint_name(cause: BaseException | None) -> str:
-    """Walk a bounded cause chain for the driver's constraint name; 'none' when absent."""
+
+def _violation_locators(cause: BaseException | None) -> dict[str, str]:
+    """Walk a bounded cause chain collecting the driver's schema locators for the violation."""
+    found: dict[str, str] = {}
     node: BaseException | None = cause
     for _ in range(_CAUSE_CHAIN_LIMIT):
         if node is None:
             break
-        name = getattr(node, _CONSTRAINT_ATTR, None)
-        if name:
-            return str(name)
+        for attr in _LOCATOR_ATTRS:
+            value = getattr(node, attr, None)
+            if value and attr not in found:
+                found[attr] = str(value)
         node = getattr(node, "__cause__", None)
-    return "none"
+    return found
 
 
 def log_core_failure(exc: BaseException, *, run_id: str) -> None:
@@ -122,16 +131,19 @@ def log_core_failure(exc: BaseException, *, run_id: str) -> None:
     sqlstate = next(
         (str(state) for attr in _SQLSTATE_ATTRS if (state := getattr(cause, attr, None))), "none"
     )
+    locators = _violation_locators(cause)
     _LOGGER.error(
         "run.failed code=%s run_id=%s error_type=%s error_module=%s cause_type=%s sqlstate=%s "
-        "constraint=%s origin=%s frames=%s",
+        "constraint=%s table=%s column=%s origin=%s frames=%s",
         _RUN_FAILED_CODE,
         run_id,
         type(exc).__name__,
         type(exc).__module__,
         type(cause).__name__ if cause is not None else "none",
         sqlstate,
-        _constraint_name(cause),
+        locators.get("constraint_name", "none"),
+        locators.get("table_name", "none"),
+        locators.get("column_name", "none"),
         origin,
         ">".join(frames[-_TRACEBACK_FRAME_LIMIT:]) or "unknown",
     )
