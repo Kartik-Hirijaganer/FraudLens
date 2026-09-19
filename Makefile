@@ -179,7 +179,7 @@ backend-ci: backend-lint backend-format-check backend-typecheck backend-coverage
 
 postgres-run-test: ## Prove durable claim/fencing behavior against PostgreSQL.
 	@test -n "$${POSTGRES_TEST_DATABASE_URL:-}" || { echo "POSTGRES_TEST_DATABASE_URL is required"; exit 1; }
-	$(UV) run pytest tests/integration/test_run_leases_postgres.py -q -o addopts='' -m postgres
+	$(UV) run pytest tests/integration/test_run_leases_postgres.py tests/integration/test_schema_drift_postgres.py -q -o addopts='' -m postgres
 
 # ---------------------------------------------------------------------------
 # Frontend (TypeScript) sub-targets
