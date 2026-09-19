@@ -1,6 +1,6 @@
 # ADR-029 — The permanent deployment runs under a recurring operational budget
 
-- **Status:** Accepted; amended 2026-09-18 (see [Amendment](#amendment--2026-09-18-llm-daily-ceiling-raised-to-225))
+- **Status:** Accepted; amended 2026-09-18 (see [Amendment](#amendment--2026-09-18-llm-daily-ceiling-raised-to-225)); amended 2026-09-19 (see [Amendment](#amendment--2026-09-19-a-warm-replica-is-committed))
 - **Date:** 2026-09-16
 
 ## Context
@@ -192,3 +192,44 @@ single source of truth rather than describing it: `test_every_hard_cap_is_commit
 (`tests/unit/test_settings.py`), and the scenario budget-guard test in
 `tests/unit/test_vllm_bench_cli.py`, which records the full ceiling and requires the guard to refuse
 the next call.
+
+## Amendment — 2026-09-19 (a warm replica is committed)
+
+Rejected option 5 above is now the decision. `min_replicas` in
+[`prod.tfvars`](../../../infra/terraform/environments/prod/prod.tfvars) moves from **0 to 1**, the
+keep-warm cron is disabled (`KEEP_WARM_ENABLED=false`), and the generated projection moves from
+**$2.72 to $11.53/month**.
+
+**Why the original reasoning failed.** Option 5 was rejected for "an outcome a visitor cannot
+distinguish inside the window that matters". The flaw is the clause. The window that mattered was
+defined as 13:00–21:00 UTC on weekdays — 40 of 168 hours — so **76% of the time a first visitor met
+the cold start**, measured at **111.8 s** against 0.059 s warm. A recruiter opening the link on a
+Saturday evening, which is when a portfolio link actually gets opened, saw a spinner for nearly two
+minutes with nothing to say a server was starting. The saving was real; the thing it was spent on
+was the demo working when someone looked at it.
+
+**Why not simply widen the window.** A wider cron only moves the gap, and it moves it relative to
+one timezone. A 14-hour window that reads as "overnight" from Eastern leaves London cold
+03:00–13:00 local and Bangalore cold through their entire workday. Scoping the audience to the US
+makes a 15–18 hour window defensible at $7.24–$8.72 — but that is 63–76% of the committed-replica
+price for a mechanism that still cannot guarantee the outcome, which is the second reason:
+
+**The consequence this record already predicted.** The Consequences section notes that "GitHub
+scheduled triggers are best-effort and can be delayed under load. A missed keep-warm ping" leaves a
+cold start inside the window. `cooldownPeriod` is 300 s against a `*/4` cron — a **one-minute
+margin**. Widening the window does not widen that margin; it only changes when the miss is visible.
+A committed replica removes the mechanism rather than tuning it.
+
+**What it costs and what still bounds it.** Compute moves from $1.23 to $10.04/month (720 warm
+h/mo, 620 beyond the free grant). The $25 budgets at both scopes are unchanged and still alert well
+above the new total, `max_replicas = 1` still caps the ceiling, and the generated model reports
+every enforced ceiling holding. The 5-second threshold in
+[`config/cost-model.yaml`](../../../config/cost-model.yaml) asked whether the cron earned its line
+against the cold start; at 111.8 s the answer was never close, and the question is now moot.
+
+**One figure above is now read differently.** The Alternatives section prices a standing AKS cluster
+at roughly **50x** the recurring total. That multiple was against $2.72; against $11.53 the same
+cluster is roughly **12x**. The original text is left as written, per the convention this record
+already follows for the LLM ceiling — the decision it supports is unchanged, since ADR-021 keeps AKS
+ephemeral for reasons beyond the multiple, but a reader comparing the two numbers should use this
+one.

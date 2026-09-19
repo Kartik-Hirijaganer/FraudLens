@@ -7,7 +7,7 @@
 
 - **Generated on:** 2026-09-16
 - **Currency:** USD
-- **Recurring monthly total:** **$2.72**
+- **Recurring monthly total:** **$11.53**
 - **Per ephemeral AKS session:** **$0.79** ($1.03 with the ADR-028 0.3 margin)
 
 ## Enforced ceilings
@@ -27,7 +27,7 @@ change moves this projection with no second copy to maintain.
 | Shape | Value |
 | --- | --- |
 | Container Apps region | eastus2 |
-| Container Apps replicas (min / max) | 0 / 1 |
+| Container Apps replicas (min / max) | 1 / 1 |
 | Container Apps vCPU / memory per replica | 0.5 vCPU / 1 GiB |
 | Log Analytics daily ingestion cap | 0.1 GB/day |
 | AKS region | westus3 |
@@ -39,23 +39,23 @@ change moves this projection with no second copy to maintain.
 
 Priced in `eastus2` on the Consumption plan. The free monthly grant
 covers **100 warm replica-hours** at this
-shape; the keep-warm window holds **176 replica-hours/month** warm, so
-**76 hours** are billed — at the *idle*
+shape; the keep-warm window holds **720 replica-hours/month** warm, so
+**620 hours** are billed — at the *idle*
 rate, because a replica that exists but is not serving bills eight times
 cheaper than one that is.
 
 | Item | Basis | Cost/month |
 | --- | --- | --- |
-| Compute — 76 warm replica-hours beyond the free grant, idle rate | 176 warm h/mo (8 h x 22 weekdays) - 100 free h x 3600 s x $0.0000045/replica-second | $1.23 |
+| Compute — 620 warm replica-hours beyond the free grant, idle rate | 720 warm h/mo (24 h x 30 days) - 100 free h x 3600 s x $0.0000045/replica-second | $10.04 |
 | Requests | 20000 requests/mo - 2000000 free @ $0.4/1M | $0.00 |
 | Log Analytics ingestion — expected | 0.5 GB/mo x $2.76/GB (capped at 0.1 GB/day => max $8.28/mo) | $1.38 |
 | Blob storage — artifacts and SAR PDFs | 5 GB hot LRS x $0.0184/GB-month | $0.09 |
 | Blob storage — Terraform remote state | 1 GB hot LRS x $0.0184/GB-month | $0.02 |
-| **Total** | | **$2.72** |
+| **Total** | | **$11.53** |
 
 | Scenario | Monthly |
 | --- | --- |
-| As configured (keep-warm window, idle rate) | $2.72 |
+| As configured (keep-warm window, idle rate) | $11.53 |
 | Every hour billed at the *active* rate, at the 1-replica cap, log ingestion pinned to its daily cap | $42.41 |
 | Log ingestion alone, pinned to the 0.1 GB/day cap | $8.28 |
 

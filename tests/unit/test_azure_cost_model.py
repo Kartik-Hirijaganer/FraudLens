@@ -74,7 +74,7 @@ def test_shapes_come_from_the_committed_terraform_not_from_config(config: CostMo
     # A second copy of these values in config would drift silently from the sources that apply.
     shapes = load_shapes(config, REPO_ROOT)
     assert shapes.aca_region == "eastus2"
-    assert (shapes.aca_min_replicas, shapes.aca_max_replicas) == (0, 1)
+    assert (shapes.aca_min_replicas, shapes.aca_max_replicas) == (1, 1)
     assert shapes.aca_vcpu == Decimal("0.5")
     assert shapes.aca_memory_gib == Decimal("1")
     assert shapes.log_daily_quota_gb == Decimal("0.1")
@@ -119,21 +119,25 @@ def test_the_recurring_projection_applies_the_free_grant_before_charging(
     shapes = load_shapes(config, REPO_ROOT)
     aca = project_aca(config, shapes, resolve_rates(config, shapes, catalog))
     assert aca.free_grant_hours == Decimal("100")
-    assert aca.warm_replica_hours == Decimal("176")
-    assert aca.billable_hours == Decimal("76")
-    assert aca.monthly_usd == Decimal("2.72")
+    assert aca.warm_replica_hours == Decimal("720")
+    assert aca.billable_hours == Decimal("620")
+    assert aca.monthly_usd == Decimal("11.53")
     assert aca.log_ceiling_usd == Decimal("8.28")
     # Requests stay inside the 2M grant, so the meter contributes nothing.
     requests_line = next(line for line in aca.lines if line.item == "Requests")
     assert requests_line.amount_usd == Decimal("0.00")
 
 
-def test_the_active_rate_ceiling_is_far_above_the_configured_projection(
+def test_the_active_rate_ceiling_stays_above_the_committed_projection(
     config: CostModelConfig, catalog: PriceCatalog
 ) -> None:
-    # The active meter is 8x the idle one; the keep-warm design exists because of that gap.
+    # The active meter is 8x the idle one. The ceiling prices max_replicas running ACTIVE every
+    # hour of the month, so it does NOT move with min_replicas — it was the same figure under
+    # scale-to-zero. What moved is the projection: committing a warm replica took it from roughly
+    # 6% of that worst case to roughly 27%. The margin is genuinely smaller, so the bound is
+    # restated at what now holds rather than left at a multiple the shape no longer supports.
     model = _model(config, catalog)
-    assert model.aca.active_rate_ceiling_usd > model.aca.monthly_usd * 10
+    assert model.aca.active_rate_ceiling_usd > model.aca.monthly_usd * 3
 
 
 def test_one_aks_session_is_admitted_under_its_ceiling_with_the_adr_028_margin(

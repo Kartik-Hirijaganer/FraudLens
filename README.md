@@ -100,7 +100,7 @@ Three different things run in this repository, and only the first is standing ri
 
 | | What it is | Status |
 | --- | --- | --- |
-| **The deployment** | Azure Container Apps + Vercel + Supabase behind one public origin | **Standing.** ~$2.72/month under hard caps |
+| **The deployment** | Azure Container Apps + Vercel + Supabase behind one public origin | **Standing.** ~$11.53/month under hard caps, always warm |
 | **The Kubernetes demonstration** | One Kustomize base on local kind and on Azure AKS, with a real HPA | **Ephemeral.** Applied, measured, destroyed in one approved session; $0 standing |
 | **The inference benchmark** | Two RunPod RTX 4090 endpoints serving BF16 and AWQ over a 1,000-case matrix | **Ephemeral.** Both Pods and volumes verified deleted after export |
 
@@ -110,53 +110,94 @@ and no GPU is provisioned outside an approved, torn-down session
 ([ADR-028](docs/architecture/adr/ADR-028-paid-experiment-governance.md)).
 
 Below is the **deployed architecture** — everything in the Azure box is applied and serving, reached
-through the Vercel same-origin proxy. Dashed connections are configuration or trust relationships.
+through the Vercel same-origin proxy.
 
 ```mermaid
 flowchart TB
-    user["AML analyst / reviewer"]
+    user(["AML analyst / reviewer"])
 
-    subgraph experience["Experience and identity"]
-        direction TB
-        frontend["React + TypeScript SPA<br/>Vercel — /api/* proxied same-origin"]
-        auth["Supabase Auth<br/>email/password + JWT"]
+    subgraph edge["🌐 Experience & identity"]
+        spa["React + TypeScript SPA<br/><i>Vercel · /api/* same-origin rewrite</i>"]
+        auth["Supabase Auth<br/><i>email + password → RS256 JWT</i>"]
     end
 
-    subgraph azure["Azure runtime — deployed (Container Apps, eastus2)"]
-        direction TB
-        registry["GHCR / optional ACR<br/>versioned backend image"]
-        gateway["Azure Container Apps<br/>FastAPI gateway + /api/v1"]
-        pipeline["Investigation runtime<br/>rules + XGBoost + SHAP + LangGraph"]
-        jobs["Container Apps Jobs<br/>batch score + retrain (manual trigger only)"]
-        blob[("Azure Blob Storage<br/>model artifacts + SAR PDFs")]
-        observe["Log Analytics + Application Insights"]
+    subgraph azure["☁️ Azure Container Apps · eastus2 · min 0 / max 1"]
+        gw["FastAPI gateway<br/><i>request-id → headers → fail-closed JWT → agency_id</i>"]
+        pipe["Investigation runtime<br/><i>rules → XGBoost → SHAP → RAG → gated SAR cascade</i>"]
+        jobs["Container Apps Jobs<br/><i>batch score · retrain — manual trigger only</i>"]
     end
 
-    database[("Supabase Postgres<br/>agency_id-scoped state")]
-    rag[("ChromaDB<br/>FinCEN / BSA index baked into image")]
-    secrets[["Infisical prod<br/>runtime secrets"]]
-    llm["Governed LLM provider<br/>OpenRouter live SAR path"]
+    subgraph ops["🔁 Delivery & operations"]
+        ghcr["GHCR<br/><i>one versioned image → app and jobs</i>"]
+        warm["Keep-warm cron<br/><i>GitHub Actions · weekday hours only</i>"]
+        logs["Log Analytics<br/><i>ingestion capped at 0.1 GB/day</i>"]
+    end
 
-    user --> frontend
-    frontend -->|"sign in"| auth
-    auth -->|"JWT"| frontend
-    frontend -->|"HTTPS /api/v1"| gateway
-    gateway -.->|"JWKS trust + agency_id validation"| auth
-    registry -->|"pull image"| gateway
-    registry -->|"same image"| jobs
-    gateway --> pipeline
-    pipeline -->|"tenant-scoped reads / writes"| database
-    pipeline -->|"retrieve regulatory citations"| rag
-    pipeline -->|"masked, grounded prompt"| llm
-    gateway -->|"start admin jobs"| jobs
-    jobs -->|"tenant-safe batch work"| database
-    gateway -->|"artifacts + approved SAR PDFs"| blob
-    jobs -->|"model bundles"| blob
-    secrets -.->|"runtime injection"| gateway
-    secrets -.->|"runtime injection"| jobs
-    gateway --> observe
-    jobs --> observe
+    db[("Supabase Postgres<br/><i>every row scoped by agency_id</i>")]
+    rag[("ChromaDB<br/><i>FinCEN / BSA index baked into the image</i>")]
+    blob[("Azure Blob<br/><i>model bundles · approved SAR PDFs</i>")]
+    llm["OpenRouter<br/><i>capped $2.25 / day</i>"]
+    vault[["Infisical prod<br/><i>runtime secret injection</i>"]]
+
+    user --> spa
+    spa -->|"sign in"| auth
+    auth -->|"JWT"| spa
+    spa -->|"HTTPS /api/v1"| gw
+    gw -.->|"JWKS trust · agency_id validated"| auth
+    gw --> pipe
+    pipe -->|"tenant-scoped reads / writes"| db
+    pipe -->|"regulatory citations"| rag
+    pipe -->|"masked, grounded prompt"| llm
+    gw -->|"artifacts + SAR PDFs"| blob
+    gw -->|"start admin job"| jobs
+    jobs --> db
+    jobs --> blob
+    ghcr -->|"deploy image"| gw
+    ghcr -->|"same image"| jobs
+    warm -.->|"GET /healthz — holds one idle replica"| gw
+    gw --> logs
+    jobs --> logs
+    vault -.->|"injected at runtime"| gw
+    vault -.->|"injected at runtime"| jobs
+
+    classDef person fill:#1e293b,stroke:#0f172a,stroke-width:2px,color:#f8fafc
+    classDef web    fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
+    classDef compute fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef store  fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+    classDef ext    fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#4c1d95
+    classDef secret fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+    classDef opsnode fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+
+    class user person
+    class spa,auth web
+    class gw,pipe,jobs compute
+    class db,rag,blob store
+    class llm ext
+    class vault secret
+    class ghcr,warm,logs opsnode
 ```
+
+🔵 browser and identity · 🟢 Azure compute · 🟡 durable state · 🟣 external model provider ·
+🔴 secrets · 🩵 delivery and operations. Solid arrows carry requests or data; dashed arrows are
+trust and configuration relationships, not a request path.
+
+Four properties of that picture are the ones worth reading closely. **The browser only ever sees one
+hostname:** Vercel rewrites `/api/*` same-origin to the Container App, so the SPA makes no
+cross-origin call at all and CORS is defence-in-depth rather than the mechanism that makes the demo
+work. **The gateway fails closed before any database access:** the JWT is verified against Supabase
+JWKS and `agency_id` is bound from the verified claim into the tenant context — a client-supplied
+tenant header is never trusted, and a missing or mismatched claim is a 401/403 before a query is
+ever issued. **The pipeline short-circuits below the risk threshold:** a low-risk transaction
+terminates after rules, XGBoost, and SHAP, and never reaches ChromaDB or the LLM, which is why the
+model bill is bounded by risk rather than by traffic. **Secrets are injected at runtime and the
+application never calls Infisical itself:** the platform supplies them to the container, and
+`/readyz` verifies the injection landed rather than reaching out for it.
+
+Cost follows the same shape: the app scales to zero and is capped at one replica, the keep-warm
+cron holds a single *idle* replica during weekday hours so a visitor does not pay a 20–75 s cold
+start, log ingestion is capped at 0.1 GB/day, and the LLM path is capped at $2.25/day — roughly
+$11.53/month in total, bounded by caps rather than by alerts
+([ADR-029](docs/architecture/adr/ADR-029-recurring-operational-budget.md)).
 
 The default developer stack maps those boundaries to Vite, local FastAPI, Docker Postgres, local
 jobs/artifacts, the offline ChromaDB index, and the keyless mock SAR drafter. Infisical is used only
@@ -248,7 +289,7 @@ make run-live           # local app against real Supabase + guarded OpenRouter
   → [CI workflow](.github/workflows/ci.yml)
 
 **By the numbers:** 68,228,066 IBM source rows processed · 1,000-case GPU benchmark matrix served at
-99.7% under the gated cascade · ≥90% branch coverage gated on both stacks · ~$2.72/month recurring
+99.7% under the gated cascade · ≥90% branch coverage gated on both stacks · ~$11.53/month recurring
 under enforced hard caps.
 
 ## Measured evidence

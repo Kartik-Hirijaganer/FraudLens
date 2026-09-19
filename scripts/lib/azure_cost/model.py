@@ -157,7 +157,7 @@ def project_aca(
     active_per_second = rates["aca_vcpu_active"].price_usd * vcpu + (
         rates["aca_memory_active"].price_usd * memory
     )
-    warm_hours = usage.warm_hours_per_weekday * usage.weekdays_per_month
+    warm_hours = usage.warm_hours_per_day * usage.days_per_month
     grant_hours = min(grant.vcpu_seconds / vcpu, grant.gib_seconds / memory) / _SECONDS_PER_HOUR
     billable_hours = max(Decimal("0"), warm_hours - grant_hours)
     compute = billable_hours * _SECONDS_PER_HOUR * idle_per_second
@@ -177,8 +177,8 @@ def project_aca(
             ),
             basis=(
                 f"{plain_decimal(warm_hours)} warm h/mo "
-                f"({plain_decimal(usage.warm_hours_per_weekday)} h x "
-                f"{usage.weekdays_per_month} weekdays) - {plain_decimal(grant_hours)} free h x "
+                f"({plain_decimal(usage.warm_hours_per_day)} h x "
+                f"{usage.days_per_month} days) - {plain_decimal(grant_hours)} free h x "
                 f"3600 s x ${plain_decimal(idle_per_second)}/replica-second"
             ),
             amount_usd=_money(compute),

@@ -98,10 +98,11 @@ class AcaUsage(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    warm_hours_per_weekday: Decimal = Field(
-        ..., ge=0, description="Hours the keep-warm cron holds a replica warm each weekday."
+    warm_hours_per_day: Decimal = Field(
+        ...,
+        ge=0,
+        description="Hours a replica is warm each day (24 when min_replicas commits one).",
     )
-    weekdays_per_month: int = Field(..., gt=0, description="Weekdays priced per month.")
     monthly_requests: Decimal = Field(..., ge=0, description="Expected requests per month.")
     log_expected_gb_per_month: Decimal = Field(
         ..., ge=0, description="Expected log ingestion per month in GB."
