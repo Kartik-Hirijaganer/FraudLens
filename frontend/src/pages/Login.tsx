@@ -61,9 +61,17 @@ const INPUT_CLASS =
 // What the picker says while the backend projection is loading or unusable. `disabled` never
 // renders (the whole picker is hidden), and only `ready` invites a selection — a failed
 // projection says so plainly instead of offering an empty list.
+//
+// The loading copy names the WAIT, not the work. The API scales to zero and a cold start runs to
+// about a minute, so outside the keep-warm window the first visitor of the day waits that long.
+// "Loading demo personas…" against a minute of nothing reads as broken and gets the tab closed;
+// saying a server is starting, and roughly how long, is the difference between waiting and leaving.
 const PERSONA_STATUS_TEXT: Record<PortfolioDemoStatus, { note: string; placeholder: string }> = {
   disabled: { note: "", placeholder: "" },
-  loading: { note: "loading personas…", placeholder: "Loading demo personas…" },
+  loading: {
+    note: "starting the demo server…",
+    placeholder: "Waking the demo server — this can take up to a minute…",
+  },
   failed: {
     note: "personas unavailable",
     placeholder: "Demo personas unavailable — sign in above",
