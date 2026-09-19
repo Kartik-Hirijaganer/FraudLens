@@ -14,7 +14,7 @@ Key classes:
 - Runner: builds the orchestration graph from the deps and drives one run to completion/failure.
 
 Key functions:
-- log_core_failure: record a core exception's TYPE and frame chain, never its message.
+- log_core_failure: record a core exception's TYPE, SQLSTATE, constraint and frame chain.
 
 Notes:
 - The Runner is constructed per run (its `PipelineDeps.store` is run-scoped); the backend wraps
@@ -75,16 +75,35 @@ _TRACEBACK_FRAME_LIMIT = 5
 # path so a vendored copy or a renamed directory cannot silently turn our frames into foreign ones.
 _FIRST_PARTY_MODULE_PREFIX = "fraudlens"
 
-# A wrapped DBAPI error carries the two facts an ORM failure otherwise hides. `session.flush()`
-# writes EVERY pending object, so the frame that raises names where the flush happened, not which
-# row lost -- the first IntegrityError logged here pointed at a flush covering one table while the
-# violated constraint was still a matter of inference. The driver exception's own class names the
-# KIND of violation (unique / foreign key / not null) and `constraint_name` names the constraint
-# exactly. Both are schema identity, not row content: a constraint name is in the migration, the
-# values that collided are not. `str(orig)` stays out -- Postgres appends a DETAIL line carrying
-# the offending key values, which is precisely the PHI this function exists to withhold.
+# `session.flush()` writes EVERY pending object, so the frame that raises names where the flush
+# happened, not which row lost. These two fields close that gap, and BOTH are schema identity
+# rather than row content: a SQLSTATE is a constant and a constraint name appears in the migration
+# that created it, while the values that collided appear in neither. `str()` of any link in the
+# chain stays out -- Postgres appends a DETAIL line carrying the offending key values, and the
+# adapted error embeds the original's message verbatim, which is exactly the PHI withheld here.
 _DBAPI_CAUSE_ATTR = "orig"
 _CONSTRAINT_ATTR = "constraint_name"
+
+# The constraint is TWO links down, not one. The asyncpg dialect translates the driver error into
+# its own adapted DBAPI class and re-raises `from` the original, so `exc.orig` is SQLAlchemy's
+# wrapper -- which carries the SQLSTATE the dialect copies onto it, but no constraint. Only the
+# asyncpg exception at `__cause__` knows the constraint. Logging `exc.orig` alone returned
+# `constraint=none` against a real unique violation, which is how this bound came to be measured.
+_SQLSTATE_ATTRS = ("sqlstate", "pgcode")
+_CAUSE_CHAIN_LIMIT = 4
+
+
+def _constraint_name(cause: BaseException | None) -> str:
+    """Walk a bounded cause chain for the driver's constraint name; 'none' when absent."""
+    node: BaseException | None = cause
+    for _ in range(_CAUSE_CHAIN_LIMIT):
+        if node is None:
+            break
+        name = getattr(node, _CONSTRAINT_ATTR, None)
+        if name:
+            return str(name)
+        node = getattr(node, "__cause__", None)
+    return "none"
 
 
 def log_core_failure(exc: BaseException, *, run_id: str) -> None:
@@ -100,15 +119,19 @@ def log_core_failure(exc: BaseException, *, run_id: str) -> None:
             origin = f"{module}:{traceback.tb_lineno}"
         traceback = traceback.tb_next
     cause = getattr(exc, _DBAPI_CAUSE_ATTR, None)
+    sqlstate = next(
+        (str(state) for attr in _SQLSTATE_ATTRS if (state := getattr(cause, attr, None))), "none"
+    )
     _LOGGER.error(
-        "run.failed code=%s run_id=%s error_type=%s error_module=%s cause_type=%s constraint=%s "
-        "origin=%s frames=%s",
+        "run.failed code=%s run_id=%s error_type=%s error_module=%s cause_type=%s sqlstate=%s "
+        "constraint=%s origin=%s frames=%s",
         _RUN_FAILED_CODE,
         run_id,
         type(exc).__name__,
         type(exc).__module__,
         type(cause).__name__ if cause is not None else "none",
-        getattr(cause, _CONSTRAINT_ATTR, None) or "none",
+        sqlstate,
+        _constraint_name(cause),
         origin,
         ">".join(frames[-_TRACEBACK_FRAME_LIMIT:]) or "unknown",
     )

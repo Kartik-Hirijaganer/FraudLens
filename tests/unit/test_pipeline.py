@@ -363,5 +363,46 @@ def test_core_failure_log_tolerates_an_exception_with_no_dbapi_cause(
             log_core_failure(exc, run_id="run-2")
 
     assert "cause_type=none" in caplog.text
+    assert "sqlstate=none" in caplog.text
     assert "constraint=none" in caplog.text
     assert "plain failure" not in caplog.text
+
+
+def test_core_failure_log_reaches_a_constraint_two_links_down(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The constraint lives on the DRIVER error, not on SQLAlchemy's adapted wrapper.
+
+    The asyncpg dialect translates the driver error into its own DBAPI class and re-raises it
+    `from` the original, copying the SQLSTATE across but not the constraint. Reading `exc.orig`
+    alone returned `constraint=none` against a real unique violation in production; only the
+    exception at `__cause__` knows which constraint lost.
+    """
+
+    class _DriverUniqueViolationError(Exception):
+        sqlstate = "23505"
+        constraint_name = "uq_sar_generation_attempts_draft_id_ordinal"
+
+    class _AdaptedIntegrityError(Exception):
+        """Stands in for the dialect's wrapper: carries SQLSTATE, knows no constraint."""
+
+        sqlstate = "23505"
+        pgcode = "23505"
+
+    class _OrmIntegrityError(Exception):
+        def __init__(self, orig: Exception) -> None:
+            super().__init__("wrapped")
+            self.orig = orig
+
+    adapted = _AdaptedIntegrityError()
+    adapted.__cause__ = _DriverUniqueViolationError()
+
+    with caplog.at_level(logging.ERROR, logger="fraudlens.pipeline.runner"):
+        try:
+            raise _OrmIntegrityError(adapted)
+        except _OrmIntegrityError as exc:
+            log_core_failure(exc, run_id="run-3")
+
+    rendered = caplog.text
+    assert "sqlstate=23505" in rendered
+    assert "constraint=uq_sar_generation_attempts_draft_id_ordinal" in rendered
