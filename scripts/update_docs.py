@@ -2,7 +2,8 @@
 the machine-owned Key classes/functions inventory lines in every SUMMARY header,
 (2) regenerates the OpenAPI schema + endpoint list from the live FastAPI app, (3)
 regenerates the ERD from live SQLAlchemy metadata, and (4) refreshes
-the AUTOGEN regions of the architecture doc. With --check it regenerates everything
+the AUTOGEN regions of the architecture doc, the README's published-evidence
+tables, and the contributor guide's Makefile command inventory. With --check it regenerates everything
 in memory, diffs against what is committed, and fails if anything is stale — so CI
 blocks drift between code and docs. All output is deterministic (sorted, no clocks).
 
@@ -53,6 +54,7 @@ API_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "api"
 ERD_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "erd"
 ARCH_DOC = REPO_ROOT / "docs" / "architecture" / "ARCHITECTURE.md"
 README_DOC = REPO_ROOT / "README.md"
+CONTRIBUTING_DOC = REPO_ROOT / "CONTRIBUTING.md"
 
 
 def _load_app() -> FastAPI:
@@ -92,12 +94,20 @@ def _arch_text(app: FastAPI, current: str) -> str:
 
 
 def _readme_text(current: str) -> str:
-    """Return README.md with evidence and Makefile-owned regions refreshed."""
+    """Return README.md with its published-evidence regions refreshed."""
     text = replace_region(current, "vllm-benchmark", render_vllm_benchmark(REPO_ROOT))
     text = replace_region(text, "cascade-benchmark", render_cascade_benchmark(REPO_ROOT))
     text = replace_region(text, "fulldata-training", render_fulldata_training(REPO_ROOT))
-    text = replace_region(text, "k8s-benchmark", render_k8s_benchmark(REPO_ROOT))
-    return replace_region(text, "make-targets", render_make_targets(REPO_ROOT))
+    return replace_region(text, "k8s-benchmark", render_k8s_benchmark(REPO_ROOT))
+
+
+def _contributing_text(current: str) -> str:
+    """Return CONTRIBUTING.md with the Makefile-owned command table refreshed.
+
+    The command inventory lives with the contributor guide rather than the README:
+    it is developer-facing, and the README is the project's front page.
+    """
+    return replace_region(current, "make-targets", render_make_targets(REPO_ROOT))
 
 
 def _emit(path: Path, content: str, *, check: bool, stale: list[Path], changed: list[Path]) -> None:
@@ -168,6 +178,10 @@ def main() -> int:
     if target == "all" and README_DOC.exists():
         rewritten_readme = _readme_text(README_DOC.read_text(encoding="utf-8"))
         _emit(README_DOC, rewritten_readme, check=check, stale=stale, changed=changed)
+
+    if target == "all" and CONTRIBUTING_DOC.exists():
+        rewritten_contributing = _contributing_text(CONTRIBUTING_DOC.read_text(encoding="utf-8"))
+        _emit(CONTRIBUTING_DOC, rewritten_contributing, check=check, stale=stale, changed=changed)
 
     if check:
         if stale:

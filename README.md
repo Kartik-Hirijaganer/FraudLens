@@ -229,7 +229,6 @@ flowchart TB
 | **Infra / CI** | Docker · Terraform · GitHub Actions · Azure Container Apps + Blob · Vercel · ephemeral AKS |
 
 ## Quick start
-**Quick start**
 
 Run FraudLens locally with demo data and mock SAR generation. No Azure, Vercel, Supabase, or LLM-provider account is required.
 
