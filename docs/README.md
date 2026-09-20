@@ -20,6 +20,7 @@ reviewable and diffable, but they are produced by a `make` target and must never
 | Document | Regenerate with | Derived from |
 |----------|-----------------|--------------|
 | [`reference/cost-model.md`](reference/cost-model.md) | `make azure-cost-plan` | The committed Terraform shapes plus live Azure Retail Prices |
+| [`reference/benchmarks/summary.md`](reference/benchmarks/summary.md) | `make docs` | The published benchmark artifacts in that directory |
 | [`reference/generated/api/`](reference/generated/api/) | `make docs` | The live FastAPI app |
 | [`reference/generated/erd/`](reference/generated/erd/) | `make docs` | Live SQLAlchemy metadata |
 

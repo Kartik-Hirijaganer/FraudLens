@@ -2,9 +2,10 @@
 the machine-owned Key classes/functions inventory lines in every SUMMARY header,
 (2) regenerates the OpenAPI schema + endpoint list from the live FastAPI app, (3)
 regenerates the ERD from live SQLAlchemy metadata, and (4) refreshes
-the AUTOGEN regions of the architecture doc, the README's published-evidence
-tables, and the contributor guide's Makefile command inventory. With --check it regenerates everything
-in memory, diffs against what is committed, and fails if anything is stale — so CI
+the AUTOGEN regions of the architecture doc, the benchmark summary's
+published-evidence tables, and the contributor guide's Makefile command inventory. With --check it
+regenerates everything in memory, diffs against what is committed, and fails if
+anything is stale — so CI
 blocks drift between code and docs. All output is deterministic (sorted, no clocks).
 
 Key classes:
@@ -53,8 +54,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 API_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "api"
 ERD_DIR = REPO_ROOT / "docs" / "reference" / "generated" / "erd"
 ARCH_DOC = REPO_ROOT / "docs" / "architecture" / "ARCHITECTURE.md"
-README_DOC = REPO_ROOT / "README.md"
 CONTRIBUTING_DOC = REPO_ROOT / "CONTRIBUTING.md"
+EVIDENCE_DOC = REPO_ROOT / "docs" / "reference" / "benchmarks" / "summary.md"
 
 
 def _load_app() -> FastAPI:
@@ -93,8 +94,13 @@ def _arch_text(app: FastAPI, current: str) -> str:
     return replace_region(text, "erd", render_erd())
 
 
-def _readme_text(current: str) -> str:
-    """Return README.md with its published-evidence regions refreshed."""
+def _evidence_text(current: str) -> str:
+    """Return the benchmark summary with its published-evidence regions refreshed.
+
+    These tables live beside the artifacts they are derived from rather than in the
+    README, so the project's front page is free to change shape without breaking the
+    generator or the docs gate.
+    """
     text = replace_region(current, "vllm-benchmark", render_vllm_benchmark(REPO_ROOT))
     text = replace_region(text, "cascade-benchmark", render_cascade_benchmark(REPO_ROOT))
     text = replace_region(text, "fulldata-training", render_fulldata_training(REPO_ROOT))
@@ -175,9 +181,9 @@ def main() -> int:
         rewritten_arch = _arch_text(app, ARCH_DOC.read_text(encoding="utf-8"))
         _emit(ARCH_DOC, rewritten_arch, check=check, stale=stale, changed=changed)
 
-    if target == "all" and README_DOC.exists():
-        rewritten_readme = _readme_text(README_DOC.read_text(encoding="utf-8"))
-        _emit(README_DOC, rewritten_readme, check=check, stale=stale, changed=changed)
+    if target == "all" and EVIDENCE_DOC.exists():
+        rewritten_evidence = _evidence_text(EVIDENCE_DOC.read_text(encoding="utf-8"))
+        _emit(EVIDENCE_DOC, rewritten_evidence, check=check, stale=stale, changed=changed)
 
     if target == "all" and CONTRIBUTING_DOC.exists():
         rewritten_contributing = _contributing_text(CONTRIBUTING_DOC.read_text(encoding="utf-8"))

@@ -156,12 +156,12 @@ flowchart LR
 
 | What was measured | Result | Where it ran | Detail |
 | --- | --- | --- | --- |
-| **Kubernetes autoscaling — AKS** | api replicas **1 → 5 → 1**, scale-up **101 s**, scale-back **117 s**, **100/100** durable runs | Azure AKS v1.35.7, 1× B2s + 2× D2as_v4, destroyed after the session | [AKS + HPA](#kubernetes-deployment-aks-terraform-and-hpa) |
-| **Kubernetes autoscaling — kind** | api replicas **1 → 5 → 1**, scale-up **46 s**, scale-back **92 s**, **100/100** durable runs | Local kind, same Kustomize base and image | [AKS + HPA](#kubernetes-deployment-aks-terraform-and-hpa) |
-| **Quantization efficiency** | AWQ cut model-weight memory **63.5%** (14.25 → 5.20 GiB); throughput **+60.8%** at concurrency 32 | RunPod RTX 4090, 1,000 synthetic cases, Pod + volume deleted | [Inference benchmark](#inference-benchmark-vllm--4-bit-awq) |
-| **Grounding under quantization** | Raw AWQ fabricated citations on **85 / 1,000** cases; BF16 on **0** | Same host, image, prompt, and case set | [Gated cascade](#quality-gated-sar-cascade) |
-| **Quality-gated cascade** | Served **99.7%** of 1,000 cases with **9.2%** escalated and **0** fabrications, vs **90.9%** raw AWQ | Two endpoints vs a one-endpoint baseline | [Gated cascade](#quality-gated-sar-cascade) |
-| **Training at scale** | **68,228,066** source rows processed; best candidate PR-AUC **0.3196** on 6.36M holdout rows | Ephemeral Azure data-batch VM, torn down after export | [Training at scale](#training-at-scale-682m-ibm-transactions) |
+| **Kubernetes autoscaling — AKS** | api replicas **1 → 5 → 1**, scale-up **101 s**, scale-back **117 s**, **100/100** durable runs | Azure AKS v1.35.7, 1× B2s + 2× D2as_v4, destroyed after the session | AKS + HPA |
+| **Kubernetes autoscaling — kind** | api replicas **1 → 5 → 1**, scale-up **46 s**, scale-back **92 s**, **100/100** durable runs | Local kind, same Kustomize base and image | AKS + HPA |
+| **Quantization efficiency** | AWQ cut model-weight memory **63.5%** (14.25 → 5.20 GiB); throughput **+60.8%** at concurrency 32 | RunPod RTX 4090, 1,000 synthetic cases, Pod + volume deleted | Inference benchmark |
+| **Grounding under quantization** | Raw AWQ fabricated citations on **85 / 1,000** cases; BF16 on **0** | Same host, image, prompt, and case set | Gated cascade |
+| **Quality-gated cascade** | Served **99.7%** of 1,000 cases with **9.2%** escalated and **0** fabrications, vs **90.9%** raw AWQ | Two endpoints vs a one-endpoint baseline | Gated cascade |
+| **Training at scale** | **68,228,066** source rows processed; best candidate PR-AUC **0.3196** on 6.36M holdout rows | Ephemeral Azure data-batch VM, torn down after export | Training at scale |
 | **Recurring cost** | **~$2.72/month**, bounded by hard caps rather than alerts | Azure Container Apps + Vercel + Supabase | [Cost model](docs/reference/cost-model.md) |
 
 ### User flow draft and submit a SAR for review
