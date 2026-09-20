@@ -3,8 +3,9 @@ the machine-owned Key classes/functions inventory lines in every SUMMARY header,
 (2) regenerates the OpenAPI schema + endpoint list from the live FastAPI app, (3)
 regenerates the ERD from live SQLAlchemy metadata, and (4) refreshes
 the AUTOGEN regions of the architecture doc, the README's published-evidence
-tables, and the contributor guide's Makefile command inventory. With --check it regenerates everything
-in memory, diffs against what is committed, and fails if anything is stale — so CI
+tables, and the contributor guide's Makefile command inventory. With --check it
+regenerates everything in memory, diffs against what is committed, and fails if
+anything is stale — so CI
 blocks drift between code and docs. All output is deterministic (sorted, no clocks).
 
 Key classes:

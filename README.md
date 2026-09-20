@@ -156,13 +156,55 @@ flowchart LR
 
 | What was measured | Result | Where it ran | Detail |
 | --- | --- | --- | --- |
-| **Kubernetes autoscaling — AKS** | api replicas **1 → 5 → 1**, scale-up **101 s**, scale-back **117 s**, **100/100** durable runs | Azure AKS v1.35.7, 1× B2s + 2× D2as_v4, destroyed after the session | [AKS + HPA](#kubernetes-deployment-aks-terraform-and-hpa) |
-| **Kubernetes autoscaling — kind** | api replicas **1 → 5 → 1**, scale-up **46 s**, scale-back **92 s**, **100/100** durable runs | Local kind, same Kustomize base and image | [AKS + HPA](#kubernetes-deployment-aks-terraform-and-hpa) |
-| **Quantization efficiency** | AWQ cut model-weight memory **63.5%** (14.25 → 5.20 GiB); throughput **+60.8%** at concurrency 32 | RunPod RTX 4090, 1,000 synthetic cases, Pod + volume deleted | [Inference benchmark](#inference-benchmark-vllm--4-bit-awq) |
-| **Grounding under quantization** | Raw AWQ fabricated citations on **85 / 1,000** cases; BF16 on **0** | Same host, image, prompt, and case set | [Gated cascade](#quality-gated-sar-cascade) |
-| **Quality-gated cascade** | Served **99.7%** of 1,000 cases with **9.2%** escalated and **0** fabrications, vs **90.9%** raw AWQ | Two endpoints vs a one-endpoint baseline | [Gated cascade](#quality-gated-sar-cascade) |
-| **Training at scale** | **68,228,066** source rows processed; best candidate PR-AUC **0.3196** on 6.36M holdout rows | Ephemeral Azure data-batch VM, torn down after export | [Training at scale](#training-at-scale-682m-ibm-transactions) |
-| **Recurring cost** | **~$2.72/month**, bounded by hard caps rather than alerts | Azure Container Apps + Vercel + Supabase | [Cost model](docs/reference/cost-model.md) |
+| **Kubernetes autoscaling — AKS** | api replicas **1 → 5 → 1**, scale-up **101 s**, scale-back **117 s**, **100/100** durable runs | Azure AKS v1.35.7, 1× B2s + 2× D2as_v4, destroyed after the session | [AKS report](docs/reference/benchmarks/aks-hpa-scaling.md) |
+| **Kubernetes autoscaling — kind** | api replicas **1 → 5 → 1**, scale-up **46 s**, scale-back **92 s**, **100/100** durable runs | Local kind, same Kustomize base and image | [kind report](docs/reference/benchmarks/k8s-hpa-scaling.md) |
+| **Quantization efficiency** | AWQ cut model-weight memory **63.5%** (14.25 → 5.20 GiB); throughput **+60.8%** at concurrency 32 | RunPod RTX 4090, 1,000 synthetic cases, Pod + volume deleted | [Benchmark report](docs/reference/benchmarks/vllm-awq-sar-benchmark.md) |
+| **Grounding under quantization** | Raw AWQ fabricated citations on **85 / 1,000** cases; BF16 on **0** | Same host, image, prompt, and case set | [Cascade report](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) |
+| **Quality-gated cascade** | Served **99.7%** of 1,000 cases with **9.2%** escalated and **0** fabrications, vs **90.9%** raw AWQ | Two endpoints vs a one-endpoint baseline | [Cascade report](docs/reference/benchmarks/vllm-gated-cascade-benchmark.md) |
+| **Training at scale** | **68,228,066** source rows processed; best candidate PR-AUC **0.3196** on 6.36M holdout rows | Ephemeral Azure data-batch VM, torn down after export | [Training report](docs/reference/benchmarks/ibm-full-data-training.md) |
+| **Recurring cost** | **~$11.53/month**, bounded by hard caps rather than alerts | Azure Container Apps + Vercel + Supabase | [Cost model](docs/reference/cost-model.md) |
+
+The AKS rows are a **pod- and node-autoscaling** result, not a throughput result: the rate limiter
+rejected almost all of the offered load, and only **1,147 of 783,498** health requests succeeded.
+That disclosure travels with the figure everywhere it appears.
+
+<details>
+<summary><strong>Generated evidence tables</strong> — written by <code>make docs</code> straight from the published artifacts</summary>
+
+<!-- AUTOGEN:vllm-benchmark -->
+| Cases | BF16 weight memory | AWQ weight memory | Reduction | Acceptance |
+| ---: | ---: | ---: | ---: | --- |
+| 1000 | 14.25 GiB | 5.20 GiB | 63.5% | not met |
+
+Acceptance NOT met (reference_validity). AWQ reduced parsed model-weight memory by 63.5%; AWQ throughput higher by 60.8% at concurrency 32.
+<!-- /AUTOGEN:vllm-benchmark -->
+
+<!-- AUTOGEN:cascade-benchmark -->
+| Scenario | Cases served | Citation fabrications | Escalated | Case p95 | GPU-hours / case | Endpoints |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| bf16-baseline | 99.5% | 0 | 0.0% | 16,164 ms | 0.000116 | 1 |
+| awq-raw | 90.9% | 85 | 0.0% | 16,228 ms | 0.000113 | 1 |
+| awq-bf16-unconstrained | 99.7% | 0 | 9.2% | 17,184 ms | 0.000204 | 2 |
+
+Gated awq-bf16-unconstrained served 99.7% of 1000 cases with 9.2% escalated; case p95 latency 6.3% higher than bf16-baseline at concurrency 32 across two endpoints, not one; AWQ model weights 63.5% smaller.
+<!-- /AUTOGEN:cascade-benchmark -->
+
+<!-- AUTOGEN:fulldata-training -->
+| Candidate | Source rows | Usable rows | Training rows | Holdout rows | PR-AUC | Gates |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| hi-small | 5078345 | 5054380 | 3032849 | 1010853 | 0.2632 | failed |
+| hi-medium | 31898238 | 31796234 | 19078362 | 6358506 | 0.3196 | passed |
+| li-medium | 31251483 | 31157276 | 18695899 | 6231386 | 0.0839 | failed |
+<!-- /AUTOGEN:fulldata-training -->
+
+<!-- AUTOGEN:k8s-benchmark -->
+| Platform | API replicas | First scale-up | Scale-back | Durable runs | Failed runs |
+| --- | --- | ---: | ---: | ---: | ---: |
+| kind | 1 → 5 → 1 | 46 s | 92 s | 100/100 | 0 |
+| aks | 1 → 5 → 1 | 101 s | 117 s | 100/100 | 0 |
+<!-- /AUTOGEN:k8s-benchmark -->
+
+</details>
 
 ### User flow draft and submit a SAR for review
 
