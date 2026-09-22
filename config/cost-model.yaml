@@ -23,7 +23,38 @@ shapes:
 # The two assertions that make this a gate rather than a report.
 ceilings:
   aks_session_usd: "5.00"
-  aca_max_replicas: 1
+  # APP-LEVEL replicas, not per-revision. Blue/green promotion runs the live and staged
+  # revisions together for the length of a deploy, so two is the intended bound; one would
+  # fail every deploy. Nothing structurally holds it at two -- a revision that fails
+  # activation while holding a replica takes no traffic and never scales away, which is what
+  # the cost-watchdog revision sweep detects.
+  aca_max_replicas: 2
+  aca_concurrent_revisions: 2
+
+# Attribution policy for the daily spend watchdog. The subscription-wide budget sees every
+# dollar, which is its job, but an alert that cannot separate a governed experiment from a
+# drifting recurring bill is not actionable -- on 2026-09-22 a $12.51 alert was 80% ledgered,
+# torn-down experiment spend and 20% a stuck replica, and telling them apart took a manual
+# investigation. These lists let the watchdog do that separation itself.
+#
+# `recurring` is the always-on surface the projection above prices. `ephemeral` groups are
+# created and destroyed per approved session (ADR-028); their spend is governed by the ledger and
+# the $75 ceiling, not by this threshold. `system` groups are free Azure-created stubs. Any other
+# group with spend is UNATTRIBUTED -- exactly what the subscription-wide budget exists to catch.
+spend_watchdog:
+  recurring_resource_groups:
+    - fraudlens-prod-rg
+    - fraudlens-tfstate-rg
+  ephemeral_resource_groups:
+    - fraudlens-aks-demo-rg
+    - fraudlens-aks-demo-nodes-rg
+    - fraudlens-data-batch-rg
+  system_resource_groups:
+    - NetworkWatcherRG
+  # Recurring spend above this is drift, not usage. Deliberately NOT a second copy of the
+  # projection: a test asserts this sits above the generated recurring total, so growing the
+  # projection past it fails CI and forces a conscious decision rather than silent erosion.
+  recurring_monthly_usd: "14.00"
 
 # Container Apps Consumption free monthly grant. Sourced from the same Azure pricing page as the
 # meters; it is an allowance, not a rate, so the retail API does not carry it.

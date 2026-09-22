@@ -729,11 +729,12 @@ SCRIPTS_TESTS := tests/unit/test_aml_fraud.py \
 	tests/unit/test_local_demo_environment.py tests/unit/test_local_demo_lifecycle.py \
 	tests/unit/test_study_helpers.py tests/unit/test_quality_config.py \
 	tests/unit/test_azure_cost_model.py tests/unit/test_azure_cost_plan.py \
+	tests/unit/test_azure_spend_check.py \
 	tests/unit/test_sar_tier3_pilot.py \
 	$(GFP_PORTABLE_TESTS) $(SAR_EVAL_TESTS)
 scripts-test: ## Protect extracted script modules with >=90% aggregate branch coverage.
 	$(UV) run pytest $(SCRIPTS_TESTS) -q -o addopts='' \
-		--cov=lib.azure_cost --cov=azure_cost_plan \
+		--cov=lib.azure_cost --cov=azure_cost_plan --cov=check_azure_spend \
 		--cov=lib.aml_fraud --cov=lib.demo_dataset_steps --cov=lib.demo_environment \
 		--cov=lib.demo_processes --cov=lib.gfp --cov=lib.model_datasets \
 		--cov=lib.model_training --cov=lib.quality --cov=lib.sar_eval --cov=lib.sar_pilot \

@@ -14,6 +14,7 @@ Key classes:
 - ColdStart: the measured scale-to-zero cold start, or the absence of a measurement.
 - MeterSelector: the fields that resolve exactly one retail meter, plus a list fallback.
 - ExcludedService: one deliberately unpriced service and the reason the gap is acceptable.
+- SpendWatchdog: resource-group attribution policy separating recurring spend from governed.
 - CostModelConfig: the complete validated cost-model policy.
 - CostModelConfigError: safe configuration-load failure.
 
@@ -78,7 +79,18 @@ class Ceilings(BaseModel):
         ..., gt=0, description="Maximum admissible projected cost for one AKS session."
     )
     aca_max_replicas: int = Field(
-        ..., gt=0, description="Maximum Container Apps replicas the committed root may request."
+        ...,
+        gt=0,
+        description="Maximum APP-LEVEL Container Apps replicas the committed root may request.",
+    )
+    aca_concurrent_revisions: int = Field(
+        ...,
+        gt=0,
+        description=(
+            "Revisions that may hold replicas at once. Under revision_mode=Multiple a deploy "
+            "briefly runs the live and staged revisions together, so the app-level replica bound "
+            "is this count times the per-revision max_replicas."
+        ),
     )
 
 
@@ -215,6 +227,25 @@ class ExcludedService(BaseModel):
     reason: str = Field(..., min_length=1, description="Why leaving it out is defensible.")
 
 
+class SpendWatchdog(BaseModel):
+    """Attribution policy that lets the daily watchdog separate drift from governed spend."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    recurring_resource_groups: tuple[str, ...] = Field(
+        ..., min_length=1, description="Always-on groups the recurring projection prices."
+    )
+    ephemeral_resource_groups: tuple[str, ...] = Field(
+        ..., description="Per-session experiment groups governed by the ADR-028 ledger."
+    )
+    system_resource_groups: tuple[str, ...] = Field(
+        ..., description="Free Azure-created groups that carry no charge."
+    )
+    recurring_monthly_usd: Decimal = Field(
+        ..., gt=0, description="Recurring month-to-date spend above which drift is declared."
+    )
+
+
 class CostModelConfig(BaseModel):
     """The complete validated Azure cost-model policy."""
 
@@ -223,6 +254,9 @@ class CostModelConfig(BaseModel):
     retail_prices: RetailPricesSettings = Field(..., description="Retail Prices API access.")
     shapes: ShapeSources = Field(..., description="Terraform sources for the committed shapes.")
     ceilings: Ceilings = Field(..., description="Enforced session and replica ceilings.")
+    spend_watchdog: SpendWatchdog = Field(
+        ..., description="Resource-group attribution policy for the daily spend watchdog."
+    )
     aca_free_grant: FreeGrant = Field(..., description="Container Apps monthly free allowance.")
     aca_usage: AcaUsage = Field(..., description="Container Apps demand assumptions.")
     aks_session: AksSession = Field(..., description="One governed AKS session shape.")

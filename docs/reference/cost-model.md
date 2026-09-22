@@ -5,7 +5,7 @@
 > live from the public Azure Retail Prices API. Editing this file by hand detaches the
 > numbers from the configuration they describe.
 
-- **Generated on:** 2026-09-16
+- **Generated on:** 2026-09-22
 - **Currency:** USD
 - **Recurring monthly total:** **$11.53**
 - **Per ephemeral AKS session:** **$0.79** ($1.03 with the ADR-028 0.3 margin)
@@ -16,7 +16,7 @@ These are gates, not guidance: `make azure-cost-plan` exits non-zero when either
 
 | Ceiling | Value | Observed | Verdict |
 | --- | --- | --- | --- |
-| Container Apps maximum replicas | 1 | 1 | PASS |
+| Container Apps app-level replicas | 2 | 2 | PASS |
 | AKS cost per session (with margin) | $5.00 | $1.03 | PASS |
 
 ## Committed shapes priced
@@ -27,7 +27,9 @@ change moves this projection with no second copy to maintain.
 | Shape | Value |
 | --- | --- |
 | Container Apps region | eastus2 |
-| Container Apps replicas (min / max) | 1 / 1 |
+| Container Apps replicas per revision (min / max) | 1 / 1 |
+| Container Apps revision mode | Multiple |
+| Container Apps replicas app-level (max) | 2 |
 | Container Apps vCPU / memory per replica | 0.5 vCPU / 1 GiB |
 | Log Analytics daily ingestion cap | 0.1 GB/day |
 | AKS region | westus3 |
@@ -56,11 +58,16 @@ cheaper than one that is.
 | Scenario | Monthly |
 | --- | --- |
 | As configured (keep-warm window, idle rate) | $11.53 |
-| Every hour billed at the *active* rate, at the 1-replica cap, log ingestion pinned to its daily cap | $42.41 |
+| Every hour billed at the *active* rate, at the 2-replica app-level cap, log ingestion pinned to its daily cap | $81.83 |
 | Log ingestion alone, pinned to the 0.1 GB/day cap | $8.28 |
 
-The second row is the bound the hard caps enforce: `max_replicas` cannot be exceeded,
-and the workspace stops ingesting at its daily quota rather than billing on.
+The second row is a *priced* bound, not an enforced one. The workspace genuinely
+stops ingesting at its daily quota rather than billing on. `max_replicas` is weaker:
+it caps ONE revision, and under `revision_mode = Multiple` nothing structurally caps
+how many revisions hold replicas at once — a revision that fails activation while
+holding a replica takes no traffic and never scales away. The daily `cost-watchdog`
+revision sweep is what detects that, so this row is the bound only while that sweep
+runs.
 
 ## Cold start — what the keep-warm cron is buying
 

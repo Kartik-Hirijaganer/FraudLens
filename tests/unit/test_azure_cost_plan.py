@@ -74,7 +74,8 @@ def test_a_breaching_document_states_the_failure_instead_of_hiding_it(
     shapes = load_shapes(config, REPO_ROOT).model_copy(update={"aca_max_replicas": 5})
     document = render_cost_model(build_cost_model(config, shapes, catalog, PINNED_DATE, REPO_ROOT))
     assert "**Failures**" in document
-    assert "| Container Apps maximum replicas | 1 | 5 | FAIL |" in document
+    # 5 per revision x 2 concurrent revisions = 10 app-level, against the committed ceiling of 2.
+    assert "| Container Apps app-level replicas | 2 | 10 | FAIL |" in document
 
 
 def test_the_unpriced_os_disk_note_matches_what_the_aks_module_actually_commits(

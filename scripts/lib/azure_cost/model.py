@@ -16,6 +16,7 @@ Key functions:
 - resolve_rates: narrow every configured selector to exactly one dated, sourced rate.
 - project_aca: price the recurring Container Apps surface for one month.
 - project_aks: price and admit one governed ephemeral AKS session.
+- effective_max_replicas: the app-level replica bound the per-revision limit and mode imply.
 - build_cost_model: assemble the whole projection and collect ceiling failures.
 
 Notes:
@@ -72,6 +73,9 @@ class AcaProjection(BaseModel):
     log_ceiling_usd: Decimal = Field(
         ..., ge=0, description="Monthly log cost if ingestion sat at the daily cap all month."
     )
+    effective_max_replicas: int = Field(
+        ..., gt=0, description="App-level replica bound implied by the mode and per-revision max."
+    )
 
 
 class AksProjection(BaseModel):
@@ -106,6 +110,9 @@ class CostModel(BaseModel):
         ..., min_length=1, description="Deliberately unpriced services."
     )
     fixed_monthly_usd: Decimal = Field(..., ge=0, description="Recurring monthly total in USD.")
+    aca_replica_ceiling: int = Field(
+        ..., gt=0, description="Committed app-level Container Apps replica ceiling."
+    )
     failures: tuple[str, ...] = Field(default=(), description="Enforced-ceiling breaches.")
 
 
@@ -142,6 +149,20 @@ def plain_decimal(value: Decimal) -> str:
 
 def _money(value: Decimal) -> Decimal:
     return value.quantize(_CENTS)
+
+
+def effective_max_replicas(config: CostModelConfig, shapes: DeploymentShapes) -> int:
+    """Return the APP-LEVEL replica bound the committed per-revision limit implies.
+
+    `max_replicas` in the template limits ONE revision. Under `revision_mode = "Multiple"` the
+    app runs several revisions at once (blue/green staging promotes only after smoke passes), so
+    the app-level bound is the per-revision limit times the revisions that may hold replicas
+    together. Reading the per-revision number as if it bounded the app is what let two replicas
+    run while the ceiling reported one.
+    """
+    if shapes.aca_revision_mode.casefold() == "single":
+        return shapes.aca_max_replicas
+    return shapes.aca_max_replicas * config.ceilings.aca_concurrent_revisions
 
 
 def project_aca(
@@ -224,7 +245,10 @@ def project_aca(
             rate_keys=("blob_hot_lrs",),
         ),
     )
-    active_billable = max(Decimal("0"), _HOURS_PER_MONTH * shapes.aca_max_replicas - grant_hours)
+    # The worst case is app-level: every revision that can hold a replica, billed at the active
+    # rate. Using the per-revision max here understated the bound by the revision count.
+    app_max_replicas = effective_max_replicas(config, shapes)
+    active_billable = max(Decimal("0"), _HOURS_PER_MONTH * app_max_replicas - grant_hours)
     active_ceiling = (
         active_billable * _SECONDS_PER_HOUR * active_per_second + log_ceiling + blob + tfstate
     )
@@ -237,6 +261,7 @@ def project_aca(
         monthly_usd=_money(sum((line.amount_usd for line in lines), Decimal("0"))),
         active_rate_ceiling_usd=_money(active_ceiling),
         log_ceiling_usd=_money(log_ceiling),
+        effective_max_replicas=app_max_replicas,
     )
 
 
@@ -335,10 +360,13 @@ def _ceiling_failures(
     config: CostModelConfig, shapes: DeploymentShapes, aks: AksProjection
 ) -> tuple[str, ...]:
     failures: list[str] = []
-    if shapes.aca_max_replicas > config.ceilings.aca_max_replicas:
+    app_max_replicas = effective_max_replicas(config, shapes)
+    if app_max_replicas > config.ceilings.aca_max_replicas:
         failures.append(
-            f"Container Apps max_replicas is {shapes.aca_max_replicas}; the committed ceiling is "
-            f"{config.ceilings.aca_max_replicas} replica"
+            f"Container Apps app-level replicas reach {app_max_replicas} "
+            f"({shapes.aca_max_replicas} per revision x {config.ceilings.aca_concurrent_revisions} "
+            f"concurrent revisions under revision_mode={shapes.aca_revision_mode}); the committed "
+            f"ceiling is {config.ceilings.aca_max_replicas}"
         )
     if not aks.admitted:
         failures.append(
@@ -367,6 +395,7 @@ def build_cost_model(
         aca=aca,
         aks=aks,
         cold_start=config.cold_start,
+        aca_replica_ceiling=config.ceilings.aca_max_replicas,
         excluded=config.excluded,
         fixed_monthly_usd=aca.monthly_usd,
         failures=_ceiling_failures(config, shapes, aks),

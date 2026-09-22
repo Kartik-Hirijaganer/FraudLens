@@ -100,7 +100,8 @@ def render_cost_model(model: CostModel) -> str:
     """Return the complete generated cost-model document."""
     shapes = model.shapes
     aca, aks = model.aca, model.aks
-    replica_ok = not any("max_replicas" in failure for failure in model.failures)
+    # Compared, not string-matched: a reworded failure must not be able to flip this to PASS.
+    replica_ok = model.aca.effective_max_replicas <= model.aca_replica_ceiling
     lines = [
         "# Azure Cost Model (generated)",
         "",
@@ -122,8 +123,8 @@ def render_cost_model(model: CostModel) -> str:
         "",
         "| Ceiling | Value | Observed | Verdict |",
         "| --- | --- | --- | --- |",
-        f"| Container Apps maximum replicas | 1 | {shapes.aca_max_replicas} | "
-        f"{_verdict(replica_ok)} |",
+        f"| Container Apps app-level replicas | {model.aca_replica_ceiling} | "
+        f"{model.aca.effective_max_replicas} | {_verdict(replica_ok)} |",
         f"| AKS cost per session (with margin) | ${aks.ceiling_usd} | "
         f"${aks.cost_with_margin_usd} | {_verdict(aks.admitted)} |",
         "",
@@ -142,8 +143,10 @@ def render_cost_model(model: CostModel) -> str:
             "| Shape | Value |",
             "| --- | --- |",
             f"| Container Apps region | {shapes.aca_region} |",
-            f"| Container Apps replicas (min / max) | {shapes.aca_min_replicas} / "
+            f"| Container Apps replicas per revision (min / max) | {shapes.aca_min_replicas} / "
             f"{shapes.aca_max_replicas} |",
+            f"| Container Apps revision mode | {shapes.aca_revision_mode} |",
+            f"| Container Apps replicas app-level (max) | {model.aca.effective_max_replicas} |",
             f"| Container Apps vCPU / memory per replica | "
             f"{plain_decimal(shapes.aca_vcpu)} vCPU / "
             f"{plain_decimal(shapes.aca_memory_gib)} GiB |",
@@ -173,14 +176,20 @@ def render_cost_model(model: CostModel) -> str:
             "| Scenario | Monthly |",
             "| --- | --- |",
             f"| As configured (keep-warm window, idle rate) | ${aca.monthly_usd} |",
-            f"| Every hour billed at the *active* rate, at the {shapes.aca_max_replicas}-replica "
-            f"cap, log ingestion pinned to its daily cap | ${aca.active_rate_ceiling_usd} |",
+            f"| Every hour billed at the *active* rate, at the "
+            f"{aca.effective_max_replicas}-replica app-level cap, log ingestion pinned to its "
+            f"daily cap | ${aca.active_rate_ceiling_usd} |",
             "| Log ingestion alone, pinned to the "
             f"{plain_decimal(shapes.log_daily_quota_gb)} GB/day cap | "
             f"${aca.log_ceiling_usd} |",
             "",
-            "The second row is the bound the hard caps enforce: `max_replicas` cannot be exceeded,",
-            "and the workspace stops ingesting at its daily quota rather than billing on.",
+            "The second row is a *priced* bound, not an enforced one. The workspace genuinely",
+            "stops ingesting at its daily quota rather than billing on. `max_replicas` is weaker:",
+            "it caps ONE revision, and under `revision_mode = Multiple` nothing structurally caps",
+            "how many revisions hold replicas at once — a revision that fails activation while",
+            "holding a replica takes no traffic and never scales away. The daily `cost-watchdog`",
+            "revision sweep is what detects that, so this row is the bound only while that sweep",
+            "runs.",
             "",
             *cold_start_section(model.cold_start),
             f"## AKS — one governed ephemeral session ({plain_decimal(aks.session_hours)} hours)",

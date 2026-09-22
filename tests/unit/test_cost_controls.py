@@ -169,7 +169,8 @@ def test_every_hard_cap_is_committed_where_it_is_enforced() -> None:
     assert prod_yaml["llm_daily_budget_usd"] == 2.25
     cost_model = yaml.safe_load(_source(REPO_ROOT / "config" / "cost-model.yaml"))
     assert cost_model["ceilings"]["aks_session_usd"] == "5.00"
-    assert cost_model["ceilings"]["aca_max_replicas"] == 1
+    assert cost_model["ceilings"]["aca_max_replicas"] == 2
+    assert cost_model["ceilings"]["aca_concurrent_revisions"] == 2
 
 
 def test_no_container_apps_job_is_scheduled_on_the_always_on_root() -> None:
@@ -219,9 +220,24 @@ def test_the_watchdog_uses_read_only_azure_commands_only() -> None:
         "az aks list",
         "az resource list",
         "az consumption budget list",
-        "az costmanagement query",
+        "az containerapp revision list",
+        "scripts/check_azure_spend.py",
     ):
         assert read in body, read
+
+    # `az costmanagement query` must NEVER come back: the command does not exist (the
+    # costmanagement extension provides `export` and `show` only). This assertion used to require
+    # it, which is how a step that reported $0.00 every day passed its own test for weeks.
+    assert "az costmanagement query" not in body
+
+    # Cost Management's query API is POST-only because the query is a body, not a path — a POST
+    # that creates nothing. Rather than exempt `az rest` wholesale, every POST in this workflow
+    # must target that one read-only endpoint, so a future POST to a mutating ARM endpoint fails
+    # here instead of quietly inheriting the exemption.
+    for line in body.splitlines():
+        if "--method post" in line or "--method POST" in line:
+            assert "CostManagement/query" in body, line
+            assert "Microsoft.CostManagement" in body, line
 
 
 def test_the_watchdog_checks_both_ephemeral_aks_groups_and_the_project_tag() -> None:
@@ -240,9 +256,30 @@ def test_the_watchdog_checks_both_ephemeral_aks_groups_and_the_project_tag() -> 
 def test_the_watchdog_fails_the_run_on_residue_or_overspend() -> None:
     # Failing is the notification: GitHub emails the owner on a failed scheduled run.
     body = _source(WORKFLOWS / "cost-watchdog.yml")
-    assert "MTD_COST_THRESHOLD_USD" in body
     assert "cost-watchdog FAILED" in body
     assert "exit 1" in body
+    # All three failure paths must reach the single exit, or a check can fail unnoticed.
+    for step in (
+        "steps.groups.outputs.failed",
+        "steps.revisions.outputs.failed",
+        "steps.cost.outputs.over",
+    ):
+        assert step in body, step
+
+
+def test_the_spend_threshold_lives_in_config_not_in_the_workflow() -> None:
+    # It was a workflow env var, which put a cost limit somewhere no test could relate it to the
+    # projection it is supposed to track (rule 4: no hardcoded values). It is now committed
+    # policy, and test_azure_spend_check asserts it stays above the generated recurring total.
+    body = _source(WORKFLOWS / "cost-watchdog.yml")
+    assert "MTD_COST_THRESHOLD_USD" not in body
+    cost_model = yaml.safe_load(_source(REPO_ROOT / "config" / "cost-model.yaml"))
+    watchdog = cost_model["spend_watchdog"]
+    assert float(watchdog["recurring_monthly_usd"]) > 0
+    assert "fraudlens-prod-rg" in watchdog["recurring_resource_groups"]
+    # The ephemeral groups are governed by the ADR-028 ledger, so they must NOT count as recurring.
+    assert "fraudlens-data-batch-rg" in watchdog["ephemeral_resource_groups"]
+    assert "fraudlens-data-batch-rg" not in watchdog["recurring_resource_groups"]
 
 
 # --- the keep-warm ping -------------------------------------------------------------------

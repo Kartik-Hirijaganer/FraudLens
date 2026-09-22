@@ -53,7 +53,10 @@ def _model(config: CostModelConfig, catalog: PriceCatalog) -> CostModel:
 def test_the_committed_config_declares_both_enforced_ceilings(config: CostModelConfig) -> None:
     # These two are the whole point of the generator: without them it is a report, not a gate.
     assert config.ceilings.aks_session_usd == Decimal("5.00")
-    assert config.ceilings.aca_max_replicas == 1
+    # App-level, not per-revision: blue/green promotion runs two revisions at once, so one
+    # would fail every deploy and two is the real bound.
+    assert config.ceilings.aca_max_replicas == 2
+    assert config.ceilings.aca_concurrent_revisions == 2
 
 
 def test_an_unknown_config_key_fails_the_load_rather_than_being_ignored(tmp_path: Path) -> None:
@@ -165,12 +168,56 @@ def test_a_session_over_the_ceiling_is_refused_and_reported(
     assert any("session ceiling" in failure for failure in model.failures)
 
 
+def test_revision_mode_decides_whether_max_replicas_bounds_the_app(
+    config: CostModelConfig, catalog: PriceCatalog
+) -> None:
+    """The regression guard for the 2026-09-22 budget alert.
+
+    `max_replicas = 1` was reported as a satisfied app-level ceiling while TWO replicas ran:
+    revision `fraudlens-prod-api--0000019` failed activation still holding a replica, took 0%
+    traffic, and so was never scaled away. The per-revision limit was never an app-level bound
+    under `revision_mode = Multiple`, and the gate could not see the difference.
+    """
+    base = load_shapes(config, REPO_ROOT)
+    assert base.aca_max_replicas == 1, "this test is about a per-revision limit of one"
+
+    multiple = base.model_copy(update={"aca_revision_mode": "Multiple"})
+    single = base.model_copy(update={"aca_revision_mode": "Single"})
+
+    multi_model = build_cost_model(config, multiple, catalog, PINNED_DATE, REPO_ROOT)
+    single_model = build_cost_model(config, single, catalog, PINNED_DATE, REPO_ROOT)
+
+    # Same per-revision limit, different app-level truth.
+    assert multi_model.aca.effective_max_replicas == 2
+    assert single_model.aca.effective_max_replicas == 1
+
+    # And the worst-case bill follows the app, not one revision of it.
+    assert multi_model.aca.active_rate_ceiling_usd > single_model.aca.active_rate_ceiling_usd
+
+
+def test_a_one_replica_app_ceiling_rejects_multiple_revision_mode(
+    config: CostModelConfig, catalog: PriceCatalog
+) -> None:
+    # The exact claim the old document made -- "max_replicas cannot be exceeded", ceiling 1 --
+    # must now fail loudly instead of reporting PASS.
+    strict = config.model_copy(
+        update={"ceilings": config.ceilings.model_copy(update={"aca_max_replicas": 1})}
+    )
+    shapes = load_shapes(config, REPO_ROOT)
+    assert shapes.aca_revision_mode == "Multiple"
+    model = build_cost_model(strict, shapes, catalog, PINNED_DATE, REPO_ROOT)
+    assert model.failures, "a 1-replica app ceiling under Multiple mode must not pass"
+    assert any("app-level replicas reach 2" in failure for failure in model.failures)
+
+
 def test_more_than_one_replica_breaches_the_container_apps_ceiling(
     config: CostModelConfig, catalog: PriceCatalog
 ) -> None:
     shapes = load_shapes(config, REPO_ROOT).model_copy(update={"aca_max_replicas": 5})
     model = build_cost_model(config, shapes, catalog, PINNED_DATE, REPO_ROOT)
-    assert any("max_replicas is 5" in failure for failure in model.failures)
+    # 5 per revision x 2 concurrent revisions = 10 app-level, against a ceiling of 2.
+    assert model.aca.effective_max_replicas == 10
+    assert any("app-level replicas reach 10" in failure for failure in model.failures)
 
 
 def test_every_rate_resolves_to_exactly_one_dated_sourced_price(
@@ -324,6 +371,23 @@ def test_a_retail_item_tolerates_unknown_api_fields() -> None:
     assert item.tier_minimum_units == Decimal("0")
 
 
+# Every synthetic gateway module needs the mode: it decides whether max_replicas bounds the
+# app or one revision of it, so the loader refuses to guess when it is absent.
+_GATEWAY_MODE = 'revision_mode = "Multiple"\n\n'
+
+
+def test_an_absent_revision_mode_fails_rather_than_defaulting(tmp_path: Path) -> None:
+    # Defaulting to Single here would silently restore the bug this shape exists to prevent:
+    # it would report a 1-replica app bound while Multiple mode allowed more.
+    config = load_cost_model_config(REPO_ROOT)
+    root = stage_repo(tmp_path)
+    (root / config.shapes.gateway_module).write_text(
+        'variable "cpu" {\n  default = 0.5\n}\n', encoding="utf-8"
+    )
+    with pytest.raises(ShapeError, match="revision_mode is not assigned"):
+        load_shapes(config, root)
+
+
 def test_shape_loading_reports_every_malformed_terraform_source(tmp_path: Path) -> None:
     config = load_cost_model_config(REPO_ROOT)
     root = stage_repo(tmp_path)
@@ -333,15 +397,15 @@ def test_shape_loading_reports_every_malformed_terraform_source(tmp_path: Path) 
         load_shapes(config, root)
 
     gateway = root / config.shapes.gateway_module
-    gateway.write_text('variable "cpu" {\n  type = number\n}\n', encoding="utf-8")
+    gateway.write_text(_GATEWAY_MODE + 'variable "cpu" {\n  type = number\n}\n', encoding="utf-8")
     with pytest.raises(ShapeError, match="variable cpu has no default"):
         load_shapes(config, root)
 
-    gateway.write_text('variable "cpu" {\n  default = half\n}\n', encoding="utf-8")
+    gateway.write_text(_GATEWAY_MODE + 'variable "cpu" {\n  default = half\n}\n', encoding="utf-8")
     with pytest.raises(ShapeError, match="variable cpu default is not a number"):
         load_shapes(config, root)
 
-    gateway.write_text("# no variables here\n", encoding="utf-8")
+    gateway.write_text(_GATEWAY_MODE + "# no variables here\n", encoding="utf-8")
     with pytest.raises(ShapeError, match="variable cpu is not declared"):
         load_shapes(config, root)
 
@@ -351,7 +415,8 @@ def test_memory_declared_in_mebibytes_is_normalized_to_gibibytes(tmp_path: Path)
     config = load_cost_model_config(REPO_ROOT)
     root = stage_repo(tmp_path)
     (root / config.shapes.gateway_module).write_text(
-        'variable "cpu" {\n  default = 0.25\n}\n\nvariable "memory" {\n  default = "512Mi"\n}\n',
+        _GATEWAY_MODE
+        + 'variable "cpu" {\n  default = 0.25\n}\n\nvariable "memory" {\n  default = "512Mi"\n}\n',
         encoding="utf-8",
     )
     shapes = load_shapes(config, root)
