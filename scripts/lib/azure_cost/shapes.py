@@ -16,6 +16,10 @@ Notes:
   it must work with no Azure credentials, no provider download, and no backend.
 - Memory is declared as an HCL string (`"1Gi"`); it is normalized to GiB here so the retail
   GiB-second meters apply directly.
+- `revision_mode` is read because `max_replicas` is a PER-REVISION limit. Under `Multiple` the
+  app-level replica count is the per-revision limit times the number of revisions holding
+  replicas at once, so the mode decides whether `max_replicas` bounds the app or only one
+  revision of it. Reading it here keeps that distinction in the model instead of in a comment.
 """
 
 from __future__ import annotations
@@ -43,7 +47,12 @@ class DeploymentShapes(BaseModel):
 
     aca_region: str = Field(..., min_length=1, description="Container Apps region.")
     aca_min_replicas: int = Field(..., ge=0, description="Committed minimum gateway replicas.")
-    aca_max_replicas: int = Field(..., gt=0, description="Committed maximum gateway replicas.")
+    aca_max_replicas: int = Field(
+        ..., gt=0, description="Committed maximum replicas PER REVISION, not per app."
+    )
+    aca_revision_mode: str = Field(
+        ..., min_length=1, description="Container Apps revision mode (Single or Multiple)."
+    )
     aca_vcpu: Decimal = Field(..., gt=0, description="vCPU allocated per gateway replica.")
     aca_memory_gib: Decimal = Field(..., gt=0, description="Memory GiB allocated per replica.")
     log_daily_quota_gb: Decimal = Field(..., gt=0, description="Log Analytics daily ingestion cap.")
@@ -121,6 +130,7 @@ def load_shapes(config: CostModelConfig, repo_root: Path) -> DeploymentShapes:
         aca_region=_quoted(aca, "location"),
         aca_min_replicas=_integer(aca, "min_replicas"),
         aca_max_replicas=_integer(aca, "max_replicas"),
+        aca_revision_mode=_quoted(gateway, "revision_mode"),
         aca_vcpu=_default_decimal(gateway, "cpu"),
         aca_memory_gib=_default_decimal(gateway, "memory"),
         log_daily_quota_gb=_decimal(observability, "daily_quota_gb"),

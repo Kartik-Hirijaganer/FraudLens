@@ -276,7 +276,7 @@ make local-demo       # Restart; preserve data
 under enforced hard caps.
 
 ## Deployment and cost control
-Recurring spend is bounded by caps: one maximum replica, 0.1 GB/day log ingestion, a $2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and subscription scopes and a daily read-only watchdog for leftover resources. Every paid experiment was destroyed after producing its evidence.
+Recurring spend is bounded by caps: a two-replica app-level ceiling (one per revision, two revisions coexisting only across a blue/green promotion), 0.1 GB/day log ingestion, a $2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and subscription scopes and a daily read-only watchdog for leftover resources and for any revision billing replicas at zero traffic. Every paid experiment was destroyed after producing its evidence.
 
 ## License
 

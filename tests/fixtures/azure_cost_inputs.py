@@ -12,7 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FROZEN_PRICES = REPO_ROOT / "tests" / "fixtures" / "azure_retail_prices_frozen.json"
 GENERATED_DOC = REPO_ROOT / "docs" / "reference" / "cost-model.md"
-PINNED_DATE = "2026-09-16"
+PINNED_DATE = "2026-09-22"
 
 STAGED_SOURCES = (
     "config/cost-model.yaml",

@@ -30,7 +30,8 @@ concurrency:
 env:
   AKS_RESOURCE_GROUPS: "fraudlens-aks-demo-rg fraudlens-aks-demo-nodes-rg"
   PROJECT_TAG: "project=FraudLens"
-  MTD_COST_THRESHOLD_USD: "10"
+  APP_NAME: "fraudlens-prod-api"
+  RESOURCE_GROUP: "fraudlens-prod-rg"
 
 jobs:
   audit:
@@ -39,6 +40,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
 
       - uses: azure/login@v3
         with:
@@ -79,32 +84,89 @@ jobs:
             --query "[].{name:name,amount:amount,timeGrain:timeGrain,notifications:length(keys(notifications))}" \
             -o table
 
-      # Cost Management reports actual spend, which is what the budgets alert on. `az costmanagement
-      # query` is a read; the threshold is deliberately well below the $25 budget so the signal
-      # arrives before a notification would.
-      - name: Read month-to-date actual cost
+      # `az costmanagement query` DOES NOT EXIST — the costmanagement extension provides
+      # `export` and `show` only. The previous step called it and swallowed the failure with
+      # `2>/dev/null || echo "0"`, so this check reported "month-to-date actual cost: 0 USD" and
+      # passed every day since it was written, including through the 2026-09-22 budget alert it
+      # existed to pre-empt. The read now goes through the REST API the portal itself uses, and
+      # a failed read fails the step instead of becoming an implicit zero.
+      #
+      # Attribution matters as much as the total. That $12.51 alert was 80% ledgered, torn-down
+      # experiment spend and 20% a stuck replica; separating them took a manual investigation.
+      # `check_azure_spend.py` splits the month by the committed policy in
+      # `config/cost-model.yaml`, so the next alert answers "drift or governed?" on its own and
+      # gates on the recurring portion — the only part that is supposed to be stable.
+      - name: Attribute month-to-date spend and gate on recurring drift
         id: cost
         run: |
           set -euo pipefail
+          uv sync --all-packages
           scope="/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}"
-          mtd="$(az costmanagement query --scope "$scope" \
-            --type ActualCost --timeframe MonthToDate \
-            --dataset-aggregation '{"total":{"name":"Cost","function":"Sum"}}' \
-            --query "properties.rows[0][0]" -o tsv 2>/dev/null || echo "0")"
-          [ -n "$mtd" ] && [ "$mtd" != "None" ] || mtd="0"
-          printf 'month-to-date actual cost: %s USD (threshold %s)\n' "$mtd" "$MTD_COST_THRESHOLD_USD"
-          over="$(awk -v a="$mtd" -v b="$MTD_COST_THRESHOLD_USD" 'BEGIN{print (a+0>b+0)?1:0}')"
-          if [ "$over" = "1" ]; then
-            echo "::error::month-to-date cost $mtd USD exceeds the $MTD_COST_THRESHOLD_USD USD watchdog threshold"
-          fi
+          url="https://management.azure.com${scope}/providers/Microsoft.CostManagement/query?api-version=2023-03-01"
+          read -r -d '' query <<'JSON' || true
+          {"type":"ActualCost","timeframe":"MonthToDate","dataset":{"granularity":"None",
+           "aggregation":{"totalCost":{"name":"Cost","function":"Sum"}},
+           "grouping":[{"type":"Dimension","name":"ResourceGroupName"}]}}
+          JSON
+          # Cost Management throttles hard (HTTP 429). Retrying is the difference between a real
+          # reading and a spurious alarm; exhausting the retries leaves mtd.json empty, which the
+          # checker treats as a FAILURE rather than as $0.
+          mtd="${RUNNER_TEMP:-.}/mtd.json"
+          : > "$mtd"
+          for attempt in 1 2 3 4 5; do
+            if az rest --method post --url "$url" --body "$query" -o json > "$mtd"; then
+              break
+            fi
+            echo "cost query attempt $attempt failed; retrying in $((attempt * 15))s"
+            : > "$mtd"
+            sleep $((attempt * 15))
+          done
+          over=0
+          uv run python scripts/check_azure_spend.py --input "$mtd" || over=$?
           echo "over=$over" >> "$GITHUB_OUTPUT"
+
+      # A Container Apps revision that holds a replica while taking no traffic bills for a
+      # replica nobody can reach. The deploy workflow's `abort` job covers the revision IT
+      # staged; it cannot cover a revision created by a manual `az containerapp update`, and a
+      # revision that fails activation WHILE holding a replica takes no traffic, so the
+      # traffic-driven scaler never scales it away. Observed 2026-09-22:
+      # `fraudlens-prod-api--0000019` sat ActivationFailed at 1 replica and 0% traffic for 72
+      # hours, doubling the recurring bill and tripping the 50% budget alert.
+      #
+      # The test is deliberately state-machine-independent — replicas>0 AND traffic==0 — because
+      # the 19 other ActivationFailed revisions held zero replicas: the failure state is not what
+      # predicts the cost, holding a replica is. Read-only (`revision list`), so Golden Rule 7
+      # does not gate it; deactivation stays a human action.
+      - name: Refuse a revision billing replicas at zero traffic
+        id: revisions
+        run: |
+          set -euo pipefail
+          az containerapp revision list -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --query "[?properties.active].{name:name,replicas:properties.replicas,traffic:properties.trafficWeight,state:properties.runningState,health:properties.healthState}" \
+            -o table
+          idle="$(az containerapp revision list -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --query "[?properties.active && properties.replicas > \`0\` && properties.trafficWeight == \`0\`].name" \
+            -o tsv)"
+          failed=0
+          if [ -n "$idle" ]; then
+            failed=1
+            while IFS= read -r revision; do
+              [ -n "$revision" ] || continue
+              echo "::error::revision $revision holds replicas at 0% traffic — billing for an unreachable replica; deactivate with 'az containerapp revision deactivate -n $APP_NAME -g $RESOURCE_GROUP --revision $revision'"
+            done <<< "$idle"
+          else
+            echo "no revision holds replicas at zero traffic"
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
       # One place to fail, so every check above always runs and the whole picture is in the log.
       - name: Fail on residue or overspend
         run: |
           set -euo pipefail
-          if [ "${{ steps.groups.outputs.failed }}" != "0" ] || [ "${{ steps.cost.outputs.over }}" != "0" ]; then
+          if [ "${{ steps.groups.outputs.failed }}" != "0" ] \
+            || [ "${{ steps.revisions.outputs.failed }}" != "0" ] \
+            || [ "${{ steps.cost.outputs.over }}" != "0" ]; then
             echo "cost-watchdog FAILED: see the annotated errors above"
             exit 1
           fi
-          echo "cost-watchdog OK: no ephemeral resource group survives and spend is under threshold"
+          echo "cost-watchdog OK: no ephemeral resource group survives, no revision bills at zero traffic, recurring spend is under threshold, and every billed group is declared"

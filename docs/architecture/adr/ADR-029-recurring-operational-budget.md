@@ -1,6 +1,6 @@
 # ADR-029 — The permanent deployment runs under a recurring operational budget
 
-- **Status:** Accepted; amended 2026-09-18 (see [Amendment](#amendment--2026-09-18-llm-daily-ceiling-raised-to-225)); amended 2026-09-19 (see [Amendment](#amendment--2026-09-19-a-warm-replica-is-committed))
+- **Status:** Accepted; amended 2026-09-18 (see [Amendment](#amendment--2026-09-18-llm-daily-ceiling-raised-to-225)); amended 2026-09-19 (see [Amendment](#amendment--2026-09-19-a-warm-replica-is-committed)); amended 2026-09-22 (see [Amendment](#amendment--2026-09-22-max_replicas-was-never-an-app-level-cap))
 - **Date:** 2026-09-16
 
 ## Context
@@ -233,3 +233,74 @@ cluster is roughly **12x**. The original text is left as written, per the conven
 already follows for the LLM ceiling — the decision it supports is unchanged, since ADR-021 keeps AKS
 ephemeral for reasons beyond the multiple, but a reader comparing the two numbers should use this
 one.
+
+
+## Amendment — 2026-09-22 (max_replicas was never an app-level cap)
+
+The committed replica ceiling moves from **1 to 2**, because 2 is what the configuration always
+permitted and 1 is what the gate was reporting.
+
+**What happened.** The 50%-of-$25 budget alert fired at $12.51 on 2026-09-22 03:23 UTC. Most of it
+was legitimate and already governed: $10.43 of the month's $13.06 was the 2026-09-14 data-batch VM
+session and $0.90 the 2026-09-16 AKS session, both ledgered, both torn down, and the ledger's own
+pre-settlement estimate of $10.43 matched Azure's $10.4276 to the cent. That part of the instrument
+worked exactly as designed. The alert's value was what it exposed underneath.
+
+**The defect.** Revision `fraudlens-prod-api--0000019` sat `ActivationFailed` while still holding
+**1 replica at 0% traffic** from 2026-09-19T03:13 UTC — 72 hours, roughly $1.17, serving nothing.
+Recurring spend was running at **~$0.87/day against the ~$0.39/day** a single replica costs. The
+money is trivial. The problem is that the generated model reported
+
+> `| Container Apps maximum replicas | 1 | 1 | PASS |`
+
+throughout, and the amendment above states that "`max_replicas = 1` still caps the ceiling". Neither
+was true. `max_replicas` is a **per-revision** limit, and
+[`gateway_app`](../../../infra/terraform/modules/gateway_app/main.tf) sets
+`revision_mode = "Multiple"` so that a new revision lands at 0% traffic and is promoted only after
+smoke passes. Under that mode the app-level bound is the per-revision limit times the revisions
+holding replicas at once. Nothing structurally held that count at one. A gate that reports PASS
+during the precise failure it exists to catch is worse than no gate, because it is believed.
+
+**Why 2, and why not `Single`.** Blue/green promotion *requires* two revisions briefly coexisting;
+a ceiling of 1 would fail every deploy, and switching to `revision_mode = "Single"` would delete the
+smoke gate that keeps a broken image from taking traffic. Two is the honest bound of the design that
+is actually wanted, so the ceiling now states it and
+[`config/cost-model.yaml`](../../../config/cost-model.yaml) carries
+`aca_concurrent_revisions` beside it.
+
+**What the gate does now.** `scripts/lib/azure_cost` reads `revision_mode` as a priced shape and
+computes an app-level bound; a missing mode fails the load rather than defaulting, since defaulting
+to `Single` would silently restore this bug. The worst-case row is re-priced against the app bound
+and moves from **$42.41 to $81.83/month** — not a cost increase, a previously understated number.
+The recurring projection is unchanged at **$11.53/month**, because steady state really is one
+replica: zero-traffic *healthy* revisions scale to zero, as the four `ScaledToZero` revisions show.
+
+**What actually binds it.** Nothing in Terraform prevents a stuck revision, so the static gate no
+longer claims to. The daily [`cost-watchdog`](../../../.github/workflows/cost-watchdog.yml) now
+fails on any active revision with `replicas > 0` and `trafficWeight == 0`. That test is deliberately
+independent of the revision state machine: 19 other revisions sat `ActivationFailed` holding **zero**
+replicas, so the failure state does not predict the cost — holding a replica does. Detection is
+read-only; deactivation stays a human action under Golden Rule 7.
+
+**A second gate was not merely wrong but inert.** This record's Decision section relies on the
+daily watchdog to "detect it within 24 hours" because budget data lags. Its month-to-date cost step
+called `az costmanagement query` — **a command that does not exist**; the `costmanagement` extension
+provides `export` and `show` only — and swallowed the failure with `2>/dev/null || echo "0"`. It had
+therefore reported `month-to-date actual cost: 0 USD` and passed **every day since it was written**,
+including through this alert. The read now uses the Cost Management REST API, and an unreadable
+response fails the step instead of becoming an implicit zero.
+
+**Attribution, not just a total.** The alert could not distinguish its own $10.43 of ledgered,
+already-destroyed experiment spend from the recurring bill, which is why answering it took a manual
+investigation. [`scripts/check_azure_spend.py`](../../../scripts/check_azure_spend.py) now splits
+the month by a committed policy in [`config/cost-model.yaml`](../../../config/cost-model.yaml) —
+recurring, ephemeral (governed by ADR-028's ledger and $75 ceiling), system, and **unattributed** —
+and gates on the recurring portion alone, the only part that is supposed to be stable. Spend in a
+group no root declares fails the run outright: that is the case the subscription-wide budget exists
+for, and it now has a name rather than a number to divide. The threshold is deliberately not a
+second copy of the projection; a test asserts it sits above the generated recurring total, so
+growing the projection past it fails CI rather than quietly draining the gate of meaning.
+
+**One figure above is now read differently.** The 2026-09-19 amendment's "`max_replicas = 1` still
+caps the ceiling" should be read as *caps one revision*. The decision it supported — committing a
+warm replica — is unaffected; the bound it cited was simply narrower than stated.
