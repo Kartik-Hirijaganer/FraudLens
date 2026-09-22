@@ -108,10 +108,6 @@ flowchart TB
     class ghcr,warm,logs opsnode
 ```
 
-🔵 browser and identity · 🟢 Azure compute · 🟡 durable state · 🟣 external model provider ·
-🔴 secrets · 🩵 delivery and operations. Solid arrows carry requests or data; dashed arrows are
-trust and configuration relationships, not a request path.
-
 ### The same image also ran on Kubernetes
 I destroyed the AKS cluster to keep costs at $0.
 
@@ -162,7 +158,6 @@ flowchart LR
 | **Grounding under quantization** | Raw AWQ fabricated citations on **85 / 1,000** cases; BF16 on **0** | Same host, image, prompt, and case set | Gated cascade |
 | **Quality-gated cascade** | Served **99.7%** of 1,000 cases with **9.2%** escalated and **0** fabrications, vs **90.9%** raw AWQ | Two endpoints vs a one-endpoint baseline | Gated cascade |
 | **Training at scale** | **68,228,066** source rows processed; best candidate PR-AUC **0.3196** on 6.36M holdout rows | Ephemeral Azure data-batch VM, torn down after export | Training at scale |
-| **Recurring cost** | **~$2.72/month**, bounded by hard caps rather than alerts | Azure Container Apps + Vercel + Supabase | [Cost model](docs/reference/cost-model.md) |
 
 ### User flow draft and submit a SAR for review
 
@@ -275,9 +270,8 @@ make local-demo       # Restart; preserve data
 99.7% under the gated cascade · ≥90% branch coverage gated on both stacks · ~$11.53/month recurring
 under enforced hard caps.
 
-## Deployment and cost control
-Recurring spend is bounded by caps: a two-replica app-level ceiling (one per revision, two revisions coexisting only across a blue/green promotion), 0.1 GB/day log ingestion, a $2.25/day LLM ceiling, and manual-only jobs, with $25/month budgets at both the resource-group and subscription scopes and a daily read-only watchdog for leftover resources and for any revision billing replicas at zero traffic. Every paid experiment was destroyed after producing its evidence.
-
 ## License
 
 FraudLens is available under the [MIT License](LICENSE).
+
+
