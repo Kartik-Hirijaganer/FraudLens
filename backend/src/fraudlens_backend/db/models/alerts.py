@@ -148,6 +148,7 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     workflow: Mapped[str] = mapped_column(
         String(32), nullable=False, default="single_writer", server_default="single_writer"
     )
