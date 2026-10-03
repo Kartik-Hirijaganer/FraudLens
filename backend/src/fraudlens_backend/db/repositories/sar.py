@@ -85,6 +85,7 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             prompt_version=result.prompt_version,
             prompt_hash=result.prompt_hash,
             workflow=result.workflow,
+            error_code=result.error_code,
             revision_count=result.revision_count,
             content=result.content,
             structured=structured,
