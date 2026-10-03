@@ -55,8 +55,10 @@ class DurableRunWorker:
         worker_id: str,
         clock: Callable[[], datetime] | None = None,
         heartbeat_file: Path | None = None,
+        uploads_only: bool = False,
     ) -> None:
         """Bind durable storage, shared pipeline components, worker identity, and time source."""
+        self._uploads_only = uploads_only
         self._sessionmaker = sessionmaker
         self._components = components
         self._settings = settings
@@ -76,6 +78,8 @@ class DurableRunWorker:
                 lease_owner=self._worker_id,
                 now=self._clock(),
                 lease_seconds=self._settings.run_lease_seconds,
+                deadline_seconds=self._settings.run_deadline_seconds,
+                uploads_only=self._uploads_only,
             )
             await session.commit()
         if claim is None:
@@ -89,12 +93,12 @@ class DurableRunWorker:
             await self._execute_with_heartbeat(claim)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             get_logger(APP_LOGGER_NAME).error(
                 "investigation.worker_error",
                 run_id=str(claim.run_id),
                 attempt=claim.attempt,
-                exc_info=True,
+                error_type=type(exc).__name__,
             )
             await self._abandon(claim)
         return True
