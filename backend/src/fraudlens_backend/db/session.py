@@ -18,14 +18,16 @@ Key functions:
 
 Notes:
 - ping_database surfaces NO connection-string detail to callers; /readyz maps a raised
-  error to a PHI-free "down" so no credentials/host ever reach logs or responses.
+error to a PHI-free "down" so no credentials/host ever reach logs or responses.
+- SQLite uses explicit BEGIN so releasing a savepoint cannot commit the caller's work.
 """
 
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import Connection, event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -40,7 +42,21 @@ def create_engine_from_settings(settings: AppSettings) -> AsyncEngine | None:
     """Return an async engine built from settings.database_url, or None when unset."""
     if not settings.database_url:
         return None
-    return create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
+    if engine.dialect.name == "sqlite":
+        event.listen(engine.sync_engine, "connect", _disable_sqlite_begin)
+        event.listen(engine.sync_engine, "begin", _begin_sqlite_transaction)
+    return engine
+
+
+def _disable_sqlite_begin(connection: Any, _record: Any) -> None:
+    """Disable the Python 3.11 driver's implicit transaction handling."""
+    connection.isolation_level = None
+
+
+def _begin_sqlite_transaction(connection: Connection) -> None:
+    """Enclose every SQLite savepoint in a real, caller-owned transaction."""
+    connection.exec_driver_sql("BEGIN")
 
 
 def build_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
