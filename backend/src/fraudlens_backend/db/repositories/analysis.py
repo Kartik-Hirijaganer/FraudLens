@@ -93,7 +93,8 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         self,
         *,
         transaction_id: uuid.UUID,
-        deadline_at: datetime,
+        deadline_at: datetime | None,
+        import_job_id: uuid.UUID | None = None,
         request_fingerprint: str,
         triggered_by: uuid.UUID | None = None,
         idempotency_key: str | None = None,
@@ -113,6 +114,7 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             graph_version=graph_version,
             model_override=model_override,
             deadline_at=deadline_at,
+            import_job_id=import_job_id,
         )
         self._session.add(run)
         await self._session.flush()
