@@ -80,19 +80,27 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-async def claim_next_run(
+async def claim_next_run(  # noqa: PLR0913 - explicit identity and policy dependencies.
     session: AsyncSession,
     *,
     lease_owner: str,
     now: datetime,
     lease_seconds: int,
+    deadline_seconds: int = 300,
+    uploads_only: bool = False,
 ) -> LeaseClaim | None:
     """Atomically claim the oldest eligible pending/retrying run."""
     eligible = and_(
         AnalysisRun.status.in_((RunStatus.PENDING, RunStatus.RETRYING)),
         or_(AnalysisRun.next_attempt_at.is_(None), AnalysisRun.next_attempt_at <= now),
-        AnalysisRun.deadline_at.is_not(None),
-        AnalysisRun.deadline_at > now,
+        or_(
+            AnalysisRun.deadline_at > now,
+            and_(
+                AnalysisRun.import_job_id.is_not(None),
+                AnalysisRun.deadline_at.is_(None),
+                AnalysisRun.attempt == 0,
+            ),
+        ),
     )
     statement = (
         select(AnalysisRun)
@@ -101,11 +109,13 @@ async def claim_next_run(
         .with_for_update(skip_locked=True)
         .limit(1)
     )
+    if uploads_only:
+        statement = statement.where(AnalysisRun.import_job_id.is_not(None))
     run = (await session.execute(statement)).scalar_one_or_none()
     if run is None:
         return None
-    if run.deadline_at is None:  # guarded in SQL; keeps the typed boundary fail-closed
-        raise ValueError("eligible queued run is missing its deadline")
+    if run.deadline_at is None:
+        run.deadline_at = now + timedelta(seconds=deadline_seconds)
     expires_at = now + timedelta(seconds=lease_seconds)
     run.status = RunStatus.RUNNING
     run.lease_owner = lease_owner
