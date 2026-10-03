@@ -40,6 +40,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 
 from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import Transaction, TransactionSource
@@ -133,8 +134,17 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
             feature_hash=masked.feature_hash,
             ingested_at=datetime.now(UTC),
         )
-        self._session.add(transaction)
-        await self._session.flush()
+        try:
+            async with self._session.begin_nested():
+                self._session.add(transaction)
+                await self._session.flush()
+        except IntegrityError:
+            # Only an actual winner for this tenant/external id is a duplicate. Other
+            # constraint failures propagate and roll back the enclosing ingestion.
+            existing = await self.get_by_external_id(canonical.external_id)
+            if existing is None:
+                raise
+            return IngestOutcome(existing, created=False, mask_report=None)
         return IngestOutcome(transaction, created=True, mask_report=masked.report)
 
     async def same_account_history(
