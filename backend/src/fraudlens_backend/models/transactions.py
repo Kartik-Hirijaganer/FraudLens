@@ -10,6 +10,8 @@ of PHI-free per-row rejections so a partial upload tells the caller exactly what
 
 Key classes:
 - TransactionIngestRequest: one transaction to ingest (camelCase DTO, structural checks).
+- InvestigationSummary:
+- ScreeningProgress:
 - TransactionResponse: a persisted transaction (masked accounts, null riskBand at ingest).
 - BatchIngestRequest: a batch of transactions (+ dryRun to validate without persisting).
 - IngestRejection: a single PHI-free per-row rejection (index, code, message).
@@ -24,7 +26,7 @@ Key functions:
 Notes:
 - amount is a Decimal and serializes as a JSON string (financial precision is preserved).
 - IngestRejection carries a code + fixed message + optional externalId only — never the
-  rejected row's values — so a malformed upload cannot echo PHI back to the caller.
+rejected row's values — so a malformed upload cannot echo PHI back to the caller.
 """
 
 from __future__ import annotations
@@ -64,6 +66,31 @@ class TransactionIngestRequest(CamelModel):
     )
 
 
+class InvestigationSummary(CamelModel):
+    """Saved or active run selected for read-only transaction navigation."""
+
+    run_id: str = Field(..., description="Existing investigation to open.")
+    status: str = Field(..., description="Persisted investigation status.")
+    error_code: str | None = Field(default=None, description="Safe core failure reason.")
+
+
+class ScreeningProgress(CamelModel):
+    """Durable automatic-screening counts; blocked drafting is a subset of completion."""
+
+    total: int = Field(default=0, ge=0, description="Accepted transactions queued for screening.")
+    pending: int = Field(default=0, ge=0, description="Runs waiting for their first worker.")
+    running: int = Field(default=0, ge=0, description="Runs currently executing.")
+    retrying: int = Field(default=0, ge=0, description="Runs waiting for bounded recovery.")
+    completed: int = Field(
+        default=0, ge=0, description="Runs with completed deterministic analysis."
+    )
+    failed: int = Field(default=0, ge=0, description="Runs with failed deterministic analysis.")
+    drafting_blocked: int = Field(
+        default=0, ge=0, description="Completed runs whose latest SAR failed or was blocked."
+    )
+    poll_after_ms: int = Field(..., gt=0, description="Configured progress polling interval.")
+
+
 class TransactionResponse(CamelModel):
     """A persisted transaction; account identifiers are masked, riskBand null at ingest."""
 
@@ -79,6 +106,9 @@ class TransactionResponse(CamelModel):
     country: str = Field(..., description="ISO-3166 alpha-2 country code.")
     risk_band: str | None = Field(default=None, description="Risk band (null until scored).")
     latest_run_id: str | None = Field(default=None, description="Latest analysis run id, if any.")
+    investigation: InvestigationSummary | None = Field(
+        default=None, description="Existing run for read-only navigation."
+    )
     ingested_at: datetime = Field(..., description="When the transaction was ingested.")
 
 
@@ -128,6 +158,9 @@ class CsvUploadResponse(CamelModel):
     """Outcome of a CSV upload: the recorded job id, counts, and bounded sample errors."""
 
     job_id: str = Field(..., description="The csv_import job_executions id for this upload.")
+    screening: ScreeningProgress | None = Field(
+        default=None, description="Initial background-screening progress."
+    )
     accepted: int = Field(..., ge=0, description="Rows inserted.")
     duplicates: int = Field(..., ge=0, description="Rows skipped as already-existing.")
     rejected: int = Field(..., ge=0, description="Rows rejected as invalid.")
