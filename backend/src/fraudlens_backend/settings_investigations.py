@@ -47,7 +47,7 @@ class InvestigationRuntimeFields(BaseModel):
     run_deadline_seconds: int = Field(
         default=300,
         gt=0,
-        description="Wall-clock deadline applied when a queued investigation is accepted.",
+        description="Execution deadline from manual acceptance or automatic screening first claim.",
     )
     run_claim_batch: int = Field(
         default=1,
@@ -108,7 +108,8 @@ class InvestigationRuntimeFields(BaseModel):
     batch_score_limit: int = Field(
         default=2000,
         gt=0,
-        description="Maximum un-investigated transactions processed by one batch-score sweep.",
+        description="Batch-score sweep cap and CSV enqueue chunk size; "
+        "uploads enqueue every chunk.",
     )
     review_low_confidence_margin: float = Field(
         default=0.1,
