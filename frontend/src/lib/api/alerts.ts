@@ -8,6 +8,8 @@
  * - PortfolioDemoAgencyConfig:
  * - PortfolioDemoPersonaConfig:
  * - PortfolioDemoConfig:
+ * - InvestigationSummary:
+ * - ScreeningProgress:
  * - TransactionResponse:
  * - ListTransactionsParams:
  * - TransactionListResponse:
@@ -84,6 +86,7 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    readonly details?: { field: string; message: string }[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -131,6 +134,23 @@ export interface PortfolioDemoConfig {
   syntheticPassword: string;
 }
 
+export interface InvestigationSummary {
+  runId: string;
+  status: string;
+  errorCode: string | null;
+}
+
+export interface ScreeningProgress {
+  total: number;
+  pending: number;
+  running: number;
+  retrying: number;
+  completed: number;
+  failed: number;
+  draftingBlocked: number;
+  pollAfterMs: number;
+}
+
 export interface TransactionResponse {
   transactionId: string;
   externalId: string;
@@ -144,6 +164,7 @@ export interface TransactionResponse {
   country: string;
   riskBand: string | null;
   latestRunId: string | null;
+  investigation?: InvestigationSummary | null;
   ingestedAt: string;
 }
 
@@ -194,6 +215,7 @@ export interface BatchIngestResponse {
 }
 
 export interface CsvUploadResponse {
+  screening?: ScreeningProgress | null;
   jobId: string;
   accepted: number;
   duplicates: number;
