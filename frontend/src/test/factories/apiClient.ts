@@ -43,6 +43,18 @@ export function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
         sampleErrors: [],
       }),
     ),
+    getScreeningProgress: vi.fn(() =>
+      Promise.resolve({
+        total: 0,
+        pending: 0,
+        running: 0,
+        retrying: 0,
+        completed: 0,
+        failed: 0,
+        draftingBlocked: 0,
+        pollAfterMs: 2000,
+      }),
+    ),
     uploadCsv: vi.fn(() =>
       Promise.resolve({
         jobId: "job-1",
