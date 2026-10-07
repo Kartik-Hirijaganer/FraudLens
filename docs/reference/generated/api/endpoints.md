@@ -42,6 +42,7 @@
 | GET | `/api/v1/transactions` | `list_transactions` |
 | POST | `/api/v1/transactions` | `ingest_transaction` |
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
+| GET | `/api/v1/transactions/screening` | `get_screening_progress` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
 | GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
 | POST | `/api/v1/users` | `invite_user` |
