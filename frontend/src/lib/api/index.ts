@@ -35,6 +35,7 @@ import type {
   PortfolioDemoConfig,
   SarDraftView,
   SarReviewRequest,
+  ScreeningProgress,
   TransactionIngestRequest,
   TransactionListResponse,
   TransactionResponse,
@@ -63,6 +64,7 @@ export interface ApiClient {
   ingestTransaction(body: TransactionIngestRequest): Promise<TransactionResponse>;
   ingestBatch(body: BatchIngestRequest): Promise<BatchIngestResponse>;
   uploadCsv(csvText: string): Promise<CsvUploadResponse>;
+  getScreeningProgress(jobId?: string): Promise<ScreeningProgress>;
   startInvestigation(
     body: { transactionId: string; modelOverride?: string },
     idempotencyKey?: string,
@@ -91,12 +93,14 @@ interface ErrorEnvelope {
   code: string;
   message: string;
   requestId: string;
+  details?: { field: string; message: string }[];
 }
 
 async function errorFromResponse(response: Response): Promise<ApiError> {
   let code = `http_${response.status}`;
   let message = `request failed with status ${response.status}`;
   let requestId: string | undefined;
+  let details: ErrorEnvelope["details"];
   try {
     const body = (await response.json()) as Partial<ErrorEnvelope>;
     if (typeof body.code === "string") {
@@ -105,13 +109,14 @@ async function errorFromResponse(response: Response): Promise<ApiError> {
     if (typeof body.message === "string") {
       message = body.message;
     }
+    details = body.details;
     if (typeof body.requestId === "string") {
       requestId = body.requestId;
     }
   } catch {
     // Non-JSON error body — keep the status-derived code/message.
   }
-  return new ApiError(response.status, code, message, requestId);
+  return new ApiError(response.status, code, message, requestId, details);
 }
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -196,6 +201,8 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
       send<TransactionResponse>("/api/v1/transactions", jsonInit("POST", body)),
     ingestBatch: (body) =>
       send<BatchIngestResponse>("/api/v1/transactions/batch", jsonInit("POST", body)),
+    getScreeningProgress: (jobId) =>
+      send<ScreeningProgress>(`/api/v1/transactions/screening${query({ jobId })}`),
     uploadCsv: (csvText) =>
       send<CsvUploadResponse>("/api/v1/transactions/upload", {
         method: "POST",
