@@ -268,3 +268,27 @@ describe("createApiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/dashboard/metrics", undefined);
   });
 });
+
+it("reads scoped screening progress and preserves an active-run conflict's details", async () => {
+  const details = [{ field: "runId", message: "existing-run" }];
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ total: 1 }), { status: 200 }))
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: "investigation_in_progress",
+          message: "Already active",
+          requestId: "request",
+          details,
+        }),
+        { status: 409 },
+      ),
+    );
+  const client = createApiClient(fetchMock);
+  await client.getScreeningProgress("upload-job");
+  expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/transactions/screening?jobId=upload-job");
+  await expect(
+    client.startInvestigation({ transactionId: "transaction" }, "intent"),
+  ).rejects.toMatchObject({ code: "investigation_in_progress", details });
+});
