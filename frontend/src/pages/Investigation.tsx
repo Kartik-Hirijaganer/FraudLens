@@ -90,6 +90,12 @@ export function Investigation({
     let closed = false;
     let terminalReached = false;
     let handle: SseHandle | null = null;
+    void client.getInvestigation(runId).then(
+      (snapshot) => {
+        if (!closed) setState((current) => investigationStateFromSnapshot(snapshot, current));
+      },
+      () => undefined,
+    );
     handle = createStream({
       url: client.investigationStreamUrl(runId),
       events: INVESTIGATION_EVENTS,
