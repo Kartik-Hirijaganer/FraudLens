@@ -377,7 +377,11 @@ export function investigationStateFromSnapshot(
     errorCode: snapshot.errorCode ?? undefined,
     draftingBlockReason:
       status === "drafting-blocked"
-        ? "SAR drafting failed; manual drafting is required"
+        ? snapshot.sarErrorCode === "egress_source_not_allowed"
+          ? "Live SAR drafting is unavailable for uploaded transactions. Risk results remain available."
+          : snapshot.sarErrorCode === "llm_budget_exceeded"
+            ? "The drafting limit was reached. Risk results remain available; manual drafting is required."
+            : "SAR drafting failed; manual drafting is required"
         : undefined,
   };
 }
