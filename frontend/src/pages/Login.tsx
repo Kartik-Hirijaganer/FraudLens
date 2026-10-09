@@ -190,7 +190,7 @@ export function Login({
             className="motion-safe:animate-fade-up text-[34px] font-semibold leading-[1.18] tracking-tight"
             style={{ animationDelay: "0.2s" }}
           >
-            Every transaction, scored the moment it lands.
+            Upload transactions. Review the risk.
           </h2>
           <p
             className="text-body-md motion-safe:animate-fade-up leading-relaxed text-white/60"
