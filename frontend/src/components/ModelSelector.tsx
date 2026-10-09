@@ -1,6 +1,6 @@
 /**
  * Summary: The model-version selector (plan §5.4 `modelOverride`, §16 Phase 11
- * ModelSelector). It lets an analyst score an investigation with a specific registered
+ * ModelSelector). It lets an admin score an investigation with a specific registered
  * model version instead of the active/canary routing — the first option is the active
  * model (no override), and each registry version is listed with its lifecycle status.
  * Selecting the active option clears the override (passes `undefined`).
@@ -48,7 +48,7 @@ export function ModelSelector({
   ];
   return (
     <Select
-      label="Score with model"
+      label="Model for next investigation"
       options={options}
       value={value ?? ""}
       disabled={disabled}
