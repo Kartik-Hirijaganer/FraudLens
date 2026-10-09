@@ -104,6 +104,16 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="No investigation run with that id exists for this agency.",
         ),
         ErrorSpec(
+            code="screening_job_not_found",
+            http_status=404,
+            message="No upload job with that id exists for this agency.",
+        ),
+        ErrorSpec(
+            code="investigation_in_progress",
+            http_status=409,
+            message="This transaction already has an active investigation.",
+        ),
+        ErrorSpec(
             code="idempotency_key_conflict",
             http_status=409,
             message="That Idempotency-Key is already bound to a different investigation request.",
