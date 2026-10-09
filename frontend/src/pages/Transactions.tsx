@@ -3,8 +3,7 @@
  * investigate flow), redesigned to the dashboard chrome. It lists the agency's scored
  * transactions in a scannable card — pill search, a risk-band filter, and a compact model
  * selector — over a TRUE server-side keyset-paginated table (Prev/Next via a cursor stack,
- * newest first). Opening a row (or its chevron) starts an investigation and deep-links to
- * the live run. A design-system Import CSV control (the masked-only ingest endpoint) sits in
+ * newest first). Opening a scored row opens its saved run; a separate Re-run action starts another investigation. A design-system Import CSV control (the masked-only ingest endpoint) sits in
  * the header. Loading / empty / error+retry flow through AsyncBoundary; outcomes are toasts.
  *
  * Key classes:
@@ -25,35 +24,26 @@
  * - Model override is admin-only: non-admin roles load transactions without calling the
  *   admin-only model registry and investigations use the active model implicitly.
  */
-import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { ModelSelector } from "../components/ModelSelector";
-import { RiskDot } from "../components/RiskDot";
+import { ScreeningStatus } from "../components/ScreeningStatus";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { EmptyState } from "../components/feedback/EmptyState";
 import { Card } from "../components/ui/Card";
-import { DataTable, type Column } from "../components/ui/DataTable";
+import { DataTable } from "../components/ui/DataTable";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Pagination } from "../components/ui/Pagination";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
-import {
-  apiClient,
-  type ApiClient,
-  type ModelVersionListResponse,
-  type TransactionResponse,
-} from "../lib/api";
-import {
-  formatCurrency,
-  formatDateTime,
-  formatMaskedAccount,
-  formatModelVersion,
-  formatTransactionRef,
-} from "../lib/format";
+import { ApiError, apiClient, type ApiClient, type TransactionResponse } from "../lib/api";
+import { formatModelVersion } from "../lib/format";
 import { RISK_BAND_OPTIONS } from "../lib/options";
 import { navigate, paths, useHashRoute } from "../lib/router";
 import { hasPermission, useSession } from "../lib/session";
 import { notify, notifyError } from "../lib/toast";
 import { useAsync } from "../lib/useAsync";
+import { useScreeningRefresh } from "../lib/useScreeningRefresh";
+import { transactionColumns } from "./transactionColumns";
 
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -62,7 +52,6 @@ interface TransactionsData {
   transactions: TransactionResponse[];
   nextCursor: string | null;
   total: number;
-  models: ModelVersionListResponse | null;
 }
 
 interface TransactionsProps {
@@ -77,6 +66,10 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
   const [search, setSearch] = useState("");
   const [override, setOverride] = useState<string | undefined>(undefined);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
+  const actionInFlight = useRef(false);
+  const attempt = useRef<{ transactionId: string; modelOverride?: string; key: string } | null>(
+    null,
+  );
   const session = useSession();
   const canIngestTransactions = hasPermission(session, "ingestTransactions");
   const canStartInvestigation = hasPermission(session, "startInvestigation");
@@ -115,17 +108,24 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
       limit: PAGE_SIZE,
       cursor,
     });
-    const models = canChooseModel ? await client.listModelVersions() : null;
     return {
       transactions: page.transactions,
       nextCursor: page.nextCursor,
       total: page.total,
-      models,
     };
-  }, [canChooseModel, client, riskBand, search, cursor]);
+  }, [client, riskBand, search, cursor]);
   const state = useAsync(load, [client, riskBand, search, cursor]);
+  const loadModels = useCallback(
+    () => (canChooseModel ? client.listModelVersions() : Promise.resolve(null)),
+    [canChooseModel, client],
+  );
+  const modelsState = useAsync(loadModels, [canChooseModel, client]);
   const loadMetrics = useCallback(() => client.getDashboardMetrics(), [client]);
   const metricsState = useAsync(loadMetrics, [client]);
+  const screening = useScreeningRefresh(client, () => {
+    state.reload();
+    metricsState.reload();
+  });
 
   function changeRiskBand(next: string): void {
     setRiskBand(next);
@@ -133,17 +133,42 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     navigate(paths.transactionsByRiskBand(next)); // keep the URL shareable/bookmarkable
   }
 
+  function openTransaction(transaction: TransactionResponse): void {
+    const runId = transaction.investigation?.runId ?? transaction.latestRunId;
+    if (runId) navigate(paths.investigation(runId));
+    else if (canStartInvestigation) void investigate(transaction.transactionId);
+  }
+
   async function investigate(transactionId: string): Promise<void> {
-    if (investigatingId !== null) {
-      return;
-    }
+    if (actionInFlight.current || investigatingId !== null || !canStartInvestigation) return;
+    actionInFlight.current = true;
     setInvestigatingId(transactionId);
+    const modelOverride = canChooseModel ? override : undefined;
+    if (
+      !attempt.current ||
+      attempt.current.transactionId !== transactionId ||
+      attempt.current.modelOverride !== modelOverride
+    ) {
+      attempt.current = { transactionId, modelOverride, key: crypto.randomUUID() };
+    }
     try {
-      const result = await client.startInvestigation({ transactionId, modelOverride: override });
+      const result = await client.startInvestigation(
+        { transactionId, modelOverride },
+        attempt.current.key,
+      );
+      attempt.current = null;
       navigate(paths.investigation(result.runId));
     } catch (caught) {
-      notifyError(caught);
+      const existingRunId =
+        caught instanceof ApiError && caught.code === "investigation_in_progress"
+          ? caught.details?.find((detail) => detail.field === "runId")?.message
+          : undefined;
+      if (existingRunId) navigate(paths.investigation(existingRunId));
+      else notifyError(caught);
+      if (caught instanceof ApiError && caught.status < 500) attempt.current = null;
       setInvestigatingId(null);
+    } finally {
+      actionInFlight.current = false;
     }
   }
 
@@ -152,11 +177,15 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
       const result = await client.uploadCsv(await file.text());
       notify({
         tone: "positive",
-        title: "Import complete",
+        title:
+          result.accepted > 0
+            ? "Import accepted — screening queued"
+            : "Import processed — no new transactions",
         description: `${result.accepted} added · ${result.duplicates} duplicate · ${result.rejected} rejected`,
       });
       setCursorStack([undefined]);
       state.reload();
+      screening.refresh();
     } catch (caught) {
       notifyError(caught);
     }
@@ -174,8 +203,13 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     <section className="gap-xl flex flex-col">
       <PageHeader
         title="Transactions"
-        description="Backend-persisted transactions are ready for review. Open one to run or inspect scoring."
+        description="CSV imports are screened automatically. Open saved results or explicitly re-run an investigation."
         actions={canIngestTransactions ? <ImportButton onFileChange={onFileChange} /> : undefined}
+      />
+      <ScreeningStatus
+        progress={screening.progress}
+        error={screening.error}
+        onRetry={screening.refresh}
       />
       <Card className="gap-lg flex flex-col">
         <div className="gap-md flex flex-col xl:flex-row xl:items-center xl:justify-between">
@@ -194,6 +228,7 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
           {(data) => {
             const columns = transactionColumns(
               investigatingId,
+              openTransaction,
               canStartInvestigation ? investigate : undefined,
             );
             const rangeEnd = pageIndex * PAGE_SIZE + data.transactions.length;
@@ -203,26 +238,28 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
                   total={data.total}
                   activeModelLabel={metricsState.data?.modelHealth.activeVersionLabel ?? null}
                 />
-                {data.models ? (
-                  <div className="max-w-sm">
-                    <ModelSelector
-                      versions={data.models.versions}
-                      activeLabel={data.models.activeVersionLabel}
-                      value={override}
-                      onChange={setOverride}
-                    />
-                  </div>
+                {canChooseModel ? (
+                  <AsyncBoundary state={modelsState}>
+                    {(models) =>
+                      models ? (
+                        <div className="max-w-sm">
+                          <ModelSelector
+                            versions={models.versions}
+                            activeLabel={models.activeVersionLabel}
+                            value={override}
+                            onChange={setOverride}
+                          />
+                        </div>
+                      ) : null
+                    }
+                  </AsyncBoundary>
                 ) : null}
                 <DataTable
                   caption="Transactions"
                   columns={columns}
                   rows={data.transactions}
                   rowKey={(transaction) => transaction.transactionId}
-                  onRowClick={
-                    canStartInvestigation
-                      ? (transaction) => void investigate(transaction.transactionId)
-                      : undefined
-                  }
+                  onRowClick={openTransaction}
                   empty={
                     <EmptyState
                       title={search || riskBand ? "No matches" : "No transactions yet"}
@@ -336,120 +373,11 @@ function ProvenanceStrip({
   );
 }
 
-function transactionColumns(
-  investigatingId: string | null,
-  investigate?: (transactionId: string) => Promise<void>,
-): Column<TransactionResponse>[] {
-  const columns: Column<TransactionResponse>[] = [
-    {
-      id: "externalId",
-      header: "Transaction",
-      cell: (transaction) => (
-        <div className="gap-xxs flex flex-col" title={`Source ID: ${transaction.externalId}`}>
-          <span className="text-ink font-semibold">
-            {formatTransactionRef(transaction.transactionId, transaction.occurredAt)}
-          </span>
-          <span className="text-caption text-mute">
-            {transaction.channel.toUpperCase()} · {transaction.country}
-          </span>
-        </div>
-      ),
-    },
-    {
-      id: "amount",
-      header: "Amount",
-      cell: (transaction) => (
-        <span className="text-ink">{formatCurrency(transaction.amount, transaction.currency)}</span>
-      ),
-    },
-    {
-      id: "risk",
-      header: "Risk",
-      cell: (transaction) => <RiskDot band={transaction.riskBand} showLabel />,
-    },
-    {
-      id: "counterparty",
-      header: "Account flow",
-      cell: (transaction) => (
-        <dl className="gap-x-sm gap-y-xxs grid grid-cols-[auto_1fr] items-center">
-          <dt className="text-caption text-mute">To</dt>
-          <dd className="text-body-sm text-ink font-semibold">
-            {formatMaskedAccount(transaction.destAccount)}
-          </dd>
-          <dt className="text-caption text-mute">From</dt>
-          <dd className="text-caption text-body">
-            {formatMaskedAccount(transaction.originAccount)}
-          </dd>
-        </dl>
-      ),
-    },
-    {
-      id: "occurred",
-      header: "Time",
-      cell: (transaction) => (
-        <span className="text-body whitespace-nowrap">
-          {formatDateTime(transaction.occurredAt)}
-        </span>
-      ),
-    },
-  ];
-
-  if (!investigate) {
-    return columns;
-  }
-
-  return [
-    ...columns,
-    {
-      id: "action",
-      header: "Investigate",
-      srOnlyHeader: true,
-      align: "right",
-      cell: (transaction) => {
-        const busy = investigatingId === transaction.transactionId;
-        const displayRef = formatTransactionRef(transaction.transactionId, transaction.occurredAt);
-        return (
-          <button
-            type="button"
-            onClick={() => void investigate(transaction.transactionId)}
-            disabled={investigatingId !== null}
-            aria-label={`Investigate transaction ${displayRef}`}
-            className="gap-xs text-body-sm text-ink inline-flex items-center font-semibold disabled:opacity-50"
-          >
-            {busy ? (
-              "Starting…"
-            ) : (
-              <>
-                Investigate
-                <ChevronRight />
-              </>
-            )}
-          </button>
-        );
-      },
-    },
-  ];
-}
-
 function SearchIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
       <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ChevronRight() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="m9 6 6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
