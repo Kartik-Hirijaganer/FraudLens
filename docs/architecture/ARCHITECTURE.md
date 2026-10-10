@@ -306,6 +306,14 @@ This is at-least-once execution with exactly-one accepted terminal write, not an
 effect guarantee. Idempotent persistence and bounded attempts make replacement explicit. See
 [ADR-027](adr/ADR-027-durable-investigation-execution.md).
 
+CSV acceptance also commits one pending investigation for each newly accepted transaction. Upload
+runs reference the existing import job; duplicate/rejected rows enqueue no work. Inline mode
+supervises an upload-only durable worker, while worker mode uses the external scheduler. Upload
+execution deadlines start at first claim and remain fixed across retries. Opening saved results
+observes the existing run; only an explicit Investigate/Re-run action creates manual work. See
+[ADR-031](adr/ADR-031-atomic-upload-screening.md) and the
+[screening runbook](../runbooks/transaction-screening.md).
+
 ## Model-egress boundary
 
 Only persisted, allowlisted synthetic provenance may cross the model boundary. The backend rebuilds
@@ -548,6 +556,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/transactions` | `list_transactions` |
 | POST | `/api/v1/transactions` | `ingest_transaction` |
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
+| GET | `/api/v1/transactions/screening` | `get_screening_progress` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
 | GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
 | POST | `/api/v1/users` | `invite_user` |
@@ -603,7 +612,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `run_lease_seconds` | `int` | `60` | Worker lease lifetime before an abandoned run becomes recoverable. |
 | `run_heartbeat_seconds` | `int` | `10` | Interval at which a worker extends its active run lease. |
 | `run_max_attempts` | `int` | `3` | Maximum fenced worker claims before a run fails permanently. |
-| `run_deadline_seconds` | `int` | `300` | Wall-clock deadline applied when a queued investigation is accepted. |
+| `run_deadline_seconds` | `int` | `300` | Execution deadline from manual acceptance or automatic screening first claim. |
 | `run_claim_batch` | `int` | `1` | Maximum runs a worker claims per scheduling pass. |
 | `run_retry_backoff_seconds` | `int` | `5` | Base delay before an expired run is eligible for another attempt. |
 | `run_worker_poll_seconds` | `float` | `1.0` | Idle delay between durable worker claim attempts. |
@@ -615,7 +624,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `investigation_history_max` | `int` | `100` | Maximum same-account history rows loaded per investigation. |
 | `investigation_rag_top_k` | `int` | `4` | Number of FinCEN/BSA chunks retrieved for investigation citations. |
 | `investigation_rag_min_similarity` | `float` | `0.2` | Minimum cosine similarity required to surface a vector RAG citation. |
-| `batch_score_limit` | `int` | `2000` | Maximum un-investigated transactions processed by one batch-score sweep. |
+| `batch_score_limit` | `int` | `2000` | Batch-score sweep cap and CSV enqueue chunk size; uploads enqueue every chunk. |
 | `review_low_confidence_margin` | `float` | `0.1` | Decision-boundary half-width that forces analyst review. |
 | `sar_pdf_max_attempts` | `int` | `3` | Maximum best-effort SAR PDF generation attempts. |
 | `llm_daily_budget_usd` | `Decimal` | `Decimal('0.25')` | Deployment ceiling, in USD, on one tenant-day of live LLM spend. |
@@ -781,6 +790,7 @@ erDiagram
         string graph_version
         datetime heartbeat_at
         string idempotency_key
+        uuid import_job_id FK
         datetime lease_expires_at
         string lease_owner
         numeric llm_reserved_usd
@@ -902,6 +912,7 @@ erDiagram
         numeric cost_usd
         datetime created_at
         uuid created_by FK
+        string error_code
         string model_id
         string pdf_blob_url
         string prompt_hash
@@ -1024,6 +1035,7 @@ erDiagram
     analysis_runs ||--o{ sar_drafts : "run_id"
     analysis_runs ||--o{ sar_generation_attempts : "run_id"
     analysis_runs ||--o{ training_labels : "run_id"
+    job_executions ||--o{ analysis_runs : "import_job_id"
     model_training_runs ||--o{ model_versions : "training_run_id"
     model_versions ||--o{ drift_reports : "model_version_id"
     model_versions ||--o{ model_deployments : "active_version_id"
