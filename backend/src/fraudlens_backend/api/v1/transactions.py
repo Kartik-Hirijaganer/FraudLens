@@ -16,25 +16,23 @@ Key functions:
 - ingest_batch: POST /transactions/batch — ingest many (partial-accept; dryRun).
 - upload_csv: POST /transactions/upload — CSV upload (size/row caps; records a job).
 - list_transactions: GET /transactions — keyset page (newest first), optional riskBand.
+- get_screening_progress:
 - get_transaction: GET /transactions/{transactionId} — detail (404 cross-tenant/missing).
 
 Notes:
 - The CSV upload reads the raw text/csv body (no multipart dependency); byte/row caps come
-  from settings (413), and unknown columns are folded into the masked features JSONB.
+from settings (413), and unknown columns are folded into the masked features JSONB.
 - A cross-tenant transaction id resolves to None (tenant-scoped get) and returns 404 with
-  the same body as a truly missing row — no existence leak (plan §6.4).
+the same body as a truly missing row — no existence leak (plan §6.4).
 - Each successful ingest path (single/batch/CSV) writes a PHI-free `audit_logs` row (ids + counts
-  only, never an account/value) for the consistent audit trail (plan §11.7, §16 Phase 12).
+only, never an account/value) for the consistent audit trail (plan §11.7, §16 Phase 12).
 """
 
 from __future__ import annotations
 
-import csv
-import io
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,11 +61,21 @@ from fraudlens_backend.models.transactions import (
     BatchIngestResponse,
     CsvUploadResponse,
     IngestRejection,
+    InvestigationSummary,
+    ScreeningProgress,
     TransactionIngestRequest,
     TransactionListResponse,
     TransactionResponse,
 )
-from fraudlens_core import CanonicalTransaction, RiskBand, SchemaValidationError, build_canonical
+from fraudlens_backend.services.investigation_start import create_investigation_run
+from fraudlens_backend.services.screening import investigation_summaries, screening_progress
+from fraudlens_backend.services.transaction_ingest import (
+    _append_sample,
+    _as_str,
+    _mapping_to_canonical,
+    _read_csv,
+)
+from fraudlens_core import RiskBand, SchemaValidationError
 from fraudlens_core.phi import MaskingReport
 
 router = APIRouter(tags=["transactions"])
@@ -80,24 +88,11 @@ IngestTenantDep = Annotated[
 _DEFAULT_PAGE_LIMIT = 50
 _MAX_PAGE_LIMIT = 200
 _MAX_SEARCH_LEN = 128
-_CSV_CONTENT_TYPES = ("text/csv", "application/csv", "application/vnd.ms-excel")
-# The canonical camelCase keys every ingest path (single/batch/CSV) expects; any other
-# key in a row is folded into the masked features JSONB rather than dropped.
-_CANONICAL_KEYS = frozenset(
-    {
-        "externalId",
-        "amount",
-        "currency",
-        "occurredAt",
-        "originAccount",
-        "destAccount",
-        "channel",
-        "country",
-    }
-)
 
 
-def _to_response(transaction: Transaction) -> TransactionResponse:
+def _to_response(
+    transaction: Transaction, investigation: InvestigationSummary | None = None
+) -> TransactionResponse:
     """Project a persisted Transaction (masked fields) onto the API response model."""
     return TransactionResponse(
         transaction_id=str(transaction.id),
@@ -113,50 +108,7 @@ def _to_response(transaction: Transaction) -> TransactionResponse:
         risk_band=transaction.risk_band.value if transaction.risk_band is not None else None,
         latest_run_id=str(transaction.latest_run_id) if transaction.latest_run_id else None,
         ingested_at=transaction.ingested_at,
-    )
-
-
-def _coerce_datetime(value: Any) -> datetime:
-    """Return a datetime from a datetime or an ISO-8601 string, else raise."""
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError as exc:
-        raise SchemaValidationError("occurredAt", "not_a_datetime") from exc
-
-
-def _mapping_to_canonical(data: Mapping[str, Any]) -> CanonicalTransaction:
-    """Validate one camelCase row (single/batch/CSV) into a CanonicalTransaction (may raise).
-
-    Unknown columns are folded into `features`; `build_canonical` owns all semantic
-    validation, so every ingest path enforces the same contract (no duplication).
-    """
-
-    def required(name: str) -> Any:
-        value = data.get(name)
-        if value is None or (isinstance(value, str) and not value.strip()):
-            raise SchemaValidationError(name, "required")
-        return value
-
-    features = dict(data.get("features") or {})
-    features.update(
-        {
-            key: value
-            for key, value in data.items()
-            if key not in _CANONICAL_KEYS and key != "features" and value is not None
-        }
-    )
-    return build_canonical(
-        external_id=str(required("externalId")),
-        amount=required("amount"),
-        currency=str(required("currency")),
-        occurred_at=_coerce_datetime(required("occurredAt")),
-        origin_account=str(required("originAccount")),
-        dest_account=str(required("destAccount")),
-        channel=str(required("channel")),
-        country=str(required("country")),
-        features=features,
+        investigation=investigation,
     )
 
 
@@ -329,6 +281,16 @@ async def upload_csv(
     actor_id = optional_actor(tenant)
     accepted = duplicates = rejected = 0
     samples: list[IngestRejection] = []
+    job = JobExecution(
+        agency_id=uuid.UUID(tenant.agency_id),
+        job_type=JobType.CSV_IMPORT,
+        status=JobStatus.SUCCEEDED,
+        payload={"rowCount": len(rows)},
+        attempts=1,
+    )
+    session.add(job)
+    await session.flush()
+    accepted_ids: list[uuid.UUID] = []
     for index, row in enumerate(rows):
         try:
             canonical = _mapping_to_canonical(row)
@@ -346,6 +308,7 @@ async def upload_csv(
         accepted += outcome.created
         duplicates += not outcome.created
         if outcome.created:
+            accepted_ids.append(outcome.transaction.id)
             await _record_phi_mask(
                 writer,
                 actor_id=actor_id,
@@ -353,16 +316,19 @@ async def upload_csv(
                 report=outcome.mask_report,
                 source="transaction.csv_import",
             )
-    job = JobExecution(
-        agency_id=uuid.UUID(tenant.agency_id),
-        job_type=JobType.CSV_IMPORT,
-        status=JobStatus.SUCCEEDED,
-        payload={"rowCount": len(rows)},
-        result={"accepted": accepted, "duplicates": duplicates, "rejected": rejected},
-        attempts=1,
-    )
-    session.add(job)
-    await session.flush()
+    job.result = {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
+    for offset in range(0, len(accepted_ids), settings.batch_score_limit):
+        for transaction_id in accepted_ids[offset : offset + settings.batch_score_limit]:
+            await create_investigation_run(
+                manager=request.app.state.run_manager,
+                session=session,
+                settings=settings,
+                tenant=tenant,
+                request=request,
+                transaction_id=transaction_id,
+                idempotency_key=f"csv-screen:{transaction_id}",
+                import_job_id=job.id,
+            )
     job_id = str(job.id)
     await writer.record(
         actor_id=actor_id,
@@ -379,6 +345,9 @@ async def upload_csv(
     await session.commit()
     return CsvUploadResponse(
         job_id=job_id,
+        screening=ScreeningProgress(
+            total=accepted, pending=accepted, poll_after_ms=settings.run_event_poll_max_ms
+        ),
         accepted=accepted,
         duplicates=duplicates,
         rejected=rejected,
@@ -411,8 +380,29 @@ async def list_transactions(  # noqa: PLR0913, PLR0917 - FastAPI handler: reques
     )
     if rows:
         await session.commit()
+    summaries = await investigation_summaries(
+        session, agency_id=uuid.UUID(tenant.agency_id), transaction_ids=[row.id for row in rows]
+    )
     return TransactionListResponse(
-        transactions=[_to_response(row) for row in rows], next_cursor=next_cursor, total=total
+        transactions=[_to_response(row, summaries.get(row.id)) for row in rows],
+        next_cursor=next_cursor,
+        total=total,
+    )
+
+
+@router.get("/transactions/screening", response_model=ScreeningProgress)
+async def get_screening_progress(
+    tenant: TenantDep,
+    session: DbSessionDep,
+    settings: SettingsDep,
+    job_id: Annotated[uuid.UUID | None, Query(alias="jobId")] = None,
+) -> ScreeningProgress:
+    """Observe one upload or this tenant's upload backlog without creating work."""
+    return await screening_progress(
+        session,
+        agency_id=uuid.UUID(tenant.agency_id),
+        job_id=job_id,
+        poll_after_ms=settings.run_event_poll_max_ms,
     )
 
 
@@ -437,47 +427,7 @@ async def get_transaction(
         source="transaction.detail",
     )
     await session.commit()
-    return _to_response(transaction)
-
-
-def _append_sample(
-    samples: list[IngestRejection],
-    index: int,
-    external_id: str | None,
-    exc: SchemaValidationError,
-    limit: int,
-) -> None:
-    """Append a bounded, PHI-free rejection sample for an invalid row."""
-    if len(samples) < limit:
-        samples.append(
-            IngestRejection(
-                index=index,
-                external_id=external_id,
-                code="validation_error",
-                message=f"{exc.field}: {exc.reason}",
-            )
-        )
-
-
-async def _read_csv(request: Request, max_bytes: int, max_rows: int) -> list[dict[str, Any]]:
-    """Read + parse the raw CSV body, enforcing content-type and the size/row caps."""
-    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if content_type and content_type not in _CSV_CONTENT_TYPES:
-        raise AppError("unsupported_content_type")
-    body = await request.body()
-    if len(body) > max_bytes:
-        raise AppError("payload_too_large")
-    reader = csv.DictReader(io.StringIO(body.decode("utf-8", errors="replace")))
-    if reader.fieldnames is None:
-        raise AppError("invalid_csv")
-    rows = list(reader)
-    if len(rows) > max_rows:
-        raise AppError("too_many_rows")
-    if not rows:
-        raise AppError("empty_payload")
-    return rows
-
-
-def _as_str(value: Any) -> str | None:
-    """Return a string for a known externalId (for a PHI-free rejection), else None."""
-    return str(value) if isinstance(value, str) and value else None
+    summaries = await investigation_summaries(
+        session, agency_id=uuid.UUID(tenant.agency_id), transaction_ids=[transaction.id]
+    )
+    return _to_response(transaction, summaries.get(transaction.id))
