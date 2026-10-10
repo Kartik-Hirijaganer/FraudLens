@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -95,6 +96,7 @@ def _csv_request(body: str, content_type: str = "text/csv") -> Request:
         "type": "http",
         "method": "POST",
         "path": "/api/v1/transactions/upload",
+        "app": SimpleNamespace(state=SimpleNamespace(run_manager=None)),
         "query_string": b"",
         "headers": [(b"content-type", content_type.encode("ascii"))],
     }
