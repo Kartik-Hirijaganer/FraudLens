@@ -2,6 +2,94 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.5.1] - 2026-10-21
+
+Release 0.5.1 makes a CSV upload the start of screening rather than the end of ingestion: every
+accepted row is committed together with its queued investigation, so closing the browser or
+restarting the API cannot drop accepted work. It also repairs the production failures the 0.5.0
+quality gate exposed — a `sar_generation_attempts` table that had never accepted an insert, a
+managed identity the platform could not serve, and a demo whose SARs had nothing to cite — and fixes
+three cost checks that reported success without running.
+
+### Features
+
+- Queue one durable investigation for every accepted CSV row in the same database transaction that
+  stores the import and its transactions; duplicates and rejected rows queue nothing, and enqueue
+  chunking never truncates the accepted workload (ADR-031)
+- Start an automatic run's execution deadline at its first worker claim and keep it across
+  retries, so a queued backlog cannot expire before it runs; manual investigations keep their
+  acceptance-time deadline
+- Supervise an upload-only durable worker inside the API lifespan in inline mode, so screening needs
+  no new cloud job or standing resource
+- Report screening progress for a tenant, or for one upload by `jobId`, from
+  `GET /api/v1/transactions/screening`; another agency's job is indistinguishable from a missing one
+- Open a transaction's active, latest, or most recent historical run instead of starting another,
+  and make **Re-run** a separate permission-gated action that records a new historical run; a
+  second active run for the same transaction is refused with `investigation_in_progress`
+- Require admin authority on the server, not only in the UI, to choose the model for an
+  investigation
+- Refresh the transaction list, Dashboard, and Alerts from persisted results while screening is
+  active, keeping filters and paging intact
+- Persist a budget or policy refusal as a drafting outcome so the risk score and alert stay usable,
+  and explain the refusal in the investigation view; CSV provenance stays `api-upload`, so live
+  drafting is refused before any provider call (ADR-026)
+- Draft each SAR with the bounded four-agent team in production, with the single writer as its
+  fallback, at a worst-case $0.066 per investigation against the $0.10 per-investigation cap
+- Hold one Container Apps replica warm and retire the keep-warm cron, which left a first visitor
+  facing a measured 111.8-second cold start 76% of the week; the projected recurring cost moves
+  from $2.72 to $11.53/month
+- Raise the live LLM daily ceiling from $0.25 to $2.25 so a demo session cannot exhaust it part-way
+  through; the field default stays at $0.25 for a runtime with no config
+
+### Fixes
+
+- Restore the missing `created_at` server default on `sar_generation_attempts`. PostgreSQL had
+  rejected every insert, failing each live investigation whose SAR reached persistence; a new
+  PostgreSQL drift test compares model-declared defaults against the migrated schema
+- Acquire managed-identity tokens from the Container Apps identity endpoint rather than IMDS, which
+  Container Apps does not serve, and add an `azureIdentity` readiness probe so a broken identity
+  fails `/readyz` instead of a user's first investigation
+- Build the FinCEN/BSA RAG index in the deploy and nightly-reset bootstraps and assert it in
+  preflight, so the demo story's SARs have something to cite and a doomed rebuild refuses before it
+  deletes anything
+- Log which exception failed a deterministic-core run — its type, first-party raise site, SQLSTATE,
+  and the violated table, column, or constraint — without the exception message or the database
+  DETAIL line, either of which can carry row values
+- Restore the public persona login on the live site by disabling the Vercel Git publisher, which
+  shipped an unresolved API origin and bypassed the production approval gate, and by pinning the
+  demo-auth flag where Vite reads it
+- Bound the Container Apps replica ceiling per revision times concurrent revisions: `max_replicas`
+  is a per-revision limit, so a failed revision held a second replica for 72 hours while the cost
+  model printed PASS
+- Fail the cost watchdog on any active revision holding replicas at zero traffic, and read spend
+  through the Cost Management REST API; the previous `az costmanagement query` call does not exist,
+  and its swallowed error had reported $0.00 every day
+- Attribute month-to-date spend to recurring, ephemeral, system, and unattributed buckets and gate
+  on the recurring portion alone, so a ledgered experiment no longer trips the recurring alarm
+- Resolve a concurrent duplicate CSV row to the existing transaction instead of failing the import,
+  and keep SQLite savepoints inside the caller's transaction so releasing one cannot commit it
+- Write the production worker heartbeat outside the non-root image's application directory
+- Tell a visitor the server is starting during a cold start instead of showing an unqualified
+  spinner
+
+### Removals
+
+- Retire the `plans/` directory and its hand-maintained retired-plan index; every ADR now stands on
+  its own in a Context / Decision / Tradeoffs accepted / Reconsider when shape
+
+### Documentation
+
+- Add ADR-031 for atomic upload screening; it supersedes ADR-027's enqueue-time deadline for
+  automatic upload runs only
+- Add the CSV screening runbook covering the user workflow, worker and inline modes, recovery, and
+  local verification
+- Amend ADR-029 for the raised LLM ceiling, the committed replica, and `max_replicas` as a
+  per-revision limit
+- Move the published-evidence tables to `docs/reference/benchmarks/summary.md`, so a README rewrite
+  can no longer break `make docs` and every CI gate behind it
+- Restructure the README for a first-time reader, cover the multi-agent SAR workflow and CSV
+  screening, and add developer commands to `CONTRIBUTING.md`
+
 ## [0.5.0] - 2026-09-18
 
 Release 0.5.0 makes the deterministic SAR quality gate part of the production path. Before this
