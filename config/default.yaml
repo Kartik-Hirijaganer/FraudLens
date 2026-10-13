@@ -70,3 +70,7 @@ run_worker_heartbeat_file: .local/worker/heartbeat
 run_event_poll_ms: 250
 run_event_poll_max_ms: 2000
 run_event_heartbeat_seconds: 15
+
+# Strict upload grammar; no arbitrary features or text columns.
+ingest_csv_max_columns: 8
+ingest_csv_max_field_chars: 128
