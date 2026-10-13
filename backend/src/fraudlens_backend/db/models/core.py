@@ -92,6 +92,8 @@ class Transaction(AgencyScopedMixin, CreatedAtMixin, Base):
         UniqueConstraint("agency_id", "external_id", name="uq_transactions_agency_id_external_id"),
         Index("ix_transactions_agency_id_occurred_at", "agency_id", "occurred_at"),
         Index("ix_transactions_agency_id_risk_band", "agency_id", "risk_band"),
+        Index("ix_transactions_agency_id_origin_key", "agency_id", "origin_account_key"),
+        Index("ix_transactions_agency_id_dest_key", "agency_id", "dest_account_key"),
     )
 
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -106,6 +108,8 @@ class Transaction(AgencyScopedMixin, CreatedAtMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     origin_account: Mapped[str] = mapped_column(String(128), nullable=False)
     dest_account: Mapped[str] = mapped_column(String(128), nullable=False)
+    origin_account_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dest_account_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     channel: Mapped[str] = mapped_column(String(128), nullable=False)
     country: Mapped[str] = mapped_column(String(2), nullable=False)
     features: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
