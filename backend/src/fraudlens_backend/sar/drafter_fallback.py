@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from fraudlens_backend.sar.drafter_mock import MockSarDrafter
+from fraudlens_backend.sar.drafter_template import TemplateSarDrafter
 from fraudlens_ml.sar import SarDrafter, SarEventType, SarInput, SarStreamEvent
 
 
@@ -26,7 +27,7 @@ class LiveAgentFallbackDrafter:
 
     def __init__(self, *, primary: SarDrafter, fallback: SarDrafter) -> None:
         """Bind the multi-agent primary and live-only fallback drafters."""
-        if isinstance(fallback, MockSarDrafter):
+        if isinstance(fallback, (MockSarDrafter, TemplateSarDrafter)):
             raise TypeError("Multi-agent fallback must never use the mock drafter")
         self._primary = primary
         self._fallback = fallback
@@ -39,6 +40,7 @@ class LiveAgentFallbackDrafter:
                 event.type is SarEventType.FAILED
                 and event.result is not None
                 and event.result.workflow == "multi_agent"
+                and not (event.result.error_code or "").startswith("egress_")
             ):
                 use_fallback = True
                 continue
