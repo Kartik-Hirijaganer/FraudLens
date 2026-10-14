@@ -74,9 +74,28 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="The request contained no transactions to ingest.",
         ),
         ErrorSpec(
+            code="csv_template_unavailable",
+            http_status=503,
+            message="The synthetic demo CSV is unavailable. Other uploads remain local.",
+        ),
+        ErrorSpec(
             code="invalid_csv",
             http_status=422,
             message="The uploaded file could not be parsed as CSV.",
+        ),
+        *(
+            ErrorSpec(code=code, http_status=status, message=message)
+            for code, status, message in (
+                ("csv_column_limit", 413, "The CSV exceeds the column limit."),
+                ("csv_field_limit", 413, "A CSV field exceeds the character limit."),
+                ("invalid_csv_encoding", 422, "Upload strictly encoded UTF-8 CSV."),
+                (
+                    "invalid_csv_headers",
+                    422,
+                    "Use each of the eight documented CSV headers exactly once.",
+                ),
+                ("invalid_csv_width", 422, "Every CSV row must have exactly eight fields."),
+            )
         ),
         ErrorSpec(
             code="unsupported_content_type",
