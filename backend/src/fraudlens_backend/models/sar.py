@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field
 
@@ -66,6 +66,13 @@ class SarDraftView(CamelModel):
     )
     citations: list[dict[str, Any]] = Field(
         default_factory=list, description="The grounded regulatory citations the SAR relied on."
+    )
+    drafting_mode: Literal["template", "mock", "ai"] = Field(
+        default="ai",
+        description="Actual generation mode; template runs locally without a provider.",
+    )
+    drafting_restriction: str | None = Field(
+        default=None, description="Safe provider restriction shown to the reviewer."
     )
     model_id: str = Field(..., description="Model reference that produced the draft (or 'mock').")
     prompt_version: str = Field(..., description="SAR prompt template version id used.")
