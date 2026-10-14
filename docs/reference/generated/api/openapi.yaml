@@ -741,6 +741,11 @@ components:
             $ref: '#/components/schemas/IngestRejection'
           title: Sampleerrors
           type: array
+        screening:
+          anyOf:
+          - $ref: '#/components/schemas/ScreeningProgress'
+          - type: 'null'
+          description: Initial background-screening progress.
       required:
       - jobId
       - accepted
@@ -1116,6 +1121,12 @@ components:
           - type: 'null'
           description: Persisted SAR draft id, if any.
           title: Sardraftid
+        sarErrorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Persisted safe SAR failure reason.
+          title: Sarerrorcode
         sarStatus:
           anyOf:
           - type: string
@@ -1201,6 +1212,29 @@ components:
       required:
       - runId
       title: InvestigationStartResponse
+      type: object
+    InvestigationSummary:
+      additionalProperties: false
+      description: Saved or active run selected for read-only transaction navigation.
+      properties:
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Safe core failure reason.
+          title: Errorcode
+        runId:
+          description: Existing investigation to open.
+          title: Runid
+          type: string
+        status:
+          description: Persisted investigation status.
+          title: Status
+          type: string
+      required:
+      - runId
+      - status
+      title: InvestigationSummary
       type: object
     LivenessResponse:
       additionalProperties: false
@@ -2016,6 +2050,62 @@ components:
       - failed
       title: SarStatus
       type: string
+    ScreeningProgress:
+      additionalProperties: false
+      description: Durable automatic-screening counts; blocked drafting is a subset
+        of completion.
+      properties:
+        completed:
+          default: 0
+          description: Runs with completed deterministic analysis.
+          minimum: 0.0
+          title: Completed
+          type: integer
+        draftingBlocked:
+          default: 0
+          description: Completed runs whose latest SAR failed or was blocked.
+          minimum: 0.0
+          title: Draftingblocked
+          type: integer
+        failed:
+          default: 0
+          description: Runs with failed deterministic analysis.
+          minimum: 0.0
+          title: Failed
+          type: integer
+        pending:
+          default: 0
+          description: Runs waiting for their first worker.
+          minimum: 0.0
+          title: Pending
+          type: integer
+        pollAfterMs:
+          description: Configured progress polling interval.
+          exclusiveMinimum: 0.0
+          title: Pollafterms
+          type: integer
+        retrying:
+          default: 0
+          description: Runs waiting for bounded recovery.
+          minimum: 0.0
+          title: Retrying
+          type: integer
+        running:
+          default: 0
+          description: Runs currently executing.
+          minimum: 0.0
+          title: Running
+          type: integer
+        total:
+          default: 0
+          description: Accepted transactions queued for screening.
+          minimum: 0.0
+          title: Total
+          type: integer
+      required:
+      - pollAfterMs
+      title: ScreeningProgress
+      type: object
     Severity:
       description: Ordinal severity shared by AML rules, alerts, and drift reports.
       enum:
@@ -2284,6 +2374,11 @@ components:
           format: date-time
           title: Ingestedat
           type: string
+        investigation:
+          anyOf:
+          - $ref: '#/components/schemas/InvestigationSummary'
+          - type: 'null'
+          description: Existing run for read-only navigation.
         latestRunId:
           anyOf:
           - type: string
@@ -3508,6 +3603,39 @@ paths:
       security:
       - HTTPBearer: []
       summary: Ingest Batch
+      tags:
+      - transactions
+  /api/v1/transactions/screening:
+    get:
+      description: Observe one upload or this tenant's upload backlog without creating
+        work.
+      operationId: get_screening_progress_api_v1_transactions_screening_get
+      parameters:
+      - in: query
+        name: jobId
+        required: false
+        schema:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Jobid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreeningProgress'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Screening Progress
       tags:
       - transactions
   /api/v1/transactions/upload:
