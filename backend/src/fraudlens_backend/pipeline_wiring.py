@@ -25,6 +25,7 @@ from fraudlens_backend.db.repositories import (
     ModelRegistryRepository,
     RuleRepository,
     SarDraftRepository,
+    TransactionRepository,
 )
 from fraudlens_backend.pipeline_drafting import DeferredUploadDrafter, build_workflow_drafter
 from fraudlens_backend.pipeline_policy import (
@@ -43,6 +44,7 @@ from fraudlens_backend.pipeline_ports import (
 from fraudlens_backend.pipeline_runs import PipelineRunStore, RunManager, _RunState
 from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
+from fraudlens_backend.sar.egress import load_egress_policy, source_allows_model
 from fraudlens_backend.sar.factory import AgentDrafterFactory, build_agent_drafter_factory
 from fraudlens_backend.settings import AppSettings, _config_anchored
 from fraudlens_backend.telemetry import log_llm_call
@@ -194,17 +196,22 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
             log_call=log_llm_call,
         )
 
+    transaction = await TransactionRepository(session, agency_id).get(transaction_id)
+    local_only = transaction is None or not source_allows_model(
+        transaction.source.value, load_egress_policy()
+    )
     run = await AnalysisRunRepository(session, agency_id).get(run_id)
+    uploaded = run is not None and run.import_job_id is not None
     drafter = (
         DeferredUploadDrafter(build_drafter, live=settings.llm_mode == "live")
-        if run is not None and run.import_job_id is not None
+        if local_only or uploaded
         else await build_drafter()
     )
     return PipelineDeps(
         rules=RulesAdapter(RuleRegistry(), definitions),
         scorer=ScorerAdapter(components.scorer, pointer, was_canary=was_canary),
         explainer=ExplainerAdapter(components.explainer, components.cache, pointer),
-        retriever=RetrieverAdapter(components.retriever),
+        retriever=RetrieverAdapter(components.retriever, local_only=local_only or uploaded),
         drafter=drafter,
         store=store,
         emit=emit,
