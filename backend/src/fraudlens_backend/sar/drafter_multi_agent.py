@@ -95,6 +95,7 @@ class MultiAgentSarDrafter:
             """Drive the graph under its workflow bound and enqueue its terminal rendering."""
             nonlocal failure
             try:
+                project_for_model(sar_input, self._egress_policy)
                 self._budget.ensure_within_budget()
                 async with asyncio.timeout(self._config.workflow.workflow_timeout_s):
                     graph_result = await self._graph.run(sar_input, emit=emit)
