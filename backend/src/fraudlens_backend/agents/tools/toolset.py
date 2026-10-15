@@ -51,6 +51,7 @@ from fraudlens_backend.db.repositories import (
     TenantScopedRepository,
     TransactionRepository,
 )
+from fraudlens_backend.sar.egress import load_egress_policy, source_allows_model
 from fraudlens_llm import ToolDefinition
 from fraudlens_ml.pipeline import RagResult
 
@@ -177,7 +178,7 @@ class EvidenceToolset:
                 return TransactionHistoryResult()
             repository = TransactionRepository(session, self._agency_id)
             rows_by_id: dict[uuid.UUID, Transaction] = {}
-            for account in {transaction.origin_account, transaction.dest_account}:
+            for account in {transaction.origin_account_key, transaction.dest_account_key}:
                 rows = await repository.same_account_history(
                     account=account,
                     before=transaction.occurred_at,
@@ -289,6 +290,12 @@ class EvidenceToolset:
 
     async def _regulation_search(self, arguments: dict[str, JsonValue]) -> RegulationSearchResult:
         parsed_arguments = RegulationSearchArguments.model_validate(arguments)
+        async with self._sessionmaker() as session:
+            _run, transaction = await self._load_context(session)
+            if transaction is None or not source_allows_model(
+                transaction.source.value, load_egress_policy()
+            ):
+                return RegulationSearchResult(mode="empty", rag_version="unavailable")
         result = self._retriever.retrieve(parsed_arguments.query, top_k=parsed_arguments.top_k)
         matches = tuple(
             RegulationMatch(
