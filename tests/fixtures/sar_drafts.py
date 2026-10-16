@@ -21,7 +21,7 @@ def gate_passing_content(sar_input: SarInput) -> SarDraftContent:
     """Compose the structured body a gate-passing model would return for this input."""
     model_input = project_for_model(sar_input, load_egress_policy())
     catalog = build_evidence_catalog(model_input)
-    return _compose_content(sar_input, model_input, catalog)
+    return _compose_content(model_input, catalog)
 
 
 def gate_passing_json(sar_input: SarInput) -> str:
