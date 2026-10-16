@@ -96,6 +96,7 @@ async def _terminal_payload(
         **payload,
         "alertId": str(alert.id) if alert is not None else None,
         "sarStatus": sar.status.value if sar is not None else None,
+        "sarModelId": sar.model_id if sar is not None else None,
     }
 
 
