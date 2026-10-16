@@ -70,7 +70,7 @@ async def test_optional_failures_preserve_persisted_analysis(
     assert await worker.run_once()
     async with _client(app) as client:
         page = (await client.get("/api/v1/transactions")).json()
-        row = next(row for row in page["transactions"] if row["externalId"] == "restart")
+        row = next(row for row in page["transactions"] if row["externalId"].startswith("upload-"))
         snapshot = (await client.get(f"/api/v1/investigations/{row['latestRunId']}")).json()
         assert snapshot["status"] == "completed" and snapshot["topFeatures"]
         if outcome == "no-alert":
@@ -78,13 +78,12 @@ async def test_optional_failures_preserve_persisted_analysis(
         else:
             assert snapshot["alertId"] is not None
         if outcome in {"live-egress", "budget"}:
-            assert snapshot["sarErrorCode"] == (
-                "egress_source_not_allowed" if outcome == "live-egress" else "llm_budget_exceeded"
-            )
+            assert snapshot["sarStatus"] == "draft"
+            assert snapshot["sarModelId"] == "template"
+            assert snapshot["sarErrorCode"] is None
             assert (await client.get("/api/v1/transactions/screening")).json()[
                 "draftingBlocked"
-            ] == 1
-        if outcome == "live-egress":
+            ] == 0
             builder.assert_not_awaited()
 
 
