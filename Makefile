@@ -306,14 +306,14 @@ docs-check: skills-check ## Fail if any generated skill or documentation artifac
 	$(UV) run --group fulldata python scripts/update_docs.py --check
 backend-coverage-diff: ## Backend: ≥90% coverage on CHANGED lines (diff-cover, Cobertura).
 	$(UV) run pytest -q --cov-report=xml --cov-fail-under=0
-	$(UV) run diff-cover coverage.xml --compare-branch=$(BASE_REF) --fail-under=90
+	$(UV) run diff-cover coverage.xml --compare-branch=$(BASE_REF) --include-untracked --fail-under=90
 # frontend-coverage-diff: vitest writes frontend-relative SF: paths; we rewrite them to
 # repo-relative (prepend frontend/) so diff-cover, run at the repo root, matches them
 # against git's repo-relative diff paths.
 frontend-coverage-diff: ## Frontend: ≥90% coverage on CHANGED lines (diff-cover, lcov).
 	cd $(FRONTEND) && $(NPM) run coverage -- --coverage.reporter=lcov --coverage.reporter=text
 	sed 's|^SF:|SF:$(FRONTEND)/|' $(FRONTEND)/coverage/lcov.info > $(FRONTEND)/coverage/lcov.repo.info
-	$(UV) run diff-cover $(FRONTEND)/coverage/lcov.repo.info --compare-branch=$(BASE_REF) --fail-under=90
+	$(UV) run diff-cover $(FRONTEND)/coverage/lcov.repo.info --compare-branch=$(BASE_REF) --include-untracked --fail-under=90
 test-coverage-diff: backend-coverage-diff frontend-coverage-diff ## Changed-line coverage gate, both stacks (vs BASE_REF).
 
 # ---------------------------------------------------------------------------
