@@ -24,9 +24,11 @@ from fraudlens_backend.db.models import (
     RunStatus,
     Severity,
     Transaction,
+    TransactionSource,
 )
 from fraudlens_backend.pipeline_wiring import RetrieverAdapter
 from fraudlens_core import RiskBand
+from fraudlens_core.upload_validation import identity_digest
 from fraudlens_ml.rag import RetrievalResult, RetrievedChunk, Retriever
 
 _DB_TOOL_NAMES = (
@@ -125,12 +127,16 @@ async def _seed_two_agencies(
                 [
                     Transaction(
                         id=current_id,
+                        source=TransactionSource.SYNTHETIC_GENERATOR,
                         agency_id=agency_id,
                         external_id=f"current-{label}",
                         amount=Decimal("9500.00"),
                         currency="USD",
                         occurred_at=now,
                         origin_account=origin_account,
+                        origin_account_key=identity_digest(
+                            origin_account, tenant=str(agency_id), domain="account"
+                        ),
                         dest_account=f"counterparty-{label}-private",
                         channel="wire",
                         country="US",
@@ -145,6 +151,9 @@ async def _seed_two_agencies(
                         currency="USD",
                         occurred_at=now - timedelta(hours=2),
                         origin_account=origin_account,
+                        origin_account_key=identity_digest(
+                            origin_account, tenant=str(agency_id), domain="account"
+                        ),
                         dest_account=f"history-counterparty-{label}-private",
                         channel="ach",
                         country="US",
