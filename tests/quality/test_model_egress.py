@@ -17,6 +17,7 @@ import socket
 from collections.abc import Callable
 from decimal import Decimal
 from typing import cast
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -26,6 +27,7 @@ from pydantic import ValidationError
 from quality_gates import production_gate
 from sar_drafts import gate_passing_generation
 
+from fraudlens_backend.pipeline_drafting import DeferredUploadDrafter
 from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.cache import InMemorySarDraftCache
 from fraudlens_backend.sar.drafter_live import LiveSarDrafter
@@ -58,7 +60,7 @@ from fraudlens_llm.adapters.openai_compatible import OpenAiCompatibleAdapter
 from fraudlens_ml.sar import SarDraftStatus, SarInput
 
 pytestmark = pytest.mark.quality
-_LOG_PROMPT_SENTINEL = "log-prompt-sentinel"
+_LOG_PROMPT_SENTINEL = "swift"  # Controlled model-visible field, absent from telemetry.
 _LOG_RESPONSE_SENTINEL = "log-response-sentinel"
 
 
@@ -325,3 +327,33 @@ def test_project_for_model_raises_stable_source_code(make_sar_input: Callable[..
     with pytest.raises(EgressBlockedError, match="egress_source_not_allowed") as error:
         project_for_model(make_sar_input(source="unknown"), load_egress_policy())
     assert error.value.code == "egress_source_not_allowed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["api-upload", "unknown"])
+async def test_local_template_and_direct_live_refusals_write_zero_provider_bytes(
+    make_sar_input,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+
+    monkeypatch.setattr(socket.socket, "connect", _no_socket)
+    primary = CapturedOpenAiEndpoint("must never be requested", failures=3)
+    backup = CapturedOpenAiEndpoint("must never be requested")
+    client, transports = _client({"primary": (primary, 2), "backup": (backup, 2)})
+    live = _live(client, primary="primary", fallbacks=("backup",))
+    builder = AsyncMock(return_value=live)
+    sar_input = make_sar_input(source=source)
+    try:
+        local = [
+            event async for event in DeferredUploadDrafter(builder, live=True).draft(sar_input)
+        ][-1].result
+        refused = await _draft(live, sar_input)
+        again = await _draft(live, sar_input)
+    finally:
+        await _close(transports)
+    assert local.status is SarDraftStatus.DRAFT and local.model_id == "template"
+    assert local.quality.passed
+    assert refused.error_code == again.error_code == "egress_source_not_allowed"
+    builder.assert_not_awaited()
+    assert primary.request_bodies == backup.request_bodies == []
