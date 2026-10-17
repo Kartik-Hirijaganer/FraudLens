@@ -65,6 +65,12 @@ describe("fetchCurrentUser", () => {
 });
 
 describe("createApiClient", () => {
+  it("fetches the canonical synthetic CSV from the authenticated API", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(true, 200, { content: "demo\n" })));
+    expect(await createApiClient(fetchMock).getCsvTemplate()).toEqual({ content: "demo\n" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/transactions/template", undefined);
+  });
+
   it("lists transactions with no query string", async () => {
     const page: TransactionListResponse = { transactions: [], nextCursor: null, total: 0 };
     const fetchMock = vi.fn(() => Promise.resolve(fakeResponse(true, 200, page)));
