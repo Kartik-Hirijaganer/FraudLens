@@ -57,7 +57,7 @@ export function DataTable<T>({
   }
 
   function onKeyDown(row: T, event: KeyboardEvent<HTMLTableRowElement>): void {
-    if (event.key === "Enter" || event.key === " ") {
+    if (!isInteractiveTarget(event.target) && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
       activateRow(row, event.target);
     }
