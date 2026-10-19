@@ -40,3 +40,11 @@ describe("SarStream", () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
   });
 });
+
+it("keeps the local drafting label and restriction after a reviewer replaces the prose", () => {
+  render(<SarStream text="Human edited narrative" streaming={false} template />);
+  expect(
+    screen.getByText(/Template-generated draft. External AI drafting is disabled/),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Human edited narrative")).toBeInTheDocument();
+});
