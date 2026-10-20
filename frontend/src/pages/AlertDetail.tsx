@@ -21,7 +21,7 @@ import { useCallback, useState } from "react";
 
 import { AgentTimeline } from "../components/AgentTimeline";
 import { DecisionRail } from "../components/DecisionRail";
-import { Markdown } from "../components/Markdown";
+import { SarStream } from "../components/SarStream";
 import { RagPanel } from "../components/RagPanel";
 import { Timeline } from "../components/Timeline";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
@@ -141,6 +141,7 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
             sarText: detail.sarContent ?? detail.sarDraft?.content ?? "",
             sarDraftId: detail.sarDraft?.sarDraftId,
             sarStatus: detail.sarDraft?.status,
+            sarModelId: detail.sarDraft?.modelId,
             alertId: detail.alert.alertId,
             workflowMode: detail.workflowMode,
             graphVersion: detail.graphVersion ?? undefined,
@@ -205,11 +206,16 @@ export function AlertDetail({ alertId, client = apiClient }: AlertDetailProps) {
                   </div>
                   {detail.sarDraft ? (
                     <>
-                      <div className="bg-canvas-soft p-lg rounded-lg">
-                        <Markdown text={detail.sarDraft.content} />
-                      </div>
+                      <SarStream
+                        text={detail.sarDraft.content}
+                        streaming={false}
+                        failed={detail.sarDraft.status === "failed"}
+                        template={detail.sarDraft.modelId === "template"}
+                      />
                       <RagPanel citations={detail.sarDraft.citations} />
-                      <ModelInputDisclosure modelInput={detail.sarDraft.modelInput} />
+                      {detail.sarDraft.modelId !== "template" ? (
+                        <ModelInputDisclosure modelInput={detail.sarDraft.modelInput} />
+                      ) : null}
                     </>
                   ) : (
                     <EmptyState
