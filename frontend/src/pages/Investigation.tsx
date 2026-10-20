@@ -217,7 +217,12 @@ export function Investigation({
     });
     try {
       const draft = await client.regenerateSar(runId);
-      setState((prev) => ({ ...prev, sarText: draft.content, sarDraftId: draft.sarDraftId }));
+      setState((prev) => ({
+        ...prev,
+        sarText: draft.content,
+        sarDraftId: draft.sarDraftId,
+        sarModelId: draft.modelId,
+      }));
       notify({ tone: "positive", title: "SAR draft regenerated" });
     } catch (caught) {
       notifyError(caught);
