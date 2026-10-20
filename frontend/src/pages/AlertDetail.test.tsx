@@ -347,3 +347,24 @@ describe("AlertDetail", () => {
     expect(await screen.findByText("Alert not found")).toBeInTheDocument();
   });
 });
+
+it("labels edited local templates without claiming a model saw their evidence", async () => {
+  const client = makeClient({
+    getAlert: vi.fn(() =>
+      Promise.resolve(
+        alertDetail({
+          sarDraft: {
+            ...alertDetail().sarDraft!,
+            modelId: "template",
+            content: "Human edited local narrative",
+          },
+        }),
+      ),
+    ),
+  });
+  render(<AlertDetail alertId="a1" client={client} />);
+  expect(
+    await screen.findByText(/Template-generated draft. External AI drafting is disabled/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("What the model saw")).not.toBeInTheDocument();
+});
