@@ -109,3 +109,10 @@ turning a privacy refusal into loss of rules, scoring, SHAP, or alert evidence.
 
 **Never** add `api-upload`, `unknown`, or a real-data source to the allowlist merely to unblock a
 request, and never let a caller-supplied classification authorize model egress.
+
+## Amendment — 2026-10-21: local evidence preparation
+
+[ADR-032](ADR-032-upload-validation-and-local-sar-templates.md) separates closed local evidence
+preparation from model authorization. Unverified uploads can produce a labeled, quality-gated local
+template without changing source or contacting a provider, including embedding providers. The
+synthetic-only allowlist and all live transport refusals above remain authoritative.
