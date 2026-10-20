@@ -18,7 +18,7 @@ describe("ModelSelector", () => {
     );
     expect(screen.getByRole("option", { name: "Active model — v1.0.0" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "v2.0.0 (shadow)" })).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Score with model"), "");
+    await userEvent.selectOptions(screen.getByLabelText("Model for next investigation"), "");
     expect(onChange).toHaveBeenCalledWith(undefined);
   });
 
