@@ -36,10 +36,13 @@ describe("Transactions", () => {
     const investigateButton = screen.getByRole("button", { name: /Investigate transaction/ });
     expect(investigateButton).toHaveTextContent("Investigate");
     await userEvent.click(investigateButton);
-    expect(client.startInvestigation).toHaveBeenCalledWith({
-      transactionId: "tx-1",
-      modelOverride: undefined,
-    });
+    expect(client.startInvestigation).toHaveBeenCalledWith(
+      {
+        transactionId: "tx-1",
+        modelOverride: undefined,
+      },
+      expect.any(String),
+    );
     await waitFor(() => expect(window.location.hash).toBe("#/investigations/run-1"));
   });
 
