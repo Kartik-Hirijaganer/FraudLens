@@ -73,7 +73,16 @@ classification. `unknown` and `api-upload` are not live-egress eligible. Before 
 `project_for_model` checks the recorded source against `config/llm/egress.yml`, verifies regulation
 digests against the committed corpus, and constructs a frozen `SarModelInput` with unknown fields
 forbidden. Disallowed source returns `egress_source_not_allowed` before transport; the rules/scoring
-analysis remains usable and the keyless mock remains available.
+analysis remains usable. Unverified uploads use local lexical regulation retrieval and the
+provider-free, quality-gated **Template-generated draft** from
+[ADR-032](../architecture/adr/ADR-032-upload-validation-and-local-sar-templates.md). Local preparation
+never authorizes egress; the live mock simulation retains its original provenance checks.
+
+The fixed demo CSV exception in [ADR-033](../architecture/adr/ADR-033-bundled-synthetic-csv-provenance.md)
+compares the complete upload bytes with the backend-owned synthetic fixture. Only exact matches
+receive `synthetic-generator` at ingestion; duplicate and historical rows keep their original
+source. This is verified demo content, not a general PII-removal or anonymization claim. Its CSV
+retrieval remains local even when live drafting is enabled.
 
 ### Field-flow inventory
 
