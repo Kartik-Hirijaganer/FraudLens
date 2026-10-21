@@ -37,6 +37,7 @@ import { riskTone, severityCounts, type StatusTone } from "../lib/risk";
 import { navigate, paths } from "../lib/router";
 import { useSession } from "../lib/session";
 import { useAsync } from "../lib/useAsync";
+import { useScreeningRefresh } from "../lib/useScreeningRefresh";
 
 interface DashboardData {
   metrics: DashboardMetrics;
@@ -85,6 +86,7 @@ export function Dashboard({ client = apiClient }: DashboardProps) {
     return { metrics, openAlerts: alerts.alerts };
   }, [client]);
   const state = useAsync(load, [client]);
+  useScreeningRefresh(client, state.reload);
 
   return (
     <AsyncBoundary state={state} skeleton={<DashboardSkeleton />}>
