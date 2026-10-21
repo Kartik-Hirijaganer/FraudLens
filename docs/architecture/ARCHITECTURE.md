@@ -557,6 +557,7 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | POST | `/api/v1/transactions` | `ingest_transaction` |
 | POST | `/api/v1/transactions/batch` | `ingest_batch` |
 | GET | `/api/v1/transactions/screening` | `get_screening_progress` |
+| GET | `/api/v1/transactions/template` | `download_csv_template` |
 | POST | `/api/v1/transactions/upload` | `upload_csv` |
 | GET | `/api/v1/transactions/{transactionId}` | `get_transaction` |
 | POST | `/api/v1/users` | `invite_user` |
@@ -674,6 +675,8 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `db_connect_timeout_seconds` | `float` | `5.0` | Timeout for the /readyz database connectivity probe, in seconds. |
 | `ingest_max_batch_size` | `int` | `500` | Max transactions accepted in one /transactions/batch request. |
 | `ingest_csv_max_bytes` | `int` | `5242880` | Max accepted /transactions/upload body size in bytes (413 above it). |
+| `ingest_csv_max_columns` | `int` | `8` | Maximum CSV columns; the eight documented headers are required. |
+| `ingest_csv_max_field_chars` | `int` | `128` | Maximum decoded characters per CSV cell during parsing. |
 | `ingest_csv_max_rows` | `int` | `10000` | Max data rows accepted in one CSV upload (413 above it). |
 | `ingest_sample_errors_limit` | `int` | `10` | Max per-row rejection samples returned by batch/CSV ingest. |
 | `client_error_max_message_length` | `int` | `2000` | Max length of a client-error report message before truncation. |
@@ -988,6 +991,7 @@ erDiagram
         datetime created_at
         string currency
         string dest_account
+        string dest_account_key
         string external_id
         string feature_hash
         json features
@@ -995,6 +999,7 @@ erDiagram
         uuid latest_run_id
         datetime occurred_at
         string origin_account
+        string origin_account_key
         enum risk_band
         enum source
     }
