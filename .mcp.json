@@ -4,6 +4,10 @@
       "command": "bash",
       "args": ["scripts/run-code-review-graph-mcp.sh"]
     },
+    "drawio": {
+      "command": "npx",
+      "args": ["-y", "@drawio/mcp@1.10.0"]
+    },
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp",
