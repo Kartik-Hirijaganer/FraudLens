@@ -39,6 +39,7 @@ from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.pipeline_wiring import RunManager, resolve_workflow_mode
 from fraudlens_backend.runs.admission import reserve_agent_spend
+from fraudlens_backend.sar.egress import load_egress_policy, source_allows_model
 from fraudlens_backend.settings import AppSettings
 
 ACTIVE_RUN_STATUSES = (RunStatus.PENDING, RunStatus.RUNNING, RunStatus.RETRYING)
@@ -146,6 +147,10 @@ async def create_investigation_run(  # noqa: PLR0912, PLR0913, PLR0915 - run cre
         agency_id=agency_id,
         requested=workflow_mode,
     )
+    if import_job_id is not None or not source_allows_model(
+        transaction.source.value, load_egress_policy()
+    ):
+        resolved_workflow = "single_writer"
     evaluation_mode = workflow_mode is not None
     reserve_live_agent_spend = (
         import_job_id is None and resolved_workflow == "multi_agent" and settings.llm_mode == "live"
