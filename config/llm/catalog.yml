@@ -9,6 +9,8 @@
 #       kind, context_window, modality, default_params, pricing, speed,
 #       reasoning_capable, intelligence, source_url, verified_at, lifecycle,
 #       callable, and pricing_basis.
+#   - An omitted generation parameter inherits the client default. Explicit null
+#     clears it before provider serialization (for example GPT-5 mini temperature).
 #
 # A model is referenced as "<provider>/<model-id>", e.g. "openai/gpt-5-mini" or
 # "openrouter/anthropic/claude-sonnet-4.6". The model id may contain slashes.
@@ -62,7 +64,7 @@ openai:
     max_token_output: 128000
     modality: [text, vision]
     knowledge_cutoff: 2025-09-30
-    default_params: { temperature: 0.05 }
+    default_params: { temperature: null }
     input_price_per_million: 0.25
     output_price_per_million: 2.00
     speed: fast
@@ -429,7 +431,7 @@ openrouter:
     max_token_output: 128000
     modality: [text, vision]
     knowledge_cutoff: 2025-09-30
-    default_params: { temperature: 0.05 }
+    default_params: { temperature: null }
     input_price_per_million: 0.25
     output_price_per_million: 2.00
     speed: fast

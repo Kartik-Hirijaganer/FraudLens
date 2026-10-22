@@ -9,6 +9,7 @@ ADR-014). Batch/CSV responses report accepted/duplicate/rejected counts plus a b
 of PHI-free per-row rejections so a partial upload tells the caller exactly what failed.
 
 Key classes:
+- UploadFeatures: closed empty upload feature contract.
 - TransactionIngestRequest: one transaction to ingest (camelCase DTO, structural checks).
 - InvestigationSummary:
 - ScreeningProgress:
@@ -17,6 +18,7 @@ Key classes:
 - IngestRejection: a single PHI-free per-row rejection (index, code, message).
 - BatchIngestResponse: batch outcome (counts + created rows + bounded sampleErrors).
 - CsvUploadResponse: CSV upload outcome (jobId + counts + bounded sampleErrors).
+- CsvTemplateResponse:
 - TransactionListResponse: a page of transactions plus the opaque nextCursor + total count.
 - ClientErrorReport: the frontend client-error sink body (message + safe context).
 
@@ -25,15 +27,15 @@ Key functions:
 
 Notes:
 - amount is a Decimal and serializes as a JSON string (financial precision is preserved).
-- IngestRejection carries a code + fixed message + optional externalId only — never the
-rejected row's values — so a malformed upload cannot echo PHI back to the caller.
+- IngestRejection carries a code, fixed message and row position; externalId is always null.
+- Upload identifiers become opaque references; account displays are fully withheld.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -42,15 +44,28 @@ from fraudlens_backend.models.common import CamelModel
 _MAX_FIELD_LEN = 128
 
 
+class UploadFeatures(CamelModel):
+    """Closed feature contract: upload features are derived server-side, never caller text."""
+
+
 class TransactionIngestRequest(CamelModel):
     """One transaction to ingest; structural checks only (semantics in build_canonical)."""
 
     external_id: str = Field(
-        ..., min_length=1, max_length=_MAX_FIELD_LEN, description="Caller-unique id (dedup key)."
+        ...,
+        min_length=1,
+        max_length=_MAX_FIELD_LEN,
+        description="Caller-unique dedup key; persisted and displayed as an opaque reference.",
     )
-    amount: Decimal = Field(..., gt=0, description="Transaction amount (must be positive).")
+    amount: Decimal = Field(
+        ...,
+        gt=0,
+        description="Positive finite exact-cent amount fitting Numeric(18,2); never rounded.",
+    )
     currency: str = Field(..., min_length=3, max_length=3, description="ISO-4217 currency code.")
-    occurred_at: datetime = Field(..., description="When the transaction occurred (not future).")
+    occurred_at: datetime = Field(
+        ..., description="ISO-8601 occurrence with an explicit timezone; cannot be future."
+    )
     origin_account: str = Field(
         ..., min_length=1, max_length=_MAX_FIELD_LEN, description="Origin account (masked at rest)."
     )
@@ -61,8 +76,9 @@ class TransactionIngestRequest(CamelModel):
         ..., min_length=1, max_length=_MAX_FIELD_LEN, description="Origination channel."
     )
     country: str = Field(..., min_length=2, max_length=2, description="ISO-3166 alpha-2 country.")
-    features: dict[str, object] = Field(
-        default_factory=dict, description="Optional extra model features (stored in JSONB)."
+    features: UploadFeatures = Field(
+        default_factory=UploadFeatures,
+        description="Closed empty object; features are derived server-side.",
     )
 
 
@@ -95,7 +111,9 @@ class TransactionResponse(CamelModel):
     """A persisted transaction; account identifiers are masked, riskBand null at ingest."""
 
     transaction_id: str = Field(..., description="The transaction's unique id (UUID).")
-    external_id: str = Field(..., description="Caller-supplied unique id.")
+    external_id: str = Field(
+        ..., description="Opaque upload reference; trusted imports retain their source id."
+    )
     agency_id: str = Field(..., description="Owning tenant (agency) id.")
     amount: Decimal = Field(..., description="Transaction amount.")
     currency: str = Field(..., description="ISO-4217 currency code.")
@@ -132,10 +150,18 @@ class IngestRejection(CamelModel):
     """A single PHI-free per-row rejection from a batch/CSV ingest."""
 
     index: int = Field(..., ge=0, description="Zero-based position of the rejected row.")
+    row_number: int | None = Field(
+        default=None,
+        ge=2,
+        description="Starting physical CSV line including header; null for JSON batches.",
+    )
     external_id: str | None = Field(
-        default=None, description="The row's externalId when known (no other values)."
+        default=None, description="Always null; uploaded identifiers are never reflected in errors."
     )
     code: str = Field(..., description="Stable error code (e.g. 'duplicate_external_id').")
+    reason_code: str | None = Field(
+        default=None, description="Stable value-free canonical reason, such as precision_exceeded."
+    )
     message: str = Field(..., description="Fixed, PHI-free reason for the rejection.")
 
 
@@ -158,6 +184,13 @@ class CsvUploadResponse(CamelModel):
     """Outcome of a CSV upload: the recorded job id, counts, and bounded sample errors."""
 
     job_id: str = Field(..., description="The csv_import job_executions id for this upload.")
+    trusted_synthetic: bool = Field(
+        default=False, description="Uploaded bytes match the bundled server-owned synthetic CSV."
+    )
+    drafting_mode: Literal["template", "mock", "ai"] = Field(
+        default="template",
+        description="Drafting route for newly accepted flagged rows, not a quality verdict.",
+    )
     screening: ScreeningProgress | None = Field(
         default=None, description="Initial background-screening progress."
     )
@@ -167,6 +200,12 @@ class CsvUploadResponse(CamelModel):
     sample_errors: list[IngestRejection] = Field(
         default_factory=list, description="Bounded sample of per-row rejections (PHI-free)."
     )
+
+
+class CsvTemplateResponse(CamelModel):
+    """The exact synthetic CSV to save and upload unchanged."""
+
+    content: str = Field(..., description="UTF-8 CSV contents; changes invalidate synthetic trust.")
 
 
 class TransactionListResponse(CamelModel):

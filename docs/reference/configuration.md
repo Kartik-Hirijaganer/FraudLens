@@ -35,7 +35,12 @@ status-driven handler and apply across every route.
 | `payload_too_large` | 413 | A `/transactions/upload` body exceeds `ingestCsvMaxBytes`. |
 | `too_many_rows` | 413 | A CSV upload has more data rows than `ingestCsvMaxRows`. |
 | `empty_payload` | 422 | A CSV upload parses to zero data rows. |
-| `invalid_csv` | 422 | A CSV upload has no header row / cannot be parsed. |
+| `invalid_csv` | 422 | Malformed quoting or forbidden control bytes. |
+| `invalid_csv_encoding` | 422 | Invalid UTF-8 (no replacement decoding). |
+| `invalid_csv_headers` | 422 | Missing, duplicate or undocumented headers. |
+| `invalid_csv_width` | 422 | A row has too few fields. |
+| `csv_column_limit` | 413 | The column limit is exceeded. |
+| `csv_field_limit` | 413 | A decoded field exceeds the character limit. |
 | `unsupported_content_type` | 415 | A CSV upload is not sent as `text/csv`. |
 | `rule_not_found` | 404 | `GET`/`PATCH`/`DELETE /rules/{id}` for a missing id, or one global/owned by another agency (no existence leak). |
 | `duplicate_rule_code` | 409 | Creating a rule whose `code` already exists for the agency. |
@@ -44,7 +49,10 @@ status-driven handler and apply across every route.
 | `validation_error` | 422 | A field fails validation (Pydantic structural or canonical-schema semantic, e.g. non-ISO currency, non-positive amount, future `occurredAt`). |
 
 Batch and CSV ingestion are **partial-accept**: valid rows persist while invalid rows are
-returned as bounded, PHI-free `sampleErrors` (`{index, externalId?, code, message}`).
+returned as bounded, value-free `sampleErrors` (`{index, rowNumber, externalId: null, code, reasonCode, message}`).
+CSV `rowNumber` is the starting physical line including the header; JSON batches return null.
+Structural CSV errors reject the complete file; only semantic row errors permit partial acceptance.
+See the [CSV contract and analyst walkthrough](../runbooks/transaction-screening.md).
 
 ## Ingestion limits (`FRAUDLENS_*` / `config/*.yaml`)
 
@@ -54,13 +62,17 @@ Caps are configuration, never hardcoded (plan §12.1); override per-environment.
 |------|---------|---------|
 | `INGEST_MAX_BATCH_SIZE` | 500 | Max transactions per `/transactions/batch` request. |
 | `INGEST_CSV_MAX_BYTES` | 5 242 880 | Max `/transactions/upload` body size (bytes). |
+| `INGEST_CSV_MAX_COLUMNS` | 8 | Maximum columns; all eight documented headers are required. |
+| `INGEST_CSV_MAX_FIELD_CHARS` | 128 | Maximum decoded field length during parsing (cannot exceed 128). |
 | `INGEST_CSV_MAX_ROWS` | 10 000 | Max data rows per CSV upload. |
 | `INGEST_SAMPLE_ERRORS_LIMIT` | 10 | Max per-row rejection samples returned. |
 | `CLIENT_ERROR_MAX_MESSAGE_LENGTH` | 2 000 | Truncation cap for the client-error sink message. |
 
 ## PHI masking (ingest)
 
-Account identifiers are masked **before persistence** and raw PHI is never stored
+Uploaded account displays are fully withheld, external ids become opaque tenant-scoped references,
+and full account identity digests support history grouping. No upload text or extra features are
+persisted. Trusted import adapters retain deterministic display masking. Raw PHI is never stored
 (ADR-014). Masking is deterministic and in-process — regex + `python-stdnum` (Luhn for
 cards, IBAN checksum) in [`fraudlens_core.phi`](../../packages/fraudlens-core/src/fraudlens_core/phi/masking.py),
 orchestrated by [`services/phi_mask.py`](../../backend/src/fraudlens_backend/services/phi_mask.py).

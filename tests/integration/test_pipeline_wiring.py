@@ -28,6 +28,7 @@ from fraudlens_backend.db.models import (
     RunStatus,
     SystemConfig,
     Transaction,
+    TransactionSource,
 )
 from fraudlens_backend.db.repositories import TransactionRepository
 from fraudlens_backend.pipeline_wiring import (
@@ -50,6 +51,7 @@ from fraudlens_core import (
     RuleRegistry,
 )
 from fraudlens_core.rules.base import TransactionDirection
+from fraudlens_core.upload_validation import identity_digest
 from fraudlens_ml.pipeline import StreamMessage
 from fraudlens_ml.rag import HashingEmbedder, Retriever
 from fraudlens_ml.sar import SarEventType, SarInput
@@ -239,6 +241,13 @@ def _txn(**overrides: object) -> dict[str, object]:
         "feature_hash": "h",
     }
     body.update(overrides)
+    body["origin_account_key"] = identity_digest(
+        str(body["origin_account"]), tenant=str(_AGENCY_ID), domain="account"
+    )
+    body["dest_account_key"] = identity_digest(
+        str(body["dest_account"]), tenant=str(_AGENCY_ID), domain="account"
+    )
+    body["source"] = TransactionSource.SYNTHETIC_GENERATOR
     return body
 
 

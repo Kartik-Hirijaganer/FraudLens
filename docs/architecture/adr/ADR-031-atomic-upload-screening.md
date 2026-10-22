@@ -63,3 +63,11 @@ concurrent uploads and reruns. Operational behavior is documented in the
 - Queue age requires an operational SLA separate from bounded execution time.
 - Throughput requires a dedicated worker deployment for the permanent application; retain the
   same database acceptance and fence contracts and review recurring cost before provisioning.
+
+## Amendment — 2026-10-21: drafting outcomes
+
+[ADR-032](ADR-032-upload-validation-and-local-sar-templates.md) extends this workflow with strict
+upload validation and a provider-free template for unverified uploads. It supersedes the expectation
+that every uploaded case must finish with blocked drafting: verified local evidence can now produce a
+quality-gated template. External AI remains refused, and evidence failure preserves deterministic
+results and alerts. Atomic admission, deadlines, observation and explicit rerun contracts are unchanged.

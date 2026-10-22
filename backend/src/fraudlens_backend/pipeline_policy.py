@@ -21,12 +21,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import SystemConfig, Transaction
+from fraudlens_backend.db.models import SystemConfig, Transaction, TransactionSource
 from fraudlens_backend.db.repositories import (
     ModelRegistryRepository,
     TransactionRepository,
     load_feature_flags,
 )
+from fraudlens_backend.sar.egress import load_egress_policy, source_allows_model
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import (
     RiskBand,
@@ -106,11 +107,11 @@ def _parse_float(raw: Any, fallback: float) -> float:
         return fallback
 
 
-def _to_rule_transaction(transaction: Transaction, *, account: str) -> RuleTransaction:
+def _to_rule_transaction(transaction: Transaction, *, account: str | None) -> RuleTransaction:
     """Project a persisted transaction onto a PHI-free RuleTransaction with its direction."""
     direction = (
         TransactionDirection.OUTBOUND
-        if transaction.origin_account == account
+        if transaction.origin_account_key == account
         else TransactionDirection.INBOUND
     )
     return RuleTransaction(
@@ -138,23 +139,31 @@ async def build_pipeline_input(
     the v2 counterparty fan-in features only — both use the same window/cap settings so training
     can mirror exactly what scoring sees.
     """
+    policy = load_egress_policy()
+    sources = (
+        frozenset(TransactionSource(value) for value in policy.allowed_sources)
+        if source_allows_model(transaction.source.value, policy)
+        else None
+    )
     history_rows = await repo.same_account_history(
-        account=transaction.origin_account,
+        account=transaction.origin_account_key,
         before=transaction.occurred_at,
         window_hours=settings.investigation_history_window_hours,
         limit=settings.investigation_history_max,
+        sources=sources,
     )
     history = tuple(
-        _to_rule_transaction(row, account=transaction.origin_account) for row in history_rows
+        _to_rule_transaction(row, account=transaction.origin_account_key) for row in history_rows
     )
     counterparty_rows = await repo.same_account_history(
-        account=transaction.dest_account,
+        account=transaction.dest_account_key,
         before=transaction.occurred_at,
         window_hours=settings.investigation_history_window_hours,
         limit=settings.investigation_history_max,
+        sources=sources,
     )
     counterparty_history = tuple(
-        _to_rule_transaction(row, account=transaction.dest_account) for row in counterparty_rows
+        _to_rule_transaction(row, account=transaction.dest_account_key) for row in counterparty_rows
     )
     current = RuleTransaction(
         amount=transaction.amount,

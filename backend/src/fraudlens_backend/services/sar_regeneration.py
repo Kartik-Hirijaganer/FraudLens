@@ -49,7 +49,13 @@ from fraudlens_backend.db.repositories import (
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.sar import build_sar_drafter
-from fraudlens_backend.sar.egress import EgressBlockedError, load_egress_policy, project_for_model
+from fraudlens_backend.sar.drafter_template import TemplateSarDrafter
+from fraudlens_backend.sar.egress import (
+    EgressBlockedError,
+    load_egress_policy,
+    project_for_model,
+    source_allows_model,
+)
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_llm_call
 from fraudlens_core.rules.base import RuleHit, TransactionDirection
@@ -87,6 +93,16 @@ def sar_draft_to_view(
         structured=dict(draft.structured or {}),
         citations=[dict(citation) for citation in (draft.citations or [])],
         model_id=draft.model_id,
+        drafting_mode="template"
+        if draft.model_id == "template"
+        else "mock"
+        if draft.model_id == "mock"
+        else "ai",
+        drafting_restriction=(
+            "External AI drafting is disabled for unverified uploads. Human review is required."
+            if draft.model_id == "template"
+            else None
+        ),
         prompt_version=draft.prompt_version,
         prompt_hash=draft.prompt_hash,
         workflow=draft.workflow,
@@ -155,7 +171,9 @@ def _retrieval_citations(retrieval: RagRetrieval) -> tuple[SarCitation, ...]:
             chunks.append(RetrievedChunk.model_validate(item))
         except ValidationError:
             continue
-    return tuple(SarCitation.model_validate(item) for item in extract_citations(chunks))
+    return tuple(
+        SarCitation.model_validate(item.model_dump()) for item in extract_citations(chunks)
+    )
 
 
 def _sar_input_from_records(
@@ -254,14 +272,23 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
     if latest is not None and latest.status in _DECIDED:
         # An approved/rejected draft is a recorded human decision — do not overwrite it (§10.4).
         raise AppError("invalid_sar_transition")
+    retrieval = await run_repo.get_retrieval(run_id)
     sar_input = _sar_input_from_records(
         agency_id=agency_id,
         run=run,
         result=result,
         transaction=transaction,
-        citations=_citations(latest),
+        citations=_citations(latest)
+        or (_retrieval_citations(retrieval) if retrieval is not None else ()),
     )
-    active_drafter = drafter if drafter is not None else build_sar_drafter(settings)
+    policy = load_egress_policy()
+    active_drafter = (
+        TemplateSarDrafter(egress_policy=policy)
+        if not source_allows_model(sar_input.source, policy)
+        else drafter
+        if drafter is not None
+        else build_sar_drafter(settings)
+    )
     draft_result = await _draft_result(active_drafter, sar_input)
     draft = await sar_repo.create_from_result(
         run_id=run_id,

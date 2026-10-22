@@ -87,34 +87,45 @@ class MockSarDrafter:
         self._egress_policy = egress_policy or load_egress_policy()
         self._gate = gate or SarQualityGate(load_sar_gate_policy())
 
+    _model_id = _MOCK_MODEL_ID
+    _label = ""
+
+    def _project(self, sar_input: SarInput) -> SarModelInput:
+        """Require external-egress eligibility for the existing mock simulation contract."""
+        return project_for_model(sar_input, self._egress_policy)
+
+    def _token_usage(self, rendered: str) -> SarTokenUsage:
+        """Retain the existing mock word-count estimate for demo telemetry."""
+        return SarTokenUsage(
+            output_tokens=len(rendered.split()), total_tokens=len(rendered.split())
+        )
+
     async def draft(self, sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:
         """Compose a deterministic grounded SAR, gate it, and stream it (no keys, no cost)."""
         try:
-            model_input = project_for_model(sar_input, self._egress_policy)
+            model_input = self._project(sar_input)
         except EgressBlockedError as exc:
             async for event in stream_result(self._failed(exc.code)):
                 yield event
             return
         catalog = build_evidence_catalog(model_input)
-        content = _compose_content(sar_input, model_input, catalog)
+        content = _compose_content(model_input, catalog)
         verdict = self._gate.evaluate(content, available=sar_input.citations, catalog=catalog)
         if not verdict.passed:
             async for event in stream_result(self._failed(_GATE_FAILED_CODE, quality=verdict)):
                 yield event
             return
-        rendered = render_markdown(content)
+        rendered = self._label + render_markdown(content)
         result = SarDraftResult(
             status=SarDraftStatus.DRAFT,
             content=rendered,
             structured=content,
             citations=sar_input.citations,
-            model_id=_MOCK_MODEL_ID,
+            model_id=self._model_id,
             provider=None,
             prompt_version=self._prompt.prompt_version,
             prompt_hash=self._prompt.prompt_hash,
-            token_usage=SarTokenUsage(
-                output_tokens=len(rendered.split()), total_tokens=len(rendered.split())
-            ),
+            token_usage=self._token_usage(rendered),
             cost_usd=Decimal("0"),
             quality=verdict,
         )
@@ -127,7 +138,7 @@ class MockSarDrafter:
         """Build the terminal failure for an ineligible or gate-rejected mock draft."""
         return SarDraftResult(
             status=SarDraftStatus.FAILED,
-            model_id=_MOCK_MODEL_ID,
+            model_id=self._model_id,
             prompt_version=self._prompt.prompt_version,
             prompt_hash=self._prompt.prompt_hash,
             error_code=error_code,
@@ -155,18 +166,18 @@ def _rule_refs(catalog: SarEvidenceCatalog) -> tuple[str, ...]:
     return tuple(fact.ref for fact in catalog.facts if fact.ref.startswith("rule."))
 
 
-def _compose_content(
-    sar_input: SarInput, model_input: SarModelInput, catalog: SarEvidenceCatalog
-) -> SarDraftContent:
+def _compose_content(model_input: SarModelInput, catalog: SarEvidenceCatalog) -> SarDraftContent:
     """Deterministically build a grounded, fact-asserting SarDraftContent from the catalog."""
-    citation_ids = tuple(dict.fromkeys(citation.citation for citation in sar_input.citations))
+    citation_ids = tuple(
+        dict.fromkeys(regulation.citation_id for regulation in model_input.regulations)
+    )
     rule_refs = _rule_refs(catalog)
     rule_summary = (
         ", ".join(_display(catalog, ref) for ref in rule_refs if ref.endswith(".type"))
         or "no deterministic rules"
     )
     driver_summary = (
-        ", ".join(feature.feature for feature in sar_input.top_features) or "no model drivers"
+        ", ".join(feature.feature for feature in model_input.shap_drivers) or "no model drivers"
     )
     amount = _display(catalog, "txn.amount")
     probability = _display(catalog, "risk.fraudProbability")
@@ -223,7 +234,9 @@ def _fincen_sections(
     bodies = {
         SarFincenElement.WHO: (
             f"Case {model_input.case_alias}: subject {model_input.subject_alias} and counterparty "
-            f"{model_input.counterparty_alias}, referenced only by masked alias."
+            f"{model_input.counterparty_alias}, referenced only by case alias. "
+            "Subject identity, beneficial ownership and purpose are unknown; "
+            "analyst verification is required."
         ),
         SarFincenElement.WHAT: (
             f"A {_display(catalog, 'txn.channel')} transfer of {_display(catalog, 'txn.amount')} "

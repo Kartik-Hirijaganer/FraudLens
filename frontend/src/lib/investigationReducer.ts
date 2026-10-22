@@ -294,6 +294,7 @@ export function reduceInvestigation(
         modelVersion: stringOf(data.modelVersion) ?? state.modelVersion,
         sarDraftId: stringOf(data.sarDraftId),
         sarStatus: stringOf(data.sarStatus),
+        sarModelId: stringOf(data.sarModelId),
         draftingBlockReason:
           stringOf(data.sarStatus) === "failed" ? "SAR drafting failed" : undefined,
         alertId: stringOf(data.alertId),
@@ -366,6 +367,7 @@ export function investigationStateFromSnapshot(
     sarDraftId: terminalAlreadyObserved ? current.sarDraftId : (snapshot.sarDraftId ?? undefined),
     sarStatus: terminalAlreadyObserved ? current.sarStatus : (snapshot.sarStatus ?? undefined),
     sarText: current.sarText || snapshot.sarContent || "",
+    sarModelId: snapshot.sarModelId ?? current.sarModelId,
     sarStarted: current.sarStarted || snapshot.sarDraftId !== null,
     alertId: terminalAlreadyObserved ? current.alertId : (snapshot.alertId ?? undefined),
     workflowMode:

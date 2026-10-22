@@ -27,6 +27,7 @@ import type {
   BatchIngestResponse,
   CanaryPercent,
   CsvUploadResponse,
+  CsvTemplateResponse,
   CurrentUser,
   InvestigationSnapshot,
   InvestigationStartResponse,
@@ -63,7 +64,8 @@ export interface ApiClient {
   getTransaction(transactionId: string): Promise<TransactionResponse>;
   ingestTransaction(body: TransactionIngestRequest): Promise<TransactionResponse>;
   ingestBatch(body: BatchIngestRequest): Promise<BatchIngestResponse>;
-  uploadCsv(csvText: string): Promise<CsvUploadResponse>;
+  uploadCsv(csvText: string | Blob): Promise<CsvUploadResponse>;
+  getCsvTemplate(): Promise<CsvTemplateResponse>;
   getScreeningProgress(jobId?: string): Promise<ScreeningProgress>;
   startInvestigation(
     body: { transactionId: string; modelOverride?: string },
@@ -209,6 +211,7 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
         headers: { "Content-Type": "text/csv" },
         body: csvText,
       }),
+    getCsvTemplate: () => send<CsvTemplateResponse>("/api/v1/transactions/template"),
     startInvestigation: (body, idempotencyKey) =>
       send<InvestigationStartResponse>(
         "/api/v1/investigations",

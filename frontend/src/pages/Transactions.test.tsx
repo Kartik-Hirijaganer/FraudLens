@@ -6,7 +6,7 @@ vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
 import { ApiError } from "../lib/api";
 import { signIn, signOut, type UserRole } from "../lib/session";
-import { notify } from "../lib/toast";
+import { notify, notifyError } from "../lib/toast";
 import { dashboardMetrics, demoPersona, makeClient, transaction } from "../test/factories";
 import { Transactions } from "./Transactions";
 
@@ -28,6 +28,35 @@ afterEach(() => {
 });
 
 describe("Transactions", () => {
+  it("downloads the server-owned CSV and releases the download URL", async () => {
+    const createUrl = vi.fn(() => "blob:synthetic-csv");
+    const revokeUrl = vi.fn();
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: revokeUrl }),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const client = makeClient();
+    render(<Transactions client={client} />);
+    await userEvent.click(screen.getByRole("button", { name: "Download synthetic demo CSV" }));
+    await waitFor(() => expect(client.getCsvTemplate).toHaveBeenCalledOnce());
+    expect(createUrl).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeUrl).toHaveBeenCalledWith("blob:synthetic-csv");
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a failed template download and allows retry", async () => {
+    const client = makeClient({
+      getCsvTemplate: vi.fn(() => Promise.reject(new Error("unavailable"))),
+    });
+    render(<Transactions client={client} />);
+    await userEvent.click(screen.getByRole("button", { name: "Download synthetic demo CSV" }));
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Download synthetic demo CSV" })).toBeEnabled();
+  });
+
   it("lists transactions and starts an investigation", async () => {
     const client = makeClient();
     render(<Transactions client={client} />);
@@ -86,11 +115,8 @@ describe("Transactions", () => {
     render(<Transactions client={client} />);
     await screen.findByText(DEFAULT_TRANSACTION_REF);
     const file = new File(["externalId,amount\nx,1"], "txns.csv", { type: "text/csv" });
-    Object.defineProperty(file, "text", {
-      value: () => Promise.resolve("externalId,amount\nx,1"),
-    });
     await userEvent.upload(screen.getByLabelText("Import CSV"), file);
-    await waitFor(() => expect(client.uploadCsv).toHaveBeenCalledWith("externalId,amount\nx,1"));
+    await waitFor(() => expect(client.uploadCsv).toHaveBeenCalledWith(file));
     expect(notify).toHaveBeenCalled();
   });
 
@@ -102,6 +128,9 @@ describe("Transactions", () => {
     expect(await screen.findByText(DEFAULT_TRANSACTION_REF)).toBeInTheDocument();
 
     expect(screen.queryByLabelText("Import CSV")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Download synthetic demo CSV" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Investigate transaction/ }),
     ).not.toBeInTheDocument();

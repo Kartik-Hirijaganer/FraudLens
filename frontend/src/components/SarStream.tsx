@@ -28,6 +28,7 @@ interface SarStreamProps {
   streaming: boolean;
   failed?: boolean;
   regenerating?: boolean;
+  template?: boolean;
 }
 
 export function SarStream({
@@ -35,6 +36,7 @@ export function SarStream({
   streaming,
   failed = false,
   regenerating = false,
+  template = false,
 }: SarStreamProps) {
   const reduced = usePrefersReducedMotion();
   if (failed) {
@@ -63,6 +65,12 @@ export function SarStream({
         regenerating && "opacity-60 motion-safe:animate-pulse",
       )}
     >
+      {template || text.startsWith("**Template-generated draft**") ? (
+        <p className="text-body-sm text-warning-content mb-md">
+          Template-generated draft. External AI drafting is disabled for unverified uploads. Verify
+          unknowns and citations before human approval.
+        </p>
+      ) : null}
       <Markdown text={text} />
       {streaming ? (
         <span

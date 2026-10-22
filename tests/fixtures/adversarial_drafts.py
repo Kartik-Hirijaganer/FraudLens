@@ -69,7 +69,7 @@ def clean_draft() -> SarDraftContent:
     """Return the faithful draft: every claim evidenced, every asserted fact equal to catalog."""
     sar_input = build_sar_input()
     model_input = project_for_model(sar_input, load_egress_policy())
-    return _compose_content(sar_input, model_input, draft_catalog())
+    return _compose_content(model_input, draft_catalog())
 
 
 def _with_claim(claim: SarClaim) -> SarDraftContent:

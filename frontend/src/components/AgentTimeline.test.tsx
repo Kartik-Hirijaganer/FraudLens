@@ -15,6 +15,32 @@ describe("AgentTimeline", () => {
     expect(document.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
   });
 
+  it.each(["single_writer", "multi_agent"] as const)(
+    "shows persisted reviewer decisions in the %s timeline",
+    (workflowMode) => {
+      const state = {
+        ...initialInvestigationState(),
+        status: "completed" as const,
+        completedSteps: ["rules", "scoring", "sar"],
+        workflowMode,
+        sarDraftId: "sar-reviewed",
+        sarStatus: "draft" as const,
+      };
+      const { rerender } = render(<AgentTimeline state={state} />);
+      expect(screen.getByRole("button", { name: /Awaiting human review/ })).toHaveTextContent(
+        "Awaiting",
+      );
+
+      for (const sarStatus of ["approved", "rejected"] as const) {
+        rerender(<AgentTimeline state={{ ...state, sarStatus }} />);
+        expect(
+          screen.getByRole("button", { name: new RegExp(`Human review ${sarStatus}`) }),
+        ).toHaveTextContent("Completed");
+        expect(screen.queryByText("Awaiting human review")).not.toBeInTheDocument();
+      }
+    },
+  );
+
   it("renders the agent fork as a nested ordered list and exposes provenance", async () => {
     const evidence = agentRun();
     const regulatory = agentRun({

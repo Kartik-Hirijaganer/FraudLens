@@ -48,8 +48,10 @@ from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_backend.services.phi_mask import PhiMasker
 from fraudlens_core import CanonicalTransaction, RiskBand
 from fraudlens_core.phi import MaskingReport
+from fraudlens_core.upload_validation import identity_digest
 
 _CURSOR_SEP = "|"
+_DIGEST_LENGTH = 64
 
 
 class IngestOutcome(NamedTuple):
@@ -100,6 +102,12 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         super().__init__(session, Transaction, agency_id)
         self._masker = masker or PhiMasker()
 
+    def upload_external_id(self, external_id: str) -> str:
+        """Return an opaque upload dedup key, never a caller-controlled display string."""
+        return "upload-" + identity_digest(
+            external_id, tenant=str(self._agency_id), domain="external-id"
+        )
+
     async def get_by_external_id(self, external_id: str) -> Transaction | None:
         """Return this agency's transaction with the given externalId, or None."""
         stmt = select(Transaction).where(
@@ -113,21 +121,32 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         canonical: CanonicalTransaction,
         *,
         source: TransactionSource = TransactionSource.UNKNOWN,
+        uploaded: bool = False,
     ) -> IngestOutcome:
         """Dedup or persist a masked transaction; omitted provenance fails closed as unknown."""
-        existing = await self.get_by_external_id(canonical.external_id)
+        uploaded = uploaded or source is TransactionSource.API_UPLOAD
+        external_id = (
+            self.upload_external_id(canonical.external_id) if uploaded else canonical.external_id
+        )
+        existing = await self.get_by_external_id(external_id)
         if existing is not None:
             return IngestOutcome(existing, created=False, mask_report=None)
         masked = self._masker.mask(canonical)
         transaction = Transaction(
             agency_id=self._agency_id,
-            external_id=canonical.external_id,
+            external_id=external_id,
             source=source,
             amount=canonical.amount,
             currency=canonical.currency,
             occurred_at=canonical.occurred_at,
-            origin_account=masked.origin_account,
-            dest_account=masked.dest_account,
+            origin_account="[WITHHELD]" if uploaded else masked.origin_account,
+            dest_account="[WITHHELD]" if uploaded else masked.dest_account,
+            origin_account_key=identity_digest(
+                canonical.origin_account, tenant=str(self._agency_id), domain="account"
+            ),
+            dest_account_key=identity_digest(
+                canonical.dest_account, tenant=str(self._agency_id), domain="account"
+            ),
             channel=canonical.channel,
             country=canonical.country,
             features=masked.features,
@@ -141,23 +160,37 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
         except IntegrityError:
             # Only an actual winner for this tenant/external id is a duplicate. Other
             # constraint failures propagate and roll back the enclosing ingestion.
-            existing = await self.get_by_external_id(canonical.external_id)
+            existing = await self.get_by_external_id(external_id)
             if existing is None:
                 raise
             return IngestOutcome(existing, created=False, mask_report=None)
         return IngestOutcome(transaction, created=True, mask_report=masked.report)
 
     async def same_account_history(
-        self, *, account: str, before: datetime, window_hours: int, limit: int
+        self,
+        *,
+        account: str | None,
+        before: datetime,
+        window_hours: int,
+        limit: int,
+        sources: frozenset[TransactionSource] | None = None,
     ) -> Sequence[Transaction]:
         """Return this agency's recent transactions touching `account` before `before` (windowed).
 
-        Groups by the masked account identifier (masking is deterministic, ADR-014), matching it
+        Groups by the full tenant-scoped identity digest, matching it
         as either origin OR destination so the pipeline can label each prior as outbound/inbound —
         the same-account history the rules engine + feature extractor expect (plan §16 Phase 8).
         The id tie-break makes the row set at the `limit` cap deterministic when several priors
         share one timestamp, so re-runs/replays always see identical history.
         """
+        # Historical display masks cannot be backfilled reliably; fail closed rather than
+        # joining unrelated accounts that happen to share a suffix. Never accept a mask as a key.
+        if (
+            account is None
+            or len(account) != _DIGEST_LENGTH
+            or any(c not in "0123456789abcdef" for c in account)
+        ):
+            return ()
         start = before - timedelta(hours=window_hours)
         stmt = (
             select(Transaction)
@@ -166,13 +199,15 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
                 Transaction.occurred_at < before,
                 Transaction.occurred_at >= start,
                 or_(
-                    Transaction.origin_account == account,
-                    Transaction.dest_account == account,
+                    Transaction.origin_account_key == account,
+                    Transaction.dest_account_key == account,
                 ),
             )
             .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
             .limit(limit)
         )
+        if sources is not None:
+            stmt = stmt.where(Transaction.source.in_(sources))
         return (await self._session.execute(stmt)).scalars().all()
 
     def _list_filters(self, risk_band: RiskBand | None, search: str | None) -> list[Any]:

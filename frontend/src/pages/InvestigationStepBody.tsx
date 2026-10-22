@@ -93,6 +93,7 @@ export function InvestigationStepBody({
           streaming={streaming}
           failed={state.status === "failed"}
           regenerating={regenerating}
+          template={state.sarModelId === "template"}
         />
       );
     case "submit":

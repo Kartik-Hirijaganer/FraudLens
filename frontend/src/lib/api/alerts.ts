@@ -17,6 +17,7 @@
  * - BatchIngestRequest:
  * - BatchIngestResponse:
  * - CsvUploadResponse:
+ * - CsvTemplateResponse:
  * - InvestigationStartResponse:
  * - InvestigationSnapshot:
  * - AlertView:
@@ -200,8 +201,10 @@ export interface BatchIngestRequest {
 
 interface IngestRejection {
   index: number;
+  rowNumber?: number | null;
   externalId: string | null;
   code: string;
+  reasonCode?: string | null;
   message: string;
 }
 
@@ -215,12 +218,18 @@ export interface BatchIngestResponse {
 }
 
 export interface CsvUploadResponse {
+  trustedSynthetic?: boolean;
+  draftingMode?: "template" | "mock" | "ai";
   screening?: ScreeningProgress | null;
   jobId: string;
   accepted: number;
   duplicates: number;
   rejected: number;
   sampleErrors: IngestRejection[];
+}
+
+export interface CsvTemplateResponse {
+  content: string;
 }
 
 export interface InvestigationStartResponse {
@@ -283,6 +292,8 @@ export interface SarDraftView {
   structured: Record<string, unknown>;
   citations: RegulationCitation[];
   modelId: string;
+  draftingMode?: "template" | "mock" | "ai";
+  draftingRestriction?: string | null;
   promptVersion: string;
   promptHash: string;
   workflow: WorkflowMode;

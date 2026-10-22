@@ -126,6 +126,9 @@ class InvestigationSnapshotResponse(CamelModel):
     sar_error_code: str | None = Field(
         default=None, description="Persisted safe SAR failure reason."
     )
+    sar_model_id: str | None = Field(
+        default=None, description="Draft producer: template, mock or an eligible model reference."
+    )
     sar_status: str | None = Field(default=None, description="SAR draft status (draft | failed).")
     sar_draft_id: str | None = Field(default=None, description="Persisted SAR draft id, if any.")
     sar_content: str | None = Field(

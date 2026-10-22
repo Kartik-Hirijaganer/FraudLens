@@ -70,6 +70,24 @@ function deterministicStatus(state: InvestigationState, step: string): AgentTime
   return state.status === "completed" || state.status === "failed" ? "skipped" : "pending";
 }
 
+function humanReviewRow(state: InvestigationState): AgentTimelineRow {
+  const decided = state.sarStatus === "approved" || state.sarStatus === "rejected";
+  return {
+    id: "human-review",
+    label: decided ? `Human review ${state.sarStatus}` : "Awaiting human review",
+    purpose: decided
+      ? "An authorized reviewer recorded the SAR decision. Regulatory submission is a separate process."
+      : "Keep the report in draft until an authorized reviewer decides.",
+    status: decided
+      ? "completed"
+      : state.status === "completed" && state.sarDraftId
+        ? "awaiting"
+        : state.status === "completed" || state.status === "failed"
+          ? "skipped"
+          : "pending",
+  };
+}
+
 function singleWriterTimeline(state: InvestigationState): AgentTimelineRow[] {
   const sarStatus: AgentTimelineStatus =
     state.sarStatus === "failed"
@@ -81,12 +99,6 @@ function singleWriterTimeline(state: InvestigationState): AgentTimelineRow[] {
           : state.status === "completed"
             ? "skipped"
             : "pending";
-  const reviewStatus: AgentTimelineStatus =
-    state.status === "completed" && state.sarDraftId
-      ? "awaiting"
-      : state.status === "completed" || state.status === "failed"
-        ? "skipped"
-        : "pending";
   return [
     {
       id: "rules",
@@ -102,16 +114,11 @@ function singleWriterTimeline(state: InvestigationState): AgentTimelineRow[] {
     },
     {
       id: "sar",
-      label: "SAR drafted",
+      label: state.sarModelId === "template" ? "Template draft prepared" : "SAR drafted",
       purpose: "Draft a report from the scored evidence and grounded regulations.",
       status: sarStatus,
     },
-    {
-      id: "human-review",
-      label: "Awaiting human review",
-      purpose: "Keep the report in draft until an authorized reviewer decides.",
-      status: reviewStatus,
-    },
+    humanReviewRow(state),
   ];
 }
 
@@ -182,16 +189,6 @@ export function investigationTimeline(state: InvestigationState): AgentTimelineR
       ),
     );
   }
-  rows.push({
-    id: "human-review",
-    label: "Awaiting human review",
-    purpose: "Keep the report in draft until an authorized reviewer decides.",
-    status:
-      state.status === "completed" && state.sarDraftId
-        ? "awaiting"
-        : state.status === "completed" || state.status === "failed"
-          ? "skipped"
-          : "pending",
-  });
+  rows.push(humanReviewRow(state));
   return rows;
 }

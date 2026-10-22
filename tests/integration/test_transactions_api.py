@@ -87,7 +87,7 @@ async def test_ingest_single_masks_and_returns_201(
     assert resp.status_code == 201
     body = resp.json()
     assert body["currency"] == "USD"  # normalized
-    assert body["originAccount"].endswith("1111")
+    assert body["originAccount"] == "[WITHHELD]"
     assert "4111111111111111" not in body["originAccount"]  # masked-only
     assert body["riskBand"] is None
 
@@ -108,7 +108,7 @@ async def test_ingest_accepts_the_documented_transaction_text_limit(
                 externalId="BOUNDARY",
                 originAccount=boundary,
                 destAccount=boundary,
-                channel="C" * 128,
+                channel="wire",
             ),
         )
         rejected = await client.post(
@@ -117,7 +117,7 @@ async def test_ingest_accepts_the_documented_transaction_text_limit(
         )
 
     assert accepted.status_code == 201
-    assert len(accepted.json()["originAccount"]) == 128
+    assert accepted.json()["originAccount"] == "[WITHHELD]"
     assert rejected.status_code == 422
     assert rejected.json()["code"] == "validation_error"
 
@@ -216,7 +216,7 @@ async def test_batch_partial_accept(
     body = resp.json()
     assert resp.status_code == 200
     assert (body["accepted"], body["rejected"]) == (2, 1)
-    assert body["sampleErrors"][0]["externalId"] == "BAD"
+    assert body["sampleErrors"][0]["externalId"] is None
     assert body["sampleErrors"][0]["code"] == "validation_error"
 
 
