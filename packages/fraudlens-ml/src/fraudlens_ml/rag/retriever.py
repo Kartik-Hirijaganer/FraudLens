@@ -149,6 +149,13 @@ class Retriever:
         """Return an empty result carrying the given degradation mode + rag version."""
         return RetrievalResult(chunks=[], mode=mode, rag_version=self._rag_version)
 
+    def retrieve_local(self, query: str, *, top_k: int = DEFAULT_TOP_K) -> RetrievalResult:
+        """Rank baked public regulations without invoking the embedding provider."""
+        if index_status(self._persist_dir, self._collection) in {"missing", "empty"}:
+            return self._empty("empty")
+        store = connect(self._persist_dir).get_collection(self._collection)
+        return self._lexical(store, query, top_k)
+
     def retrieve(self, query: str, *, top_k: int = DEFAULT_TOP_K) -> RetrievalResult:
         """Return the top-k relevant chunks: vector search, else lexical, else empty."""
         status = index_status(self._persist_dir, self._collection, self._provenance)
