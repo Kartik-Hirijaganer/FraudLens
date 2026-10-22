@@ -210,6 +210,7 @@ def _snapshot(  # noqa: PLR0913, PLR0917 -- projection joins the run's tenant-sc
             else []
         ),
         sar_status=sar.status.value if sar is not None else None,
+        sar_model_id=sar.model_id if sar is not None else None,
         sar_error_code=sar.error_code if sar is not None else None,
         sar_draft_id=str(sar.id) if sar is not None else None,
         sar_content=sar.content if sar is not None else None,
