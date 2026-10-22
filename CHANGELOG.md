@@ -2,17 +2,40 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
-## [0.5.1] - 2026-10-21
+## [0.6.0] - 2026-10-22
 
-Release 0.5.1 makes a CSV upload the start of screening rather than the end of ingestion: every
-accepted row is committed together with its queued investigation, so closing the browser or
-restarting the API cannot drop accepted work. It also repairs the production failures the 0.5.0
-quality gate exposed — a `sar_generation_attempts` table that had never accepted an insert, a
-managed identity the platform could not serve, and a demo whose SARs had nothing to cite — and fixes
-three cost checks that reported success without running.
+Release 0.6.0 makes a CSV upload the start of screening and makes explicit what an upload may carry.
+Every accepted row is committed together with its queued investigation, so closing the browser or
+restarting the API cannot drop accepted work (ADR-031). The file must match a closed eight-column
+grammar, and an upload that cannot prove synthetic provenance is drafted by a local, quality-gated
+template rather than a model provider (ADR-032); only the exact bundled synthetic CSV may reach the
+live drafter (ADR-033). The release also repairs the production failures the 0.5.0 quality gate
+exposed — a `sar_generation_attempts` table that had never accepted an insert, a managed identity
+the platform could not serve, and a demo whose SARs had nothing to cite — and fixes three cost
+checks that reported success without running. Version 0.5.1 was prepared but never tagged or
+deployed; its changes ship here.
+
+Deploying this release applies migrations `0014` and `0015`.
 
 ### Features
 
+- Accept only the eight documented CSV columns under byte, row, column and 128-character field
+  limits enforced while parsing — strict UTF-8, unique complete headers, exact row widths — so a
+  structural error rejects the whole file before anything is stored (ADR-032)
+- Validate uploaded financial facts without altering them: amounts must already be exact positive
+  cents within `Numeric(18,2)`, timestamps need an explicit offset and cannot be in the future, and
+  currency and country come from explicit supported ISO subsets; uploaded features have a closed,
+  empty schema
+- Draft an unverified upload's SAR with a provider-free template that reuses deterministic
+  composition and the production quality gate, retrieves from the baked public regulation index
+  without an embedding provider, labels itself **Template-generated draft**, and records zero
+  provider tokens and cost; a missing index or tampered evidence fails the draft while the score,
+  SHAP and alert remain
+- Serve the bundled synthetic CSV from `GET /api/v1/transactions/template`; only an upload
+  byte-identical to it receives `synthetic-generator` provenance and may reach the live drafter,
+  and model-eligible cases draw account history only from other model-eligible sources (ADR-033)
+- Show a structured CSV validation report on import, and label template drafts in the
+  investigation and alert views without offering a model-input disclosure for them
 - Queue one durable investigation for every accepted CSV row in the same database transaction that
   stores the import and its transactions; duplicates and rejected rows queue nothing, and enqueue
   chunking never truncates the accepted workload (ADR-031)
@@ -43,6 +66,16 @@ three cost checks that reported success without running.
 
 ### Fixes
 
+- Key account history on full account identities instead of last-four display masks, which could
+  merge unrelated accounts: upload external ids and account identities are stored as tenant-scoped,
+  domain-separated SHA-256 digests, both account display fields are withheld, and migration `0015`
+  adds the nullable indexed keys without a speculative backfill
+- Bound a CSV request before buffering it, refuse invalid UTF-8 instead of replacing it, and stop
+  echoing external identifiers in rejection samples, which now carry only row position and a fixed
+  reason
+- Let a model catalog entry clear an inherited generation parameter with an explicit null, so a
+  model that rejects `temperature` is sent none
+- Count untracked files in the changed-line coverage gate, so a new file cannot bypass it
 - Restore the missing `created_at` server default on `sar_generation_attempts`. PostgreSQL had
   rejected every insert, failing each live investigation whose SAR reached persistence; a new
   PostgreSQL drift test compares model-declared defaults against the migrated schema
@@ -79,6 +112,10 @@ three cost checks that reported success without running.
 
 ### Documentation
 
+- Add ADR-032 for upload validation and local SAR templates and ADR-033 for bundled synthetic CSV
+  provenance, with amendments to ADR-026 and ADR-031 pointing at them
+- Add a high-level architecture view, the upload-validation verification record, and a draw.io MCP
+  runbook with the matching project MCP server entry
 - Add ADR-031 for atomic upload screening; it supersedes ADR-027's enqueue-time deadline for
   automatic upload runs only
 - Add the CSV screening runbook covering the user workflow, worker and inline modes, recovery, and
