@@ -711,6 +711,18 @@ components:
       - entry
       title: ConfigPatchResponse
       type: object
+    CsvTemplateResponse:
+      additionalProperties: false
+      description: The exact synthetic CSV to save and upload unchanged.
+      properties:
+        content:
+          description: UTF-8 CSV contents; changes invalidate synthetic trust.
+          title: Content
+          type: string
+      required:
+      - content
+      title: CsvTemplateResponse
+      type: object
     CsvUploadResponse:
       additionalProperties: false
       description: 'Outcome of a CSV upload: the recorded job id, counts, and bounded
@@ -721,6 +733,16 @@ components:
           minimum: 0.0
           title: Accepted
           type: integer
+        draftingMode:
+          default: template
+          description: Drafting route for newly accepted flagged rows, not a quality
+            verdict.
+          enum:
+          - template
+          - mock
+          - ai
+          title: Draftingmode
+          type: string
         duplicates:
           description: Rows skipped as already-existing.
           minimum: 0.0
@@ -746,6 +768,11 @@ components:
           - $ref: '#/components/schemas/ScreeningProgress'
           - type: 'null'
           description: Initial background-screening progress.
+        trustedSynthetic:
+          default: false
+          description: Uploaded bytes match the bundled server-owned synthetic CSV.
+          title: Trustedsynthetic
+          type: boolean
       required:
       - jobId
       - accepted
@@ -975,7 +1002,7 @@ components:
           anyOf:
           - type: string
           - type: 'null'
-          description: The row's externalId when known (no other values).
+          description: Always null; uploaded identifiers are never reflected in errors.
           title: Externalid
         index:
           description: Zero-based position of the rejected row.
@@ -986,6 +1013,20 @@ components:
           description: Fixed, PHI-free reason for the rejection.
           title: Message
           type: string
+        reasonCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Stable value-free canonical reason, such as precision_exceeded.
+          title: Reasoncode
+        rowNumber:
+          anyOf:
+          - minimum: 2.0
+            type: integer
+          - type: 'null'
+          description: Starting physical CSV line including header; null for JSON
+            batches.
+          title: Rownumber
       required:
       - index
       - code
@@ -1127,6 +1168,12 @@ components:
           - type: 'null'
           description: Persisted safe SAR failure reason.
           title: Sarerrorcode
+        sarModelId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Draft producer: template, mock or an eligible model reference.'
+          title: Sarmodelid
         sarStatus:
           anyOf:
           - type: string
@@ -1861,6 +1908,21 @@ components:
           format: date-time
           title: Createdat
           type: string
+        draftingMode:
+          default: ai
+          description: Actual generation mode; template runs locally without a provider.
+          enum:
+          - template
+          - mock
+          - ai
+          title: Draftingmode
+          type: string
+        draftingRestriction:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Safe provider restriction shown to the reviewer.
+          title: Draftingrestriction
         modelId:
           description: Model reference that produced the draft (or 'mock').
           title: Modelid
@@ -2232,7 +2294,8 @@ components:
             type: number
           - pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
             type: string
-          description: Transaction amount (must be positive).
+          description: Positive finite exact-cent amount fitting Numeric(18,2); never
+            rounded.
           title: Amount
         channel:
           description: Origination channel.
@@ -2259,18 +2322,17 @@ components:
           title: Destaccount
           type: string
         externalId:
-          description: Caller-unique id (dedup key).
+          description: Caller-unique dedup key; persisted and displayed as an opaque
+            reference.
           maxLength: 128
           minLength: 1
           title: Externalid
           type: string
         features:
-          additionalProperties: true
-          description: Optional extra model features (stored in JSONB).
-          title: Features
-          type: object
+          $ref: '#/components/schemas/UploadFeatures'
+          description: Closed empty object; features are derived server-side.
         occurredAt:
-          description: When the transaction occurred (not future).
+          description: ISO-8601 occurrence with an explicit timezone; cannot be future.
           format: date-time
           title: Occurredat
           type: string
@@ -2366,7 +2428,8 @@ components:
           title: Destaccount
           type: string
         externalId:
-          description: Caller-supplied unique id.
+          description: Opaque upload reference; trusted imports retain their source
+            id.
           title: Externalid
           type: string
         ingestedAt:
@@ -2431,6 +2494,13 @@ components:
           title: Trigger
           type: string
       title: TriggerTrainingRequest
+      type: object
+    UploadFeatures:
+      additionalProperties: false
+      description: 'Closed feature contract: upload features are derived server-side,
+        never caller text.'
+      properties: {}
+      title: UploadFeatures
       type: object
     UserInviteRequest:
       additionalProperties: false
@@ -2533,7 +2603,7 @@ components:
 info:
   summary: FraudLens AML fraud investigation API.
   title: FraudLens
-  version: 0.5.1
+  version: 0.6.0
 openapi: 3.1.0
 paths:
   /api/v1/agencies/{agencyId}:
@@ -3638,11 +3708,62 @@ paths:
       summary: Get Screening Progress
       tags:
       - transactions
+  /api/v1/transactions/template:
+    get:
+      description: Return the bundled synthetic CSV; upload unchanged to retain verified
+        provenance.
+      operationId: download_csv_template_api_v1_transactions_template_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsvTemplateResponse'
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Download Csv Template
+      tags:
+      - transactions
   /api/v1/transactions/upload:
     post:
-      description: Ingest a text/csv upload (partial-accept); enforce size/row caps;
-        record a job.
+      description: 'Validate strict UTF-8 CSV before atomic transaction and screening
+        admission.
+
+
+        Required unique headers: externalId, amount, currency, occurredAt, originAccount,
+
+        destAccount, channel, country. No additional columns or uploaded features
+        are accepted.
+
+        Byte, row, column and field limits apply while reading/parsing. Structural
+        errors reject
+
+        the file; invalid facts reject individual rows without reflecting values or
+        identifiers.
+
+        Amounts require exact positive cents; timestamps require an explicit timezone
+        and cannot
+
+        be future dates. Codes and channel must belong to the documented supported
+        vocabularies.
+
+        Only exact copies of the backend-bundled synthetic CSV receive synthetic-generator
+        provenance
+
+        and may use live LLM drafting when enabled. Other uploads retain api-upload
+        provenance and
+
+        use local templates. CSV retrieval remains local; validation alone never authorizes
+        AI.'
       operationId: upload_csv_api_v1_transactions_upload_post
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              format: binary
+              type: string
+        required: true
       responses:
         '202':
           content:
