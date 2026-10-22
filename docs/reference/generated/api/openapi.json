@@ -3339,7 +3339,7 @@
   "info": {
     "summary": "FraudLens AML fraud investigation API.",
     "title": "FraudLens",
-    "version": "0.5.0"
+    "version": "0.5.1"
   },
   "openapi": "3.1.0",
   "paths": {
