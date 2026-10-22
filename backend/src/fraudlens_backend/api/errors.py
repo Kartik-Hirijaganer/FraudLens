@@ -117,8 +117,17 @@ async def _validation_exception_handler(request: Request, exc: Exception) -> Res
     validation_exc = cast(RequestValidationError, exc)
     details = [
         {
-            "field": ".".join(str(part) for part in error.get("loc", ())),
-            "message": str(error.get("msg", "invalid")),
+            # Unknown keys are input too. Never reflect an extra-field name or a custom
+            # validator's interpolated message, which may contain sensitive values.
+            "field": ".".join(
+                str(part)
+                for part in (
+                    error.get("loc", ())[:-1]
+                    if error.get("type") == "extra_forbidden"
+                    else error.get("loc", ())
+                )
+            ),
+            "message": str(error.get("type", "invalid")),
         }
         for error in validation_exc.errors()
     ]
