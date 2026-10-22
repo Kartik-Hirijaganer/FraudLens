@@ -354,6 +354,17 @@ class AppSettings(
         gt=0,
         description="Max accepted /transactions/upload body size in bytes (413 above it).",
     )
+    ingest_csv_max_columns: int = Field(
+        default=8,
+        gt=0,
+        description="Maximum CSV columns; the eight documented headers are required.",
+    )
+    ingest_csv_max_field_chars: int = Field(
+        default=128,
+        gt=0,
+        le=128,
+        description="Maximum decoded characters per CSV cell during parsing.",
+    )
     ingest_csv_max_rows: int = Field(
         default=10_000,
         gt=0,
