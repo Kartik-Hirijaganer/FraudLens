@@ -156,13 +156,13 @@ def merge_params(
     card_params: GenerationParams,
     overrides: GenerationParams | None,
 ) -> GenerationParams:
-    """Merge params with precedence overrides > card > defaults."""
+    """Merge overrides > card > defaults; explicit null clears an inherited parameter."""
     data: dict[str, object] = {}
     if defaults is not None:
         data.update(defaults.model_dump(exclude_none=True))
-    data.update(card_params.model_dump(exclude_none=True))
+    data.update(card_params.model_dump(exclude_unset=True))
     if overrides is not None:
-        data.update(overrides.model_dump(exclude_none=True))
+        data.update(overrides.model_dump(exclude_unset=True))
     return GenerationParams.model_validate(data)
 
 
