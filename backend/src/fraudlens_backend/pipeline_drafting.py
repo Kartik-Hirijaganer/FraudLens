@@ -34,7 +34,13 @@ from fraudlens_backend.pipeline_ports import RetrieverAdapter
 from fraudlens_backend.sar.budget import SarBudgetExceededError
 from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
 from fraudlens_backend.sar.drafter_replay import PersistedSarDrafter, resume_drafter
-from fraudlens_backend.sar.egress import EgressBlockedError, load_egress_policy, project_for_model
+from fraudlens_backend.sar.drafter_template import TemplateSarDrafter
+from fraudlens_backend.sar.egress import (
+    EgressBlockedError,
+    load_egress_policy,
+    project_for_model,
+    source_allows_model,
+)
 from fraudlens_backend.settings import AppSettings
 from fraudlens_ml.sar import (
     SarDrafter,
@@ -59,9 +65,13 @@ class DeferredUploadDrafter:
     async def draft(self, sar_input: SarInput) -> AsyncIterator[SarStreamEvent]:
         """Check source before admission or provider construction; do not fall back on refusal."""
         try:
-            if self._live:
-                project_for_model(sar_input, load_egress_policy())
-            drafter = await self._build()
+            policy = load_egress_policy()
+            if not source_allows_model(sar_input.source, policy):
+                drafter: SarDrafter = TemplateSarDrafter(egress_policy=policy)
+            else:
+                if self._live:
+                    project_for_model(sar_input, policy)
+                drafter = await self._build()
             async for event in drafter.draft(sar_input):
                 yield event
         except (
