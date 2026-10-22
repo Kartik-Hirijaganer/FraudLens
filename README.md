@@ -36,7 +36,7 @@ The **[full 47-second walkthrough](docs/demo/fraudlens-walkthrough.mp4)** plays 
 FraudLens is a personal AML investigation project that turns synthetic transactions into explainable risk assessments and citation-backed Suspicious Activity Report (SAR) drafts. It connects detection, investigation, and review while keeping analysts in control of final decisions.
 
 * **Detect and explain risk:** Rules and XGBoost score transactions; SHAP explains what drives each score.
-* **Investigate and draft:** Flagged transactions trigger regulatory retrieval and a multi-agent workflow to draft SAR narratives with supporting citations.
+* **Screen and investigate:** CSV uploads automatically queue every accepted transaction for rules, XGBoost and SHAP analysis. Threshold crossings create alerts and attempt regulatory retrieval and SAR drafting under the existing egress and spend controls. Open saved results or explicitly re-run an investigation; [workflow and limitations](docs/runbooks/transaction-screening.md).
 * **Review and approve:** Dashboards support investigation tracking, alert decisions, and human approval of SARs.
 * **Manage model changes:** Human-approved rollouts support shadow testing, canary releases, and rollback.
 * **Trace decisions:** Tenant isolation and audit trails track model versions, workflow changes, and reviewer actions.
