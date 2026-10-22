@@ -40,7 +40,7 @@ def _case(make_sar_input, **overrides):
     sar_input = make_sar_input(**overrides)
     model_input = project_for_model(sar_input, load_egress_policy())
     catalog = build_evidence_catalog(model_input)
-    return sar_input, catalog, _compose_content(sar_input, model_input, catalog)
+    return sar_input, catalog, _compose_content(model_input, catalog)
 
 
 def _evaluate(gate: SarQualityGate, sar_input, catalog, content, **kwargs):
