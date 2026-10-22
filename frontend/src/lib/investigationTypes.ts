@@ -131,6 +131,7 @@ export interface InvestigationState {
   riskBand?: string;
   sarDraftId?: string;
   sarStatus?: string;
+  sarModelId?: string;
   alertId?: string;
   workflowMode: WorkflowMode;
   graphVersion?: string;
@@ -167,6 +168,7 @@ export interface InvestigationSnapshotData {
   riskBand: string | null;
   sarDraftId: string | null;
   sarStatus: string | null;
+  sarModelId?: string | null;
   sarErrorCode?: string | null;
   sarContent: string | null;
   alertId: string | null;
