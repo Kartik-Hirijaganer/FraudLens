@@ -18,6 +18,8 @@ Key classes:
 
 Key functions:
 - load_egress_policy: load config/llm/egress.yml and bind its committed corpus.
+- project_for_evidence: prepare closed local facts without authorizing external egress.
+- source_allows_model: evaluate immutable source against the synthetic-only policy.
 - project_for_model: derive eligibility from recorded source and build SarModelInput.
 - project_agent_tool_result: allowlist and alias an agent tool result before resubmission.
 - sanitize_model_payload: mask and scrub model output before another model receives it.
@@ -47,6 +49,7 @@ from pydantic.alias_generators import to_camel
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_core import AmlRuleType, RiskBand, TransactionDirection
 from fraudlens_core.phi import mask_text
+from fraudlens_core.upload_validation import COUNTRIES, CURRENCIES, MODEL_CHANNELS
 from fraudlens_ml.rag.citations import escape_as_data
 from fraudlens_ml.rag.ingest import chunk_corpus, load_corpus
 from fraudlens_ml.sar import SarInput
@@ -89,7 +92,9 @@ class SarModelAggregate(BaseModel):
 
     model_config = _MODEL_CONFIG
     name: str = Field(..., min_length=1, description="Controlled aggregate name.")
-    value: float = Field(..., description="Backend-calculated aggregate value.")
+    value: float = Field(
+        ..., allow_inf_nan=False, description="Backend-calculated aggregate value."
+    )
 
 
 class SarModelRuleHit(BaseModel):
@@ -106,8 +111,10 @@ class SarModelDriver(BaseModel):
 
     model_config = _MODEL_CONFIG
     feature: str = Field(..., min_length=1, description="Canonical served feature name.")
-    value: float = Field(..., description="Feature value supplied to the model.")
-    shap_value: float = Field(..., description="Signed SHAP contribution.")
+    value: float = Field(
+        ..., allow_inf_nan=False, description="Feature value supplied to the model."
+    )
+    shap_value: float = Field(..., allow_inf_nan=False, description="Signed SHAP contribution.")
 
 
 class SarModelRegulation(BaseModel):
@@ -200,7 +207,6 @@ class EgressPolicy(BaseModel):
     )
     aliases: AliasPolicy = Field(..., description="Case-scoped aliases.")
     safe_placeholder: str = Field(..., min_length=1, description="Replacement for unsafe text.")
-    categorical_value_pattern: str = Field(..., min_length=1, description="Safe category regex.")
     forbidden_patterns: tuple[PatternRule, ...] = Field(..., description="Outbound byte detectors.")
     detectors: tuple[Literal["deterministic"], ...] = Field(
         ..., min_length=1, description="Required deterministic detector layer."
@@ -267,23 +273,39 @@ def _matches_forbidden(text: str, policy: EgressPolicy) -> bool:
 
 
 def _safe_category(value: str, policy: EgressPolicy) -> str:
-    return (
-        value if re.fullmatch(policy.categorical_value_pattern, value) else policy.safe_placeholder
-    )
+    return value if value in {band.value for band in RiskBand} else policy.safe_placeholder
 
 
 def project_for_model(sar_input: SarInput, policy: EgressPolicy) -> SarModelInput:
     """Build the only model-authorized SAR input from recorded source provenance."""
-    data_class = policy.source_data_classes.get(sar_input.source)
-    if (
-        sar_input.source not in policy.allowed_sources
-        or data_class not in policy.allowed_data_classes
-    ):
+    if not source_allows_model(sar_input.source, policy):
         raise EgressBlockedError("egress_source_not_allowed")
+    return project_for_evidence(sar_input, policy)
+
+
+def source_allows_model(source: str, policy: EgressPolicy) -> bool:
+    """Check only persisted provenance; local evidence preparation never grants eligibility."""
+    return (
+        source in policy.allowed_sources
+        and policy.source_data_classes.get(source) in policy.allowed_data_classes
+    )
+
+
+def project_for_evidence(sar_input: SarInput, policy: EgressPolicy) -> SarModelInput:
+    """Prepare closed local evidence; this function grants NO provider authorization.
+
+    Every live path must call project_for_model, which checks persisted source first.
+    The local template uses the same field selection, aliasing and corpus verification.
+    """
     unknowns: list[str] = []
-    channel = _safe_category(sar_input.channel, policy)
+    channel = sar_input.channel if sar_input.channel in MODEL_CHANNELS else policy.safe_placeholder
     if channel == policy.safe_placeholder and sar_input.channel != policy.safe_placeholder:
         unknowns.append("transaction.channel")
+    if sar_input.currency not in CURRENCIES | {
+        "XXX",
+        "XBT",
+    } or sar_input.country not in COUNTRIES | {"ZZ"}:
+        raise EgressBlockedError("egress_invalid_transaction_facts")
     drivers = tuple(
         SarModelDriver(feature=item.feature, value=item.value, shap_value=item.shap_value)
         for item in sar_input.top_features
