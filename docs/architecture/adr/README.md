@@ -42,3 +42,5 @@ another document.
 | ADR-029 | Recurring operational budget: hard caps bound the permanent URL; AKS stays ephemeral | Accepted (2026-09-16), amended (2026-09-18) | [ADR-029-recurring-operational-budget.md](ADR-029-recurring-operational-budget.md) |
 | ADR-030 | SAR drafting is a quality-gated model cascade that fails explicitly | Accepted (2026-09-18) | [ADR-030-quality-gated-sar-model-cascade.md](ADR-030-quality-gated-sar-model-cascade.md) |
 | ADR-031 | CSV acceptance includes durable screening work and explicit reruns | Accepted (2026-10-21) | [ADR-031-atomic-upload-screening.md](ADR-031-atomic-upload-screening.md) |
+| ADR-032 | Closed upload validation, full account keys and provider-free SAR templates | Accepted (2026-10-21) | [ADR-032-upload-validation-and-local-sar-templates.md](ADR-032-upload-validation-and-local-sar-templates.md) |
+| ADR-033 | Exact bundled synthetic CSV provenance and existing live SAR drafting | Accepted (2026-10-22) | [ADR-033-bundled-synthetic-csv-provenance.md](ADR-033-bundled-synthetic-csv-provenance.md) |
