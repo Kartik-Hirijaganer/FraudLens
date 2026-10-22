@@ -81,7 +81,12 @@ class GenerationParams(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    temperature: float | None = Field(default=None, ge=0, le=2, description="Sampling temperature.")
+    temperature: float | None = Field(
+        default=None,
+        ge=0,
+        le=2,
+        description="Sampling temperature; explicit null clears an inherited value.",
+    )
     max_tokens: int | None = Field(default=None, ge=1, description="Maximum output tokens.")
     top_p: float | None = Field(default=None, ge=0, le=1, description="Nucleus sampling value.")
     stop: list[str] | None = Field(
