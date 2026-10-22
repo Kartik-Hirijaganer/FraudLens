@@ -28,6 +28,7 @@ from fraudlens_backend.db.models import (
     RunStatus,
     SystemConfig,
     Transaction,
+    TransactionSource,
 )
 from fraudlens_backend.pipeline_wiring import build_pipeline_components, build_pipeline_deps
 from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
@@ -62,6 +63,7 @@ def _transaction(agency_id: uuid.UUID, external_id: str) -> Transaction:
         country="US",
         features={},
         feature_hash="h",
+        source=TransactionSource.SYNTHETIC_GENERATOR,
     )
 
 
