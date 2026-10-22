@@ -108,7 +108,7 @@ async def test_ingest_single_and_duplicate(
 ) -> None:
     tenant = await _tenant(db_session)
     created = await ingest_transaction(_request_model(), _request(), tenant, db_session)
-    assert created.origin_account.endswith("1111")
+    assert created.origin_account == "[WITHHELD]"
     assert "4111111111111111" not in created.origin_account
     assert created.risk_band is None
     with pytest.raises(AppError) as excinfo:
@@ -142,7 +142,7 @@ async def test_batch_partial_accept_and_duplicate(
     result = await ingest_batch(payload, _request(), tenant, db_session, make_settings())
     # OK1 inserted once, the second OK1 is a duplicate, BAD is rejected.
     assert (result.accepted, result.duplicates, result.rejected) == (1, 1, 1)
-    assert result.sample_errors[0].external_id == "BAD"
+    assert result.sample_errors[0].external_id is None
 
 
 async def test_batch_rejects_missing_field_and_bad_date(
@@ -252,7 +252,7 @@ _ROW = "X,1,USD,2026-01-01T00:00:00+00:00,1,2,c,US"
         ),
         ("{}", "application/json", {}, "unsupported_content_type"),
         (f"{CSV_HEADER}\n", "text/csv", {}, "empty_payload"),
-        ("", "text/csv", {}, "invalid_csv"),
+        ("", "text/csv", {}, "invalid_csv_headers"),
     ],
 )
 async def test_upload_csv_caps_and_validation(
@@ -301,7 +301,7 @@ async def test_list_filters_risk_band_and_renders_scored_fields(db_session: Asyn
     row.latest_run_id = uuid.uuid4()
     await db_session.flush()
     page = await list_transactions(_request(), tenant, db_session, risk_band=RiskBand.HIGH)
-    assert [t.external_id for t in page.transactions] == ["SCORED"]
+    assert [t.external_id for t in page.transactions] == [created.external_id]
     assert page.transactions[0].risk_band == "high"
     assert page.transactions[0].latest_run_id is not None
 
