@@ -46,9 +46,11 @@ from fraudlens_backend.db.models import (
     RunStatus,
     Severity,
     Transaction,
+    TransactionSource,
 )
 from fraudlens_backend.pipeline_wiring import RunManager
 from fraudlens_core import RiskBand, TransactionDirection
+from fraudlens_core.upload_validation import identity_digest
 from fraudlens_ml.rag.citations import escape_as_data
 from fraudlens_ml.rag.ingest import chunk_corpus, load_corpus
 from fraudlens_ml.sar import (
@@ -211,6 +213,10 @@ async def _seed_transaction(
         currency="USD",
         occurred_at=occurred_at,
         origin_account=account or f"masked-{label}",
+        origin_account_key=identity_digest(
+            account or f"masked-{label}", tenant=str(agency_id), domain="account"
+        ),
+        source=TransactionSource.SYNTHETIC_GENERATOR,
         dest_account=f"counterparty-{label}",
         channel="wire",
         country="US",
