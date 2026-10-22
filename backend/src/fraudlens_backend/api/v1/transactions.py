@@ -14,6 +14,7 @@ Key classes:
 Key functions:
 - ingest_transaction: POST /transactions — ingest one (201; 409 on duplicate).
 - ingest_batch: POST /transactions/batch — ingest many (partial-accept; dryRun).
+- download_csv_template:
 - upload_csv: POST /transactions/upload — CSV upload (size/row caps; records a job).
 - list_transactions: GET /transactions — keyset page (newest first), optional riskBand.
 - get_screening_progress:
@@ -21,7 +22,7 @@ Key functions:
 
 Notes:
 - The CSV upload reads the raw text/csv body (no multipart dependency); byte/row caps come
-from settings (413), and unknown columns are folded into the masked features JSONB.
+from settings (413); headers and uploaded features are closed.
 - A cross-tenant transaction id resolves to None (tenant-scoped get) and returns 404 with
 the same body as a truly missing row — no existence leak (plan §6.4).
 - Each successful ingest path (single/batch/CSV) writes a PHI-free `audit_logs` row (ids + counts
@@ -31,7 +32,6 @@ only, never an account/value) for the consistent audit trail (plan §11.7, §16 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Request
@@ -59,6 +59,7 @@ from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.transactions import (
     BatchIngestRequest,
     BatchIngestResponse,
+    CsvTemplateResponse,
     CsvUploadResponse,
     IngestRejection,
     InvestigationSummary,
@@ -71,9 +72,9 @@ from fraudlens_backend.services.investigation_start import create_investigation_
 from fraudlens_backend.services.screening import investigation_summaries, screening_progress
 from fraudlens_backend.services.transaction_ingest import (
     _append_sample,
-    _as_str,
     _mapping_to_canonical,
     _read_csv,
+    synthetic_csv_template,
 )
 from fraudlens_core import RiskBand, SchemaValidationError
 from fraudlens_core.phi import MaskingReport
@@ -220,17 +221,14 @@ async def ingest_batch(
     created: list[TransactionResponse] = []
     samples: list[IngestRejection] = []
     for index, item in enumerate(payload.transactions):
-        external_id = item.get("externalId") if isinstance(item, Mapping) else None
         try:
             canonical = _mapping_to_canonical(item)
         except SchemaValidationError as exc:
             rejected += 1
-            _append_sample(
-                samples, index, _as_str(external_id), exc, settings.ingest_sample_errors_limit
-            )
+            _append_sample(samples, index, exc, settings.ingest_sample_errors_limit)
             continue
         if payload.dry_run:
-            existing = await repo.get_by_external_id(canonical.external_id)
+            existing = await repo.get_by_external_id(repo.upload_external_id(canonical.external_id))
             duplicates += existing is not None
             accepted += existing is None
             continue
@@ -270,12 +268,54 @@ async def ingest_batch(
     )
 
 
-@router.post("/transactions/upload", response_model=CsvUploadResponse, status_code=202)
+@router.get("/transactions/template", response_model=CsvTemplateResponse)
+async def download_csv_template(_tenant: IngestTenantDep) -> CsvTemplateResponse:
+    """Return the bundled synthetic CSV; upload unchanged to retain verified provenance."""
+    try:
+        return CsvTemplateResponse(content=synthetic_csv_template().decode("utf-8"))
+    except OSError as exc:
+        raise AppError("csv_template_unavailable") from exc
+
+
+@router.post(
+    "/transactions/upload",
+    response_model=CsvUploadResponse,
+    status_code=202,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}},
+        }
+    },
+)
 async def upload_csv(
     request: Request, tenant: IngestTenantDep, session: DbSessionDep, settings: SettingsDep
 ) -> CsvUploadResponse:
-    """Ingest a text/csv upload (partial-accept); enforce size/row caps; record a job."""
-    rows = await _read_csv(request, settings.ingest_csv_max_bytes, settings.ingest_csv_max_rows)
+    """Validate strict UTF-8 CSV before atomic transaction and screening admission.
+
+    Required unique headers: externalId, amount, currency, occurredAt, originAccount,
+    destAccount, channel, country. No additional columns or uploaded features are accepted.
+    Byte, row, column and field limits apply while reading/parsing. Structural errors reject
+    the file; invalid facts reject individual rows without reflecting values or identifiers.
+    Amounts require exact positive cents; timestamps require an explicit timezone and cannot
+    be future dates. Codes and channel must belong to the documented supported vocabularies.
+    Only exact copies of the backend-bundled synthetic CSV receive synthetic-generator provenance
+    and may use live LLM drafting when enabled. Other uploads retain api-upload provenance and
+    use local templates. CSV retrieval remains local; validation alone never authorizes AI.
+    """
+    document = await _read_csv(
+        request,
+        settings.ingest_csv_max_bytes,
+        settings.ingest_csv_max_rows,
+        settings.ingest_csv_max_columns,
+        settings.ingest_csv_max_field_chars,
+    )
+    rows = document.rows
+    source = (
+        TransactionSource.SYNTHETIC_GENERATOR
+        if document.trusted_synthetic
+        else TransactionSource.API_UPLOAD
+    )
     repo = _repo(tenant, session)
     writer = audit_writer(tenant, session, request)
     actor_id = optional_actor(tenant)
@@ -285,7 +325,7 @@ async def upload_csv(
         agency_id=uuid.UUID(tenant.agency_id),
         job_type=JobType.CSV_IMPORT,
         status=JobStatus.SUCCEEDED,
-        payload={"rowCount": len(rows)},
+        payload={"rowCount": len(rows), "trustedSynthetic": document.trusted_synthetic},
         attempts=1,
     )
     session.add(job)
@@ -293,18 +333,18 @@ async def upload_csv(
     accepted_ids: list[uuid.UUID] = []
     for index, row in enumerate(rows):
         try:
-            canonical = _mapping_to_canonical(row)
+            canonical = _mapping_to_canonical(row.values)
         except SchemaValidationError as exc:
             rejected += 1
             _append_sample(
                 samples,
                 index,
-                _as_str(row.get("externalId")),
                 exc,
                 settings.ingest_sample_errors_limit,
+                row_number=row.row_number,
             )
             continue
-        outcome = await repo.ingest(canonical, source=TransactionSource.API_UPLOAD)
+        outcome = await repo.ingest(canonical, source=source, uploaded=True)
         accepted += outcome.created
         duplicates += not outcome.created
         if outcome.created:
@@ -345,6 +385,10 @@ async def upload_csv(
     await session.commit()
     return CsvUploadResponse(
         job_id=job_id,
+        trusted_synthetic=document.trusted_synthetic,
+        drafting_mode=("ai" if settings.llm_mode == "live" else "mock")
+        if document.trusted_synthetic
+        else "template",
         screening=ScreeningProgress(
             total=accepted, pending=accepted, poll_after_ms=settings.run_event_poll_max_ms
         ),
