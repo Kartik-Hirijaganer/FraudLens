@@ -107,13 +107,15 @@ class ExplainerAdapter:
 class RetrieverAdapter:
     """Adapts the heavy `Retriever` (+ citation extraction + fencing) onto `RetrieverPort`."""
 
-    def __init__(self, retriever: Retriever) -> None:
+    def __init__(self, retriever: Retriever, *, local_only: bool = False) -> None:
         """Bind the FinCEN/BSA retriever the investigation cites from."""
         self._retriever = retriever
+        self._local_only = local_only
 
     def retrieve(self, query: str, *, top_k: int) -> RagResult:
         """Retrieve the grounded, escaped citations the SAR prompt renders its block from."""
-        result = self._retriever.retrieve(query, top_k=top_k)
+        retrieve = self._retriever.retrieve_local if self._local_only else self._retriever.retrieve
+        result = retrieve(query, top_k=top_k)
         citations = tuple(
             SarCitation(
                 citation=item.citation, title=item.title, source=item.source, snippet=item.snippet
