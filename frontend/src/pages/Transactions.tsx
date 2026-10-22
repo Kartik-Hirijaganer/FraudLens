@@ -27,15 +27,23 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { ModelSelector } from "../components/ModelSelector";
+import { CsvValidationReport } from "../components/CsvValidationReport";
 import { ScreeningStatus } from "../components/ScreeningStatus";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { EmptyState } from "../components/feedback/EmptyState";
 import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
 import { DataTable } from "../components/ui/DataTable";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Pagination } from "../components/ui/Pagination";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
-import { ApiError, apiClient, type ApiClient, type TransactionResponse } from "../lib/api";
+import {
+  ApiError,
+  apiClient,
+  type ApiClient,
+  type TransactionResponse,
+  type CsvUploadResponse,
+} from "../lib/api";
 import { formatModelVersion } from "../lib/format";
 import { RISK_BAND_OPTIONS } from "../lib/options";
 import { navigate, paths, useHashRoute } from "../lib/router";
@@ -61,6 +69,8 @@ interface TransactionsProps {
 export function Transactions({ client = apiClient }: TransactionsProps) {
   const route = useHashRoute();
   const routeRiskBand = route.name === "transactions" ? (route.riskBand ?? "") : "";
+  const [uploadReport, setUploadReport] = useState<CsvUploadResponse | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [riskBand, setRiskBand] = useState(routeRiskBand);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -174,7 +184,8 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
 
   async function importCsv(file: File): Promise<void> {
     try {
-      const result = await client.uploadCsv(await file.text());
+      const result = await client.uploadCsv(file);
+      setUploadReport(result);
       notify({
         tone: "positive",
         title:
@@ -199,6 +210,23 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
     event.target.value = "";
   }
 
+  async function downloadTemplate(): Promise<void> {
+    setDownloading(true);
+    try {
+      const template = await client.getCsvTemplate();
+      const url = URL.createObjectURL(new Blob([template.content], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "fraudlens-synthetic.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      notifyError(caught);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <section className="gap-xl flex flex-col">
       <PageHeader
@@ -206,6 +234,23 @@ export function Transactions({ client = apiClient }: TransactionsProps) {
         description="CSV imports are screened automatically. Open saved results or explicitly re-run an investigation."
         actions={canIngestTransactions ? <ImportButton onFileChange={onFileChange} /> : undefined}
       />
+      <p className="text-body-sm text-body">
+        Use synthetic demo data only. Upload the demo CSV unchanged for verified synthetic
+        provenance and AI eligibility. Other files stay local; validation does not prove anonymity.
+      </p>
+      {canIngestTransactions ? (
+        <div>
+          <Button
+            variant="tertiary"
+            size="sm"
+            disabled={downloading}
+            onClick={() => void downloadTemplate()}
+          >
+            {downloading ? "Downloading…" : "Download synthetic demo CSV"}
+          </Button>
+        </div>
+      ) : null}
+      {uploadReport ? <CsvValidationReport report={uploadReport} /> : null}
       <ScreeningStatus
         progress={screening.progress}
         error={screening.error}
@@ -331,7 +376,7 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search source ID, amount, or account"
+        placeholder="Search reference, amount, or country"
         className="rounded-pill border-ink bg-canvas text-body-md text-ink placeholder:text-mute py-md pl-3xl pr-lg w-full border"
       />
     </div>
