@@ -68,7 +68,6 @@ aliases:
   subject: subject-account
   counterparty: counterparty-account
 safe_placeholder: unknown
-categorical_value_pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
 forbidden_patterns:
   - name: email
     pattern: "(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b"
