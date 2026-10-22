@@ -64,6 +64,7 @@ export function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
         sampleErrors: [],
       }),
     ),
+    getCsvTemplate: vi.fn(() => Promise.resolve({ content: "synthetic CSV" })),
     startInvestigation: vi.fn(() => Promise.resolve({ runId: "run-1" })),
     getInvestigation: vi.fn(() => Promise.resolve(snapshot())),
     regenerateSar: vi.fn(() => Promise.resolve(sarDraft({ version: 2 }))),
