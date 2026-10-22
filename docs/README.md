@@ -12,6 +12,8 @@ repo root) — **Golden Rule 5**.
 | `runbooks/` | Operational procedures, incident response, on-call |
 | `reference/` | Specs, regulatory / AML references, external material |
 
+For agent-assisted diagram editing, see the [draw.io MCP setup runbook](runbooks/drawio-mcp.md).
+
 ## Generated documents
 
 Some documents here are **generated artifacts**: they are committed so their numbers are
