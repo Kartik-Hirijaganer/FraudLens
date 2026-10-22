@@ -123,6 +123,9 @@ class InvestigationSnapshotResponse(CamelModel):
         default_factory=list,
         description="Exact PHI-free persisted RAG chunks supplied to the drafting workflow.",
     )
+    sar_error_code: str | None = Field(
+        default=None, description="Persisted safe SAR failure reason."
+    )
     sar_status: str | None = Field(default=None, description="SAR draft status (draft | failed).")
     sar_draft_id: str | None = Field(default=None, description="Persisted SAR draft id, if any.")
     sar_content: str | None = Field(

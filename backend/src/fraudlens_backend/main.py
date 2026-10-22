@@ -46,6 +46,7 @@ from fraudlens_backend.db.session import (
 from fraudlens_backend.middleware.gateway import install_gateway
 from fraudlens_backend.middleware.logging import configure_logging
 from fraudlens_backend.pipeline_wiring import RunManager, build_pipeline_components
+from fraudlens_backend.runs.lifespan import upload_worker_lifespan
 from fraudlens_backend.runs.reaper import reap_stale_runs
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_backend.telemetry import init_telemetry
@@ -74,7 +75,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 await reap_stale_runs(session, resolved)
                 await session.commit()
         try:
-            yield
+            async with upload_worker_lifespan(
+                _app.state.db_sessionmaker, _app.state.pipeline_components, resolved
+            ):
+                yield
         finally:
             if engine is not None:
                 await dispose_engine(engine)

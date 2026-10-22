@@ -69,3 +69,33 @@ describe("DataTable", () => {
     expect(onRowClick).not.toHaveBeenCalled();
   });
 });
+
+it("preserves native button keyboard activation without firing the row", async () => {
+  const action = vi.fn();
+  const rowAction = vi.fn();
+  render(
+    <DataTable
+      caption="Rows"
+      columns={[
+        {
+          id: "action",
+          header: "Action",
+          cell: () => (
+            <button type="button" onClick={action}>
+              Act
+            </button>
+          ),
+        },
+      ]}
+      rows={rows}
+      rowKey={(row) => row.id}
+      onRowClick={rowAction}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.tab();
+  await user.tab();
+  await user.keyboard("{Enter} ");
+  expect(action).toHaveBeenCalledTimes(2);
+  expect(rowAction).not.toHaveBeenCalled();
+});

@@ -23,6 +23,7 @@ import { apiClient, type AlertStatus, type ApiClient } from "../lib/api";
 import { ALERT_STATUS_OPTIONS } from "../lib/options";
 import { navigate, paths } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
+import { useScreeningRefresh } from "../lib/useScreeningRefresh";
 
 interface AlertsProps {
   client?: ApiClient;
@@ -35,6 +36,7 @@ export function Alerts({ client = apiClient }: AlertsProps) {
     [client, status],
   );
   const state = useAsync(load, [client, status]);
+  useScreeningRefresh(client, state.reload);
 
   return (
     <section className="gap-xl flex flex-col">

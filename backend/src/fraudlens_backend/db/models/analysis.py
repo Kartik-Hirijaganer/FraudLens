@@ -64,6 +64,7 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (
         Index("ix_analysis_runs_agency_id_status", "agency_id", "status"),
+        Index("ix_analysis_runs_agency_id_import_job_id", "agency_id", "import_job_id"),
         Index("ix_analysis_runs_agency_id_created_at", "agency_id", "created_at"),
         Index("ix_analysis_runs_status_next_attempt_at", "status", "next_attempt_at"),
         UniqueConstraint(
@@ -75,6 +76,9 @@ class AnalysisRun(AgencyScopedMixin, TimestampMixin, Base):
 
     transaction_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("transactions.id"), nullable=False
+    )
+    import_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("job_executions.id"), nullable=True
     )
     status: Mapped[RunStatus] = mapped_column(
         str_enum(RunStatus), nullable=False, default=RunStatus.PENDING

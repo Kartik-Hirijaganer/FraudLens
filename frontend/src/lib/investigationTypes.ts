@@ -167,6 +167,7 @@ export interface InvestigationSnapshotData {
   riskBand: string | null;
   sarDraftId: string | null;
   sarStatus: string | null;
+  sarErrorCode?: string | null;
   sarContent: string | null;
   alertId: string | null;
   workflowMode: WorkflowMode;

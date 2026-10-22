@@ -15,24 +15,18 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from fraudlens_backend.agents.contracts import AgentExecutionRecord
-from fraudlens_backend.agents.resume import AgentExecutionReplay
 from fraudlens_backend.db.repositories import (
-    AgentExecutionRepository,
     AnalysisRunRepository,
-    DashboardRepository,
     ModelRegistryRepository,
     RuleRepository,
     SarDraftRepository,
-    TransactionRepository,
-    load_llm_daily_budget_usd,
 )
+from fraudlens_backend.pipeline_drafting import DeferredUploadDrafter, build_workflow_drafter
 from fraudlens_backend.pipeline_policy import (
     build_pipeline_input,
     load_risk_policy,
@@ -49,8 +43,6 @@ from fraudlens_backend.pipeline_ports import (
 from fraudlens_backend.pipeline_runs import PipelineRunStore, RunManager, _RunState
 from fraudlens_backend.rag import build_embedder
 from fraudlens_backend.sar import build_sar_drafter
-from fraudlens_backend.sar.drafter_fallback import LiveAgentFallbackDrafter
-from fraudlens_backend.sar.drafter_replay import PersistedSarDrafter, resume_drafter
 from fraudlens_backend.sar.factory import AgentDrafterFactory, build_agent_drafter_factory
 from fraudlens_backend.settings import AppSettings, _config_anchored
 from fraudlens_backend.telemetry import log_llm_call
@@ -188,95 +180,26 @@ async def build_pipeline_deps(  # noqa: PLR0913 - per-run DI assembly from injec
         lease_owner=lease_owner,
         fencing_token=fencing_token,
     )
-    persisted_draft = await SarDraftRepository(session, agency_id).get_for_run(run_id)
-    drafter = resume_drafter(components.drafter, persisted_draft)
-    if workflow_mode == "multi_agent" and not isinstance(drafter, PersistedSarDrafter):
-        if sessionmaker is None:
-            raise RuntimeError("Multi-agent workflow requires a session factory")
 
-        from fraudlens_backend.agents.mock import MockAgentTeam  # noqa: PLC0415
-        from fraudlens_backend.agents.tools import EvidenceToolset  # noqa: PLC0415
-
-        toolset = EvidenceToolset(
-            sessionmaker,
-            agency_id,
-            run_id,
-            retriever=RetrieverAdapter(components.retriever),
-            history_window_hours=settings.investigation_history_window_hours,
-            history_limit=settings.investigation_history_max,
-        )
-
-        async def record_execution(record: AgentExecutionRecord) -> None:
-            """Persist and log one agent attempt before publishing its completed event."""
-            async with sessionmaker() as execution_session:
-                await AgentExecutionRepository(execution_session, agency_id).save_from_record(
-                    run_id=run_id,
-                    record=record,
-                )
-                await execution_session.commit()
-            requested_model = components.agent_config.agents.for_role(record.agent).model
-            log_llm_call(
-                model=record.model_id,
-                prompt_version=record.prompt_version,
-                prompt_hash=record.prompt_hash,
-                input_tokens=record.input_tokens,
-                output_tokens=record.output_tokens,
-                total_tokens=record.total_tokens,
-                cost_usd=record.cost_usd,
-                fallback_count=int(
-                    settings.llm_mode == "live" and record.model_id != requested_model
-                ),
-                latency_ms=record.latency_ms,
-                run_id=str(run_id),
-                agency_id=str(agency_id),
-                agent=record.agent.value,
-                attempt=record.attempt,
-            )
-
-        replay = AgentExecutionReplay(
-            sessionmaker,
+    async def build_drafter() -> SarDrafter:
+        return await build_workflow_drafter(
+            components=components,
+            session=session,
+            settings=settings,
             agency_id=agency_id,
             run_id=run_id,
+            transaction_id=transaction_id,
+            sessionmaker=sessionmaker,
+            workflow_mode=workflow_mode,
+            log_call=log_llm_call,
         )
 
-        if settings.llm_mode == "mock":
-            transaction = await TransactionRepository(session, agency_id).get(transaction_id)
-            request_revision = bool(
-                transaction is not None
-                and components.mock_revision_external_id_suffix
-                and transaction.external_id.endswith(components.mock_revision_external_id_suffix)
-            )
-            drafter = MockAgentTeam(
-                run_id=run_id,
-                config=components.agent_config,
-                prompts=components.agent_prompts,
-                single_writer=components.drafter,
-                record_execution=record_execution,
-                replay=replay,
-                request_revision=request_revision,
-            )
-        else:
-            if components.agent_drafter_factory is None:
-                raise RuntimeError("Live agent drafter factory is unavailable")
-            daily_limit = await load_llm_daily_budget_usd(
-                session, agency_id=agency_id, ceiling_usd=settings.llm_daily_budget_usd
-            )
-            daily_spent = await DashboardRepository(session, agency_id).sar_cost_today(
-                as_of=datetime.now(UTC)
-            )
-            primary = components.agent_drafter_factory(
-                toolset,
-                run_id=run_id,
-                record_execution=record_execution,
-                replay=replay,
-                daily_limit_usd=daily_limit,
-                daily_spent_usd=daily_spent,
-            )
-            drafter = (
-                LiveAgentFallbackDrafter(primary=primary, fallback=components.drafter)
-                if components.agent_config.workflow.fallback_to_single_writer
-                else primary
-            )
+    run = await AnalysisRunRepository(session, agency_id).get(run_id)
+    drafter = (
+        DeferredUploadDrafter(build_drafter, live=settings.llm_mode == "live")
+        if run is not None and run.import_job_id is not None
+        else await build_drafter()
+    )
     return PipelineDeps(
         rules=RulesAdapter(RuleRegistry(), definitions),
         scorer=ScorerAdapter(components.scorer, pointer, was_canary=was_canary),

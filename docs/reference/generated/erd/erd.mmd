@@ -100,6 +100,7 @@ erDiagram
         string graph_version
         datetime heartbeat_at
         string idempotency_key
+        uuid import_job_id FK
         datetime lease_expires_at
         string lease_owner
         numeric llm_reserved_usd
@@ -221,6 +222,7 @@ erDiagram
         numeric cost_usd
         datetime created_at
         uuid created_by FK
+        string error_code
         string model_id
         string pdf_blob_url
         string prompt_hash
@@ -343,6 +345,7 @@ erDiagram
     analysis_runs ||--o{ sar_drafts : "run_id"
     analysis_runs ||--o{ sar_generation_attempts : "run_id"
     analysis_runs ||--o{ training_labels : "run_id"
+    job_executions ||--o{ analysis_runs : "import_job_id"
     model_training_runs ||--o{ model_versions : "training_run_id"
     model_versions ||--o{ drift_reports : "model_version_id"
     model_versions ||--o{ model_deployments : "active_version_id"

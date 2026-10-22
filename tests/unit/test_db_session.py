@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
+from pathlib import Path
+
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from fraudlens_backend.db.models import Agency, Base
 from fraudlens_backend.db.session import (
     build_sessionmaker,
     create_engine_from_settings,
@@ -74,3 +79,34 @@ async def test_dispose_engine_is_safe() -> None:
     engine = create_engine_from_settings(AppSettings(environment="dev", database_url=_URL))
     assert engine is not None
     await dispose_engine(engine)  # disposes the (never-connected) pool without error
+
+
+@pytest.mark.parametrize("outcome", ["commit", "rollback"])
+@pytest.mark.parametrize("storage", ["memory", "file"])
+async def test_released_savepoint_remains_owned_by_outer_transaction(
+    outcome: str, storage: str, sandbox: Path
+) -> None:
+    url = (
+        "sqlite+aiosqlite://"
+        if storage == "memory"
+        else f"sqlite+aiosqlite:///{sandbox / 'db.sqlite'}"
+    )
+    engine = create_engine_from_settings(AppSettings(environment="dev", database_url=url))
+    assert engine is not None
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = build_sessionmaker(engine)
+        async with sessions() as session:
+            async with session.begin_nested():
+                session.add(Agency(id=uuid.uuid4(), name="Savepoint", slug="savepoint"))
+                await session.flush()
+            if outcome == "commit":
+                await session.commit()
+            else:
+                await session.rollback()
+        async with sessions() as session:
+            count = (await session.execute(select(func.count()).select_from(Agency))).scalar_one()
+            assert count == (1 if outcome == "commit" else 0)
+    finally:
+        await dispose_engine(engine)

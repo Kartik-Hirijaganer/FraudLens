@@ -27,6 +27,7 @@ from fraudlens_backend.api.v1.investigations import _stream_session
 from fraudlens_backend.db.models import (
     AnalysisRun,
     AuditLog,
+    RunStatus,
     SystemConfig,
 )
 from fraudlens_backend.main import create_app
@@ -191,7 +192,16 @@ async def test_post_dedupes_hashed_idempotency_key_across_manager_restart(
         second = await client.post(
             "/api/v1/investigations", json=body, headers={"Idempotency-Key": "k1"}
         )
-        third = await client.post("/api/v1/investigations", json=body)  # no key → new run
+        conflict = await client.post("/api/v1/investigations", json=body)
+        assert conflict.status_code == 409
+        async with db_sessionmaker() as session:
+            run = await session.get(AnalysisRun, uuid.UUID(first.json()["runId"]))
+            assert run is not None
+            run.status = RunStatus.COMPLETED
+            await session.commit()
+        third = await client.post(
+            "/api/v1/investigations", json=body
+        )  # terminal → explicit new run
 
     assert first.status_code == 202
     assert first.json()["runId"] == second.json()["runId"]  # double-click dedupe
@@ -276,7 +286,7 @@ async def test_live_multi_agent_quota_uses_existing_rate_limited_envelope(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     """The fourth live graph request from one IP is rejected by the configured daily quota."""
-    transaction_id = await _seed_demo_transaction(db_sessionmaker, external_id="quota")
+    await _seed_demo_transaction(db_sessionmaker, external_id="quota")
     async with db_sessionmaker() as session:
         session.add_all(
             [
@@ -300,13 +310,17 @@ async def test_live_multi_agent_quota_uses_existing_rate_limited_envelope(
         llm_daily_budget_usd=Decimal("5"),
     )
     app.state.run_manager.start = lambda **_kwargs: None
+    transaction_ids = [
+        await _seed_demo_transaction(db_sessionmaker, external_id=f"quota-{index}")
+        for index in range(4)
+    ]
 
     async with _client(app) as client:
         responses = [
             await client.post(
                 "/api/v1/investigations",
                 json={
-                    "transactionId": str(transaction_id),
+                    "transactionId": str(transaction_ids[_index]),
                 },
             )
             for _index in range(4)
@@ -322,9 +336,7 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
     db_engine: AsyncEngine,
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    transaction_id = await _seed_demo_transaction(
-        db_sessionmaker, external_id="evaluation-quota-bypass"
-    )
+    await _seed_demo_transaction(db_sessionmaker, external_id="evaluation-quota-bypass")
     async with db_sessionmaker() as session:
         session.add_all(
             [
@@ -348,12 +360,16 @@ async def test_admin_evaluation_bypasses_abuse_quotas_but_keeps_budget_and_audit
         llm_daily_budget_usd=Decimal("5"),
     )
     app.state.run_manager.start = lambda **_kwargs: None
+    transaction_ids = [
+        await _seed_demo_transaction(db_sessionmaker, external_id=f"evaluation-{index}")
+        for index in range(11)
+    ]
     async with _client(app) as client:
         responses = [
             await client.post(
                 "/api/v1/investigations",
                 json={
-                    "transactionId": str(transaction_id),
+                    "transactionId": str(transaction_ids[_index]),
                     "workflowMode": "multi_agent",
                 },
             )

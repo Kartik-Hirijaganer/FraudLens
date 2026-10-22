@@ -6,6 +6,7 @@ cors_allow_credentials: true
 portfolio_demo_enabled: true
 storage_backend: azure_blob
 queue_backend: container_apps_jobs
+run_worker_heartbeat_file: /tmp/fraudlens-worker/heartbeat
 llm_mode: live
 multi_agent_sar_enabled: true
 

@@ -30,15 +30,11 @@ Notes:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
-from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.api.deps import (
@@ -47,7 +43,6 @@ from fraudlens_backend.api.deps import (
     SettingsDep,
     audit_writer,
     enforce_permission,
-    enforce_rate_limit,
     get_tenant,
     optional_actor,
     require_permission,
@@ -64,7 +59,6 @@ from fraudlens_backend.db.repositories import (
     AgentExecutionRepository,
     AlertRepository,
     AnalysisRunRepository,
-    ModelRegistryRepository,
     SarDraftRepository,
     TransactionRepository,
 )
@@ -81,9 +75,8 @@ from fraudlens_backend.models.sar import SarDraftView
 from fraudlens_backend.pipeline_wiring import (
     RunManager,
     build_pipeline_input,
-    resolve_workflow_mode,
 )
-from fraudlens_backend.runs.admission import reserve_agent_spend
+from fraudlens_backend.services.investigation_start import create_investigation_run
 from fraudlens_backend.services.sar_regeneration import regenerate_sar_for_run, sar_draft_to_view
 from fraudlens_backend.settings import AppSettings
 
@@ -106,26 +99,7 @@ def _manager(request: Request) -> RunManager:
     return cast(RunManager, manager)
 
 
-def _request_fingerprint(
-    *,
-    transaction_id: uuid.UUID,
-    model_override: str | None,
-    workflow_mode: str | None,
-) -> str:
-    """Hash the behavior-bearing request fields bound to an Idempotency-Key."""
-    payload = json.dumps(
-        {
-            "modelOverride": model_override,
-            "transactionId": str(transaction_id),
-            "workflowMode": workflow_mode,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the transaction boundary.
+async def _create_and_start(  # noqa: PLR0913 - explicit identity and policy dependencies.
     *,
     manager: RunManager,
     session: AsyncSession,
@@ -137,116 +111,25 @@ async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the tra
     idempotency_key: str | None = None,
     workflow_mode: str | None = None,
 ) -> str:
-    """Persist an inline or queued run before returning its durable run id."""
-    agency_id = uuid.UUID(tenant.agency_id)
-    run_repo = AnalysisRunRepository(session, agency_id)
-    fingerprint = _request_fingerprint(
+    """Commit an accepted run before starting any inline execution."""
+    accepted = await create_investigation_run(
+        manager=manager,
+        session=session,
+        settings=settings,
+        tenant=tenant,
+        request=request,
         transaction_id=transaction_id,
         model_override=model_override,
+        idempotency_key=idempotency_key,
         workflow_mode=workflow_mode,
     )
-    if idempotency_key is not None:
-        existing = await run_repo.get_by_idempotency_key(idempotency_key)
-        if existing is not None:
-            if existing.request_fingerprint != fingerprint:
-                raise AppError("idempotency_key_conflict")
-            return str(existing.id)
-    repo = TransactionRepository(session, agency_id)
-    transaction = await repo.get(transaction_id)
-    if transaction is None:
-        raise AppError("transaction_not_found")
-    if model_override is not None and (
-        await ModelRegistryRepository(session).get_version_by_label(model_override) is None
-    ):
-        # Reject an unregistered override BEFORE starting the run (never a silent no-op, §5.4).
-        raise AppError("model_version_not_found")
-    resolved_workflow = await resolve_workflow_mode(
-        session,
-        settings=settings,
-        agency_id=agency_id,
-        requested=workflow_mode,
-    )
-    evaluation_mode = workflow_mode is not None
-    reserve_live_agent_spend = resolved_workflow == "multi_agent" and settings.llm_mode == "live"
-    if reserve_live_agent_spend and not evaluation_mode:
-        client_host = request.client.host if request.client else "unknown"
-        quotas = manager.agent_quotas
-        enforce_rate_limit(
-            request,
-            scope="live_multi_agent_per_ip_daily",
-            limit=quotas.live_runs_per_ip_per_day,
-            window_seconds=_SECONDS_PER_DAY,
-            key=client_host,
-        )
-        enforce_rate_limit(
-            request,
-            scope="live_multi_agent_total_daily",
-            limit=quotas.live_runs_total_per_day,
-            window_seconds=_SECONDS_PER_DAY,
-            key="all",
-        )
-    try:
-        graph_version = (
-            getattr(manager, "agent_graph_version", None)
-            if resolved_workflow == "multi_agent"
-            else None
-        )
-        if settings.run_execution_mode == "worker":
-            run = await run_repo.create_pending(
-                transaction_id=transaction.id,
-                idempotency_key=idempotency_key,
-                workflow_mode=resolved_workflow,
-                graph_version=graph_version,
-                request_fingerprint=fingerprint,
-                model_override=model_override,
-                deadline_at=datetime.now(UTC) + timedelta(seconds=settings.run_deadline_seconds),
-            )
-        else:
-            run = await run_repo.create_running(
-                transaction_id=transaction.id,
-                idempotency_key=idempotency_key,
-                workflow_mode=resolved_workflow,
-                graph_version=graph_version,
-                request_fingerprint=fingerprint,
-                model_override=model_override,
-            )
-    except IntegrityError:
-        # A second replica may win the tenant/key UNIQUE race after our initial lookup.
-        await session.rollback()
-        if idempotency_key is not None:
-            existing = await run_repo.get_by_idempotency_key(idempotency_key)
-            if existing is not None:
-                if existing.request_fingerprint != fingerprint:
-                    raise AppError("idempotency_key_conflict") from None
-                return str(existing.id)
-        raise
-    if reserve_live_agent_spend:
-        attempt_count = settings.run_max_attempts if settings.run_execution_mode == "worker" else 1
-        await reserve_agent_spend(
-            session,
-            run=run,
-            agency_id=agency_id,
-            maximum_attempt_cost_usd=manager.agent_max_cost_usd * attempt_count,
-            daily_budget_ceiling_usd=settings.llm_daily_budget_usd,
-        )
-    await audit_writer(tenant, session, request).record(
-        actor_id=optional_actor(tenant),
-        action="investigation.start",
-        resource_type="analysis_run",
-        resource_id=str(run.id),
-        metadata={
-            "transactionId": str(transaction.id),
-            "workflowMode": resolved_workflow,
-            "evaluationMode": str(evaluation_mode).lower(),
-            "evaluationQuotaBypass": str(
-                evaluation_mode
-                and resolved_workflow == "multi_agent"
-                and settings.llm_mode == "live"
-            ).lower(),
-        },
-    )
     await session.commit()
-    if settings.run_execution_mode == "inline":
+    run = accepted.run
+    if accepted.created and settings.run_execution_mode == "inline":
+        agency_id = uuid.UUID(tenant.agency_id)
+        repo = TransactionRepository(session, agency_id)
+        transaction = await repo.get(transaction_id)
+        assert transaction is not None
         pipeline_input = await build_pipeline_input(
             repo=repo,
             transaction=transaction,
@@ -257,10 +140,10 @@ async def _create_and_start(  # noqa: PLR0912, PLR0913 - run creation is the tra
         manager.start(
             agency_id=agency_id,
             run_id=run.id,
-            transaction_id=transaction.id,
+            transaction_id=transaction_id,
             pipeline_input=pipeline_input,
             model_override=model_override,
-            workflow_mode=resolved_workflow,
+            workflow_mode=run.workflow_mode,
         )
     return str(run.id)
 
@@ -327,6 +210,7 @@ def _snapshot(  # noqa: PLR0913, PLR0917 -- projection joins the run's tenant-sc
             else []
         ),
         sar_status=sar.status.value if sar is not None else None,
+        sar_error_code=sar.error_code if sar is not None else None,
         sar_draft_id=str(sar.id) if sar is not None else None,
         sar_content=sar.content if sar is not None else None,
         revision_count=sar.revision_count if sar is not None else 0,
@@ -428,7 +312,7 @@ async def stream_investigation(
                 maximum_seconds=settings.run_event_poll_max_ms / 1000,
                 heartbeat_seconds=settings.run_event_heartbeat_seconds,
             )
-            if settings.run_execution_mode == "worker"
+            if settings.run_execution_mode == "worker" or run.import_job_id is not None
             else None
         ),
     )
