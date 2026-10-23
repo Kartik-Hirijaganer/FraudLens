@@ -25,9 +25,9 @@ ceilings:
   aks_session_usd: "5.00"
   # APP-LEVEL replicas, not per-revision. Blue/green promotion runs the live and staged
   # revisions together for the length of a deploy, so two is the intended bound; one would
-  # fail every deploy. Nothing structurally holds it at two -- a revision that fails
-  # activation while holding a replica takes no traffic and never scales away, which is what
-  # the cost-watchdog revision sweep detects.
+  # fail every deploy. At min_replicas = 1 no revision scales away on its own, so `promote`
+  # (and `abort`) retire every revision left at 0% traffic; a revision created outside a
+  # deploy is what the cost-watchdog revision sweep still detects.
   aca_max_replicas: 2
   aca_concurrent_revisions: 2
 

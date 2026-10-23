@@ -131,6 +131,40 @@ def test_failed_smoke_or_migration_auto_aborts_keeping_previous_revision() -> No
     assert "revision deactivate" in _job_script(abort)
 
 
+# A JMESPath filter as it reads once _job_script normalizes whitespace.
+_IDLE_FILTER = "properties.active && properties.trafficWeight == \\`0\\`"
+
+
+def _step_names(job: dict) -> list[str]:
+    return [str(step.get("name", "")) for step in job.get("steps", [])]
+
+
+def test_promotion_retires_the_revision_it_demoted() -> None:
+    """min_replicas = 1 is a per-revision floor: a demoted revision never scales away on its own.
+
+    On 2026-10-22 the revision promotion had just demoted kept its replica at 0% traffic, doubling
+    the recurring bill until cost-watchdog failed. The sweep runs only AFTER the traffic shift and
+    filters on 0% traffic, so a revision still serving can never be deactivated.
+    """
+    promote = _deploy_backend()["jobs"]["promote"]
+    names = _step_names(promote)
+    sweep = names.index("Deactivate every revision left at 0% traffic")
+    assert sweep > next(i for i, name in enumerate(names) if "Shift 100% traffic" in name)
+    script = re.sub(r"\s+", " ", promote["steps"][sweep]["run"])
+    assert _IDLE_FILTER in script
+    assert "name != '${live}'" in script
+    assert 'live="${APP_NAME}--${REVISION_SUFFIX}"' in script
+    assert "az containerapp revision deactivate" in script
+
+
+def test_an_abort_also_retires_a_revision_terraform_created() -> None:
+    # An apply that touches the template mints its own revision. On an aborted deploy nothing is
+    # promoted, so without the sweep that revision would bill until the next watchdog run.
+    script = _job_script(_deploy_backend()["jobs"]["abort"])
+    assert _IDLE_FILTER in script
+    assert script.index('--revision "${APP_NAME}--${REVISION_SUFFIX}"') < script.index(_IDLE_FILTER)
+
+
 # --- Fast app rollout: terraform only when infra changes ---------------------------------------
 
 

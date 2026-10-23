@@ -92,6 +92,8 @@ module "gateway_app" {
   max_replicas                   = var.max_replicas
   cors_allow_origins             = var.gateway_cors_origins
   app_insights_connection_string = module.observability.app_insights_connection_string
+  supabase_url                   = var.supabase_url
+  portfolio_demo_enabled         = var.portfolio_demo_enabled
   tags                           = local.tags
 }
 

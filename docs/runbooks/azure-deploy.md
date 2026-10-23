@@ -75,10 +75,10 @@ flowchart LR
     TF --> REV["new Container Apps revision @ 0% traffic"]
     REV --> MIG["migrations: expand/contract, gated, timeout+retry"]
     MIG --> SMOKE["smoke: /healthz + /readyz + pytest -m smoke"]
-    SMOKE -->|green| PROMOTE["shift traffic to 100% (zero-downtime)"]
+    SMOKE -->|green| PROMOTE["shift traffic to 100% (zero-downtime),<br/>then deactivate every 0% revision"]
     SMOKE -->|fail| ABORT["auto-abort: previous revision stays @ 100%"]
     PROMOTE --> WATCH["post-deploy alerts"]
-    WATCH -.regression.-> ROLLBACK["traffic-shift back + model-pointer rollback (seconds)"]
+    WATCH -.regression.-> ROLLBACK["reactivate prior revision + traffic-shift back<br/>+ model-pointer rollback (~2 min)"]
 ```
 
 ## 2. Fast & reliable deploy (what the workflow does)
@@ -88,7 +88,7 @@ flowchart LR
 | **Build-once, promote-many** | [`deploy-backend.yml`](../../.github/workflows/deploy-backend.yml) builds **one** image tagged by commit SHA, pushes it to GHCR, and reuses that exact ref through stage → promote (never rebuilt). |
 | **Thin, cached builds** | The app image is `FROM fraudlens-base` (the weekly [`build-base.yml`](../../.github/workflows/build-base.yml) prebuilds the xgboost/shap/chromadb/langchain layer); BuildKit + GHCR registry cache + GHA cache mean only changed layers rebuild. |
 | **App rollout ≠ infra** | `terraform apply` runs **only when `plan -detailed-exitcode` reports changes**; the common code deploy is a fast `az containerapp update` (a new revision) — seconds, no terraform. |
-| **Revision @0% → promote-or-abort** | The new revision is staged at 0% traffic (`--revision-suffix`, Multiple revision mode); gated migration → smoke → promote to 100% only if green, else **auto-abort** (the previous revision keeps serving 100%). |
+| **Revision @0% → promote-or-abort** | The new revision is staged at 0% traffic (`--revision-suffix`, Multiple revision mode); gated migration → smoke → promote to 100% only if green, else **auto-abort** (the previous revision keeps serving 100%). Either way, every revision left at 0% traffic is then **deactivated**: `min_replicas = 1` is a per-revision floor, so a demoted revision never scales away on its own and would bill a replica nobody can reach. |
 | **Gated expand/contract migrations** | Alembic `upgrade head` runs as a pre-promote step (own timeout + retry). Migrations are backward-compatible, so old + new revisions coexist during the shift and a failed migration blocks promotion without breaking the live revision. |
 | **Cold-start-safe probes** | The gateway `startup_probe` budget (`failure_count_threshold × interval`) **exceeds the ≤75s cold start** so the platform never kills a still-loading ML container; liveness engages only after startup; `/readyz` (DB + ChromaDB + active model + Infisical) gates traffic. |
 | **Resilience** | Per-job timeouts, step retries with backoff, `concurrency` that never cancels an in-flight deploy. |
@@ -121,6 +121,17 @@ az storage container create -n tfstate --account-name fraudlenstfstate
 `backend.tf` is **generated, never renamed** — `backend.tf.template` stays committed, the
 deploy job does `cp backend.tf.template backend.tf`, and the generated file is gitignored.
 Locally: `cp backend.tf.template backend.tf && terraform init`.
+
+**The state is secret-bearing — handle it like a credential.** azurerm stores computed
+credentials in it (the app storage account's access keys and connection strings, the Log Analytics
+shared keys, the Application Insights connection string) and, through `listSecrets`, the four
+Container Apps runtime secret values ([Runtime secret injection](#runtime-secret-injection)).
+Versioning retains every prior copy and no lifecycle policy expires them, so a rotated value
+survives in older versions. Access as of 2026-10-23: shared-key access is **enabled** and the
+backend authenticates with the account key (no `use_azuread_auth`), so any principal holding
+`listKeys` on the account can read it — today the owner (subscription Owner) and
+`fraudlens-github-oidc` (subscription Contributor + User Access Administrator). No data-plane role
+is assigned. Never print, upload, or keep a pulled state or a `tfplan`, which embeds it.
 
 ## 5. GitHub → Azure OIDC (no stored secrets) — ✅ DONE 2026-09-13
 
@@ -246,29 +257,51 @@ sees one hostname and CORS is a backstop rather than the mechanism.
 ### Runtime secret injection
 
 Container Apps has no secret store of its own, so `deploy-backend.yml`'s `stage` job is the
-injection mechanism. It fetches from Infisical `prod` over OIDC (`/backend`, `/llm`, `/`) and
-writes **exactly four** values as app-scoped Container Apps secrets, referenced by env vars in the
-same update that stamps the image — so the staged revision boots with them and `/readyz` verifies
-the injection before any traffic shift:
+injection mechanism. It fetches from Infisical `prod` over OIDC (`/llm`, `/`) and writes
+**exactly four** values as app-scoped Container Apps secrets *before* the update that stamps the
+image. The env vars that reference them are declared in Terraform (`gateway_app`), so the staged
+revision inherits the references, boots with the values, and `/readyz` verifies the injection
+before any traffic shift:
 
 | Container Apps secret | Injected env var | Infisical path |
 | --- | --- | --- |
-| `database-url` | `DATABASE_URL` | `/backend` |
-| `supabase-service-role-key` | `SUPABASE_SERVICE_ROLE_KEY` | `/backend` |
+| `database-url` | `DATABASE_URL` | `/` |
+| `supabase-service-role-key` | `SUPABASE_SERVICE_ROLE_KEY` | `/` |
 | `demo-auth-password` | `FRAUDLENS_DEMO_AUTH_PASSWORD` | `/` |
 | `openrouter-api-key` | `OPENROUTER_API_KEY` | `/llm` |
 
-`FRAUDLENS_AUTH_JWKS_URL` and `FRAUDLENS_AUTH_JWT_ISSUER` are **derived** from `SUPABASE_URL`
-rather than stored a second time. No value reaches Terraform state, tfvars, a job output, or an
-artifact, and `ignore_changes = [secret]` on the Container App stops the next apply removing them.
+`SUPABASE_URL` is non-secret, so it is plain Terraform env: the `infra` job reads it from Infisical
+`/` and passes `TF_VAR_supabase_url`, and the module **derives** `FRAUDLENS_AUTH_JWKS_URL` and
+`FRAUDLENS_AUTH_JWT_ISSUER` from it rather than storing them a second time.
+`FRAUDLENS_PORTFOLIO_DEMO_ENABLED` is bound to the `PORTFOLIO_DEMO_BOOTSTRAP_ENABLED` repo variable
+the same way. No secret value reaches Terraform config, tfvars, a job output, or an artifact, and
+`ignore_changes = [secret]` on the Container App stops the next apply removing them. The values
+**do** reach Terraform state — see the known gap below.
 
-**The ownership boundary is the point.** Terraform owns the app, its scaling, its non-secret
-environment, and the secret *reference names*; the deploy job owns the secret *values* and nothing
-else. Neither can do the other's half, which is what keeps Golden Rule 3 and ADR-010 true
-mechanically rather than by convention. The app never calls Infisical itself — `/readyz`'s
+**The ownership boundary is the point.** Terraform owns the app, its scaling, its **whole** env
+list (non-secret values and the secret *reference names*); the deploy job owns the image and the
+secret *values* and nothing else — it never passes `--set-env-vars`. Until 2026-10-23 the deploy
+also wrote the references and the Supabase settings, so every `terraform apply` saw them as drift
+and removed them, minting a revision with no database config that failed activation and, at
+`min_replicas = 1`, billed a replica at 0% traffic. Neither writes the other's half — but that
+split does **not** keep the values out of Terraform, so it does not by itself satisfy Golden Rule 3.
+The app never calls Infisical itself — `/readyz`'s
 `infisical` probe only verifies the injection landed, and reports a **count**, never a key name.
 After rotating a secret in Infisical, re-run the staged deploy so the references are rewritten, and
-confirm `/readyz` returns 200 with all five probes `ok` without ever printing a value.
+confirm `/readyz` returns 200 with all five probes `ok` without ever printing a value. The old
+value stays in every retained state blob version until those versions are deleted.
+
+**Known gap — the four values are in Terraform state (found 2026-10-23, remediation open).**
+`ignore_changes` stops Terraform *writing* the secrets; it does not stop it *reading* them. The
+azurerm provider (4.76.0) calls `listSecrets` in every `azurerm_container_app` read and stores each
+value that is not a Key Vault reference, and its update calls it again to round-trip them through
+the PUT. No provider option turns this off, and dropping the `secret` block from config changes
+nothing: the module declared none before 2026-10-23 and the values were stored regardless. A
+read-only check of `prod.terraform.tfstate` (serial 49) found all four holding real values, as does
+every blob version since the first app apply at 2026-09-16 03:35 UTC (167 of 228 retained
+versions). The deploy identity's three `listSecrets` calls inside the `infra` job of run
+39775334429 (plan refresh, apply update, post-apply read) are this behaviour; the `stage` job's
+`az containerapp secret set` makes a fourth that persists nothing. Who can read the state is in §4.
 
 ## 8. Documented switch paths (off by default)
 
@@ -292,8 +325,9 @@ confirm `/readyz` returns 200 with all five probes `ok` without ever printing a 
 - **The proxy** is exercised separately: `deploy-frontend.yml` re-runs the same authenticated
   selection against `FRONTEND_URL`, which is the only thing that proves the `/api` rewrite forwards
   an `Authorization` header and an unbuffered event stream.
-- **Rollback** is a traffic shift back to the prior revision (seconds) + model-registry pointer
-  rollback (no redeploy) + Vercel rollback — see [`deploy-rollback.md`](deploy-rollback.md).
+- **Rollback** is reactivating the prior revision and shifting traffic back to it (~2 minutes,
+  dominated by the cold start; promotion deactivates it so it stops billing) + model-registry
+  pointer rollback (no redeploy) + Vercel rollback — see [`deploy-rollback.md`](deploy-rollback.md).
 
 ## 10. What bounds the bill
 
@@ -336,7 +370,7 @@ fix; raising the budget is not one of them.
 | First request takes a minute, later ones are instant | Expected scale-from-zero outside the warm window | Nothing. Widen the window in `keep-warm.yml` only if it matters (§7.2) |
 | `/readyz` returns 503 | Which of the five probes is not `ok` — the body names each one | `database`/`supabaseAuth` → upstream; `infisical` → re-run the staged deploy to rewrite secret references; `llmProvider` → check the daily LLM cap before the provider |
 | Smoke fails after a deploy | The staged revision is at 0% traffic and the previous one still serves | Nothing is down. Read the smoke log, fix, redeploy — the auto-abort already protected the live revision |
-| A bad revision was promoted | Traffic weights on the app | Shift back to the prior revision — seconds, no rebuild ([`deploy-rollback.md`](deploy-rollback.md)) |
+| A bad revision was promoted | Traffic weights on the app | Reactivate the prior revision, then shift traffic back — ~2 minutes, no rebuild ([`deploy-rollback.md`](deploy-rollback.md)) |
 | Telemetry stops mid-day | Log Analytics daily quota reached | Expected cap behavior; find what is logging in a loop rather than raising the quota |
 | No dashboard data, app healthy | Demo story state | Re-run the portfolio demo bootstrap ([`portfolio-demo.md`](portfolio-demo.md)) |
 | Deploy job never starts | `environment: production` approval, then the `*_DEPLOY_ENABLED` flag | Approve the run, or flip the flag (§7). Both are deliberate gates |

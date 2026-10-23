@@ -164,6 +164,19 @@ jobs:
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
+      # Terraform owns the app's whole env list, including SUPABASE_URL and the JWKS/issuer it
+      # derives, so the plan needs the project URL. Infisical `prod` is its only source; the root
+      # path also carries the secrets `stage` injects, which this job never passes to terraform.
+      - name: Fetch the Supabase project URL from Infisical (OIDC)
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_GITHUB_ACTIONS_IDENTITY_ID }}
+          oidc-audience: https://github.com/Kartik-Hirijaganer
+          domain: https://app.infisical.com
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /
       - name: Terraform plan; apply only if the plan is non-empty
         working-directory: infra/terraform/environments/prod
         env:
@@ -176,6 +189,11 @@ jobs:
           # at "No value for required variable". Same shape deploy-aks.yml already uses.
           TF_VAR_budget_contact_emails: '["${{ vars.AZURE_BUDGET_CONTACT_EMAIL }}"]'
           TF_VAR_budget_start_date: ${{ vars.AZURE_BUDGET_START_DATE }}
+          # Non-secret runtime env. An empty URL fails the module's validation rather than
+          # rendering an app with no auth config; the flag is a boolean expression, so an unset
+          # repo variable becomes `false` instead of an empty string.
+          TF_VAR_supabase_url: ${{ env.SUPABASE_URL }}
+          TF_VAR_portfolio_demo_enabled: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
@@ -205,11 +223,13 @@ jobs:
   # the prior revision serving). A fast `az containerapp update` — no terraform.
   #
   # This job also owns SECRET INJECTION (D8). Container Apps has no secret store of its own, so
-  # the four allowlisted runtime values are fetched from Infisical over OIDC, written as
-  # app-scoped Container Apps secrets, and referenced by env vars in the SAME update that stamps
-  # the image — so the staged revision boots with them and `/readyz` verifies the injection
-  # BEFORE any traffic shift. Values never enter terraform state, tfvars, an artifact, a job
-  # output, or another job; `ignore_changes = [secret]` (D7) stops the next apply stripping them.
+  # the four allowlisted runtime values are fetched from Infisical over OIDC and written as
+  # app-scoped Container Apps secrets BEFORE the update that stamps the image. The env vars that
+  # reference them are Terraform's (gateway_app), so the staged revision inherits them and boots
+  # with the values, and `/readyz` verifies the injection BEFORE any traffic shift. This job
+  # writes only the image: an env var set here would be drift the next apply removes, minting a
+  # revision with no database config. Values never enter tfvars, an artifact, a job output, or
+  # another job; `ignore_changes = [secret]` (D7) stops the next apply stripping them.
   stage:
     needs: [build-push, infra]
     env:
@@ -269,7 +289,6 @@ jobs:
           allow supabase-service-role-key SUPABASE_SERVICE_ROLE_KEY
           allow demo-auth-password FRAUDLENS_DEMO_AUTH_PASSWORD
           allow openrouter-api-key OPENROUTER_API_KEY
-          if [ -z "${SUPABASE_URL:-}" ]; then missing+=("SUPABASE_URL"); fi
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error::Infisical did not supply: ${missing[*]} (names only — never a value)"
             exit 1
@@ -278,29 +297,13 @@ jobs:
             --secrets "${pairs[@]}" --output none
       - name: Create revision at 0% traffic
         id: stage
-        env:
-          # The app's portfolio-demo route fails CLOSED on its own setting, so bootstrapping the
-          # story is not enough to expose it — the deployed revision needs the flag too. Bound to
-          # the SAME variable that gates the bootstrap: a deployment carrying no story must not
-          # advertise a demo endpoint, and one that carries it must serve it.
-          DEMO_ENABLED: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}
         run: |
           set -euo pipefail
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
-          # The JWKS URL and the issuer are DERIVED from the project URL rather than stored
-          # twice; both are non-secret, so they are plain env, not secret references.
-          supabase_url="${SUPABASE_URL%/}"
+          # Image and suffix only. The secret references, the Supabase-derived auth settings and
+          # the demo flag are already in the template `infra` reconciled (gateway_app).
           retry az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" \
-            --image "${{ needs.build-push.outputs.image }}" --revision-suffix "$REVISION_SUFFIX" \
-            --set-env-vars \
-              "DATABASE_URL=secretref:database-url" \
-              "SUPABASE_SERVICE_ROLE_KEY=secretref:supabase-service-role-key" \
-              "FRAUDLENS_DEMO_AUTH_PASSWORD=secretref:demo-auth-password" \
-              "OPENROUTER_API_KEY=secretref:openrouter-api-key" \
-              "SUPABASE_URL=${supabase_url}" \
-              "FRAUDLENS_AUTH_JWKS_URL=${supabase_url}/auth/v1/.well-known/jwks.json" \
-              "FRAUDLENS_AUTH_JWT_ISSUER=${supabase_url}/auth/v1" \
-              "FRAUDLENS_PORTFOLIO_DEMO_ENABLED=${DEMO_ENABLED:-false}"
+            --image "${{ needs.build-push.outputs.image }}" --revision-suffix "$REVISION_SUFFIX"
           fqdn=$(az containerapp revision show -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision "${APP_NAME}--${REVISION_SUFFIX}" --query properties.fqdn -o tsv)
           echo "revision_fqdn=https://${fqdn}" >> "$GITHUB_OUTPUT"
@@ -513,6 +516,25 @@ jobs:
           retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
           retry az containerapp ingress traffic set -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision-weight "${APP_NAME}--${REVISION_SUFFIX}=100"
+      # min_replicas = 1 is a PER-REVISION floor, so the revision this deploy just demoted keeps
+      # a billed replica forever instead of scaling away: on 2026-10-22 it doubled the recurring
+      # bill until cost-watchdog caught it. Retire every active revision now at 0% traffic — the
+      # one demoted and any a terraform apply created this run. Filtering on 0% means a revision
+      # still serving is never touched. Rollback is reactivate + shift (deploy-rollback.md).
+      - name: Deactivate every revision left at 0% traffic
+        run: |
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "retry $i…"; sleep $((i*10)); done; return 1; }
+          live="${APP_NAME}--${REVISION_SUFFIX}"
+          idle="$(az containerapp revision list -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --query "[?properties.active && properties.trafficWeight == \`0\` && name != '${live}'].name" \
+            -o tsv)"
+          while IFS= read -r revision; do
+            [ -n "$revision" ] || continue
+            echo "deactivating $revision (0% traffic)"
+            retry az containerapp revision deactivate -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+              --revision "$revision" --output none
+          done <<< "$idle"
       # The STABLE ingress FQDN — the one that survives every promotion (D1). It is printed here
       # so the value pasted into AZURE_API_ORIGIN / BACKEND_URL can never be a revision FQDN,
       # which would break the recruiter-facing URL on the very next deploy.
@@ -526,6 +548,8 @@ jobs:
 
   # Auto-abort: any failure between staging and promotion -> deactivate the staged revision; the
   # PREVIOUS revision keeps serving 100% (it was never shifted). A broken version never goes live.
+  # Any other revision at 0% (one a terraform apply created this run) is retired too: at
+  # min_replicas = 1 it would otherwise bill a replica until cost-watchdog noticed.
   abort:
     needs: [build-push, stage, migrate, smoke]
     env:
@@ -547,3 +571,11 @@ jobs:
           echo "::error::smoke/migration failed — aborting; previous revision keeps 100% traffic"
           az containerapp revision deactivate -n "$APP_NAME" -g "$RESOURCE_GROUP" \
             --revision "${APP_NAME}--${REVISION_SUFFIX}" || true
+          idle="$(az containerapp revision list -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+            --query "[?properties.active && properties.trafficWeight == \`0\`].name" -o tsv)"
+          while IFS= read -r revision; do
+            [ -n "$revision" ] || continue
+            echo "deactivating $revision (0% traffic)"
+            az containerapp revision deactivate -n "$APP_NAME" -g "$RESOURCE_GROUP" \
+              --revision "$revision" --output none || echo "::warning::could not deactivate $revision"
+          done <<< "$idle"

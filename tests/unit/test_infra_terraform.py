@@ -85,6 +85,18 @@ def test_terraform_does_not_revert_the_deploy_workflow_promotion() -> None:
     assert "secret," in ignored
 
 
+def test_terraform_still_reconciles_the_env_it_owns() -> None:
+    # Ignoring `env` would have silenced the deploy-vs-terraform drift that minted broken
+    # revisions, and frozen every Terraform-owned value (CORS, storage names, App Insights) at
+    # create time. The fix is one writer of the env list, not a blind spot.
+    match = re.search(
+        r"ignore_changes = \[(.*?)\n\s*\]", _source("modules/gateway_app/main.tf"), re.DOTALL
+    )
+    assert match is not None
+    ignored = {entry.strip() for entry in match.group(1).split(",") if entry.strip()}
+    assert ignored == {"template[0].container[0].image", "ingress[0].traffic_weight", "secret"}
+
+
 def test_readiness_probe_matches_the_cached_remote_probes() -> None:
     probe = _source("modules/gateway_app/main.tf").split("readiness_probe {")[1].split("}")[0]
     assert _assignment(probe, "interval_seconds") == "30"

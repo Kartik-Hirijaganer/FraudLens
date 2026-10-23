@@ -105,6 +105,18 @@ variable "gateway_cors_origins" {
   default     = []
 }
 
+# No default: an absent URL must stop `plan`, not render an app with no auth config.
+variable "supabase_url" {
+  type        = string
+  description = "Supabase project URL (non-secret). Read from Infisical prod by the deploy and passed as TF_VAR_supabase_url."
+}
+
+variable "portfolio_demo_enabled" {
+  type        = bool
+  description = "Serve the portfolio demo route; bound to the PORTFOLIO_DEMO_BOOTSTRAP_ENABLED repo variable by the deploy."
+  default     = false
+}
+
 variable "log_retention_days" {
   type        = number
   description = "Log Analytics retention in days (cost control)."

@@ -126,12 +126,13 @@ jobs:
           echo "over=$over" >> "$GITHUB_OUTPUT"
 
       # A Container Apps revision that holds a replica while taking no traffic bills for a
-      # replica nobody can reach. The deploy workflow's `abort` job covers the revision IT
-      # staged; it cannot cover a revision created by a manual `az containerapp update`, and a
-      # revision that fails activation WHILE holding a replica takes no traffic, so the
-      # traffic-driven scaler never scales it away. Observed 2026-09-22:
+      # replica nobody can reach. The deploy's `promote` and `abort` jobs retire every revision
+      # left at 0% when they finish; they cannot cover a revision created outside a deploy (a
+      # manual `az containerapp update`, a hand-run `terraform apply`), and at min_replicas = 1
+      # no revision scales away on its own. Observed 2026-09-22:
       # `fraudlens-prod-api--0000019` sat ActivationFailed at 1 replica and 0% traffic for 72
-      # hours, doubling the recurring bill and tripping the 50% budget alert.
+      # hours, doubling the recurring bill and tripping the 50% budget alert. Observed again
+      # 2026-10-22: a terraform-minted `--0000020` plus the revision the deploy had just demoted.
       #
       # The test is deliberately state-machine-independent — replicas>0 AND traffic==0 — because
       # the 19 other ActivationFailed revisions held zero replicas: the failure state is not what
