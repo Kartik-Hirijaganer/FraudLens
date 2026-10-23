@@ -140,6 +140,22 @@ variable "app_insights_connection_string" {
   sensitive   = true
 }
 
+variable "supabase_url" {
+  type        = string
+  description = "Supabase project URL (non-secret); the JWKS URL and JWT issuer are derived from it."
+
+  validation {
+    condition     = startswith(var.supabase_url, "https://")
+    error_message = "supabase_url must be the https:// project URL; an empty value would strip auth from the app."
+  }
+}
+
+variable "portfolio_demo_enabled" {
+  type        = bool
+  description = "Whether the app serves the portfolio demo route; tied to the variable that gates the story bootstrap."
+  default     = false
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to all resources."
@@ -150,6 +166,19 @@ locals {
   # failure_count_threshold * period must clear the cold-start budget so the platform never
   # kills a still-loading ML container. ceil(budget/period) + 2 attempts of headroom.
   startup_failure_threshold = ceil(var.cold_start_budget_seconds / var.startup_probe_period_seconds) + 2
+  supabase_url              = trimsuffix(var.supabase_url, "/")
+  # Container Apps secret name -> the env var that references it (D8). Terraform declares the
+  # REFERENCE; the deploy's `az containerapp secret set` writes the value from Infisical. A list,
+  # not a map: env is compared in order, and a map would re-sort it into a spurious revision.
+  runtime_secret_refs = [
+    { secret = "database-url", env = "DATABASE_URL" },
+    { secret = "supabase-service-role-key", env = "SUPABASE_SERVICE_ROLE_KEY" },
+    { secret = "demo-auth-password", env = "FRAUDLENS_DEMO_AUTH_PASSWORD" },
+    { secret = "openrouter-api-key", env = "OPENROUTER_API_KEY" },
+  ]
+  # Only ever reaches a from-scratch create: the lifecycle block ignores `secret`, which keeps
+  # every later apply off the real values, and the next deploy overwrites this before promotion.
+  runtime_secret_placeholder = "set-by-deploy"
 }
 
 resource "azurerm_container_app_environment" "this" {
@@ -173,6 +202,17 @@ resource "azurerm_container_app" "this" {
   identity {
     type         = "UserAssigned"
     identity_ids = [var.identity_id]
+  }
+
+  # Names only. Azure refuses an env var that references a secret the app does not hold, so a
+  # from-scratch create needs these to exist; afterwards the lifecycle block (D7) hands the
+  # values to the deploy and Terraform never sees a real one in config.
+  dynamic "secret" {
+    for_each = local.runtime_secret_refs
+    content {
+      name  = secret.value.secret
+      value = local.runtime_secret_placeholder
+    }
   }
 
   # Only emitted when pulling from a private registry (ACR via managed identity). Public GHCR
@@ -255,6 +295,35 @@ resource "azurerm_container_app" "this" {
         }
       }
 
+      # The runtime env the deploy used to stamp with `--set-env-vars` lives HERE, so Terraform
+      # and the deploy describe one template. Split, every apply saw these as drift and removed
+      # them, minting a revision with no database or auth config that failed activation and, at
+      # min_replicas = 1, billed a replica nobody could reach (2026-09-22, 2026-10-22).
+      dynamic "env" {
+        for_each = local.runtime_secret_refs
+        content {
+          name        = env.value.env
+          secret_name = env.value.secret
+        }
+      }
+      env {
+        name  = "SUPABASE_URL"
+        value = local.supabase_url
+      }
+      # Derived rather than stored a second time.
+      env {
+        name  = "FRAUDLENS_AUTH_JWKS_URL"
+        value = "${local.supabase_url}/auth/v1/.well-known/jwks.json"
+      }
+      env {
+        name  = "FRAUDLENS_AUTH_JWT_ISSUER"
+        value = "${local.supabase_url}/auth/v1"
+      }
+      env {
+        name  = "FRAUDLENS_PORTFOLIO_DEMO_ENABLED"
+        value = tostring(var.portfolio_demo_enabled)
+      }
+
       # Generous startup budget so a slow model/ChromaDB load is never killed mid-boot.
       startup_probe {
         transport               = "HTTP"
@@ -287,8 +356,10 @@ resource "azurerm_container_app" "this" {
 
   # D7 — the deploy workflow owns the image, the blue/green traffic split, and (via
   # `az containerapp secret set`) the Infisical-sourced secret values. Terraform owns the app,
-  # its scaling envelope, its non-secret env, and the secret *reference names* only; without
+  # its scaling envelope, its whole env list, and the secret *reference names* only; without
   # this the next apply would reset traffic to the latest revision and bypass the smoke gate.
+  # `env` is deliberately NOT ignored: ignoring it would freeze every Terraform-owned value at
+  # create time. Instead nothing outside Terraform writes env at all.
   lifecycle {
     ignore_changes = [
       template[0].container[0].image,

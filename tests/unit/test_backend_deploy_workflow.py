@@ -202,20 +202,39 @@ def test_a_missing_secret_fails_the_deploy_naming_only_the_variable() -> None:
     assert "missing" in script
     assert "names only — never a value" in script
     assert "exit 1" in script
-    # SUPABASE_URL is not injected as a secret, but the derived JWKS/issuer are useless without it.
-    assert 'missing+=("SUPABASE_URL")' in script
 
 
-def test_the_staged_revision_itself_carries_the_secret_references() -> None:
-    # Env vars are revision-scoped. Setting them in a LATER call would create a second revision
-    # and leave the one smoke tests without them — /readyz would then pass on the wrong process.
+def test_the_staged_revision_inherits_the_secret_references_terraform_declared() -> None:
+    """Env vars are revision-scoped, so the staged revision must be born with the references.
+
+    They live in the template `infra` reconciled, so the update that stamps the image inherits
+    them; the stage writes the image and nothing else. Written here instead, they were drift that
+    every later apply removed — minting a revision with no database config that failed activation
+    and billed a replica at 0% traffic (2026-09-22, 2026-10-22).
+    """
+    gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
+    for secret_name, env_name in INJECTED_SECRETS.items():
+        assert f'{{ secret = "{secret_name}", env = "{env_name}" }}' in gateway
+    assert "secret_name = env.value.secret" in gateway
     script = _step("stage", "Create revision at 0% traffic")["run"]
     assert "--revision-suffix" in script and "--image" in script
-    for secret_name, env_name in INJECTED_SECRETS.items():
-        assert f'"{env_name}=secretref:{secret_name}"' in script
-    for derived in DERIVED_ENV:
-        assert f'"{derived}=' in script
-    assert "${SUPABASE_URL%/}" in script
+    assert "secretref:" not in script
+
+
+def test_the_reference_order_matches_the_env_list_azure_already_holds() -> None:
+    # Container Apps compares env in order. Declaring the references in a different order from
+    # the template the deploy used to write would be a diff, and every diff is a new revision.
+    gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
+    positions = [gateway.index(f'secret = "{name}"') for name in INJECTED_SECRETS]
+    assert positions == sorted(positions)
+
+
+def test_only_terraform_writes_the_apps_env() -> None:
+    # Two writers of one env list is the defect itself: whichever ran second looked like drift
+    # to the other. The deploy may stamp the image and write secret VALUES, never env.
+    body = _source()
+    for flag in ("--set-env-vars", "--replace-env-vars", "--remove-env-vars", "--remove-all-env"):
+        assert flag not in body, flag
 
 
 def test_the_deployed_app_is_told_whether_it_carries_a_demo_story() -> None:
@@ -223,18 +242,40 @@ def test_the_deployed_app_is_told_whether_it_carries_a_demo_story() -> None:
 
     Tied to the same variable that gates the bootstrap, so the data and the endpoint cannot
     disagree — a deployment with no story must not advertise a demo route, and one that has the
-    story must serve it. Defaulted in the shell, because an unset repo variable renders as the
-    empty string and pydantic-settings rejects that as a boolean.
+    story must serve it. Passed as a boolean expression, because an unset repo variable renders
+    as the empty string, which neither Terraform's bool nor pydantic-settings accepts.
     """
-    step = _step("stage", "Create revision at 0% traffic")
-    assert step["env"]["DEMO_ENABLED"] == "${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED }}"
-    assert '"FRAUDLENS_PORTFOLIO_DEMO_ENABLED=${DEMO_ENABLED:-false}"' in step["run"]
+    env = _step("infra", "Terraform plan")["env"]
+    assert env["TF_VAR_portfolio_demo_enabled"] == (
+        "${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}"
+    )
+    gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
+    assert "value = tostring(var.portfolio_demo_enabled)" in gateway
 
 
 def test_the_jwks_url_and_issuer_are_derived_rather_than_stored_twice() -> None:
-    script = _step("stage", "Create revision at 0% traffic")["run"]
-    assert '"FRAUDLENS_AUTH_JWKS_URL=${supabase_url}/auth/v1/.well-known/jwks.json"' in script
-    assert '"FRAUDLENS_AUTH_JWT_ISSUER=${supabase_url}/auth/v1"' in script
+    gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
+    assert 'value = "${local.supabase_url}/auth/v1/.well-known/jwks.json"' in gateway
+    assert 'value = "${local.supabase_url}/auth/v1"' in gateway
+    for derived in DERIVED_ENV:
+        assert f'name  = "{derived}"' in gateway
+
+
+def test_the_supabase_url_reaches_terraform_from_infisical_and_fails_closed() -> None:
+    # The derived JWKS/issuer are useless without the project URL, and an apply that rendered
+    # them empty would strip auth from the app. Infisical prod is the URL's only source.
+    fetches = [step for step in _steps("infra") if "Infisical" in str(step.get("uses", ""))]
+    assert [step["with"]["secret-path"] for step in fetches] == ["/"]
+    for step in fetches:
+        assert step["with"]["method"] == "oidc"
+        assert step["with"]["env-slug"] == "prod"
+        assert "token" not in step["with"]
+    assert _index("infra", "Supabase project URL") < _index("infra", "Terraform plan")
+    assert _step("infra", "Terraform plan")["env"]["TF_VAR_supabase_url"] == (
+        "${{ env.SUPABASE_URL }}"
+    )
+    gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
+    assert 'condition     = startswith(var.supabase_url, "https://")' in gateway
 
 
 def test_injection_happens_before_the_readiness_gate_can_observe_it() -> None:
@@ -256,11 +297,17 @@ def test_no_secret_value_is_ever_written_into_the_workflow() -> None:
 
 
 def test_terraform_never_owns_the_injected_secret_values() -> None:
-    # Golden Rule 3: a secret that reached terraform would be written to remote state in clear.
+    # Golden Rule 3: a secret value that reached terraform config would be committed and planned
+    # in clear. Terraform holds the reference NAMES and one fixed placeholder that only a
+    # from-scratch create ever sends; every env var reaches a secret by `secret_name`.
     gateway = GATEWAY_MODULE.read_text(encoding="utf-8")
-    for secret_name, env_name in INJECTED_SECRETS.items():
-        assert secret_name not in gateway, secret_name
-        assert f'name  = "{env_name}"' not in gateway, env_name
+    secret_block = gateway.split('dynamic "secret" {')[1].split("\n  }")[0]
+    assert "value = local.runtime_secret_placeholder" in secret_block
+    assert 'runtime_secret_placeholder = "set-by-deploy"' in gateway
+    for env_name in INJECTED_SECRETS.values():
+        assert f'name  = "{env_name}"' not in gateway, (
+            f"{env_name} must be a reference, not a value"
+        )
 
 
 def test_a_later_terraform_apply_cannot_strip_the_injected_secrets() -> None:
