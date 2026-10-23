@@ -1001,8 +1001,8 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 	terraform fmt -recursive -check infra/terraform
 	@for root in $(TF_ROOTS); do \
 		echo ">> terraform validate ($$(basename $$root))"; \
-		terraform -chdir=$$root init -backend=false -input=false -no-color >/dev/null; \
-		terraform -chdir=$$root validate -no-color; \
+		terraform -chdir=$$root init -backend=false -input=false -no-color >/dev/null || exit 1; \
+		terraform -chdir=$$root validate -no-color || exit 1; \
 	done
 
 # ---------------------------------------------------------------------------
