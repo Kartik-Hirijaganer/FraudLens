@@ -1,5 +1,8 @@
 // Test-only domain and study object factories.
 import type {
+  ActionCapability,
+  CaseAction,
+  SubmissionView,
   AlertDetailResponse,
   AlertView,
   DashboardMetrics,
@@ -47,6 +50,10 @@ export function alertView(overrides: Partial<AlertView> = {}): AlertView {
     severity: "high",
     amount: "9500.00",
     currency: "USD",
+    caseVersion: 1,
+    ownerPersonId: null,
+    submissionStatus: null,
+    capabilities: caseCapabilities(["pickup", "comment"]),
     assignedTo: null,
     assignedToName: null,
     reviewFlags: [{ flag: "critical_band", reason: "Risk band is critical" }],
@@ -100,6 +107,8 @@ export function alertDetail(overrides: Partial<AlertDetailResponse> = {}): Alert
     alert: alertView(),
     sarDraft: sarDraft(),
     actions: [],
+    submissions: [],
+    draftVersions: [sarDraft()],
     agentExecutions: [],
     workflowMode: "single_writer",
     graphVersion: null,
@@ -417,5 +426,50 @@ export function sarEvalStudy(): SarEvalStudyData {
       ],
     },
     scenarios,
+  };
+}
+
+export function caseCapabilities(allowed: CaseAction[] = []): Record<CaseAction, ActionCapability> {
+  const actions: CaseAction[] = [
+    "pickup",
+    "edit",
+    "regenerate",
+    "submit",
+    "dismiss",
+    "comment",
+    "approve",
+    "return",
+    "decline",
+  ];
+  return Object.fromEntries(
+    actions.map((action) => [
+      action,
+      {
+        allowed: allowed.includes(action),
+        reason: allowed.includes(action) ? null : "Action blocked by case policy.",
+      },
+    ]),
+  ) as Record<CaseAction, ActionCapability>;
+}
+export function submissionView(overrides: Partial<SubmissionView> = {}): SubmissionView {
+  return {
+    submissionId: "submission-1",
+    canRetryPdf: true,
+    round: 1,
+    makerAccountId: "maker-account",
+    makerPersonId: "maker-person",
+    contributorPersonIds: ["maker-person"],
+    recommendation: "sar",
+    rationale: "Submitted with evidence.",
+    sarDraft: sarDraft({ status: "submitted" }),
+    evidence: { runId: "run-1" },
+    decision: null,
+    reason: null,
+    outcome: null,
+    checkerAccountId: null,
+    checkerPersonId: null,
+    pdfStatus: "unavailable",
+    createdAt: "2026-06-11T10:05:00Z",
+    ...overrides,
   };
 }

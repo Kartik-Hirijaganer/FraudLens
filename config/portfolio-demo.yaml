@@ -42,6 +42,7 @@ agency:
 personas:
   - key: analyst
     seed_user_id: 22222222-2222-4222-8222-222222222222
+    person_id: 22222222-2222-4222-8222-222222222222
     email: analyst@demo-agency.test
     display_name: Alex Rivera
     initials: AR
@@ -51,6 +52,7 @@ personas:
     picker_accent: green
   - key: reviewer
     seed_user_id: 33333333-3333-4333-8333-333333333333
+    person_id: 33333333-3333-4333-8333-333333333333
     email: reviewer@demo-agency.test
     display_name: Morgan Diaz
     initials: MD
@@ -60,6 +62,7 @@ personas:
     picker_accent: cyan
   - key: admin
     seed_user_id: 44444444-4444-4444-8444-444444444444
+    person_id: 44444444-4444-4444-8444-444444444444
     email: admin@demo-agency.test
     display_name: Priya Shah
     initials: PS
@@ -69,6 +72,7 @@ personas:
     picker_accent: amber
   - key: auditor
     seed_user_id: 55555555-5555-4555-8555-555555555555
+    person_id: 55555555-5555-4555-8555-555555555555
     email: auditor@demo-agency.test
     display_name: Jordan Lee
     initials: JL
@@ -112,7 +116,7 @@ case_pack_tenant_weights: [0]
 # Values are persona KEYS; their roles are validated against the RBAC policy at load, and RBAC
 # itself is never configurable from here.
 workflow:
-  assignment_actor: reviewer
+  assignment_actor: analyst
   resolution_actor: reviewer
   sar_review_actor: reviewer
   assignee: analyst
@@ -139,13 +143,15 @@ expected:
     high: 3
     critical: 2
   alert_states:
-    open: 3
+    open: 1
     in_review: 1
-    resolved: 1
+    escalated: 1
+    resolved: 2
   sar_states:
     draft: 2
+    submitted: 1
     approved: 1
-    rejected: 2
+    rejected: 1
 
 # --- The authored case pack -----------------------------------------------------------------
 # Authored payloads calibrated against the live seeded `aml_rules.params` and the pinned model
@@ -336,7 +342,7 @@ scenarios:
     score: true
     expected_risk_band: high
     expected_triggered_rules: [rapid_movement, round_amount, threshold_evasion]
-    alert_target: open
+    alert_target: resolved
     sar_target: rejected
     transaction:
       amount: 9000.00
@@ -370,7 +376,8 @@ scenarios:
     score: true
     expected_risk_band: high
     expected_triggered_rules: [rapid_movement]
-    alert_target: open
+    returned: true
+    alert_target: in_review
     sar_target: draft
     transaction:
       amount: 10400.00
@@ -387,8 +394,8 @@ scenarios:
     expected_risk_band: critical
     expected_triggered_rules:
       [rapid_movement, round_amount, structuring, threshold_evasion, velocity]
-    alert_target: in_review
-    sar_target: approved
+    alert_target: escalated
+    sar_target: submitted
     transaction:
       amount: 9000.00
       currency: USD
@@ -405,7 +412,7 @@ scenarios:
     expected_triggered_rules:
       [rapid_movement, round_amount, structuring, threshold_evasion, velocity]
     alert_target: resolved
-    sar_target: rejected
+    sar_target: approved
     transaction:
       amount: 9000.00
       currency: USD

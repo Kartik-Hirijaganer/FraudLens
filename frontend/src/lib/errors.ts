@@ -52,13 +52,13 @@ const CODE_UX: Record<string, CodeUx> = {
     critical: true,
   },
   alert_not_found: { title: "Alert not found", description: "It may have been removed." },
+  case_version_conflict: {
+    title: "Case changed",
+    description: "Reload the case to use the current version before trying again.",
+  },
   invalid_alert_transition: {
     title: "Action not allowed",
     description: "That action isn't valid from the alert's current status.",
-  },
-  sar_decision_required: {
-    title: "Decide the SAR first",
-    description: "Approve or reject the SAR draft before closing this alert.",
   },
   resolution_label_mismatch: {
     title: "Outcome doesn't match",
@@ -67,10 +67,6 @@ const CODE_UX: Record<string, CodeUx> = {
   invalid_sar_transition: {
     title: "Review not allowed",
     description: "That decision isn't valid from the SAR draft's current status.",
-  },
-  assignee_not_in_agency: {
-    title: "Invalid assignee",
-    description: "That user doesn't belong to this agency.",
   },
   admin_role_required: {
     title: "Admin only",

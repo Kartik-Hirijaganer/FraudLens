@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from decimal import Decimal
 
-import pytest
-from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID, demo_user_id
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -32,11 +31,8 @@ from fraudlens_backend.db.models import (
     AnalysisRun,
     AuditLog,
     RagRetrieval,
-    SarStatus,
-    TrainingLabel,
     Transaction,
     TransactionSource,
-    UserRole,
 )
 from fraudlens_backend.db.models.enums import AgentExecutionStatus, AgentRole
 from fraudlens_backend.models.common import TenantContext
@@ -139,7 +135,9 @@ async def test_get_alert_detail_surfaces_sar_and_flags(
         resp = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["alert"]["reviewFlags"][0]["flag"] == "critical_risk_band"
+    assert (
+        body["alert"]["reviewFlags"] == []
+    )  # Persisted HIGH/.91 evidence overrides historical flags.
     assert body["alert"]["origin"] == "seed"
     assert body["alert"]["amount"] == "9500.00"
     assert body["alert"]["currency"] == "USD"
@@ -172,266 +170,42 @@ async def test_get_alert_cross_tenant_returns_404(
     assert resp.json()["code"] == "alert_not_found"
 
 
-async def test_assign_moves_to_in_review_and_audits(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
+async def test_pickup_and_cross_tenant_assignment_are_checked(
+    make_settings, db_engine, db_sessionmaker
+):
     ids = await _seed_alert(db_sessionmaker)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(
+        forbidden = await client.post(
             f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "assign", "assigneeId": str(_REVIEWER_ID)},
+            json={"action": "assign", "expectedCaseVersion": 1, "assigneeId": str(_OTHER_USER_ID)},
         )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "in_review"
-    assert body["assignedTo"] == str(_REVIEWER_ID)
-    assert body["assignedToName"] == "Demo Reviewer"
+        assert forbidden.status_code == 403
+        response = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "assign", "expectedCaseVersion": 1},
+        )
+        assert response.status_code == 200
+        assert response.json()["assignedTo"] == str(DEMO_BYPASS_USER_ID)
+        assert response.json()["status"] == "in_review"
     async with db_sessionmaker() as session:
         action = (
             await session.execute(
-                select(AlertAction).where(AlertAction.alert_id == ids["alert_id"])
+                select(AlertAction).where(
+                    AlertAction.agency_id == DEMO_AGENCY_ID, AlertAction.alert_id == ids["alert_id"]
+                )
             )
         ).scalar_one()
-        assert action.action.value == "assign"
-        assert action.actor_id == DEMO_BYPASS_USER_ID  # the dev-bypass acting user
-        assert action.to_status == "in_review"
+        assert action.actor_person_id is not None
+        assert action.actor_id == DEMO_BYPASS_USER_ID
         audit = (
-            await session.execute(select(AuditLog).where(AuditLog.action == "alert.assign"))
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.agency_id == DEMO_AGENCY_ID, AuditLog.action == "case.assign"
+                )
+            )
         ).scalar_one()
         assert audit.resource_id == str(ids["alert_id"])
-        assert audit.actor_id == DEMO_BYPASS_USER_ID
-        assert audit.meta["assigneeId"] == str(_REVIEWER_ID)
-
-
-async def test_assign_cross_tenant_assignee_returns_403(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "assign", "assigneeId": str(_OTHER_USER_ID)},
-        )
-    assert resp.status_code == 403
-    assert resp.json()["code"] == "assignee_not_in_agency"
-
-
-async def test_auditor_cannot_mutate_alerts(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="auditor")
-    async with _client(app) as client:
-        detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment"}
-        )
-    assert detail.status_code == 200
-    assert resp.status_code == 403
-    assert resp.json()["code"] == "role_permission_required"
-
-
-async def test_resolve_writes_training_label(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "resolve", "label": "confirmed_fraud"},
-        )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "resolved"
-    async with db_sessionmaker() as session:
-        label = (
-            await session.execute(
-                select(TrainingLabel).where(TrainingLabel.run_id == ids["run_id"])
-            )
-        ).scalar_one()
-        assert label.label.value == "confirmed_fraud"
-        assert label.source.value == "analyst_review"
-        assert label.created_by == DEMO_BYPASS_USER_ID
-        assert label.transaction_id == ids["transaction_id"]
-        assert label.matured_at is not None  # a future maturity is stamped for the retrain job
-
-
-async def test_resolve_requires_an_existing_sar_decision(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.DRAFT)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "resolve", "label": "confirmed_fraud"},
-        )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "sar_decision_required"
-
-
-@pytest.mark.parametrize(
-    ("sar_status", "label"),
-    [
-        (SarStatus.APPROVED, "false_positive"),
-        (SarStatus.REJECTED, "confirmed_fraud"),
-    ],
-)
-async def test_resolve_rejects_an_outcome_that_conflicts_with_the_sar_decision(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-    sar_status: SarStatus,
-    label: str,
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, sar_status=sar_status)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "resolve", "label": label},
-        )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "resolution_label_mismatch"
-
-
-async def test_dismiss_rejects_an_approved_sar(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "dismiss"},
-        )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "resolution_label_mismatch"
-
-
-async def test_resolve_without_a_sar_allows_a_manual_outcome(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, with_sar=False)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "resolve", "label": "confirmed_fraud"},
-        )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "resolved"
-
-
-async def test_resolve_without_label_is_422(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "resolve"}
-        )
-    assert resp.status_code == 422
-
-
-@pytest.mark.parametrize(
-    ("action", "expected", "sar_status"),
-    [
-        ("escalate", "escalated", SarStatus.DRAFT),
-        ("dismiss", "dismissed", SarStatus.REJECTED),
-    ],
-)
-async def test_escalate_and_dismiss_transitions(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-    action: str,
-    expected: str,
-    sar_status: SarStatus,
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, sar_status=sar_status)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": action}
-        )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == expected
-
-
-async def test_illegal_transition_on_terminal_alert_is_409(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker, status=AlertStatus.RESOLVED)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker)
-    async with _client(app) as client:
-        resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment", "note": "hi"}
-        )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "invalid_alert_transition"
-
-
-async def test_analyst_cannot_finalize_alert_or_review_sar(
-    make_settings: Callable[..., AppSettings],
-    db_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
-) -> None:
-    ids = await _seed_alert(db_sessionmaker)
-    dismiss_ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.REJECTED)
-    app = _demo_app(make_settings, db_engine, db_sessionmaker, auth_dev_bypass_role="analyst")
-    async with _client(app) as client:
-        comment = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment"}
-        )
-        dismiss = await client.post(
-            f"/api/v1/alerts/{dismiss_ids['alert_id']}/actions", json={"action": "dismiss"}
-        )
-        resolve = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "resolve", "label": "confirmed_fraud"},
-        )
-        review = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/sar/review", json={"decision": "approve"}
-        )
-    assert comment.status_code == 200
-    assert dismiss.status_code == 200
-    assert dismiss.json()["status"] == "dismissed"
-    assert resolve.status_code == 403
-    assert review.status_code == 403
-    assert resolve.json()["code"] == "role_permission_required"
-    assert review.json()["code"] == "role_permission_required"
-    async with db_sessionmaker() as session:
-        label = (
-            await session.execute(
-                select(TrainingLabel).where(TrainingLabel.run_id == dismiss_ids["run_id"])
-            )
-        ).scalar_one()
-    assert label.label.value == "false_positive"
-    assert label.source.value == "analyst_dismiss"
-    # This app runs the bypass as `analyst`, so the actor is the ANALYST persona, not the default.
-    assert label.created_by == demo_user_id(UserRole.ANALYST)
 
 
 async def test_comment_note_is_phi_masked(
@@ -444,7 +218,11 @@ async def test_comment_note_is_phi_masked(
     async with _client(app) as client:
         resp = await client.post(
             f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "comment", "note": "reach me at evil@example.com about this"},
+            json={
+                "action": "comment",
+                "expectedCaseVersion": 1,
+                "note": "reach me at evil@example.com about this",
+            },
         )
     assert resp.status_code == 200
     async with db_sessionmaker() as session:
@@ -465,7 +243,7 @@ async def test_comment_note_is_phi_masked(
     assert "evil@example.com" not in (action.note or "")  # PHI-shaped span masked
     assert "[REDACTED_EMAIL]" in (action.note or "")
     assert audit.meta == {
-        "source": "alert.action_note",
+        "source": "case.action",
         "maskedCount": "1",
         "categories": "email:1",
     }
@@ -484,7 +262,8 @@ async def test_acting_user_required_fails_closed(
     )
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions", json={"action": "comment"}
+            f"/api/v1/alerts/{ids['alert_id']}/actions",
+            json={"action": "comment", "note": "Comment", "expectedCaseVersion": 1},
         )
     assert resp.status_code == 401
     assert resp.json()["code"] == "acting_user_required"

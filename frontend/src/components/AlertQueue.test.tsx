@@ -73,7 +73,7 @@ describe("AlertQueue", () => {
 
   it("shows an empty state and no footer when there are no alerts", () => {
     render(<AlertQueue alerts={[]} totalOpen={0} onSelect={vi.fn()} />);
-    expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+    expect(screen.getByText("No open alerts")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View all/ })).not.toBeInTheDocument();
   });
 });

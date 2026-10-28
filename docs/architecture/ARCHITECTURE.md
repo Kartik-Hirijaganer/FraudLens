@@ -522,7 +522,11 @@ client; `backend` may import `core`, `llm`, and `ml`.
 | GET | `/api/v1/alerts` | `list_alerts` |
 | GET | `/api/v1/alerts/{alertId}` | `get_alert` |
 | POST | `/api/v1/alerts/{alertId}/actions` | `act_on_alert` |
-| POST | `/api/v1/alerts/{alertId}/sar/review` | `review_sar` |
+| PATCH | `/api/v1/alerts/{alertId}/sar` | `save_sar` |
+| POST | `/api/v1/alerts/{alertId}/submissions` | `submit_case` |
+| POST | `/api/v1/alerts/{alertId}/submissions/{submissionId}/decision` | `decide_submission` |
+| GET | `/api/v1/alerts/{alertId}/submissions/{submissionId}/pdf` | `download_pdf` |
+| POST | `/api/v1/alerts/{alertId}/submissions/{submissionId}/pdf/retry` | `retry_pdf` |
 | GET | `/api/v1/config` | `list_config` |
 | PATCH | `/api/v1/config` | `patch_config` |
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |
@@ -693,6 +697,13 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 <!-- AUTOGEN:erd -->
 ```mermaid
 erDiagram
+    account_persons {
+        uuid id PK
+        uuid account_id FK
+        uuid agency_id FK
+        datetime created_at
+        uuid person_id FK
+    }
     agencies {
         uuid id PK
         datetime created_at
@@ -725,19 +736,23 @@ erDiagram
         uuid id PK
         enum action
         uuid actor_id FK
+        uuid actor_person_id
         uuid agency_id FK
         uuid alert_id FK
         datetime created_at
         string from_status
         text note
+        uuid submission_id
         string to_status
     }
     alerts {
         uuid id PK
         uuid agency_id FK
         uuid assigned_to FK
+        integer case_version
         datetime created_at
         enum origin
+        uuid owner_person_id
         json review_flags
         uuid run_id FK
         enum severity
@@ -823,6 +838,41 @@ erDiagram
         string resource_id
         string resource_type
     }
+    case_contributors {
+        uuid id PK
+        uuid account_id
+        uuid agency_id FK
+        uuid alert_id FK
+        datetime created_at
+        uuid person_id FK
+    }
+    case_decisions {
+        uuid id PK
+        uuid action_id
+        uuid actor_account_id
+        uuid actor_person_id FK
+        uuid agency_id FK
+        datetime created_at
+        string decision
+        string outcome
+        uuid submission_id FK
+    }
+    case_submissions {
+        uuid id PK
+        uuid action_id
+        uuid agency_id FK
+        uuid alert_id FK
+        json contributor_person_ids
+        datetime created_at
+        json evidence
+        uuid maker_account_id
+        uuid maker_person_id FK
+        string pdf_status
+        string recommendation
+        integer round
+        uuid sar_draft_id FK
+        integer sar_version
+    }
     drift_reports {
         uuid id PK
         boolean advisory
@@ -895,6 +945,11 @@ erDiagram
         enum status
         uuid training_run_id FK
         string version_label
+    }
+    persons {
+        uuid id PK
+        uuid agency_id FK
+        datetime created_at
     }
     rag_retrievals {
         uuid id PK
@@ -1012,6 +1067,16 @@ erDiagram
         enum role
         datetime updated_at
     }
+    workflow_receipts {
+        uuid id PK
+        uuid agency_id FK
+        uuid alert_id
+        datetime created_at
+        string fingerprint
+        string key_digest
+        json response
+    }
+    agencies ||--o{ account_persons : "agency_id"
     agencies ||--o{ agent_executions : "agency_id"
     agencies ||--o{ alert_actions : "agency_id"
     agencies ||--o{ alerts : "agency_id"
@@ -1020,8 +1085,12 @@ erDiagram
     agencies ||--o{ analysis_run_events : "agency_id"
     agencies ||--o{ analysis_runs : "agency_id"
     agencies ||--o{ audit_logs : "agency_id"
+    agencies ||--o{ case_contributors : "agency_id"
+    agencies ||--o{ case_decisions : "agency_id"
+    agencies ||--o{ case_submissions : "agency_id"
     agencies ||--o{ job_executions : "agency_id"
     agencies ||--o{ model_inference_logs : "agency_id"
+    agencies ||--o{ persons : "agency_id"
     agencies ||--o{ rag_retrievals : "agency_id"
     agencies ||--o{ sar_drafts : "agency_id"
     agencies ||--o{ sar_generation_attempts : "agency_id"
@@ -1029,7 +1098,12 @@ erDiagram
     agencies ||--o{ training_labels : "agency_id"
     agencies ||--o{ transactions : "agency_id"
     agencies ||--o{ users : "agency_id"
+    agencies ||--o{ workflow_receipts : "agency_id"
     alerts ||--o{ alert_actions : "alert_id"
+    alerts ||--o{ case_contributors : "agency_id"
+    alerts ||--o{ case_contributors : "alert_id"
+    alerts ||--o{ case_submissions : "agency_id"
+    alerts ||--o{ case_submissions : "alert_id"
     alerts ||--o{ sar_drafts : "alert_id"
     analysis_runs ||--o{ agent_executions : "run_id"
     analysis_runs ||--o{ alerts : "run_id"
@@ -1040,6 +1114,8 @@ erDiagram
     analysis_runs ||--o{ sar_drafts : "run_id"
     analysis_runs ||--o{ sar_generation_attempts : "run_id"
     analysis_runs ||--o{ training_labels : "run_id"
+    case_submissions ||--o{ case_decisions : "agency_id"
+    case_submissions ||--o{ case_decisions : "submission_id"
     job_executions ||--o{ analysis_runs : "import_job_id"
     model_training_runs ||--o{ model_versions : "training_run_id"
     model_versions ||--o{ drift_reports : "model_version_id"
@@ -1049,11 +1125,23 @@ erDiagram
     model_versions ||--o{ model_evaluations : "baseline_version_id"
     model_versions ||--o{ model_evaluations : "model_version_id"
     model_versions ||--o{ model_inference_logs : "model_version_id"
+    persons ||--o{ account_persons : "agency_id"
+    persons ||--o{ account_persons : "person_id"
+    persons ||--o{ case_contributors : "agency_id"
+    persons ||--o{ case_contributors : "person_id"
+    persons ||--o{ case_decisions : "actor_person_id"
+    persons ||--o{ case_decisions : "agency_id"
+    persons ||--o{ case_submissions : "agency_id"
+    persons ||--o{ case_submissions : "maker_person_id"
+    sar_drafts ||--o{ case_submissions : "agency_id"
+    sar_drafts ||--o{ case_submissions : "sar_draft_id"
     sar_drafts ||--o{ sar_generation_attempts : "draft_id"
     training_datasets ||--o{ model_training_runs : "dataset_id"
     transactions ||--o{ alerts : "transaction_id"
     transactions ||--o{ analysis_runs : "transaction_id"
     transactions ||--o{ training_labels : "transaction_id"
+    users ||--o{ account_persons : "account_id"
+    users ||--o{ account_persons : "agency_id"
     users ||--o{ alert_actions : "actor_id"
     users ||--o{ alerts : "assigned_to"
     users ||--o{ analysis_runs : "triggered_by"

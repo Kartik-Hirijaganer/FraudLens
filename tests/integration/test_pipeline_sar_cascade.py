@@ -57,11 +57,9 @@ from fraudlens_backend.db.repositories import (
     SarDraftRepository,
 )
 from fraudlens_backend.db.repositories.sar import SarQualityGateNotSatisfiedError
-from fraudlens_backend.models.alerts import SarReviewDecision
 from fraudlens_backend.pipeline_wiring import PipelineComponents, PipelineRunStore, RunManager
 from fraudlens_backend.sar.budget import BudgetGuard
 from fraudlens_backend.sar.drafter_gated import QualityGatedSarDrafter, SarCascadeTier
-from fraudlens_backend.services.alert_workflow import sar_decision_allowed
 from fraudlens_core import RiskPolicy, RuleContext
 from fraudlens_core.rules.base import RuleTransaction
 from fraudlens_ml.pipeline import PipelineDeps, PipelineInput, Runner
@@ -372,8 +370,9 @@ async def test_a_fully_failed_cascade_completes_the_run_without_a_reviewable_dra
     assert run.status is RunStatus.COMPLETED
     # An analyst cannot approve what the cascade refused: approval of a failed draft is only
     # legal when the reviewer supplies replacement content of their own.
-    assert not sar_decision_allowed(draft.status, SarReviewDecision.APPROVE, has_edit=False)
-    assert sar_decision_allowed(draft.status, SarReviewDecision.REJECT, has_edit=False)
+    assert (
+        draft.status is SarStatus.FAILED
+    )  # Retained failed artifact requires manual recovery before SAR submission.
 
 
 @pytest.mark.asyncio

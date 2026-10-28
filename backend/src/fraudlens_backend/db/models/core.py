@@ -76,6 +76,7 @@ class User(AgencyScopedMixin, TimestampMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
+        UniqueConstraint("agency_id", "id", name="uq_users_agency_id_id"),
         Index("ix_users_agency_id_email", "agency_id", "email"),
     )
 
@@ -98,7 +99,7 @@ class Transaction(AgencyScopedMixin, CreatedAtMixin, Base):
 
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
     source: Mapped[TransactionSource] = mapped_column(
-        str_enum(TransactionSource, create_constraint=True),
+        str_enum(TransactionSource, create_constraint=True, length=32),
         nullable=False,
         default=TransactionSource.UNKNOWN,
         server_default=TransactionSource.UNKNOWN.value,

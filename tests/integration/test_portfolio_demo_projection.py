@@ -73,6 +73,12 @@ def test_the_projection_returns_the_configured_agency_and_personas(
     client = client_factory(portfolio_demo_enabled=True, demo_auth_password=_SYNTHETIC_PASSWORD)
     body = client.get(_ROUTE).json()
 
+    assert [persona["role"] for persona in body["personas"]] == [
+        "analyst",
+        "reviewer",
+        "admin",
+        "auditor",
+    ]
     assert body["storyVersion"] == config.story_version
     assert body["agency"] == {
         "id": str(config.agency.id),

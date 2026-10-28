@@ -26,9 +26,9 @@ Notes:
   JSON is camelCase and JSON-native (tuples→arrays) — matching the API surface with no remapping.
 - `get_for_run` returns the latest version for a run; `list_for_alert` returns an alert's drafts
   newest-first — both agency-scoped so cross-tenant rows are never returned (defense-in-depth).
-- The Phase 9 review methods (`create_edited_version`, `set_review_status`, `set_pdf_url`) record
-  the human-review lifecycle: an edit is a new version (provenance carried over), approve/reject
-  stamp status + reviewer, and the deferred PDF's URI lands via `set_pdf_url` (never overwriting).
+- The Phase 9 review methods (`create_edited_version`, `set_pdf_url`) record
+  the working revision lifecycle. Edits preserve prior versions and provenance. The case workflow
+  owns decisions; the deferred PDF URI lands via `set_pdf_url`.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fraudlens_backend.db.models import SarDraft, SarGenerationAttempt
+from fraudlens_backend.db.models import Alert, SarDraft, SarGenerationAttempt
 from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_ml.sar import SarDraftResult, SarDraftStatus
@@ -65,6 +65,20 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         created_by: uuid.UUID | None = None,
     ) -> SarDraft:
         """Persist a SarDraftResult as the next `sar_drafts` version for the run (agency-scoped)."""
+        alert = (
+            await self._session.execute(
+                select(Alert)
+                .where(Alert.agency_id == self._agency_id, Alert.run_id == run_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if alert is not None:
+            alert_id = alert.id
+            if created_by is None and alert.assigned_to is not None:
+                latest = await self.get_for_run(run_id)
+                if latest is not None:
+                    return latest
         if result.status is SarDraftStatus.DRAFT and not (
             result.quality is not None and result.quality.passed
         ):
@@ -161,7 +175,7 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
         created_by: uuid.UUID,
         alert_id: uuid.UUID | None = None,
     ) -> SarDraft:
-        """Persist a human-edited next version of a draft (masked content, status=reviewed, §10.4).
+        """Persist a human-edited next version of a draft (masked content, status=draft, §10.4).
 
         Provenance (model/prompt/structured/citations) carries over from `base`; `content` is the
         analyst's edited narrative, already PHI-masked by the caller. Recorded as a new version so
@@ -182,21 +196,12 @@ class SarDraftRepository(TenantScopedRepository[SarDraft]):
             citations=base.citations,
             quality_status=SarQualityStatus.NOT_RUN,
             quality={},
-            status=SarStatus.REVIEWED,
+            status=SarStatus.DRAFT,
             token_usage=base.token_usage,
             cost_usd=base.cost_usd,
             created_by=created_by,
         )
         self._session.add(draft)
-        await self._session.flush()
-        return draft
-
-    async def set_review_status(
-        self, draft: SarDraft, *, status: SarStatus, reviewed_by: uuid.UUID
-    ) -> SarDraft:
-        """Stamp a human-review decision (approved/rejected) + the reviewer onto the draft."""
-        draft.status = status
-        draft.reviewed_by = reviewed_by
         await self._session.flush()
         return draft
 

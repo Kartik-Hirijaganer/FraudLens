@@ -35,12 +35,17 @@ import type {
   ListTransactionsParams,
   PortfolioDemoConfig,
   SarDraftView,
-  SarReviewRequest,
   ScreeningProgress,
   TransactionIngestRequest,
   TransactionListResponse,
   TransactionResponse,
 } from "./alerts";
+import type {
+  WorkingSarRequest,
+  SubmissionRequest,
+  DecisionRequest,
+  WorkflowCommandResult,
+} from "./caseWorkflow";
 import { ApiError } from "./alerts";
 import type {
   CanaryEvaluationResponse,
@@ -56,6 +61,7 @@ import type {
 
 export * from "./alerts";
 export * from "./models";
+export * from "./caseWorkflow";
 
 export interface ApiClient {
   health(): Promise<ApiHealth>;
@@ -72,12 +78,21 @@ export interface ApiClient {
     idempotencyKey?: string,
   ): Promise<InvestigationStartResponse>;
   getInvestigation(runId: string): Promise<InvestigationSnapshot>;
-  regenerateSar(runId: string): Promise<SarDraftView>;
+  regenerateSar(runId: string, expectedCaseVersion: number): Promise<SarDraftView>;
   investigationStreamUrl(runId: string): string;
   listAlerts(params?: ListAlertsParams): Promise<AlertListResponse>;
   getAlert(alertId: string): Promise<AlertDetailResponse>;
   actOnAlert(alertId: string, body: AlertActionRequest): Promise<AlertView>;
-  reviewSar(alertId: string, body: SarReviewRequest): Promise<SarDraftView>;
+  saveSar(alertId: string, body: WorkingSarRequest): Promise<SarDraftView>;
+  submitCase(alertId: string, body: SubmissionRequest, key: string): Promise<WorkflowCommandResult>;
+  decideSubmission(
+    alertId: string,
+    submissionId: string,
+    body: DecisionRequest,
+    key: string,
+  ): Promise<WorkflowCommandResult>;
+  downloadSubmissionPdf(alertId: string, submissionId: string): Promise<Blob>;
+  retrySubmissionPdf(alertId: string, submissionId: string): Promise<{ pdfStatus: string }>;
   listModelVersions(): Promise<ModelVersionListResponse>;
   getDeployment(): Promise<DeploymentResponse>;
   triggerTraining(trigger?: "manual" | "scheduled"): Promise<TrainingRunTriggerResponse>;
@@ -166,7 +181,7 @@ export async function fetchPortfolioDemoConfig(
 }
 
 export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
-  async function send<T>(path: string, init?: RequestInit): Promise<T> {
+  async function send<T>(path: string, init?: RequestInit, binary = false): Promise<T> {
     let response = await fetchImpl(`${config.apiBaseUrl}${path}`, withSessionHeaders(init));
     if (response.status === 401) {
       const refreshed = await refreshAccessToken();
@@ -181,7 +196,7 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
     if (!response.ok) {
       throw await errorFromResponse(response);
     }
-    return (await response.json()) as T;
+    return (binary ? await response.blob() : await response.json()) as T;
   }
 
   function jsonInit(method: string, body?: unknown, headers?: Record<string, string>): RequestInit {
@@ -218,15 +233,35 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
         jsonInit("POST", body, idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined),
       ),
     getInvestigation: (runId) => send<InvestigationSnapshot>(`/api/v1/investigations/${runId}`),
-    regenerateSar: (runId) =>
-      send<SarDraftView>(`/api/v1/investigations/${runId}/sar/regenerate`, jsonInit("POST")),
+    regenerateSar: (runId, expectedCaseVersion) =>
+      send<SarDraftView>(
+        `/api/v1/investigations/${runId}/sar/regenerate`,
+        jsonInit("POST", { expectedCaseVersion }),
+      ),
     investigationStreamUrl: (runId) => `${config.apiBaseUrl}/api/v1/investigations/${runId}/stream`,
     listAlerts: (params = {}) => send<AlertListResponse>(`/api/v1/alerts${query({ ...params })}`),
     getAlert: (alertId) => send<AlertDetailResponse>(`/api/v1/alerts/${alertId}`),
     actOnAlert: (alertId, body) =>
       send<AlertView>(`/api/v1/alerts/${alertId}/actions`, jsonInit("POST", body)),
-    reviewSar: (alertId, body) =>
-      send<SarDraftView>(`/api/v1/alerts/${alertId}/sar/review`, jsonInit("POST", body)),
+    saveSar: (alertId, body) =>
+      send<SarDraftView>(`/api/v1/alerts/${alertId}/sar`, jsonInit("PATCH", body)),
+    submitCase: (alertId, body, key) =>
+      send<WorkflowCommandResult>(
+        `/api/v1/alerts/${alertId}/submissions`,
+        jsonInit("POST", body, { "Idempotency-Key": key }),
+      ),
+    decideSubmission: (alertId, submissionId, body, key) =>
+      send<WorkflowCommandResult>(
+        `/api/v1/alerts/${alertId}/submissions/${submissionId}/decision`,
+        jsonInit("POST", body, { "Idempotency-Key": key }),
+      ),
+    downloadSubmissionPdf: (alertId, submissionId) =>
+      send<Blob>(`/api/v1/alerts/${alertId}/submissions/${submissionId}/pdf`, undefined, true),
+    retrySubmissionPdf: (alertId, submissionId) =>
+      send<{ pdfStatus: string }>(
+        `/api/v1/alerts/${alertId}/submissions/${submissionId}/pdf/retry`,
+        jsonInit("POST"),
+      ),
     listModelVersions: () => send<ModelVersionListResponse>("/api/v1/model-versions"),
     getDeployment: () => send<DeploymentResponse>("/api/v1/model-deployment"),
     triggerTraining: (trigger = "manual") =>

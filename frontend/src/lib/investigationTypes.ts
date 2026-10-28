@@ -200,7 +200,7 @@ export const CASE_STEPS = [
   { key: "drivers", label: "Drivers" },
   { key: "citations", label: "Citations" },
   { key: "sar", label: "SAR draft" },
-  { key: "submit", label: "Approval" },
+  { key: "submit", label: "Case" },
 ] as const;
 
 export const NO_ALERT_CASE_STEPS = [

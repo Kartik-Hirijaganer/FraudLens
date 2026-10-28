@@ -38,6 +38,7 @@ from fraudlens_backend.portfolio_demo import (
     PortfolioDemoPersona,
     load_portfolio_demo_config,
 )
+from fraudlens_backend.services.person_identity import provision_person_link
 from fraudlens_backend.services.supabase_admin import (
     SupabaseAdminClient,
     SupabaseAdminError,
@@ -93,6 +94,11 @@ async def _reconcile_app_user(
     )
     user.display_name = persona.display_name
     user.role = persona.role
+
+    await session.flush()
+    await provision_person_link(
+        session, agency_id=config.agency.id, account_id=user.id, person_id=persona.person_id
+    )
     if changed:
         session.add(
             AuditLog(

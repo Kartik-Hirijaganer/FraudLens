@@ -19,14 +19,16 @@ describe("Alerts", () => {
   });
 
   it("re-queries when the status filter changes", async () => {
-    const listAlerts = vi.fn(() => Promise.resolve({ alerts: [alertView()] }));
+    const listAlerts = vi.fn(() => Promise.resolve({ alerts: [alertView()], total: 1 }));
     render(<Alerts client={makeClient({ listAlerts })} />);
     await screen.findByText("High");
-    await userEvent.click(screen.getByRole("radio", { name: "Open" }));
-    await waitFor(() => expect(listAlerts).toHaveBeenCalledWith({ status: "open", limit: 100 }));
-    await userEvent.click(screen.getByRole("radio", { name: "Pending Review" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Available" }));
     await waitFor(() =>
-      expect(listAlerts).toHaveBeenCalledWith({ status: "pending_review", limit: 100 }),
+      expect(listAlerts).toHaveBeenCalledWith({ queue: "available", limit: 100 }),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: "Awaiting my review" }));
+    await waitFor(() =>
+      expect(listAlerts).toHaveBeenCalledWith({ queue: "awaiting_review", limit: 100 }),
     );
   });
 
@@ -36,5 +38,20 @@ describe("Alerts", () => {
     });
     render(<Alerts client={client} />);
     expect(await screen.findByText("Request failed")).toBeInTheDocument();
+  });
+
+  it("opens the filtered review queue from a dashboard link and resets through All cases", async () => {
+    window.location.hash = "#/alerts?queue=awaiting_review";
+    const client = makeClient();
+    render(<Alerts client={client} />);
+    await screen.findByText("High");
+    expect(screen.getByRole("radio", { name: "Awaiting my review" })).toBeChecked();
+    expect(client.listAlerts).toHaveBeenCalledWith({ queue: "awaiting_review", limit: 100 });
+    await userEvent.click(screen.getByRole("radio", { name: "All cases" }));
+    await waitFor(() =>
+      expect(client.listAlerts).toHaveBeenLastCalledWith({ queue: undefined, limit: 100 }),
+    );
+    expect(window.location.hash).toBe("#/alerts");
+    expect(screen.getByRole("radio", { name: "All cases" })).toBeChecked();
   });
 });

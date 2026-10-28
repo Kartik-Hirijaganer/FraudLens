@@ -52,6 +52,7 @@ from fraudlens_backend.db.models import (
 )
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_backend.runs.leases import LeaseLostError
+from fraudlens_backend.services.case_policy import machine_may_enrich
 from fraudlens_core import RiskBand
 
 
@@ -326,13 +327,18 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
         """
         existing = (
             await self._session.execute(
-                select(Alert).where(
+                select(Alert)
+                .where(
                     Alert.agency_id == self._agency_id,
                     Alert.run_id == run_id,
                 )
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if existing is not None:
+            if not machine_may_enrich(existing.status):
+                return existing
             existing.severity = severity
             existing.review_flags = review_flags or []
             if existing.status in {AlertStatus.OPEN, AlertStatus.PENDING_REVIEW}:
@@ -363,8 +369,15 @@ class AnalysisRunRepository(TenantScopedRepository[AnalysisRun]):
             Alert.agency_id == self._agency_id,
             Alert.run_id == run_id,
         )
-        alert = (await self._session.execute(stmt)).scalar_one_or_none()
+        alert = (
+            await self._session.execute(
+                stmt.with_for_update().execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         if alert is None:
+            return
+
+        if not machine_may_enrich(alert.status):
             return
         alert.review_flags = review_flags
         alert.status = AlertStatus.PENDING_REVIEW if review_flags else AlertStatus.OPEN

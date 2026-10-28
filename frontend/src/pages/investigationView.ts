@@ -7,6 +7,7 @@
  * Key functions:
  * - statusPill: map run state to semantic copy.
  * - evidenceChips: derive only chips backed by arrived evidence.
+ * - isSarDecided: identify a final human review decision.
  * - STEP_COPY:
  *
  * Notes:
@@ -19,6 +20,10 @@ import { riskTone, type StatusTone } from "../lib/risk";
 interface StatusPill {
   tone: StatusTone;
   label: string;
+}
+
+export function isSarDecided(state: InvestigationState): boolean {
+  return state.sarStatus === "approved" || state.sarStatus === "rejected";
 }
 
 export function statusPill(state: InvestigationState): StatusPill {
@@ -100,11 +105,11 @@ export const STEP_COPY: Record<string, { heading: string; subtitle: string }> = 
   },
   sar: {
     heading: "Draft the SAR narrative",
-    subtitle: "Generated from the evidence above. Read every line before approving it.",
+    subtitle: "Generated from the evidence above. Read every line before submitting it for review.",
   },
   submit: {
-    heading: "Approve the SAR",
-    subtitle: "Record the internal review decision. Regulatory submission is a separate process.",
+    heading: "Open the case workspace",
+    subtitle: "Prepare and submit the case for independent review. Regulatory filing is separate.",
   },
   outcome: {
     heading: "Review the outcome",

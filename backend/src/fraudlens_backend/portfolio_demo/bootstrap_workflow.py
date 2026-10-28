@@ -17,7 +17,7 @@ Notes:
 from __future__ import annotations
 
 import uuid
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
@@ -27,11 +27,13 @@ from fraudlens_backend.db.models import (
     AgentExecution,
     Alert,
     AlertAction,
-    AlertActionType,
     AlertStatus,
     AnalysisResult,
     AnalysisRun,
     AnalysisRunEvent,
+    CaseContributor,
+    CaseDecision,
+    CaseSubmission,
     JobExecution,
     JobStatus,
     JobType,
@@ -42,15 +44,16 @@ from fraudlens_backend.db.models import (
     SarStatus,
     TrainingLabel,
     Transaction,
+    WorkflowReceipt,
 )
+from fraudlens_backend.db.models.enums import TrainingLabelType
 from fraudlens_backend.db.repositories import (
     AlertRepository,
     AuditLogRepository,
     SarDraftRepository,
 )
-from fraudlens_backend.db.repositories.alerts import next_alert_status
 from fraudlens_backend.jobs.runner import run_batch_score
-from fraudlens_backend.models.alerts import SarReviewDecision
+from fraudlens_backend.models.case_workflow import DecisionRequest, SubmissionRequest
 from fraudlens_backend.pipeline_wiring import PipelineComponents
 from fraudlens_backend.portfolio_demo.bootstrap_guards import (
     BootstrapRefusedError,
@@ -62,24 +65,16 @@ from fraudlens_backend.portfolio_demo.config import (
     PortfolioDemoScenario,
 )
 from fraudlens_backend.portfolio_demo.verification import (
-    DECIDED_SAR_STATES,
     PIPELINE_RAISED_STATUSES,
 )
-from fraudlens_backend.services.alert_workflow import (
-    AlertActionCommand,
-    AlertWorkflowService,
-    SarReviewCommand,
-)
+from fraudlens_backend.services.alert_workflow import AlertWorkflowService
 from fraudlens_backend.settings import AppSettings
 
-_TERMINAL_ACTIONS: frozenset[AlertActionType] = frozenset(
-    {AlertActionType.RESOLVE, AlertActionType.DISMISS}
-)
-_SAR_DECISIONS: dict[SarStatus, SarReviewDecision] = {
-    SarStatus.APPROVED: SarReviewDecision.APPROVE,
-    SarStatus.REJECTED: SarReviewDecision.REJECT,
-}
 _RESET_ORDER: tuple[type[Any], ...] = (
+    WorkflowReceipt,
+    CaseDecision,
+    CaseSubmission,
+    CaseContributor,
     AlertAction,
     SarGenerationAttempt,
     SarDraft,
@@ -127,93 +122,20 @@ async def score_pending(
     return len(pending), already
 
 
-def _action_for_target(current: AlertStatus, target: AlertStatus) -> AlertActionType | None:
-    """Return the action whose legal transition reaches `target`, derived from the state machine."""
-    for action in AlertActionType:
-        if action is AlertActionType.COMMENT:
-            continue  # comment never changes status, so it can never reach a different target
-        if next_alert_status(current, action) is target:
-            return action
-    return None
-
-
-async def _apply_sar_target(  # noqa: PLR0913 - the draft, its alert, and the actor stay explicit.
-    workflow: AlertWorkflowService,
-    config: PortfolioDemoConfig,
-    *,
-    alert: Alert,
-    draft: SarDraft,
-    target: SarStatus,
-    actor_id: uuid.UUID,
-) -> tuple[bool, str | None]:
-    """Apply one configured SAR target; return (applied, the configured note for the decision)."""
-    if draft.status is target:
-        return False, None
-    decision = _SAR_DECISIONS.get(target) if target in DECIDED_SAR_STATES else None
-    if decision is None:
-        raise BootstrapRefusedError(
-            f"SAR draft for alert '{alert.id}' is '{draft.status.value}' but the story targets "
-            f"'{target.value}', which no review decision produces"
-        )
-    await workflow.review_sar(
-        SarReviewCommand(alert_id=alert.id, actor_id=actor_id, decision=decision)
-    )
-    notes = {
-        SarReviewDecision.APPROVE: config.workflow.approval_note,
-        SarReviewDecision.REJECT: config.workflow.rejection_note,
-    }
-    return True, notes[decision]
-
-
-async def _apply_alert_target(
-    workflow: AlertWorkflowService,
-    config: PortfolioDemoConfig,
-    *,
-    alert: Alert,
-    target: AlertStatus,
-    assignee_id: uuid.UUID,
-) -> bool:
-    """Apply one configured alert target through the shared service; return whether it moved."""
-    if alert.status is target:
-        return False
-    if target in PIPELINE_RAISED_STATUSES:
-        raise BootstrapRefusedError(
-            f"alert '{alert.id}' is '{alert.status.value}' but the story targets '{target.value}', "
-            "which only the pipeline's own alert-raise produces"
-        )
-    action = _action_for_target(alert.status, target)
-    if action is None:
-        raise BootstrapRefusedError(
-            f"no legal action moves alert '{alert.id}' from '{alert.status.value}' to "
-            f"'{target.value}'"
-        )
-    note = config.workflow.resolution_note if action in _TERMINAL_ACTIONS else None
-    actor_key = (
-        config.workflow.resolution_actor
-        if action in _TERMINAL_ACTIONS
-        else config.workflow.assignment_actor
-    )
-    await workflow.apply_action(
-        AlertActionCommand(
-            alert_id=alert.id,
-            actor_id=config.persona(actor_key).seed_user_id,
-            action=action,
-            assignee_id=assignee_id if action is AlertActionType.ASSIGN else None,
-            note=note,
-        )
-    )
-    return True
-
-
 async def apply_workflow_targets(
     session: AsyncSession, config: PortfolioDemoConfig, audit: AuditLogRepository
 ) -> tuple[int, int]:
-    """Apply every configured alert/SAR target; return (alert transitions, SAR transitions)."""
-    workflow = AlertWorkflowService(session, agency_id=config.agency.id, audit=audit)
+    """Build a possible story exclusively through the same policy used by HTTP commands."""
+    workflow = AlertWorkflowService(
+        session,
+        agency_id=config.agency.id,
+        audit=audit,
+        low_confidence_margin=config.probe.low_confidence_margin,
+    )
     alerts = AlertRepository(session, config.agency.id)
     sar_repo = SarDraftRepository(session, config.agency.id)
+    maker_id = config.persona(config.workflow.assignee).seed_user_id
     reviewer_id = config.persona(config.workflow.sar_review_actor).seed_user_id
-    assignee_id = config.persona(config.workflow.assignee).seed_user_id
     alert_moves = sar_moves = 0
     for scenario in config.scenarios:
         if scenario.alert_target is None or scenario.sar_target is None:
@@ -221,52 +143,78 @@ async def apply_workflow_targets(
         run_id = await _run_id_for(session, config, scenario)
         alert = None if run_id is None else await alerts.get_for_run(run_id)
         if alert is None:
-            raise BootstrapRefusedError(
-                f"scenario '{scenario.scenario_id}' targets an alert the pipeline did not raise"
-            )
+            raise BootstrapRefusedError(f"scenario '{scenario.scenario_id}' has no pipeline alert")
         draft = await sar_repo.get_for_run(alert.run_id)
-        if draft is None:
-            raise BootstrapRefusedError(
-                f"scenario '{scenario.scenario_id}' targets a SAR the pipeline did not draft"
-            )
-        # Named here rather than discovered two transitions later. A gate-rejected draft is also
-        # what stamps `sar_unavailable` on the alert and raises it `pending_review`, so without
-        # this the run refuses on the ALERT status and reports a cause that is only a symptom.
-        if draft.status is SarStatus.FAILED and scenario.sar_target is not SarStatus.FAILED:
-            raise BootstrapRefusedError(
-                f"scenario '{scenario.scenario_id}' targets a '{scenario.sar_target.value}' SAR "
-                "but the draft is 'failed': the quality gate rejected it at every cascade tier. "
-                "Restore the evidence the gate requires rather than re-targeting the story"
-            )
-        applied, note = await _apply_sar_target(
-            workflow,
-            config,
-            alert=alert,
-            draft=draft,
-            target=scenario.sar_target,
-            actor_id=reviewer_id,
-        )
-        if applied:
-            sar_moves += 1
-            if note is not None:
-                # The SAR review path persists no free text, so the configured reason is recorded
-                # as a comment: auditable, and `comment` cannot change the alert's status.
-                await workflow.apply_action(
-                    AlertActionCommand(
-                        alert_id=alert.id,
-                        actor_id=reviewer_id,
-                        action=AlertActionType.COMMENT,
-                        note=note,
-                    )
-                )
-        if await _apply_alert_target(
-            workflow,
-            config,
-            alert=alert,
-            target=scenario.alert_target,
-            assignee_id=assignee_id,
+        if draft is None or (
+            draft.status is SarStatus.FAILED and scenario.sar_target is not SarStatus.FAILED
         ):
+            raise BootstrapRefusedError(
+                f"scenario '{scenario.scenario_id}' has no usable SAR: "
+                "the quality gate rejected it at every cascade tier; restore its evidence"
+            )
+        if alert.status == scenario.alert_target and draft.status == scenario.sar_target:
+            continue
+        if scenario.alert_target in PIPELINE_RAISED_STATUSES:
+            raise BootstrapRefusedError(
+                f"scenario '{scenario.scenario_id}' pipeline state differs from configured target"
+            )
+        if alert.assigned_to is None:
+            await workflow.act(
+                alert_id=alert.id,
+                actor_id=maker_id,
+                action="assign",
+                expected_case_version=alert.case_version,
+            )
             alert_moves += 1
+        if scenario.alert_target is AlertStatus.IN_REVIEW and not scenario.returned:
+            continue
+        submission = await workflow.submit(
+            alert_id=alert.id,
+            actor_id=maker_id,
+            payload=SubmissionRequest(
+                expected_case_version=alert.case_version,
+                rationale=config.workflow.resolution_note,
+                recommendation="sar",
+                sar_version=draft.version,
+            ),
+            idempotency_key=f"bootstrap:{scenario.scenario_id}:submit",
+        )
+        alert_moves += 1
+        if scenario.alert_target is AlertStatus.ESCALATED:
+            continue
+        decision: Literal["approve", "return", "decline"] = (
+            "return"
+            if scenario.returned
+            else "approve"
+            if scenario.sar_target is SarStatus.APPROVED
+            else "decline"
+        )
+        reason = (
+            config.workflow.approval_note
+            if decision == "approve"
+            else config.workflow.rejection_note
+        )
+        outcome = (
+            None
+            if decision == "return"
+            else TrainingLabelType.CONFIRMED_FRAUD
+            if decision == "approve"
+            else TrainingLabelType.BENIGN
+        )
+        await workflow.decide(
+            alert_id=alert.id,
+            actor_id=reviewer_id,
+            submission_id=uuid.UUID(submission.submission_id),
+            payload=DecisionRequest(
+                expected_case_version=alert.case_version,
+                decision=decision,
+                reason=reason,
+                outcome=outcome,
+            ),
+            idempotency_key=f"bootstrap:{scenario.scenario_id}:decision",
+        )
+        alert_moves += 1
+        sar_moves += 1
     return alert_moves, sar_moves
 
 

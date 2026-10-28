@@ -8,7 +8,11 @@
 | GET | `/api/v1/alerts` | `list_alerts` |
 | GET | `/api/v1/alerts/{alertId}` | `get_alert` |
 | POST | `/api/v1/alerts/{alertId}/actions` | `act_on_alert` |
-| POST | `/api/v1/alerts/{alertId}/sar/review` | `review_sar` |
+| PATCH | `/api/v1/alerts/{alertId}/sar` | `save_sar` |
+| POST | `/api/v1/alerts/{alertId}/submissions` | `submit_case` |
+| POST | `/api/v1/alerts/{alertId}/submissions/{submissionId}/decision` | `decide_submission` |
+| GET | `/api/v1/alerts/{alertId}/submissions/{submissionId}/pdf` | `download_pdf` |
+| POST | `/api/v1/alerts/{alertId}/submissions/{submissionId}/pdf/retry` | `retry_pdf` |
 | GET | `/api/v1/config` | `list_config` |
 | PATCH | `/api/v1/config` | `patch_config` |
 | GET | `/api/v1/dashboard/metrics` | `read_dashboard_metrics` |

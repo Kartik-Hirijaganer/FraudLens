@@ -18,8 +18,8 @@ describe("describeError", () => {
 
   it("explains guided case-resolution conflicts", () => {
     expect(
-      describeError(new ApiError(409, "sar_decision_required", "server copy")).description,
-    ).toMatch(/Approve or reject/);
+      describeError(new ApiError(409, "case_version_conflict", "server copy")).description,
+    ).toMatch(/Reload the case/);
     expect(describeError(new ApiError(409, "resolution_label_mismatch", "server copy")).title).toBe(
       "Outcome doesn't match",
     );

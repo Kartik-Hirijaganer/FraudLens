@@ -45,6 +45,7 @@ from fraudlens_backend.api.v1 import (
     model_versions,
     portfolio_demo,
     rules,
+    submission_pdf,
     telemetry,
     transactions,
     users,
@@ -77,3 +78,6 @@ async def read_agency(tenant: TenantDep, session: DbSessionDep) -> AgencyRespons
     if agency is None:
         raise HTTPException(status_code=404, detail="agency not found")
     return AgencyResponse(agency_id=str(agency.id), name=agency.name, slug=agency.slug)
+
+
+api_router.include_router(submission_pdf.router)

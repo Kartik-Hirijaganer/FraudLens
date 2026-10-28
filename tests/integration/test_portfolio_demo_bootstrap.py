@@ -359,19 +359,22 @@ async def test_reset_clears_operational_rows_and_keeps_the_tenant(
 def test_the_configured_action_count_is_derived_from_the_story(
     story: PortfolioDemoConfig,
 ) -> None:
-    """One action per non-no-op alert target, plus one comment per applied SAR decision."""
-    transitions = sum(
-        1
-        for scenario in story.scenarios
-        if scenario.alert_target is not None
-        and scenario.alert_target.value not in {"open", "pending_review"}
-    )
-    decisions = sum(
-        1
-        for scenario in story.scenarios
-        if scenario.sar_target is not None and scenario.sar_target.value in {"approved", "rejected"}
-    )
-    assert count_configured_actions(story) == transitions + decisions
+    """Pickup, immutable submission and actual decisions each have their own action row."""
+    owned = [
+        item
+        for item in story.scenarios
+        if item.alert_target is not None
+        and item.alert_target.value not in {"open", "pending_review"}
+    ]
+    submissions = [
+        item
+        for item in owned
+        if item.returned or item.alert_target.value in {"resolved", "escalated"}
+    ]
+    decisions = [
+        item for item in submissions if item.returned or item.alert_target.value == "resolved"
+    ]
+    assert count_configured_actions(story) == len(owned) + len(submissions) + len(decisions)
 
 
 # --------------------------------------------------------------------------------------------------

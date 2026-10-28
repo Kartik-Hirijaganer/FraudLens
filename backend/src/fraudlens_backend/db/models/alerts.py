@@ -69,6 +69,7 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
         Index("ix_alerts_agency_id_status", "agency_id", "status"),
         Index("ix_alerts_agency_id_assigned_to", "agency_id", "assigned_to"),
         UniqueConstraint("run_id", name="uq_alerts_run_id"),
+        UniqueConstraint("agency_id", "id", name="uq_alerts_agency_id_id"),
     )
 
     transaction_id: Mapped[uuid.UUID] = mapped_column(
@@ -88,6 +89,11 @@ class Alert(AgencyScopedMixin, TimestampMixin, Base):
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
+    case_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    owner_person_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
     review_flags: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
 
 
@@ -100,6 +106,8 @@ class AlertAction(AgencyScopedMixin, CreatedAtMixin, Base):
     alert_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("alerts.id"), nullable=False)
     actor_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     action: Mapped[AlertActionType] = mapped_column(str_enum(AlertActionType), nullable=False)
+    actor_person_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     from_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     to_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -140,6 +148,7 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_sar_drafts_agency_id_run_id", "agency_id", "run_id"),
         UniqueConstraint("run_id", "version", name="uq_sar_drafts_run_id_version"),
+        UniqueConstraint("agency_id", "id", name="uq_sar_drafts_agency_id_id"),
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("analysis_runs.id"), nullable=False)
@@ -159,7 +168,7 @@ class SarDraft(AgencyScopedMixin, TimestampMixin, Base):
     structured: Mapped[JsonValue] = mapped_column(JSONB_TYPE, nullable=False, default=dict)
     citations: Mapped[list[JsonValue]] = mapped_column(JSONB_TYPE, nullable=False, default=list)
     quality_status: Mapped[SarQualityStatus] = mapped_column(
-        str_enum(SarQualityStatus, create_constraint=True),
+        str_enum(SarQualityStatus, create_constraint=True, length=32),
         nullable=False,
         default=SarQualityStatus.NOT_RUN,
         server_default=SarQualityStatus.NOT_RUN.value,

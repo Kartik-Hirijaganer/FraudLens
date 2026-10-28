@@ -13,6 +13,11 @@ describe("parseHash", () => {
     expect(parseHash("#/")).toEqual({ name: "dashboard" });
     expect(parseHash("#/transactions")).toEqual({ name: "transactions" });
     expect(parseHash("#/alerts")).toEqual({ name: "alerts" });
+    expect(parseHash("#/alerts?queue=awaiting_review")).toEqual({
+      name: "alerts",
+      queue: "awaiting_review",
+    });
+    expect(parseHash("#/alerts?queue=unrecognized")).toEqual({ name: "alerts" });
     expect(parseHash("#/alerts/a1")).toEqual({ name: "alertDetail", alertId: "a1" });
     expect(parseHash("#/investigations/r1")).toEqual({ name: "investigation", runId: "r1" });
     expect(parseHash("#/model-admin")).toEqual({ name: "modelAdmin" });
@@ -35,6 +40,7 @@ describe("parseHash", () => {
 describe("paths", () => {
   it("builds canonical hrefs", () => {
     expect(paths.dashboard).toBe("#/");
+    expect(paths.alertsByQueue("awaiting_review")).toBe("#/alerts?queue=awaiting_review");
     expect(paths.alertDetail("a1")).toBe("#/alerts/a1");
     expect(paths.investigation("r1")).toBe("#/investigations/r1");
     expect(paths.researchMultiAgentSar).toBe("#/research/multi-agent-sar");

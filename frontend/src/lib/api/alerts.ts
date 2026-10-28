@@ -28,7 +28,6 @@
  * - SarModelInputView:
  * - AlertDetailResponse:
  * - AlertActionRequest:
- * - SarReviewRequest:
  *
  * Key functions:
  * - STATUS_LABELS:
@@ -37,6 +36,7 @@
  * Notes:
  * - Types mirror the camelCase API boundary.
  */
+import type { ActionCapability, CaseAction, CaseQueue, SubmissionView } from "./caseWorkflow";
 import { humanize } from "../format";
 import type { RoleAccent, UserRole } from "../session";
 import type {
@@ -55,10 +55,26 @@ export type AlertStatus =
   | "escalated"
   | "resolved"
   | "dismissed";
-type AlertActionType = "assign" | "comment" | "escalate" | "resolve" | "dismiss";
+type AlertActionType =
+  | "assign"
+  | "comment"
+  | "dismiss"
+  | "submit"
+  | "approve"
+  | "return"
+  | "decline"
+  | "edit"
+  | "regenerate";
 export type TrainingLabel = "confirmed_fraud" | "false_positive" | "false_negative" | "benign";
-export type SarStatus = "draft" | "reviewed" | "approved" | "rejected" | "failed";
-type SarReviewDecision = "approve" | "reject" | "edit";
+export type SarStatus =
+  | "draft"
+  | "reviewed"
+  | "submitted"
+  | "returned"
+  | "withdrawn"
+  | "approved"
+  | "rejected"
+  | "failed";
 export type ModelVersionStatus =
   | "candidate"
   | "shadow"
@@ -252,6 +268,10 @@ export interface AlertView {
   severity: Severity;
   amount: string;
   currency: string;
+  caseVersion: number;
+  ownerPersonId: string | null;
+  capabilities: Record<CaseAction, ActionCapability>;
+  submissionStatus: string | null;
   assignedTo: string | null;
   assignedToName: string | null;
   reviewFlags: { flag: string; reason: string }[];
@@ -263,16 +283,20 @@ export interface ListAlertsParams {
   limit?: number;
   offset?: number;
   status?: AlertStatus;
+  queue?: CaseQueue;
 }
 
 export interface AlertListResponse {
   alerts: AlertView[];
+  total: number;
 }
 
 export interface AlertActionView {
   actionId: string;
   action: AlertActionType;
   actorId: string;
+  actorPersonId?: string | null;
+  submissionId?: string | null;
   note: string | null;
   fromStatus: AlertStatus | null;
   toStatus: AlertStatus | null;
@@ -321,6 +345,8 @@ export interface AlertDetailResponse {
   alert: AlertView;
   sarDraft: SarDraftView | null;
   actions: AlertActionView[];
+  submissions: SubmissionView[];
+  draftVersions: SarDraftView[];
   agentExecutions: AgentRun[];
   workflowMode: WorkflowMode;
   graphVersion: string | null;
@@ -329,14 +355,8 @@ export interface AlertDetailResponse {
 }
 
 export interface AlertActionRequest {
-  action: AlertActionType;
+  action: "assign" | "comment" | "dismiss";
+  expectedCaseVersion: number;
   assigneeId?: string;
   note?: string;
-  label?: TrainingLabel;
-}
-
-export interface SarReviewRequest {
-  decision: SarReviewDecision;
-  editedContent?: string;
-  reason?: string;
 }
