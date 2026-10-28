@@ -2,6 +2,41 @@
 
 All notable changes to FraudLens. Format follows Conventional Commits + SemVer.
 
+## [0.7.0] - 2026-10-28
+
+Release 0.7.0 introduces person-based maker–checker decisions over frozen case submissions,
+separates policy risk scores from model probability and SHAP explanations, and defaults authorized
+regulatory retrieval to semantic vectors with bounded query spend and lexical fallback. The served
+70/30 risk policy, 0.60 alert threshold and scoring bundle remain unchanged.
+
+### Compatibility and cutover
+
+- Apply migration `0016_maker_checker` and provision trusted tenant account-to-person links before
+  case mutations. Historical unknown identities stay unknown; missing links fail closed.
+- Ship the backend and frontend together. Versioned SAR preparation, submission and independent
+  decision commands replace direct `/api/v1/alerts/{alertId}/sar/review` and standalone
+  resolve/escalate actions. Submitted narratives are immutable; role changes and linked accounts
+  cannot bypass person independence.
+- Pause or pin the scheduled demo reset during cutover. Record deployed versions and a database
+  recovery point; application rollback after new workflow writes needs a compatible data strategy.
+  Follow the [cutover prerequisites](docs/runbooks/maker-checker-uat.md#release-cutover-prerequisites).
+- Build the semantic corpus from reviewed public vectors without provider calls. Query cache misses
+  reserve against a separate shared $0.05/UTC-day ceiling; uploads retain local-only retrieval.
+  Public vector refresh is a separate approved paid operation, and the SAR allowance is unchanged.
+
+### Features
+
+- Enforce person-based maker-checker decisions
+- Clarify score evidence and add ranking study
+- Enable bounded semantic regulatory retrieval
+
+### Fixes
+
+- Fail tf-validate on the first invalid root
+- Stop terraform minting broken revisions and retire idle ones
+- Upgrade opentelemetry to 1.45.1 for CVE-2026-114603
+- Patch filelock and msgpack security advisories
+
 ## [0.6.0] - 2026-10-22
 
 Release 0.6.0 makes a CSV upload the start of screening and makes explicit what an upload may carry.

@@ -48,7 +48,7 @@ export FRAUDLENS_ENVIRONMENT=dev
 export FRAUDLENS_AUTH_DEV_BYPASS=true
 export FRAUDLENS_PORTFOLIO_DEMO_ENABLED=true
 export FRAUDLENS_LLM_MODE=mock
-export FRAUDLENS_RAG_EMBEDDING_MODE=offline
+export FRAUDLENS_RAG_EMBEDDING_MODE=live
 export FRAUDLENS_RAG_INDEX_DIR=.local/maker-checker/chroma
 export FRAUDLENS_STORAGE_BACKEND=local
 export FRAUDLENS_STORAGE_LOCAL_DIR=.local/maker-checker/artifacts
@@ -56,6 +56,10 @@ export FRAUDLENS_CORS_ALLOW_ORIGINS='["http://127.0.0.1:15180"]'
 make db-migrate db-seed ingest-rag portfolio-demo-reset portfolio-demo-verify
 uv run uvicorn fraudlens_backend.main:app --host 127.0.0.1 --port 18100
 ```
+
+The retrieval mode matches the portfolio story. Its reviewed public vectors build the index
+without a provider credential; local queries use lexical fallback when no embedding key is
+available. Keep SAR drafting in mock mode for this keyless UAT.
 
 In a second terminal:
 
