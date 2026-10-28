@@ -1208,7 +1208,8 @@ components:
           anyOf:
           - type: number
           - type: 'null'
-          description: Calibrated model probability (from the result snapshot).
+          description: Unmodified calibrated XGBoost probability, distinct from the
+            policy risk score.
           title: Fraudprobability
         graphVersion:
           anyOf:
@@ -1262,10 +1263,13 @@ components:
           anyOf:
           - type: number
           - type: 'null'
-          description: Blended risk score (once scored).
+          description: Policy score combining normalized model risk and weighted rule
+            findings; used for bands and threshold alerts, not a calibrated fraud
+            probability.
           title: Riskscore
         ruleHits:
-          description: Fired deterministic rule hits (PHI-free findings).
+          description: Explicit deterministic pattern findings for analyst review
+            and SAR evidence; a hit does not establish fraud or mandate an override.
           items:
             additionalProperties: true
             type: object
@@ -1316,7 +1320,9 @@ components:
           title: Status
           type: string
         topFeatures:
-          description: Top SHAP drivers (feature names + numbers, no PHI).
+          description: Top signed SHAP contributions to the raw XGBoost margin, before
+            calibration and policy scoring; not probability percentage points or rule
+            contributions.
           items:
             additionalProperties: true
             type: object

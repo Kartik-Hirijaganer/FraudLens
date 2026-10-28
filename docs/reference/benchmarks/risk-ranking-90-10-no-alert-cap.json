@@ -1,0 +1,1178 @@
+{
+  "cohorts": {
+    "calibration": {
+      "base_rate": 0.0011023836018158979,
+      "policies": {
+        "70%/30%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 514952,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.9069900142653352,
+              "false_positives": 511773,
+              "positives": 3505,
+              "precision": 0.0061733909179884725,
+              "recall": 0.9069900142653352,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 3179
+            },
+            "0.5": {
+              "alerts": 271321,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.8034236804564907,
+              "false_positives": 268505,
+              "positives": 3505,
+              "precision": 0.010378850144294028,
+              "recall": 0.8034236804564907,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2816
+            },
+            "0.6": {
+              "alerts": 181802,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7557774607703281,
+              "false_positives": 179153,
+              "positives": 3505,
+              "precision": 0.01457079680091528,
+              "recall": 0.7557774607703281,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2649
+            },
+            "0.7": {
+              "alerts": 49949,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.5329529243937232,
+              "false_positives": 48081,
+              "positives": 3505,
+              "precision": 0.037398146109031215,
+              "recall": 0.5329529243937232,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 1868
+            },
+            "0.85": {
+              "alerts": 690,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.010271041369472182,
+              "false_positives": 654,
+              "positives": 3505,
+              "precision": 0.05217391304347826,
+              "recall": 0.010271041369472182,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 36
+            }
+          },
+          "average_precision": 0.03415276858737363,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.03847466485266182,
+              "positives": 849,
+              "rows": 743572,
+              "utc_day": 19247
+            },
+            {
+              "average_precision": 0.03337831432167347,
+              "positives": 2274,
+              "rows": 1922752,
+              "utc_day": 19248
+            },
+            {
+              "average_precision": 0.030934204280724166,
+              "positives": 382,
+              "rows": 513150,
+              "utc_day": 19249
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 22788,
+            "gained_positives": 40,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.7,
+          "scalar_parity_rows": 1999
+        },
+        "80%/20%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 500955,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.9027104136947218,
+              "false_positives": 497791,
+              "positives": 3505,
+              "precision": 0.006315936561168169,
+              "recall": 0.9027104136947218,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 3164
+            },
+            "0.5": {
+              "alerts": 254558,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.7934379457917261,
+              "false_positives": 251777,
+              "positives": 3505,
+              "precision": 0.010924818705363807,
+              "recall": 0.7934379457917261,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2781
+            },
+            "0.6": {
+              "alerts": 172639,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7512125534950072,
+              "false_positives": 170006,
+              "positives": 3505,
+              "precision": 0.015251478518758797,
+              "recall": 0.7512125534950072,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2633
+            },
+            "0.7": {
+              "alerts": 67848,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.6042796005706134,
+              "false_positives": 65730,
+              "positives": 3505,
+              "precision": 0.0312168376370711,
+              "recall": 0.6042796005706134,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2118
+            },
+            "0.85": {
+              "alerts": 2835,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.08445078459343795,
+              "false_positives": 2539,
+              "positives": 3505,
+              "precision": 0.10440917107583775,
+              "recall": 0.08445078459343795,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 296
+            }
+          },
+          "average_precision": 0.04550602622158742,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.05178658762461565,
+              "positives": 849,
+              "rows": 743572,
+              "utc_day": 19247
+            },
+            {
+              "average_precision": 0.043986220162280654,
+              "positives": 2274,
+              "rows": 1922752,
+              "utc_day": 19248
+            },
+            {
+              "average_precision": 0.044438685922872374,
+              "positives": 382,
+              "rows": 513150,
+              "utc_day": 19249
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 13641,
+            "gained_positives": 24,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.8,
+          "scalar_parity_rows": 1999
+        },
+        "90%/10%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 488340,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.8987161198288159,
+              "false_positives": 485190,
+              "positives": 3505,
+              "precision": 0.006450423884998157,
+              "recall": 0.8987161198288159,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 3150
+            },
+            "0.5": {
+              "alerts": 239261,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.7888730385164051,
+              "false_positives": 236496,
+              "positives": 3505,
+              "precision": 0.011556417468789314,
+              "recall": 0.7888730385164051,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2765
+            },
+            "0.6": {
+              "alerts": 165233,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7475035663338089,
+              "false_positives": 162613,
+              "positives": 3505,
+              "precision": 0.015856396724625226,
+              "recall": 0.7475035663338089,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2620
+            },
+            "0.7": {
+              "alerts": 70279,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.61169757489301,
+              "false_positives": 68135,
+              "positives": 3505,
+              "precision": 0.030506979325260745,
+              "recall": 0.61169757489301,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2144
+            },
+            "0.85": {
+              "alerts": 32628,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.4716119828815977,
+              "false_positives": 30975,
+              "positives": 3505,
+              "precision": 0.050662008091210006,
+              "recall": 0.4716119828815977,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 1653
+            }
+          },
+          "average_precision": 0.0788912441494861,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.0884652980521498,
+              "positives": 849,
+              "rows": 743572,
+              "utc_day": 19247
+            },
+            {
+              "average_precision": 0.07650472565613561,
+              "positives": 2274,
+              "rows": 1922752,
+              "utc_day": 19248
+            },
+            {
+              "average_precision": 0.08436398827303508,
+              "positives": 382,
+              "rows": 513150,
+              "utc_day": 19249
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 6248,
+            "gained_positives": 11,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.9,
+          "scalar_parity_rows": 1999
+        },
+        "model-only": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 476922,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.8924393723252496,
+              "false_positives": 473794,
+              "positives": 3505,
+              "precision": 0.006558724487442391,
+              "recall": 0.8924393723252496,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 3128
+            },
+            "0.5": {
+              "alerts": 225594,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.7831669044222539,
+              "false_positives": 222849,
+              "positives": 3505,
+              "precision": 0.012167876805234182,
+              "recall": 0.7831669044222539,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2745
+            },
+            "0.6": {
+              "alerts": 158974,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7443651925820257,
+              "false_positives": 156365,
+              "positives": 3505,
+              "precision": 0.016411488671103452,
+              "recall": 0.7443651925820257,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2609
+            },
+            "0.7": {
+              "alerts": 66482,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.6002853067047076,
+              "false_positives": 64378,
+              "positives": 3505,
+              "precision": 0.03164766402936133,
+              "recall": 0.6002853067047076,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 2104
+            },
+            "0.85": {
+              "alerts": 31795,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.46276747503566334,
+              "false_positives": 30173,
+              "positives": 3505,
+              "precision": 0.051014310426167636,
+              "recall": 0.46276747503566334,
+              "rows": 3179474,
+              "selected_ties": 0,
+              "true_positives": 1622
+            }
+          },
+          "average_precision": 0.19891521545344273,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.20145993427537645,
+              "positives": 849,
+              "rows": 743572,
+              "utc_day": 19247
+            },
+            {
+              "average_precision": 0.20479312554005324,
+              "positives": 2274,
+              "rows": 1922752,
+              "utc_day": 19248
+            },
+            {
+              "average_precision": 0.16584875523928758,
+              "positives": 382,
+              "rows": 513150,
+              "utc_day": 19249
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 0,
+            "gained_positives": 0,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 1.0,
+          "scalar_parity_rows": 1999
+        }
+      },
+      "positives": 3505,
+      "raw_probability_average_precision": 0.19891521545344273,
+      "rows": 3179474
+    },
+    "holdout": {
+      "base_rate": 0.0016720908968238767,
+      "policies": {
+        "70%/30%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 1023509,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.9192061700526711,
+              "false_positives": 1013736,
+              "positives": 10632,
+              "precision": 0.009548523755042702,
+              "recall": 0.9192061700526711,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 9773
+            },
+            "0.5": {
+              "alerts": 532863,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.8264672686230248,
+              "false_positives": 524076,
+              "positives": 10632,
+              "precision": 0.016490167266257932,
+              "recall": 0.8264672686230248,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8787
+            },
+            "0.6": {
+              "alerts": 343048,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7848006019563581,
+              "false_positives": 334704,
+              "positives": 10632,
+              "precision": 0.024323126792752035,
+              "recall": 0.7848006019563581,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8344
+            },
+            "0.7": {
+              "alerts": 71242,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.563581640331076,
+              "false_positives": 65250,
+              "positives": 10632,
+              "precision": 0.08410768928441088,
+              "recall": 0.563581640331076,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 5992
+            },
+            "0.85": {
+              "alerts": 1059,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.007430398796087283,
+              "false_positives": 980,
+              "positives": 10632,
+              "precision": 0.07459867799811143,
+              "recall": 0.007430398796087283,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 79
+            }
+          },
+          "average_precision": 0.06773282013451241,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.03967789398041316,
+              "positives": 1879,
+              "rows": 1411946,
+              "utc_day": 19249
+            },
+            {
+              "average_precision": 0.03889925103898023,
+              "positives": 2253,
+              "rows": 1924514,
+              "utc_day": 19250
+            },
+            {
+              "average_precision": 0.023566164563023368,
+              "positives": 2416,
+              "rows": 3015059,
+              "utc_day": 19251
+            },
+            {
+              "average_precision": 0.7120063103213875,
+              "positives": 1199,
+              "rows": 2020,
+              "utc_day": 19252
+            },
+            {
+              "average_precision": 0.6499332737989827,
+              "positives": 916,
+              "rows": 1591,
+              "utc_day": 19253
+            },
+            {
+              "average_precision": 0.6834095190716419,
+              "positives": 695,
+              "rows": 1195,
+              "utc_day": 19254
+            },
+            {
+              "average_precision": 0.6657081164694575,
+              "positives": 492,
+              "rows": 855,
+              "utc_day": 19255
+            },
+            {
+              "average_precision": 0.661744017004749,
+              "positives": 336,
+              "rows": 586,
+              "utc_day": 19256
+            },
+            {
+              "average_precision": 0.7558653448570912,
+              "positives": 184,
+              "rows": 309,
+              "utc_day": 19257
+            },
+            {
+              "average_precision": 0.7912946441227667,
+              "positives": 84,
+              "rows": 134,
+              "utc_day": 19258
+            },
+            {
+              "average_precision": 0.7658364932945214,
+              "positives": 65,
+              "rows": 104,
+              "utc_day": 19259
+            },
+            {
+              "average_precision": 0.8106965562964302,
+              "positives": 59,
+              "rows": 102,
+              "utc_day": 19260
+            },
+            {
+              "average_precision": 0.8488921960740332,
+              "positives": 37,
+              "rows": 59,
+              "utc_day": 19261
+            },
+            {
+              "average_precision": 0.9107142857142857,
+              "positives": 14,
+              "rows": 25,
+              "utc_day": 19262
+            },
+            {
+              "average_precision": 0.8666666666666667,
+              "positives": 3,
+              "rows": 7,
+              "utc_day": 19263
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 52544,
+            "gained_positives": 144,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.7,
+          "scalar_parity_rows": 2000
+        },
+        "80%/20%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 993651,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.9143152746425884,
+              "false_positives": 983930,
+              "positives": 10632,
+              "precision": 0.00978311298433756,
+              "recall": 0.9143152746425884,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 9721
+            },
+            "0.5": {
+              "alerts": 495823,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.8196012039127163,
+              "false_positives": 487109,
+              "positives": 10632,
+              "precision": 0.01757482004666988,
+              "recall": 0.8196012039127163,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8714
+            },
+            "0.6": {
+              "alerts": 321790,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7789691497366441,
+              "false_positives": 313508,
+              "positives": 10632,
+              "precision": 0.025737282078374096,
+              "recall": 0.7789691497366441,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8282
+            },
+            "0.7": {
+              "alerts": 92044,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.6252821670428894,
+              "false_positives": 85396,
+              "positives": 10632,
+              "precision": 0.07222632653948112,
+              "recall": 0.6252821670428894,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 6648
+            },
+            "0.85": {
+              "alerts": 4512,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.07063581640331076,
+              "false_positives": 3761,
+              "positives": 10632,
+              "precision": 0.1664450354609929,
+              "recall": 0.07063581640331076,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 751
+            }
+          },
+          "average_precision": 0.10247496564821083,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.05069210735861284,
+              "positives": 1879,
+              "rows": 1411946,
+              "utc_day": 19249
+            },
+            {
+              "average_precision": 0.06624058321932091,
+              "positives": 2253,
+              "rows": 1924514,
+              "utc_day": 19250
+            },
+            {
+              "average_precision": 0.03748954168056095,
+              "positives": 2416,
+              "rows": 3015059,
+              "utc_day": 19251
+            },
+            {
+              "average_precision": 0.7165686550660623,
+              "positives": 1199,
+              "rows": 2020,
+              "utc_day": 19252
+            },
+            {
+              "average_precision": 0.6542325678343223,
+              "positives": 916,
+              "rows": 1591,
+              "utc_day": 19253
+            },
+            {
+              "average_precision": 0.6905448112829646,
+              "positives": 695,
+              "rows": 1195,
+              "utc_day": 19254
+            },
+            {
+              "average_precision": 0.6731303505386966,
+              "positives": 492,
+              "rows": 855,
+              "utc_day": 19255
+            },
+            {
+              "average_precision": 0.6619274545370634,
+              "positives": 336,
+              "rows": 586,
+              "utc_day": 19256
+            },
+            {
+              "average_precision": 0.7739561091521966,
+              "positives": 184,
+              "rows": 309,
+              "utc_day": 19257
+            },
+            {
+              "average_precision": 0.7941971773318736,
+              "positives": 84,
+              "rows": 134,
+              "utc_day": 19258
+            },
+            {
+              "average_precision": 0.7721481303753892,
+              "positives": 65,
+              "rows": 104,
+              "utc_day": 19259
+            },
+            {
+              "average_precision": 0.8202981727669921,
+              "positives": 59,
+              "rows": 102,
+              "utc_day": 19260
+            },
+            {
+              "average_precision": 0.8497292588756002,
+              "positives": 37,
+              "rows": 59,
+              "utc_day": 19261
+            },
+            {
+              "average_precision": 0.9107142857142857,
+              "positives": 14,
+              "rows": 25,
+              "utc_day": 19262
+            },
+            {
+              "average_precision": 0.8666666666666667,
+              "positives": 3,
+              "rows": 7,
+              "utc_day": 19263
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 31348,
+            "gained_positives": 82,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.8,
+          "scalar_parity_rows": 2000
+        },
+        "90%/10%": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 967247,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.9113054928517682,
+              "false_positives": 957558,
+              "positives": 10632,
+              "precision": 0.010017089740262828,
+              "recall": 0.9113054928517682,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 9689
+            },
+            "0.5": {
+              "alerts": 462645,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.8124529721595184,
+              "false_positives": 454007,
+              "positives": 10632,
+              "precision": 0.018670903176301483,
+              "recall": 0.8124529721595184,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8638
+            },
+            "0.6": {
+              "alerts": 304525,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7751128668171557,
+              "false_positives": 296284,
+              "positives": 10632,
+              "precision": 0.027061817584763156,
+              "recall": 0.7751128668171557,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8241
+            },
+            "0.7": {
+              "alerts": 96040,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.6334650112866818,
+              "false_positives": 89305,
+              "positives": 10632,
+              "precision": 0.07012703040399833,
+              "recall": 0.6334650112866818,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 6735
+            },
+            "0.85": {
+              "alerts": 37854,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.5079006772009029,
+              "false_positives": 32454,
+              "positives": 10632,
+              "precision": 0.14265335235378032,
+              "recall": 0.5079006772009029,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 5400
+            }
+          },
+          "average_precision": 0.18656925939522953,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.09296386214473298,
+              "positives": 1879,
+              "rows": 1411946,
+              "utc_day": 19249
+            },
+            {
+              "average_precision": 0.09320869333389052,
+              "positives": 2253,
+              "rows": 1924514,
+              "utc_day": 19250
+            },
+            {
+              "average_precision": 0.0568892569114568,
+              "positives": 2416,
+              "rows": 3015059,
+              "utc_day": 19251
+            },
+            {
+              "average_precision": 0.7924211333871226,
+              "positives": 1199,
+              "rows": 2020,
+              "utc_day": 19252
+            },
+            {
+              "average_precision": 0.7628814538190917,
+              "positives": 916,
+              "rows": 1591,
+              "utc_day": 19253
+            },
+            {
+              "average_precision": 0.7729918092590242,
+              "positives": 695,
+              "rows": 1195,
+              "utc_day": 19254
+            },
+            {
+              "average_precision": 0.7762674088394748,
+              "positives": 492,
+              "rows": 855,
+              "utc_day": 19255
+            },
+            {
+              "average_precision": 0.7785166724843038,
+              "positives": 336,
+              "rows": 586,
+              "utc_day": 19256
+            },
+            {
+              "average_precision": 0.8040275501816059,
+              "positives": 184,
+              "rows": 309,
+              "utc_day": 19257
+            },
+            {
+              "average_precision": 0.8409538285635172,
+              "positives": 84,
+              "rows": 134,
+              "utc_day": 19258
+            },
+            {
+              "average_precision": 0.8978581900271285,
+              "positives": 65,
+              "rows": 104,
+              "utc_day": 19259
+            },
+            {
+              "average_precision": 0.9320852778127504,
+              "positives": 59,
+              "rows": 102,
+              "utc_day": 19260
+            },
+            {
+              "average_precision": 0.9436754544241721,
+              "positives": 37,
+              "rows": 59,
+              "utc_day": 19261
+            },
+            {
+              "average_precision": 0.981547619047619,
+              "positives": 14,
+              "rows": 25,
+              "utc_day": 19262
+            },
+            {
+              "average_precision": 0.9166666666666665,
+              "positives": 3,
+              "rows": 7,
+              "utc_day": 19263
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 14124,
+            "gained_positives": 41,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 0.9,
+          "scalar_parity_rows": 2000
+        },
+        "model-only": {
+          "at_threshold": {
+            "0.3": {
+              "alerts": 942545,
+              "boundary_ties": 0,
+              "cutoff": 0.3,
+              "expected_recall": 0.906790820165538,
+              "false_positives": 932904,
+              "positives": 10632,
+              "precision": 0.010228689346397254,
+              "recall": 0.906790820165538,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 9641
+            },
+            "0.5": {
+              "alerts": 432995,
+              "boundary_ties": 0,
+              "cutoff": 0.5,
+              "expected_recall": 0.8053047404063205,
+              "false_positives": 424433,
+              "positives": 10632,
+              "precision": 0.019773900391459487,
+              "recall": 0.8053047404063205,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8562
+            },
+            "0.6": {
+              "alerts": 290360,
+              "boundary_ties": 0,
+              "cutoff": 0.6,
+              "expected_recall": 0.7712565838976674,
+              "false_positives": 282160,
+              "positives": 10632,
+              "precision": 0.02824080451852872,
+              "recall": 0.7712565838976674,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 8200
+            },
+            "0.7": {
+              "alerts": 89140,
+              "boundary_ties": 0,
+              "cutoff": 0.7,
+              "expected_recall": 0.621331828442438,
+              "false_positives": 82534,
+              "positives": 10632,
+              "precision": 0.07410814449181063,
+              "recall": 0.621331828442438,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 6606
+            },
+            "0.85": {
+              "alerts": 36546,
+              "boundary_ties": 0,
+              "cutoff": 0.85,
+              "expected_recall": 0.5028216704288939,
+              "false_positives": 31200,
+              "positives": 10632,
+              "precision": 0.14628139878509275,
+              "recall": 0.5028216704288939,
+              "rows": 6358506,
+              "selected_ties": 0,
+              "true_positives": 5346
+            }
+          },
+          "average_precision": 0.31959880877247315,
+          "daily_average_precision": [
+            {
+              "average_precision": 0.21528980137217704,
+              "positives": 1879,
+              "rows": 1411946,
+              "utc_day": 19249
+            },
+            {
+              "average_precision": 0.17872725546696552,
+              "positives": 2253,
+              "rows": 1924514,
+              "utc_day": 19250
+            },
+            {
+              "average_precision": 0.13145767681133194,
+              "positives": 2416,
+              "rows": 3015059,
+              "utc_day": 19251
+            },
+            {
+              "average_precision": 0.8143559274812432,
+              "positives": 1199,
+              "rows": 2020,
+              "utc_day": 19252
+            },
+            {
+              "average_precision": 0.785429066146388,
+              "positives": 916,
+              "rows": 1591,
+              "utc_day": 19253
+            },
+            {
+              "average_precision": 0.803905968002306,
+              "positives": 695,
+              "rows": 1195,
+              "utc_day": 19254
+            },
+            {
+              "average_precision": 0.8020964726056853,
+              "positives": 492,
+              "rows": 855,
+              "utc_day": 19255
+            },
+            {
+              "average_precision": 0.828292415747952,
+              "positives": 336,
+              "rows": 586,
+              "utc_day": 19256
+            },
+            {
+              "average_precision": 0.8068720192875936,
+              "positives": 184,
+              "rows": 309,
+              "utc_day": 19257
+            },
+            {
+              "average_precision": 0.8677854905617239,
+              "positives": 84,
+              "rows": 134,
+              "utc_day": 19258
+            },
+            {
+              "average_precision": 0.8818330586054033,
+              "positives": 65,
+              "rows": 104,
+              "utc_day": 19259
+            },
+            {
+              "average_precision": 0.9302003140633797,
+              "positives": 59,
+              "rows": 102,
+              "utc_day": 19260
+            },
+            {
+              "average_precision": 0.9418805560775496,
+              "positives": 37,
+              "rows": 59,
+              "utc_day": 19261
+            },
+            {
+              "average_precision": 0.981547619047619,
+              "positives": 14,
+              "rows": 25,
+              "utc_day": 19262
+            },
+            {
+              "average_precision": 0.9166666666666665,
+              "positives": 3,
+              "rows": 7,
+              "utc_day": 19263
+            }
+          ],
+          "exchange_at_0.6_vs_model_only": {
+            "gained_negatives": 0,
+            "gained_positives": 0,
+            "lost_negatives": 0,
+            "lost_positives": 0
+          },
+          "model_weight": 1.0,
+          "scalar_parity_rows": 2000
+        }
+      },
+      "positives": 10632,
+      "raw_probability_average_precision": 0.31959880877247315,
+      "rows": 6358506
+    }
+  },
+  "completed_at": "2026-10-26T23:17:01.794850+00:00",
+  "input_binding": {
+    "cache_sha256": "97805eae4edf79fca44b431545cd6ab5b1acc1804fe7f4e90868b4ea5badb6e4",
+    "feature_sha256": "1772a09cae3931f401d17f77d1bb278830b4c0ffd7a5df858839867e90eedef7",
+    "metadata_sha256": "e2a06151ff05051b5baa60e6b96ce4008f1273b99a290f7e3197a96c7cd29501",
+    "model_sha256": "cd3f50cf010ad9995d09bba51454ae0b1bcdc800531decd8c6207fdc3a561468",
+    "source_sha256": "3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5"
+  },
+  "model_label": "xgb-ibm-aml-hi-medium-5835992a6919",
+  "no_refit_no_application_change": true,
+  "probability_calibration_unchanged": true,
+  "protocol": {
+    "alert_cap": null,
+    "cohorts": [
+      "calibration",
+      "holdout"
+    ],
+    "constraints": [
+      "no training",
+      "no cloud resources",
+      "no source/config/default changes",
+      "preserve existing published comparisons"
+    ],
+    "created_at": "2026-10-26T23:16:23.585907+00:00",
+    "metric": "average_precision_score (stepwise PR-AUC; not trapezoidal area)",
+    "model": "xgb-ibm-aml-hi-medium-5835992a6919",
+    "normalization": "Actual weight-dependent RiskPolicy.model_risk for each candidate",
+    "same_model_same_probabilities": true,
+    "selection": "No serving policy selection or change; descriptive comparison",
+    "status": "exploratory; HI-Medium holdout previously inspected, 90/10 requested afterward",
+    "thresholds": [
+      0.3,
+      0.5,
+      0.6,
+      0.7,
+      0.85
+    ],
+    "weights": [
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ]
+  },
+  "source_sha256": {
+    "packages/fraudlens-core/src/fraudlens_core/risk.py": "16524cffe995e033c0f3afa2eb4de7266fc2e906613e1cb0847f6ff33dc68ef8",
+    "scripts/lib/risk_study/inputs.py": "90967768e5912e84cb5fd9760231e2fac35d9331c3bdbde3a3addadd63672c8b",
+    "scripts/lib/risk_study/metrics.py": "4ba9afd5db829b54fd8a95e5a0120202eef37e953fad2619bcdadd5ded9216f8"
+  },
+  "sources": [
+    "https://github.com/IBM/AML-Data",
+    "https://research.ibm.com/publications/realistic-synthetic-financial-transactions-for-anti-money-laundering-models"
+  ],
+  "time_stability": {
+    "calibration": {
+      "losses": 0,
+      "model_only_daily_ap_wins": 3,
+      "ties": 0
+    },
+    "holdout": {
+      "losses": 3,
+      "model_only_daily_ap_wins": 10,
+      "ties": 2
+    }
+  },
+  "verification": {
+    "counts_and_rates_reconciled": true,
+    "frozen_cache_reused_without_prediction": true,
+    "no_source_or_serving_configuration_changed": true,
+    "original_reports_and_study_configuration_unchanged": true,
+    "raw_probability_AP_matches_model_metadata": true,
+    "scalar_policy_parity_per_policy_and_fold": {
+      "calibration": {
+        "70%/30%": 1999,
+        "80%/20%": 1999,
+        "90%/10%": 1999,
+        "model-only": 1999
+      },
+      "holdout": {
+        "70%/30%": 2000,
+        "80%/20%": 2000,
+        "90%/10%": 2000,
+        "model-only": 2000
+      }
+    }
+  }
+}

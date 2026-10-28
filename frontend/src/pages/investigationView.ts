@@ -97,7 +97,7 @@ export const STEP_COPY: Record<string, { heading: string; subtitle: string }> = 
   },
   drivers: {
     heading: "Review the model drivers",
-    subtitle: "These features moved the score the most — confirm they make sense.",
+    subtitle: "These features moved the model output the most — confirm they make sense.",
   },
   citations: {
     heading: "Check the regulatory citations",

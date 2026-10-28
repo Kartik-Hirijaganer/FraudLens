@@ -91,7 +91,7 @@ jobs:
         run: |
           make header-check file-length-check docs-links-check experiment-budget-check secrets-scan dup-check docs-check llm-catalog-check tenancy-check demo-literals-check
           if [[ "$CI_SCOPE" != "frontend" ]]; then
-            make quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test
+            make quality-gates fulldata-test risk-study-test vllm-bench-test vllm-bench-validate runpod-gpu-test
           fi
 
   durable-postgres:

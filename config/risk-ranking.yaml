@@ -1,0 +1,47 @@
+# Retrospective comparison. No default or served artifact is changed by this study.
+# Both the original HI-Medium findings and served HI-Small holdout have been examined;
+# Medium rows after HI-Small training are a later period, already examined in aggregate.
+weights: [0.5, 0.6, 0.7, 0.8, 1.0]
+budget: 0.05
+seed: 1729
+batch_rows: 65536
+policy:
+  model_weight: 0.7
+  band_thresholds: {low: 0.0, medium: 0.3, high: 0.6, critical: 0.85}
+  alert_threshold: 0.6
+output_dir: .local/ranking-review/evaluation
+replay_source: docs/reference/benchmarks/risk-blend-comparison-source.py.txt
+replay_sha256: 980c197fd313d3a084266ef33b779a8ec684ba393d59260c05d9596a0314147a
+runs:
+  - name: hi-medium-study
+    candidate: hi-medium
+    work_dir: .local/risk-blend-study/hi-medium
+    model_dir: .local/fulldata/artifacts/xgb-ibm-aml-hi-medium-5835992a6919
+    metadata_sha256: e2a06151ff05051b5baa60e6b96ce4008f1273b99a290f7e3197a96c7cd29501
+    split: temporal
+    served: false
+    reference_recall: 0.7789691497366441
+  - name: hi-small-served
+    candidate: hi-small
+    work_dir: .local/ranking-review/hi-small-full
+    model_dir: data/models/xgb-ibm-aml-fs2-9d43c5f92a
+    metadata_sha256: ee30d88e7417cfa73857369384d3004b4df2ba5888aeaa83f5a2541f175034e1
+    split: account_whole
+    served: true
+    reference_recall: 0.647495361781076
+  - name: hi-medium-served
+    candidate: hi-medium
+    work_dir: .local/risk-blend-study/hi-medium
+    model_dir: data/models/xgb-ibm-aml-fs2-9d43c5f92a
+    metadata_sha256: ee30d88e7417cfa73857369384d3004b4df2ba5888aeaa83f5a2541f175034e1
+    split: temporal
+    served: true
+    training_end_epoch: 1663517880
+  - name: li-medium-served
+    candidate: li-medium
+    work_dir: .local/risk-blend-study/li-medium
+    model_dir: data/models/xgb-ibm-aml-fs2-9d43c5f92a
+    metadata_sha256: ee30d88e7417cfa73857369384d3004b4df2ba5888aeaa83f5a2541f175034e1
+    split: temporal
+    served: true
+    training_end_epoch: 1663517880

@@ -35,30 +35,39 @@ export function ShapBarChart({ features }: ShapBarChartProps) {
   }
   const maxAbs = Math.max(...features.map((feature) => Math.abs(feature.shapValue)), 1e-9);
   return (
-    <ul className="gap-sm flex flex-col">
-      {features.map((feature) => {
-        const widthPct = Math.round((Math.abs(feature.shapValue) / maxAbs) * 100);
-        const increasesRisk = feature.shapValue >= 0;
-        return (
-          <li key={feature.feature} className="gap-xxs flex flex-col">
-            <div className="gap-md flex items-baseline justify-between">
-              <span className="text-body-sm text-ink font-semibold">
-                {formatMachineKey(feature.feature)}
-              </span>
-              <span className="text-caption text-body">
-                {increasesRisk ? "+" : ""}
-                {feature.shapValue.toFixed(3)}
-              </span>
-            </div>
-            <div className="h-md rounded-pill bg-canvas-soft w-full overflow-hidden">
-              <div
-                className={cx("h-full rounded-pill", increasesRisk ? "bg-negative" : "bg-positive")}
-                style={{ width: `${widthPct}%` }}
-              />
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="gap-md flex flex-col">
+      <p className="text-body-sm text-body">
+        SHAP values explain the XGBoost raw model margin, before probability calibration and policy
+        scoring. They are not probability percentage points or rule contributions.
+      </p>
+      <ul className="gap-sm flex flex-col">
+        {features.map((feature) => {
+          const widthPct = Math.round((Math.abs(feature.shapValue) / maxAbs) * 100);
+          const increasesRisk = feature.shapValue >= 0;
+          return (
+            <li key={feature.feature} className="gap-xxs flex flex-col">
+              <div className="gap-md flex items-baseline justify-between">
+                <span className="text-body-sm text-ink font-semibold">
+                  {formatMachineKey(feature.feature)}
+                </span>
+                <span className="text-caption text-body">
+                  {increasesRisk ? "+" : ""}
+                  {feature.shapValue.toFixed(3)}
+                </span>
+              </div>
+              <div className="h-md rounded-pill bg-canvas-soft w-full overflow-hidden">
+                <div
+                  className={cx(
+                    "h-full rounded-pill",
+                    increasesRisk ? "bg-negative" : "bg-positive",
+                  )}
+                  style={{ width: `${widthPct}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

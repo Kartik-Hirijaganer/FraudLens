@@ -86,10 +86,16 @@ class InvestigationSnapshotResponse(CamelModel):
     )
     attempt: int = Field(..., ge=0, description="Number of fenced execution attempts claimed.")
     max_attempts: int = Field(..., gt=0, description="Configured terminal attempt limit.")
-    risk_score: float | None = Field(default=None, description="Blended risk score (once scored).")
+    risk_score: float | None = Field(
+        default=None,
+        description="Policy score combining normalized model risk and weighted rule findings; "
+        "used for bands and threshold alerts, not a calibrated fraud probability.",
+    )
     risk_band: str | None = Field(default=None, description="Resolved risk band (once scored).")
     fraud_probability: float | None = Field(
-        default=None, description="Calibrated model probability (from the result snapshot)."
+        default=None,
+        description="Unmodified calibrated XGBoost probability, distinct from the policy "
+        "risk score.",
     )
     model_version: str | None = Field(
         default=None, description="Version label of the model that scored this run."
@@ -111,10 +117,14 @@ class InvestigationSnapshotResponse(CamelModel):
         default=None, description="Stable code shown to the analyst when a run failed."
     )
     top_features: list[dict[str, Any]] = Field(
-        default_factory=list, description="Top SHAP drivers (feature names + numbers, no PHI)."
+        default_factory=list,
+        description="Top signed SHAP contributions to the raw XGBoost margin, before calibration "
+        "and policy scoring; not probability percentage points or rule contributions.",
     )
     rule_hits: list[dict[str, Any]] = Field(
-        default_factory=list, description="Fired deterministic rule hits (PHI-free findings)."
+        default_factory=list,
+        description="Explicit deterministic pattern findings for analyst review and SAR evidence; "
+        "a hit does not establish fraud or mandate an override.",
     )
     citations: list[dict[str, Any]] = Field(
         default_factory=list, description="Grounded regulatory citations the SAR relied on."

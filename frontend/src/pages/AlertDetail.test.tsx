@@ -254,7 +254,7 @@ describe("Case workspace", () => {
     expect(screen.getByText("Subject:").tagName).toBe("STRONG");
     expect(screen.getByRole("heading", { name: "Risk indicators" })).toBeVisible();
   });
-  it("preserves failed draft visibility and provides a no-SAR recommendation", async () => {
+  it("preserves risk explanations and rule findings when SAR drafting fails", async () => {
     const client = makeClient({
       getAlert: () =>
         Promise.resolve({
@@ -265,6 +265,11 @@ describe("Case workspace", () => {
     render(<AlertDetail alertId="alert-1" client={client} />);
     await screen.findByLabelText("Recommendation");
     expect(screen.getByText(/Author and save a usable SAR/)).toBeVisible();
+    expect(screen.getByText(/The policy risk score determines risk bands/)).toBeVisible();
+    expect(screen.getByText(/Calibrated model probability:/)).toBeVisible();
+    expect(screen.getByText(/SHAP values explain the XGBoost raw model margin/)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Rule findings" })).toBeVisible();
+    expect(screen.getByText("Structuring")).toBeVisible();
     await userEvent.selectOptions(screen.getByLabelText("Recommendation"), "no_sar");
     await userEvent.type(screen.getByLabelText("Submission or dismissal rationale"), "No SAR.");
     expect(screen.getByRole("button", { name: "Send for review" })).toBeEnabled();
