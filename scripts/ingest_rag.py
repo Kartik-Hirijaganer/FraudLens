@@ -1,13 +1,9 @@
 """Summary: Build the FinCEN/BSA RAG index from the committed corpus (plan §16 Phase 6).
-`make ingest-rag` loads every regulatory provision under `settings.rag_corpus_dir`, chunks it
-deterministically, embeds the chunks with the config-selected shared embedder, and persists a
-provenance-tagged ChromaDB collection at `settings.rag_index_dir`. Offline mode remains keyless and
-deterministic, so it runs
-the same locally, in `make local-demo`, and at image-build time (the index is baked into the
-container in Phase 14). When a database is configured it records a `job_executions(ingest_rag)`
-row for the ops audit trail; without one it still builds the index (so the build works in any
-context). `make ingest-rag-live` opts into `text-embedding-3-small` through OpenRouter/Infisical;
-ingest and retrieval share the same factory so their embedding spaces cannot diverge silently.
+`make ingest-rag` chunks the public corpus and materializes reviewed semantic vectors without a
+provider call. Explicit offline development may select hashing. Both paths persist provenance-tagged
+ChromaDB collections at `settings.rag_index_dir` and work keylessly in image builds. When a database
+is configured, ingestion records a `job_executions(ingest_rag)` row unless `--skip-db` is selected.
+`make ingest-rag-live` explicitly refreshes public learned vectors through OpenRouter/Infisical.
 
 Key classes:
 - (none)
@@ -36,7 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fraudlens_backend.db.models import JobExecution, JobStatus, JobType
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
-from fraudlens_backend.rag import build_embedder
+from fraudlens_backend.rag import LlmClientEmbedder, build_embedder, load_rag_embedding_config
+from fraudlens_backend.rag.snapshot import SnapshotEmbedder, refresh_snapshot
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_ml.rag import (
     DEFAULT_CHUNK_OVERLAP,
@@ -61,7 +58,11 @@ def ingest_corpus(settings: AppSettings, *, chunk_size: int, overlap: int) -> tu
     index_dir = _anchored(settings.rag_index_dir)
     documents = load_corpus(corpus_dir)
     chunks = chunk_corpus(documents, chunk_size=chunk_size, overlap=overlap)
-    embedder = build_embedder(settings)
+    embedder = (
+        SnapshotEmbedder(load_rag_embedding_config())
+        if settings.rag_embedding_mode == "live"
+        else build_embedder(settings)
+    )
     count = build_index(
         chunks,
         embedder=embedder,
@@ -94,11 +95,26 @@ async def record_ingest_job(  # noqa: PLR0913 - records one audit row; extras ar
     await session.flush()
 
 
-async def _amain(chunk_size: int, overlap: int) -> int:
+async def _amain(
+    chunk_size: int, overlap: int, *, refresh_embeddings: bool = False, skip_db: bool = False
+) -> int:
     """Build the RAG index, record the job when a DB is configured, and print a summary."""
     settings = get_settings()
+    if refresh_embeddings:
+        source_documents = load_corpus(_anchored(settings.rag_corpus_dir))
+        source_chunks = chunk_corpus(source_documents, chunk_size=chunk_size, overlap=overlap)
+        embedder = build_embedder(settings)
+        if not isinstance(embedder, LlmClientEmbedder):
+            raise ValueError("snapshot refresh requires live embeddings")
+        try:
+            snapshot = refresh_snapshot(
+                [chunk.text for chunk in source_chunks], load_rag_embedding_config(), embedder
+            )
+        finally:
+            embedder.close()
+        print(f"public embeddings: {snapshot.input_tokens} tokens, USD {snapshot.cost_usd}")
     chunks, documents, index_dir = ingest_corpus(settings, chunk_size=chunk_size, overlap=overlap)
-    engine = create_engine_from_settings(settings)
+    engine = None if skip_db else create_engine_from_settings(settings)
     if engine is None:
         print(f"ingest-rag OK: {chunks} chunks from {documents} docs -> {index_dir} (DB skipped)")
         return 0
@@ -123,6 +139,14 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point: build the FinCEN/BSA RAG index from the committed corpus."""
     parser = argparse.ArgumentParser(description="Build the FinCEN/BSA RAG index.")
     parser.add_argument(
+        "--refresh-embeddings",
+        action="store_true",
+        help="Regenerate the public semantic vectors (paid provider call; approval required).",
+    )
+    parser.add_argument(
+        "--skip-db", action="store_true", help="Build without a database audit write."
+    )
+    parser.add_argument(
         "--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Max chars per chunk."
     )
     parser.add_argument(
@@ -132,7 +156,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Char overlap between chunks.",
     )
     args = parser.parse_args(argv)
-    return asyncio.run(_amain(args.chunk_size, args.chunk_overlap))
+    return asyncio.run(
+        _amain(
+            args.chunk_size,
+            args.chunk_overlap,
+            refresh_embeddings=args.refresh_embeddings,
+            skip_db=args.skip_db,
+        )
+    )
 
 
 if __name__ == "__main__":

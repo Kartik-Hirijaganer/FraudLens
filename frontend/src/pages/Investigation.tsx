@@ -23,11 +23,8 @@
  *   the streamed state — nothing is hardcoded — so seeded/demo runs render end to end.
  * - The brand green marks only the active step + its primary CTA (the current action); all
  *   status colour comes from the semantic palette (DESIGN.md).
- * - "Regenerate" on the SAR step POSTs to the regenerate endpoint (a new persisted draft
- *   version) while the button shows a spinner and the draft dims/pulses; on success the new
- *   narrative replaces the shown text, on failure an error toast fires and the draft is kept.
- * - "Approve SAR" requires a raised alert + approvable draft, POSTs an approval through
- *   the existing SAR-review endpoint, and navigates only after the persisted review succeeds.
+ * - Inline narrative editing reuses the case preparation command and server capabilities.
+ *   Submission and independent decisions remain in the case workspace.
  */
 import { useEffect, useState } from "react";
 
@@ -35,7 +32,6 @@ import { AgentTimeline } from "../components/AgentTimeline";
 import { CaseStepper } from "../components/CaseStepper";
 import { DecisionRail } from "../components/DecisionRail";
 import { ErrorState } from "../components/feedback/ErrorState";
-import { Spinner } from "../components/feedback/Spinner";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -52,14 +48,11 @@ import {
   type InvestigationState,
 } from "../lib/investigation";
 import { navigate, paths } from "../lib/router";
-import { hasPermission, useSession } from "../lib/session";
 import { createSseClient, type SseHandle } from "../lib/sse";
-import { notify, notifyError } from "../lib/toast";
 import { InvestigationStepBody } from "./InvestigationStepBody";
 import { STEP_COPY, evidenceChips, statusPill } from "./investigationView";
 
 const TERMINAL_EVENTS = new Set(["run.completed", "run.failed"]);
-const APPROVABLE_SAR_STATUSES = new Set(["draft", "reviewed"]);
 
 interface InvestigationProps {
   runId: string;
@@ -75,18 +68,13 @@ export function Investigation({
   const [state, setState] = useState<InvestigationState>(initialInvestigationState);
   const [connectionError, setConnectionError] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
-  const [regenerating, setRegenerating] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const session = useSession();
-  const canStartInvestigation = hasPermission(session, "startInvestigation");
-  const canReviewSar = hasPermission(session, "reviewSar");
+  const [sarDirty, setSarDirty] = useState(false);
 
   useEffect(() => {
     setState(initialInvestigationState());
     setConnectionError(false);
     setCurrentStep(0);
-    setRegenerating(false);
-    setSubmitting(false);
+    setSarDirty(false);
     let closed = false;
     let terminalReached = false;
     let handle: SseHandle | null = null;
@@ -157,45 +145,23 @@ export function Investigation({
   const isLastStep = activeStep === caseSteps.length - 1;
   const nextStep = isLastStep ? undefined : caseSteps[activeStep + 1];
   const canAdvance = caseStepReady(state, isLastStep ? "submit" : (nextStep?.key ?? "submit"));
-  const hasApprovableDraft =
-    state.sarDraftId !== undefined &&
-    state.sarStatus !== undefined &&
-    APPROVABLE_SAR_STATUSES.has(state.sarStatus);
-  const canSubmit =
-    canAdvance && state.alertId !== undefined && hasApprovableDraft && canReviewSar && !submitting;
-  const canRunPrimary = isLastStep ? (isNoAlertOutcome ? canAdvance : canSubmit) : canAdvance;
+  const canRunPrimary =
+    stepKey === "sar" && terminal && state.alertId !== undefined
+      ? true
+      : isLastStep
+        ? isNoAlertOutcome
+          ? canAdvance
+          : state.alertId !== undefined
+        : canAdvance;
   const primaryLabel = isLastStep
     ? isNoAlertOutcome
       ? "Back to transactions"
-      : "Approve SAR"
-    : `Looks good — continue to ${nextStep?.label.toLowerCase()} →`;
-
-  async function handlePrimary(): Promise<void> {
-    if (!canRunPrimary) {
-      return;
-    }
+      : "Open case"
+    : `Continue to ${nextStep?.label.toLowerCase()} →`;
+  function handlePrimary(): void {
+    if (!canRunPrimary) return;
     if (isLastStep) {
-      if (isNoAlertOutcome) {
-        navigate(paths.transactions);
-        return;
-      }
-      if (state.alertId === undefined) {
-        return;
-      }
-      setSubmitting(true);
-      try {
-        await client.reviewSar(state.alertId, { decision: "approve" });
-        notify({
-          tone: "positive",
-          title: "SAR approved",
-          description: "The internal approval was recorded and PDF generation was queued.",
-        });
-        navigate(paths.alerts);
-      } catch (caught) {
-        notifyError(caught);
-      } finally {
-        setSubmitting(false);
-      }
+      navigate(isNoAlertOutcome ? paths.transactions : paths.alertDetail(state.alertId!));
       return;
     }
     setCurrentStep(Math.min(activeStep + 1, caseSteps.length - 1));
@@ -203,32 +169,6 @@ export function Investigation({
 
   function handleBack(): void {
     setCurrentStep(Math.max(activeStep - 1, 0));
-  }
-
-  async function handleRegenerate(): Promise<void> {
-    if (regenerating) {
-      return;
-    }
-    setRegenerating(true);
-    notify({
-      tone: "neutral",
-      title: "Regenerating the SAR draft",
-      description: "Rebuilding the narrative from the confirmed evidence…",
-    });
-    try {
-      const draft = await client.regenerateSar(runId);
-      setState((prev) => ({
-        ...prev,
-        sarText: draft.content,
-        sarDraftId: draft.sarDraftId,
-        sarModelId: draft.modelId,
-      }));
-      notify({ tone: "positive", title: "SAR draft regenerated" });
-    } catch (caught) {
-      notifyError(caught);
-    } finally {
-      setRegenerating(false);
-    }
   }
 
   return (
@@ -314,47 +254,32 @@ export function Investigation({
               gaugeValue={gaugeValue}
               gaugeLabel={gaugeLabel}
               streaming={streaming}
-              regenerating={regenerating}
-              canAdvance={canAdvance}
-              hasApprovableDraft={hasApprovableDraft}
-              canReviewSar={canReviewSar}
+              client={client}
+              sarDirty={sarDirty}
+              onSarDirtyChange={setSarDirty}
+              onSarSaved={(draft) =>
+                setState((current) => ({
+                  ...current,
+                  sarText: draft.content,
+                  sarStatus: draft.status,
+                  sarDraftId: draft.sarDraftId,
+                  sarModelId: draft.modelId,
+                }))
+              }
             />
 
             <div className="gap-md flex flex-col">
               <div className="gap-md flex flex-col sm:flex-row">
-                {stepKey === "sar" && canStartInvestigation ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => void handleRegenerate()}
-                    disabled={regenerating}
-                  >
-                    {regenerating ? (
-                      <span className="gap-sm inline-flex items-center">
-                        <Spinner label="Regenerating the SAR draft" />
-                        Regenerating…
-                      </span>
-                    ) : (
-                      "Regenerate"
-                    )}
-                  </Button>
-                ) : null}
                 <Button
                   variant="primary"
                   className="grow"
-                  disabled={!canRunPrimary || regenerating}
+                  disabled={!canRunPrimary || sarDirty}
                   onClick={() => void handlePrimary()}
                 >
-                  {submitting ? (
-                    <span className="gap-sm inline-flex items-center">
-                      <Spinner label="Approving the SAR" />
-                      Approving…
-                    </span>
-                  ) : (
-                    primaryLabel
-                  )}
+                  {primaryLabel}
                 </Button>
               </div>
-              {!canAdvance ? (
+              {!canAdvance && !terminal ? (
                 <p className="text-body-sm text-body">The auto-run hasn't reached this step yet.</p>
               ) : null}
             </div>
@@ -364,7 +289,12 @@ export function Investigation({
 
           <div className="gap-md text-body-sm flex items-center justify-between">
             {activeStep > 0 ? (
-              <button type="button" onClick={handleBack} className="text-ink font-semibold">
+              <button
+                type="button"
+                disabled={sarDirty}
+                onClick={handleBack}
+                className="text-ink font-semibold disabled:opacity-50"
+              >
                 ← Back to {caseSteps[activeStep - 1].label.toLowerCase()}
               </button>
             ) : (

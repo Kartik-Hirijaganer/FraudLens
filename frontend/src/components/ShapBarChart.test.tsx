@@ -21,6 +21,10 @@ describe("ShapBarChart", () => {
     expect(screen.getByText("Amount")).toBeInTheDocument();
     expect(screen.getByText("+0.300")).toBeInTheDocument();
     expect(screen.getByText("-0.100")).toBeInTheDocument();
+    expect(screen.getByText(/XGBoost raw model margin/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/not probability percentage points or rule contributions/),
+    ).toBeInTheDocument();
     expect(container.querySelectorAll(".bg-negative")).toHaveLength(1);
     expect(container.querySelectorAll(".bg-positive")).toHaveLength(1);
   });

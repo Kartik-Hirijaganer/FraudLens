@@ -67,6 +67,9 @@ class PortfolioDemoPersona(BaseModel):
 
     key: str = Field(..., min_length=1, description="Stable config key other sections refer to.")
     seed_user_id: uuid.UUID = Field(..., description="Fixed synthetic `users.id` for this persona.")
+    person_id: uuid.UUID = Field(
+        ..., description="Trusted provisioned human identity; aliases share this value."
+    )
     email: str = Field(..., min_length=1, description="Synthetic login email (no real identity).")
     display_name: str = Field(..., min_length=1, description="Human-readable demo user name.")
     initials: str = Field(..., min_length=1, description="Shell avatar initials for this persona.")
@@ -128,6 +131,10 @@ class PortfolioDemoScenario(BaseModel):
     )
     alert_target: AlertStatus | None = Field(
         default=None, description="Alert state the bootstrap transitions this row's alert into."
+    )
+    returned: bool = Field(
+        default=False,
+        description="Bootstrap a returned immutable submission and editable working revision.",
     )
     sar_target: SarStatus | None = Field(
         default=None, description="SAR state the bootstrap transitions this row's draft into."

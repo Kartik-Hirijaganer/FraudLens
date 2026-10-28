@@ -206,7 +206,10 @@ excluded:
   - service: Infisical secret management
     reason: Not an Azure meter; secrets resolve from the free tier (ADR-010).
   - service: OpenRouter LLM spend
-    reason: Not an Azure meter; capped separately by llm_daily_budget_usd in config/prod.yaml (D4).
+    reason: >-
+      Not an Azure meter; SAR spend is capped by llm_daily_budget_usd in config/prod.yaml (D4).
+      Query embeddings have a separate shared $0.05/UTC-day reservation cap in config/llm/rag.yml
+      (ADR-036); public corpus refresh is explicitly approved maintenance, not a recurring build.
   - service: GitHub Actions minutes
     reason: Free for public repositories, including the keep-warm and watchdog crons.
   - service: Azure Automation budget-triggered shutdown

@@ -1,5 +1,24 @@
 components:
   schemas:
+    ActionCapability:
+      additionalProperties: false
+      description: A server-owned action explanation; mutations always recheck it
+        under lock.
+      properties:
+        allowed:
+          description: Whether the current actor may take the action.
+          title: Allowed
+          type: boolean
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Stable safe blocking explanation.
+          title: Reason
+      required:
+      - allowed
+      title: ActionCapability
+      type: object
     AgencyResponse:
       additionalProperties: false
       description: The GET /agencies/{agencyId} lookup body — confirms the agency
@@ -134,32 +153,38 @@ components:
       type: object
     AlertActionRequest:
       additionalProperties: false
-      description: The POST /alerts/{id}/actions body; conditional fields validated
-        up front (plan §5.4).
+      description: Only self-assignment, meaningful comments and governed dismissal
+        remain callable.
       properties:
         action:
-          $ref: '#/components/schemas/AlertActionType'
-          description: The triage action to apply.
+          description: Case action.
+          enum:
+          - assign
+          - comment
+          - dismiss
+          title: Action
+          type: string
         assigneeId:
           anyOf:
           - format: uuid
             type: string
           - type: 'null'
-          description: Target user id for an `assign` action (must be in the agency).
+          description: Optional self account id; assigning another account is forbidden.
           title: Assigneeid
-        label:
-          anyOf:
-          - $ref: '#/components/schemas/TrainingLabelType'
-          - type: 'null'
-          description: Outcome label for a `resolve` action (writes a training label).
+        expectedCaseVersion:
+          description: Case version displayed to caller.
+          minimum: 1.0
+          title: Expectedcaseversion
+          type: integer
         note:
           anyOf:
           - maxLength: 2000
             type: string
           - type: 'null'
-          description: Optional free-text note (PHI-masked).
+          description: Required rationale for dismissal or a nonblank comment.
           title: Note
       required:
+      - expectedCaseVersion
       - action
       title: AlertActionRequest
       type: object
@@ -171,6 +196,12 @@ components:
       - escalate
       - resolve
       - dismiss
+      - submit
+      - approve
+      - return
+      - decline
+      - edit
+      - regenerate
       title: AlertActionType
       type: string
     AlertActionView:
@@ -189,6 +220,12 @@ components:
           description: User id that performed the action.
           title: Actorid
           type: string
+        actorPersonId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Historical person identity when recorded.
+          title: Actorpersonid
         createdAt:
           description: When the action was recorded.
           format: date-time
@@ -206,6 +243,12 @@ components:
           - type: 'null'
           description: Optional PHI-masked free-text note.
           title: Note
+        submissionId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Related submission round.
+          title: Submissionid
         toStatus:
           anyOf:
           - type: string
@@ -240,6 +283,12 @@ components:
         alert:
           $ref: '#/components/schemas/AlertView'
           description: The alert summary.
+        draftVersions:
+          description: Preserved working and submitted artifacts.
+          items:
+            $ref: '#/components/schemas/SarDraftView'
+          title: Draftversions
+          type: array
         graphVersion:
           anyOf:
           - type: string
@@ -263,6 +312,12 @@ components:
           - $ref: '#/components/schemas/SarDraftView'
           - type: 'null'
           description: The latest SAR draft for the alert's run, if one exists.
+        submissions:
+          description: Frozen rounds, newest first.
+          items:
+            $ref: '#/components/schemas/SubmissionView'
+          title: Submissions
+          type: array
         workflowMode:
           description: Resolved drafting workflow persisted on the run.
           title: Workflowmode
@@ -282,6 +337,12 @@ components:
             $ref: '#/components/schemas/AlertView'
           title: Alerts
           type: array
+        total:
+          default: 0
+          description: All cases matching the caller's filters before pagination.
+          minimum: 0.0
+          title: Total
+          type: integer
       title: AlertListResponse
       type: object
     AlertMetrics:
@@ -379,6 +440,16 @@ components:
           description: Display name of the assigned user when that user belongs to
             the alert's agency.
           title: Assignedtoname
+        capabilities:
+          additionalProperties:
+            $ref: '#/components/schemas/ActionCapability'
+          description: Authoritative action availability and reasons.
+          title: Capabilities
+          type: object
+        caseVersion:
+          description: Optimistic concurrency version.
+          title: Caseversion
+          type: integer
         createdAt:
           description: When the alert was raised.
           format: date-time
@@ -394,6 +465,12 @@ components:
           $ref: '#/components/schemas/AlertOrigin'
           description: 'Alert provenance: pipeline output or explicitly seeded sample
             data.'
+        ownerPersonId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Canonical maker identity.
+          title: Ownerpersonid
         reviewFlags:
           description: PHI-free force-review reasons ({flag, reason}) set at investigation
             time.
@@ -413,6 +490,12 @@ components:
         status:
           $ref: '#/components/schemas/AlertStatus'
           description: Lifecycle status (open|pending_review|in_review|escalated|resolved|dismissed).
+        submissionStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Current or most recent submission status.
+          title: Submissionstatus
         transactionId:
           description: The flagged transaction's id.
           title: Transactionid
@@ -431,6 +514,7 @@ components:
       - severity
       - amount
       - currency
+      - caseVersion
       - createdAt
       - updatedAt
       title: AlertView
@@ -609,6 +693,19 @@ components:
       required:
       - percent
       title: CanaryRequest
+      type: object
+    CaseVersionRequest:
+      additionalProperties: false
+      description: Expected case revision shared by every versioned mutation.
+      properties:
+        expectedCaseVersion:
+          description: Case version displayed to caller.
+          minimum: 1.0
+          title: Expectedcaseversion
+          type: integer
+      required:
+      - expectedCaseVersion
+      title: CaseVersionRequest
       type: object
     ClientErrorReport:
       additionalProperties: false
@@ -844,6 +941,40 @@ components:
       - modelHealth
       title: DashboardMetricsResponse
       type: object
+    DecisionRequest:
+      additionalProperties: false
+      description: An independent checker decides without changing the frozen narrative.
+      properties:
+        decision:
+          description: Checker action.
+          enum:
+          - approve
+          - return
+          - decline
+          title: Decision
+          type: string
+        expectedCaseVersion:
+          description: Case version displayed to caller.
+          minimum: 1.0
+          title: Expectedcaseversion
+          type: integer
+        outcome:
+          anyOf:
+          - $ref: '#/components/schemas/TrainingLabelType'
+          - type: 'null'
+          description: Compatible outcome for approve/decline; absent for return.
+        reason:
+          description: Required masked decision reason or changes.
+          maxLength: 2000
+          minLength: 1
+          title: Reason
+          type: string
+      required:
+      - expectedCaseVersion
+      - decision
+      - reason
+      title: DecisionRequest
+      type: object
     DependencyCheck:
       additionalProperties: false
       description: Readiness result for a single downstream dependency.
@@ -1077,7 +1208,8 @@ components:
           anyOf:
           - type: number
           - type: 'null'
-          description: Calibrated model probability (from the result snapshot).
+          description: Unmodified calibrated XGBoost probability, distinct from the
+            policy risk score.
           title: Fraudprobability
         graphVersion:
           anyOf:
@@ -1131,10 +1263,13 @@ components:
           anyOf:
           - type: number
           - type: 'null'
-          description: Blended risk score (once scored).
+          description: Policy score combining normalized model risk and weighted rule
+            findings; used for bands and threshold alerts, not a calibrated fraud
+            probability.
           title: Riskscore
         ruleHits:
-          description: Fired deterministic rule hits (PHI-free findings).
+          description: Explicit deterministic pattern findings for analyst review
+            and SAR evidence; a hit does not establish fraud or mandate an override.
           items:
             additionalProperties: true
             type: object
@@ -1185,7 +1320,9 @@ components:
           title: Status
           type: string
         topFeatures:
-          description: Top SHAP drivers (feature names + numbers, no PHI).
+          description: Top signed SHAP contributions to the raw XGBoost margin, before
+            calibration and policy scoring; not probability percentage points or rule
+            contributions.
           items:
             additionalProperties: true
             type: object
@@ -1442,6 +1579,18 @@ components:
       - rejected
       title: ModelVersionStatus
       type: string
+    PdfRetryResponse:
+      additionalProperties: false
+      description: Readiness is independent of the durable approval.
+      properties:
+        pdfStatus:
+          description: Persisted artifact readiness.
+          title: Pdfstatus
+          type: string
+      required:
+      - pdfStatus
+      title: PdfRetryResponse
+      type: object
     PortfolioDemoAgencyView:
       additionalProperties: false
       description: The single runtime demo tenant, as the pre-auth login screen may
@@ -2066,47 +2215,14 @@ components:
       - failed
       title: SarQualityStatus
       type: string
-    SarReviewDecision:
-      description: The human SAR review verb applied to the latest draft (plan §5.4
-        / §10.4).
-      enum:
-      - approve
-      - reject
-      - edit
-      title: SarReviewDecision
-      type: string
-    SarReviewRequest:
-      additionalProperties: false
-      description: The POST /alerts/{id}/sar/review body (approve/reject/edit), validated
-        up front.
-      properties:
-        decision:
-          $ref: '#/components/schemas/SarReviewDecision'
-          description: The review verb to apply to the draft.
-        editedContent:
-          anyOf:
-          - maxLength: 20000
-            type: string
-          - type: 'null'
-          description: Edited SAR narrative (required for `edit`; optional final edit
-            on `approve`).
-          title: Editedcontent
-        reason:
-          anyOf:
-          - maxLength: 2000
-            type: string
-          - type: 'null'
-          description: Reason for the decision (required for `reject`; PHI-masked).
-          title: Reason
-      required:
-      - decision
-      title: SarReviewRequest
-      type: object
     SarStatus:
       description: Lifecycle status of a SAR draft (plan §9.1 `sar_drafts`).
       enum:
       - draft
       - reviewed
+      - submitted
+      - returned
+      - withdrawn
       - approved
       - rejected
       - failed
@@ -2177,6 +2293,156 @@ components:
       - critical
       title: Severity
       type: string
+    SubmissionRequest:
+      additionalProperties: false
+      description: Submit one immutable round of the maker's recommendation.
+      properties:
+        expectedCaseVersion:
+          description: Case version displayed to caller.
+          minimum: 1.0
+          title: Expectedcaseversion
+          type: integer
+        rationale:
+          description: Required masked submission rationale.
+          maxLength: 2000
+          minLength: 1
+          title: Rationale
+          type: string
+        recommendation:
+          description: Submit a SAR or recommend no SAR.
+          enum:
+          - sar
+          - no_sar
+          title: Recommendation
+          type: string
+        sarVersion:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          description: Exact working version selected for a SAR recommendation.
+          title: Sarversion
+      required:
+      - expectedCaseVersion
+      - rationale
+      - recommendation
+      title: SubmissionRequest
+      type: object
+    SubmissionView:
+      additionalProperties: false
+      description: Frozen maker snapshot and its separately recorded decision.
+      properties:
+        canRetryPdf:
+          default: false
+          description: Backend-authorized artifact recovery for this actor.
+          title: Canretrypdf
+          type: boolean
+        checkerAccountId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Checker account.
+          title: Checkeraccountid
+        checkerPersonId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Canonical checker identity.
+          title: Checkerpersonid
+        contributorPersonIds:
+          description: Frozen preparation participants.
+          items:
+            type: string
+          title: Contributorpersonids
+          type: array
+        createdAt:
+          description: Submission timestamp.
+          format: date-time
+          title: Createdat
+          type: string
+        decision:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Recorded checker decision.
+          title: Decision
+        evidence:
+          additionalProperties: true
+          description: Frozen investigation evidence and identifiers.
+          title: Evidence
+          type: object
+        makerAccountId:
+          description: Original owning account.
+          title: Makeraccountid
+          type: string
+        makerPersonId:
+          description: Canonical maker identity.
+          title: Makerpersonid
+          type: string
+        outcome:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Final training outcome.
+          title: Outcome
+        pdfStatus:
+          description: unavailable, pending, ready or failed.
+          title: Pdfstatus
+          type: string
+        rationale:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Masked action note, nullable for historical readers.
+          title: Rationale
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Masked decision action note.
+          title: Reason
+        recommendation:
+          description: SAR or no-SAR recommendation.
+          title: Recommendation
+          type: string
+        round:
+          description: Monotonic case submission round.
+          title: Round
+          type: integer
+        sarDraft:
+          anyOf:
+          - $ref: '#/components/schemas/SarDraftView'
+          - type: 'null'
+          description: Exact frozen SAR version.
+        submissionId:
+          description: Round id.
+          title: Submissionid
+          type: string
+        submittedByAccountId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Actual submitting account from the immutable action reference.
+          title: Submittedbyaccountid
+      required:
+      - submissionId
+      - round
+      - makerAccountId
+      - makerPersonId
+      - contributorPersonIds
+      - recommendation
+      - rationale
+      - sarDraft
+      - evidence
+      - decision
+      - reason
+      - outcome
+      - checkerAccountId
+      - checkerPersonId
+      - pdfStatus
+      - createdAt
+      title: SubmissionView
+      type: object
     TrainingLabelType:
       description: Outcome label produced by a reviewed decision (plan §9.2).
       enum:
@@ -2596,6 +2862,68 @@ components:
       - type
       title: ValidationError
       type: object
+    WorkflowCommandResult:
+      additionalProperties: false
+      description: Serialized in the receipt so an identical retry returns the original
+        result.
+      properties:
+        alertId:
+          description: Case id.
+          title: Alertid
+          type: string
+        caseVersion:
+          description: Resulting case version.
+          title: Caseversion
+          type: integer
+        decision:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Recorded checker decision, if any.
+          title: Decision
+        status:
+          description: Resulting case state.
+          title: Status
+          type: string
+        submissionId:
+          description: Submission round id.
+          title: Submissionid
+          type: string
+      required:
+      - alertId
+      - submissionId
+      - caseVersion
+      - status
+      title: WorkflowCommandResult
+      type: object
+    WorkingSarRequest:
+      additionalProperties: false
+      description: Save a masked narrative as a fresh working version, including first
+        manual authoring.
+      properties:
+        content:
+          description: Working narrative to mask and version.
+          maxLength: 20000
+          minLength: 1
+          title: Content
+          type: string
+        expectedCaseVersion:
+          description: Case version displayed to caller.
+          minimum: 1.0
+          title: Expectedcaseversion
+          type: integer
+        expectedSarVersion:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          description: Latest SAR version; null only when none exists.
+          title: Expectedsarversion
+      required:
+      - expectedCaseVersion
+      - content
+      title: WorkingSarRequest
+      type: object
   securitySchemes:
     HTTPBearer:
       scheme: bearer
@@ -2603,7 +2931,7 @@ components:
 info:
   summary: FraudLens AML fraud investigation API.
   title: FraudLens
-  version: 0.6.0
+  version: 0.7.0
 openapi: 3.1.0
 paths:
   /api/v1/agencies/{agencyId}:
@@ -2638,8 +2966,8 @@ paths:
       - tenancy
   /api/v1/alerts:
     get:
-      description: Return a page of the agency's alerts (newest first), optionally
-        filtered by status.
+      description: Filter queues with backend ownership and checker eligibility before
+        pagination.
       operationId: list_alerts_api_v1_alerts_get
       parameters:
       - in: query
@@ -2667,6 +2995,20 @@ paths:
           - $ref: '#/components/schemas/AlertStatus'
           - type: 'null'
           title: Status
+      - in: query
+        name: queue
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - available
+            - mine
+            - awaiting_review
+            - returned
+            - closed
+            type: string
+          - type: 'null'
+          title: Queue
       responses:
         '200':
           content:
@@ -2687,8 +3029,8 @@ paths:
       - alerts
   /api/v1/alerts/{alertId}:
     get:
-      description: Return an alert's detail (latest SAR draft + action history); 404
-        if missing/cross-tenant.
+      description: Read case, frozen submission evidence, immutable versions and masked
+        action history.
       operationId: get_alert_api_v1_alerts__alertId__get
       parameters:
       - in: path
@@ -2718,8 +3060,8 @@ paths:
       - alerts
   /api/v1/alerts/{alertId}/actions:
     post:
-      description: Apply a validated triage action; illegal transition → 409, cross-tenant
-        assignee → 403.
+      description: Only self-assignment remains; every mutation rechecks persisted
+        identity and policy.
       operationId: act_on_alert_api_v1_alerts__alertId__actions_post
       parameters:
       - in: path
@@ -2753,11 +3095,11 @@ paths:
       summary: Act On Alert
       tags:
       - alerts
-  /api/v1/alerts/{alertId}/sar/review:
-    post:
-      description: Approve/reject/edit the alert's latest SAR draft; approve schedules
-        a deferred PDF.
-      operationId: review_sar_api_v1_alerts__alertId__sar_review_post
+  /api/v1/alerts/{alertId}/sar:
+    patch:
+      description: Save the owner's masked working narrative with case and SAR version
+        fences.
+      operationId: save_sar_api_v1_alerts__alertId__sar_patch
       parameters:
       - in: path
         name: alertId
@@ -2770,7 +3112,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SarReviewRequest'
+              $ref: '#/components/schemas/WorkingSarRequest'
         required: true
       responses:
         '200':
@@ -2787,7 +3129,179 @@ paths:
           description: Validation Error
       security:
       - HTTPBearer: []
-      summary: Review Sar
+      summary: Save Sar
+      tags:
+      - alerts
+  /api/v1/alerts/{alertId}/submissions:
+    post:
+      description: Create an immutable round; identical retries return the original
+        response.
+      operationId: submit_case_api_v1_alerts__alertId__submissions_post
+      parameters:
+      - in: path
+        name: alertId
+        required: true
+        schema:
+          format: uuid
+          title: Alertid
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 200
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmissionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowCommandResult'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Submit Case
+      tags:
+      - alerts
+  /api/v1/alerts/{alertId}/submissions/{submissionId}/decision:
+    post:
+      description: Commit approval and closure atomically before scheduling deferred
+        artifact generation.
+      operationId: decide_submission_api_v1_alerts__alertId__submissions__submissionId__decision_post
+      parameters:
+      - in: path
+        name: alertId
+        required: true
+        schema:
+          format: uuid
+          title: Alertid
+          type: string
+      - in: path
+        name: submissionId
+        required: true
+        schema:
+          format: uuid
+          title: Submissionid
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 200
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowCommandResult'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Decide Submission
+      tags:
+      - alerts
+  /api/v1/alerts/{alertId}/submissions/{submissionId}/pdf:
+    get:
+      description: Read the complete artifact through authorization instead of exposing
+        a storage URI.
+      operationId: download_pdf_api_v1_alerts__alertId__submissions__submissionId__pdf_get
+      parameters:
+      - in: path
+        name: alertId
+        required: true
+        schema:
+          format: uuid
+          title: Alertid
+          type: string
+      - in: path
+        name: submissionId
+        required: true
+        schema:
+          format: uuid
+          title: Submissionid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Download Pdf
+      tags:
+      - alerts
+  /api/v1/alerts/{alertId}/submissions/{submissionId}/pdf/retry:
+    post:
+      description: Reviewer/Admin may retry generation; repeated pending/ready requests
+        are idempotent.
+      operationId: retry_pdf_api_v1_alerts__alertId__submissions__submissionId__pdf_retry_post
+      parameters:
+      - in: path
+        name: alertId
+        required: true
+        schema:
+          format: uuid
+          title: Alertid
+          type: string
+      - in: path
+        name: submissionId
+        required: true
+        schema:
+          format: uuid
+          title: Submissionid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PdfRetryResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Retry Pdf
       tags:
       - alerts
   /api/v1/config:
@@ -3048,6 +3562,12 @@ paths:
           format: uuid
           title: Runid
           type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseVersionRequest'
+        required: true
       responses:
         '200':
           content:

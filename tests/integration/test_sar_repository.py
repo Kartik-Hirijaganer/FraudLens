@@ -127,7 +127,7 @@ async def test_human_edit_invalidates_quality_without_changing_review_lifecycle(
         created_by=actor_id,
     )
 
-    assert edited.status is SarStatus.REVIEWED
+    assert edited.status is SarStatus.DRAFT
     assert edited.quality_status is SarQualityStatus.NOT_RUN  # no gate judged the human narrative
     assert edited.quality == {}
     assert base.quality_status is SarQualityStatus.PASSED

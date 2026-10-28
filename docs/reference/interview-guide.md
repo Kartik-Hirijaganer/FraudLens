@@ -101,6 +101,17 @@ ships configured and unmeasured, so the report claims nothing about it.
 
 ## Governance and close
 
+### Why 70/30, and did model-only perform better?
+
+70/30 began as a configurable model-led heuristic; the later experiments were not its original
+justification. The [ranking-policy review](benchmarks/risk-ranking-review.md) reproduces the
+HI-Medium study but identifies HI-Small as the active demo model. Model-only wins some source
+comparisons, while the served model's current-code HI-Small replay favors 70/30. The review retains
+the deployed default, reports gains and losses, and records the historical metric mismatch,
+holdout exposure, normalization coupling and fixed-threshold workload limits. Rules remain named,
+versioned investigation findings and SAR evidence; SHAP describes model-margin contributions.
+No mandatory rule override or claim of an optimal universal blend is introduced.
+
 Show the claim register and root Makefile. Summarize the provider-free citation/hallucination/egress
 gates, 90% coverage, source-file cap, deterministic docs, dependency/IaC scans, and the experiment
 ledger. Paid creation, uploads, destroy, deploys, commits, pushes, tags, and releases are human-gated.

@@ -43,6 +43,42 @@ class ErrorSpec(BaseModel):
 ERROR_CATALOG: dict[str, ErrorSpec] = {
     spec.code: spec
     for spec in (
+        *(
+            ErrorSpec(code=code, http_status=status, message=message)
+            for code, status, message in (
+                (
+                    "person_mapping_required",
+                    403,
+                    "Trusted person mapping is required before case mutations.",
+                ),
+                ("person_link_immutable", 409, "Trusted person links cannot be remapped."),
+                (
+                    "workflow_action_blocked",
+                    403,
+                    "This action is unavailable for the current case and person.",
+                ),
+                ("workflow_reason_required", 422, "A nonblank rationale or note is required."),
+                ("case_version_conflict", 409, "This case changed. Reload it before continuing."),
+                (
+                    "submitted_sar_required",
+                    409,
+                    "Select a usable current SAR version for approval or submission.",
+                ),
+                (
+                    "submission_not_active",
+                    409,
+                    "This submission is missing, decided or no longer active.",
+                ),
+                ("workflow_idempotency_required", 422, "A nonblank Idempotency-Key is required."),
+                (
+                    "workflow_idempotency_conflict",
+                    409,
+                    "This Idempotency-Key belongs to a different command.",
+                ),
+                ("submission_not_found", 404, "No submission exists for this case and agency."),
+                ("submission_pdf_unavailable", 409, "The approved submission PDF is not ready."),
+            )
+        ),
         ErrorSpec(
             code="duplicate_external_id",
             http_status=409,
@@ -154,11 +190,6 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             message="That action is not allowed from the alert's current status.",
         ),
         ErrorSpec(
-            code="sar_decision_required",
-            http_status=409,
-            message="Approve or reject the SAR draft before closing this alert.",
-        ),
-        ErrorSpec(
             code="resolution_label_mismatch",
             http_status=409,
             message="The selected outcome does not match the SAR review decision.",
@@ -177,11 +208,6 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
             code="sar_not_regenerable",
             http_status=409,
             message="This run has no completed analysis to regenerate a SAR draft from.",
-        ),
-        ErrorSpec(
-            code="assignee_not_in_agency",
-            http_status=403,
-            message="The requested assignee does not belong to this agency.",
         ),
         ErrorSpec(
             code="acting_user_required",

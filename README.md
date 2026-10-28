@@ -27,19 +27,26 @@
 ![FraudLens walkthrough: persona sign-in, an unscored transaction, the investigation streaming
 Risk to Drivers to Citations to SAR draft, and a human approving the SAR](docs/demo/fraudlens-demo.gif)
 
-The clip above is a 17-second highlight. A persona sign-in, an unscored transaction, the investigation streaming its evidence, the persisted
-model input the draft was built from, and a human approving the SAR. 
+The clip above is a 17-second highlight recorded before release 0.7.0. It shows persona sign-in,
+an investigation, its persisted model input and the earlier approval flow. Release 0.7.0 uses the
+case workspace and an independent maker–checker decision, as described below.
 
 The **[full 47-second walkthrough](docs/demo/fraudlens-walkthrough.mp4)** plays at real reading speed.
 
 ## What is it?
 FraudLens is a personal AML investigation project that turns synthetic transactions into explainable risk assessments and citation-backed Suspicious Activity Report (SAR) drafts. It connects detection, investigation, and review while keeping analysts in control of final decisions.
 
-* **Detect and explain risk:** Rules and XGBoost score transactions; SHAP explains what drives each score.
+* **Detect and explain risk:** Keep the policy risk score, calibrated model probability, SHAP raw-margin contributions and named rule findings distinct.
 * **Screen and investigate:** CSV uploads automatically queue every accepted transaction for rules, XGBoost and SHAP analysis. Threshold crossings create alerts and attempt regulatory retrieval and SAR drafting under the existing egress and spend controls. Open saved results or explicitly re-run an investigation; [workflow and limitations](docs/runbooks/transaction-screening.md).
-* **Review and approve:** Dashboards support investigation tracking, alert decisions, and human approval of SARs.
+* **Prepare and independently review:** Take a case, edit a versioned working narrative, and submit a frozen SAR or no-SAR recommendation. A different person may approve, return or decline it; linked accounts and role changes cannot bypass independence.
 * **Manage model changes:** Human-approved rollouts support shadow testing, canary releases, and rollback.
 * **Trace decisions:** Tenant isolation and audit trails track model versions, workflow changes, and reviewer actions.
+
+Release **0.7.0** includes [person-based case review](docs/architecture/adr/ADR-034-person-based-maker-checker.md),
+[risk-ranking evidence](docs/architecture/adr/ADR-035-risk-ranking-evidence-and-rule-findings.md)
+and [bounded semantic regulatory retrieval](docs/architecture/adr/ADR-036-semantic-regulatory-retrieval.md).
+The backend/frontend cutover requires migration `0016_maker_checker` and trusted person links;
+follow the [release cutover prerequisites](docs/runbooks/maker-checker-uat.md#release-cutover-prerequisites).
 
 ### Architecture diagram
 
@@ -52,7 +59,7 @@ flowchart TB
         auth["Supabase Auth<br/><i>email + password → RS256 JWT</i>"]
     end
 
-    subgraph azure["☁️ Azure Container Apps · eastus2 · min 0 / max 1"]
+    subgraph azure["☁️ Azure Container Apps · eastus2 · min 1 / max 1"]
         gw["FastAPI gateway<br/><i>request-id → headers → fail-closed JWT → agency_id</i>"]
         pipe["Investigation runtime<br/><i>rules → XGBoost → SHAP → RAG → gated SAR cascade</i>"]
         jobs["Container Apps Jobs<br/><i>batch score · retrain — manual trigger only</i>"]
@@ -60,14 +67,13 @@ flowchart TB
 
     subgraph ops["🔁 Delivery & operations"]
         ghcr["GHCR<br/><i>one SHA-tagged image → app, jobs, and Kubernetes</i>"]
-        warm["Keep-warm cron<br/><i>GitHub Actions · weekday hours only</i>"]
         logs["Log Analytics<br/><i>ingestion capped at 0.1 GB/day</i>"]
     end
 
     db[("Supabase Postgres<br/><i>every row scoped by agency_id</i>")]
     rag[("ChromaDB<br/><i>FinCEN / BSA index baked into the image</i>")]
     blob[("Azure Blob<br/><i>model bundles · approved SAR PDFs</i>")]
-    llm["OpenRouter<br/><i>capped $2.25 / day</i>"]
+    llm["OpenRouter<br/><i>SAR ≤ $2.25/day · query embeddings ≤ $0.05/day</i>"]
     vault[["Infisical prod<br/><i>runtime secret injection</i>"]]
 
     user --> spa
@@ -85,7 +91,6 @@ flowchart TB
     jobs --> blob
     ghcr -->|"deploy image"| gw
     ghcr -->|"same image"| jobs
-    warm -.->|"GET /healthz — holds one idle replica"| gw
     gw --> logs
     jobs --> logs
     vault -.->|"injected at runtime"| gw
@@ -105,7 +110,7 @@ flowchart TB
     class db,rag,blob store
     class llm ext
     class vault secret
-    class ghcr,warm,logs opsnode
+    class ghcr,logs opsnode
 ```
 
 ### The same image also ran on Kubernetes
@@ -161,7 +166,8 @@ flowchart LR
 
 ### User flow draft and submit a SAR for review
 
-This is the implemented above-threshold happy path. The system generates the first grounded draft; the analyst validates the evidence and sends it for internal review; the reviewer remains the human approval gate.
+This is the implemented above-threshold happy path. The system generates the first grounded draft;
+the owning maker prepares and submits it, and an independent person reviews the frozen round.
 
 ```mermaid
 flowchart TB
@@ -189,25 +195,28 @@ flowchart TB
     subgraph caseReview["Analyst case review"]
         direction TB
         evidence["Confirm Risk → Drivers → Citations → SAR draft"]
-        regenerate["Regenerate the draft if needed, then confirm"]
-        alertQueue["Open the generated alert in the Alerts queue"]
-        submit["Click Send for review<br/>append action + audit event"]
+        regenerate["Take case; edit or regenerate<br/>save a versioned working draft"]
+        alertQueue["Confirm the recommendation and rationale"]
+        submit["Send for review<br/>freeze narrative, evidence and participants"]
         evidence --> regenerate --> alertQueue --> submit
     end
 
-    subgraph reviewer["Reviewer"]
+    subgraph reviewer["Independent Reviewer / Admin"]
         direction TB
         openReview["Open the escalated alert"]
         assess["Review evidence, citations, narrative, and activity"]
-        edit["Edit if needed<br/>persist a new masked draft version"]
-        approve["Approve SAR"]
-        complete["SAR approved<br/>PDF generation queued + audit trail updated"]
-        openReview --> assess --> edit --> approve --> complete
+        returnRound["Return for maker changes"]
+        approve["Approve frozen SAR with reason and outcome"]
+        complete["Case closed + atomic decision/outcome<br/>approved PDF generated with retry support"]
+        openReview --> assess
+        assess -->|"Changes needed"| returnRound
+        assess -->|"Accept"| approve --> complete
     end
 
     start --> authorize
     draft --> evidence
     submit --> openReview
+    returnRound --> regenerate
 ```
 
 
@@ -217,15 +226,32 @@ flowchart TB
 | --- | --- |
 | **Backend** | Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2 async · Alembic · structlog |
 | **ML / investigation** | XGBoost · SHAP · scikit-learn · imbalanced-learn · LangGraph |
-| **LLM / RAG** | Standalone governed LLM client · OpenRouter opt-in · versioned prompts · ChromaDB · deterministic hashing embeddings locally |
+| **LLM / RAG** | Standalone governed LLM client · versioned prompts · ChromaDB semantic retrieval · lexical fallback · keyless public-vector index builds |
 | **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Wise design system · D3 force |
 | **Data** | Docker Postgres 16 locally · Supabase Postgres in the cloud · local artifact and queue backends |
 | **Security** | Fail-closed JWT/AuthZ · `agency_id` tenant enforcement · RBAC · PHI masking · Infisical secrets · gitleaks |
 | **Infra / CI** | Docker · Terraform · GitHub Actions · Azure Container Apps + Blob · Vercel · ephemeral AKS |
 
+### Regulatory retrieval
+
+Authorized live investigations default to semantic search with `text-embedding-3-small` in ChromaDB.
+Missing credentials, unavailable budget storage, provider errors, or incompatible vectors select
+local lexical fallback. Uploaded and source-restricted cases retain local-only retrieval.
+
+Query embeddings use a bounded cache and a shared **$0.05/UTC-day** reservation ceiling, separate
+from the SAR budget. `make ingest-rag` builds the index from reviewed public vectors without a
+provider call; refreshing those vectors with `make ingest-rag-live` is a separate paid operation.
+See the [retrieval decision](docs/architecture/adr/ADR-036-semantic-regulatory-retrieval.md) and
+[relevance comparison](docs/reference/benchmarks/semantic-rag-default.md).
+
 ## Quick start
 
 Run FraudLens locally with demo data and mock SAR generation. No Azure, Vercel, Supabase, or LLM-provider account is required.
+
+`make run` and `make local-demo` explicitly use offline hashing retrieval. For semantic retrieval
+with Infisical-managed credentials, follow the [live-local setup](docs/runbooks/local-dev.md#running-live-locally).
+Retrieval (`FRAUDLENS_RAG_EMBEDDING_MODE`) and SAR drafting (`FRAUDLENS_LLM_MODE`) are configured
+independently, so semantic retrieval can also run with mock SAR drafts.
 
 **1. Install prerequisites**
 

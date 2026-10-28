@@ -32,6 +32,7 @@ Notes:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -180,7 +181,7 @@ def build_pipeline_graph(deps: PipelineDeps) -> Any:  # noqa: PLR0915 - explicit
         pipeline_input = state["pipeline_input"]
         query = build_rag_query(state["evaluation"], pipeline_input)
         try:
-            rag = deps.retriever.retrieve(query, top_k=deps.rag_top_k)
+            rag = await asyncio.to_thread(deps.retriever.retrieve, query, top_k=deps.rag_top_k)
         except Exception:
             rag = RagResult(mode="empty", rag_version=_UNKNOWN_VERSION)
         await deps.store.save_rag(

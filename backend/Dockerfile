@@ -9,8 +9,8 @@
 # <owner>/fraudlens-base:<sha>` — so per-commit builds only add the thin app layer (seconds).
 # The uv cache mount + layered copies mean only changed layers rebuild/push.
 #
-# Reliability: the FinCEN/BSA ChromaDB index is BAKED in its own cached layer using the offline
-# HashingEmbedder (no keys, no network) so prod (rag_index_required=true) is ready without a slow
+# Reliability: the FinCEN/BSA ChromaDB index is BAKED from verified public semantic vectors
+# (no keys, no network) so prod (rag_index_required=true) is ready without a slow
 # startup embed — keeping cold start within the ≤75s startup-probe budget. Model artifacts are
 # baked as the committed fixture and overridden from Blob in prod (settings.model_artifacts_dir).
 #
@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable \
     --package fraudlens-backend --package fraudlens-ml --package fraudlens-llm
 
-# RAG index bake — runs entirely offline (HashingEmbedder, no API keys, no network). Its own
+# RAG index bake — verified semantic snapshot, no API keys or network. Its own
 # stage/layer so it only re-runs when the corpus or ingest code changes (§15.7 layered caching).
 FROM builder AS rag-index
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -57,7 +57,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 COPY config /app/config
 COPY data/regulations /app/data/regulations
 COPY scripts/ingest_rag.py /app/scripts/ingest_rag.py
-RUN python scripts/ingest_rag.py
+RUN --network=none python scripts/ingest_rag.py --skip-db
 
 FROM python:3.11-slim-bookworm AS runtime
 ENV PATH="/app/.venv/bin:$PATH" \

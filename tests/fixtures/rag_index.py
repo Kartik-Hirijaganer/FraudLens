@@ -5,8 +5,8 @@ quality-gated SAR cascade fails every draft that cites nothing. Tests that apply
 therefore need a REAL index rather than a faked retriever.
 
 It delegates to `scripts/ingest_rag.py`'s own `ingest_corpus`, so a test index is byte-identical
-to what `make ingest-rag` produces and cannot drift from it. The offline hashing embedder is
-deterministic and keyless, so a build costs roughly a tenth of a second and no money.
+to what `make ingest-rag` produces and cannot drift from it. Both verified semantic snapshot
+materialization and the explicitly selected hashing mode are deterministic and keyless.
 """
 
 from __future__ import annotations

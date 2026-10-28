@@ -44,7 +44,7 @@ from fraudlens_backend.api.deps import (
     audit_writer,
     enforce_permission,
     get_tenant,
-    optional_actor,
+    require_actor,
     require_permission,
 )
 from fraudlens_backend.api.v1.investigation_stream import SSE_HEADERS as _SSE_HEADERS
@@ -63,6 +63,7 @@ from fraudlens_backend.db.repositories import (
     TransactionRepository,
 )
 from fraudlens_backend.models.agent_executions import agent_execution_to_view
+from fraudlens_backend.models.case_workflow import CaseVersionRequest
 from fraudlens_backend.models.common import TenantContext
 from fraudlens_backend.models.errors import AppError
 from fraudlens_backend.models.investigations import (
@@ -252,7 +253,8 @@ async def get_investigation(
 
 
 @router.post("/investigations/{runId}/sar/regenerate", response_model=SarDraftView)
-async def regenerate_investigation_sar(
+async def regenerate_investigation_sar(  # noqa: PLR0913, PLR0917 - explicit FastAPI command and injected dependencies.
+    payload: CaseVersionRequest,
     run_id: Annotated[uuid.UUID, Path(alias="runId")],
     request: Request,
     tenant: InvestigationWriteDep,
@@ -265,13 +267,14 @@ async def regenerate_investigation_sar(
     or its latest draft is already approved/rejected.
     """
     agency_id = uuid.UUID(tenant.agency_id)
-    actor_id = optional_actor(tenant)
+    actor_id = require_actor(tenant)
     draft = await regenerate_sar_for_run(
         session=session,
         agency_id=agency_id,
         run_id=run_id,
         settings=settings,
         created_by=actor_id,
+        expected_case_version=payload.expected_case_version,
     )
     await audit_writer(tenant, session, request).record(
         actor_id=actor_id,

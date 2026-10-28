@@ -373,9 +373,9 @@ jobs:
       # is terminal, so no later tier can rescue it. The FinCEN/BSA index is baked into the
       # CONTAINER image, not into this runner, and the story is bootstrapped HERE, so without this
       # step retrieval degrades to empty and every SAR the story pins lands `failed`. The offline
-      # hashing build is deterministic, keyless, free, and takes about a second over the committed
+      # semantic snapshot build is deterministic, keyless, free, and uses the committed public
       # corpus; `assert_rag_index` refuses the bootstrap outright if it is ever skipped.
-      - name: Build the offline RAG index the story cites from (gated, pre-promote)
+      - name: Build the semantic RAG index from verified public vectors (gated, pre-promote)
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         run: |
           set -euo pipefail

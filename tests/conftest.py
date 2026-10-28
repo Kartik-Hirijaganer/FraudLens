@@ -56,6 +56,8 @@ def _structuring_citation() -> SarCitation:
     return structuring_citation()
 
 
+pytest_plugins = ["case_workflow_fakes"]
+
 # Test templates are examples to copy, not live tests.
 collect_ignore_glob = ["**/_template_test.py"]
 
@@ -117,6 +119,7 @@ def make_settings() -> Callable[..., AppSettings]:
             "environment": "dev",
             "auth_dev_bypass": False,
             "log_level": "INFO",
+            "rag_embedding_mode": "offline",
         }
         params.update(overrides)
         return AppSettings(**params)

@@ -10,18 +10,17 @@
  * - Alerts: render the filterable alerts queue.
  *
  * Notes:
- * - The empty status filter lists all statuses; a chosen value is a verified `AlertStatus`.
+ * - Queue selection lives in the URL so dashboard links and browser Back keep their filter.
  */
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { AlertTable } from "../components/AlertTable";
 import { AsyncBoundary } from "../components/feedback/AsyncBoundary";
 import { Card } from "../components/ui/Card";
 import { PageHeader } from "../components/ui/PageHeader";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
-import { apiClient, type AlertStatus, type ApiClient } from "../lib/api";
-import { ALERT_STATUS_OPTIONS } from "../lib/options";
-import { navigate, paths } from "../lib/router";
+import { apiClient, type CaseQueue, type ApiClient } from "../lib/api";
+import { navigate, paths, useHashRoute } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { useScreeningRefresh } from "../lib/useScreeningRefresh";
 
@@ -30,12 +29,10 @@ interface AlertsProps {
 }
 
 export function Alerts({ client = apiClient }: AlertsProps) {
-  const [status, setStatus] = useState("");
-  const load = useCallback(
-    () => client.listAlerts({ status: status ? (status as AlertStatus) : undefined, limit: 100 }),
-    [client, status],
-  );
-  const state = useAsync(load, [client, status]);
+  const route = useHashRoute();
+  const queue = route.name === "alerts" ? route.queue : undefined;
+  const load = useCallback(() => client.listAlerts({ queue, limit: 100 }), [client, queue]);
+  const state = useAsync(load, [client, queue]);
   useScreeningRefresh(client, state.reload);
 
   return (
@@ -43,12 +40,21 @@ export function Alerts({ client = apiClient }: AlertsProps) {
       <PageHeader title="Alerts" description="Review and resolve flagged investigations." />
       <Card className="gap-lg flex flex-col">
         <div className="gap-xs flex flex-col">
-          <span className="text-body-sm text-body">Filter by status</span>
+          <span className="text-body-sm text-body">Case queues</span>
           <SegmentedControl
-            ariaLabel="Filter by status"
-            options={ALERT_STATUS_OPTIONS}
-            value={status}
-            onChange={setStatus}
+            ariaLabel="Case queues"
+            options={[
+              { value: "", label: "All cases" },
+              { value: "available", label: "Available" },
+              { value: "mine", label: "My cases" },
+              { value: "awaiting_review", label: "Awaiting my review" },
+              { value: "returned", label: "Returned" },
+              { value: "closed", label: "Closed" },
+            ]}
+            value={queue ?? ""}
+            onChange={(value) =>
+              navigate(value ? paths.alertsByQueue(value as CaseQueue) : paths.alerts)
+            }
           />
         </div>
         <AsyncBoundary state={state}>

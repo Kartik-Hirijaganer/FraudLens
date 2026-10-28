@@ -5,7 +5,7 @@
 > live from the public Azure Retail Prices API. Editing this file by hand detaches the
 > numbers from the configuration they describe.
 
-- **Generated on:** 2026-09-22
+- **Generated on:** 2026-10-26
 - **Currency:** USD
 - **Recurring monthly total:** **$11.53**
 - **Per ephemeral AKS session:** **$0.79** ($1.03 with the ADR-028 0.3 margin)
@@ -134,6 +134,6 @@ expose is marked *(list)* and carries its published source instead.
 | Supabase Postgres | Not an Azure meter; the project runs on the free tier (ADR-011). |
 | Vercel frontend hosting | Not an Azure meter; the SPA is served from the free Hobby tier. |
 | Infisical secret management | Not an Azure meter; secrets resolve from the free tier (ADR-010). |
-| OpenRouter LLM spend | Not an Azure meter; capped separately by llm_daily_budget_usd in config/prod.yaml (D4). |
+| OpenRouter LLM spend | Not an Azure meter; SAR spend is capped by llm_daily_budget_usd in config/prod.yaml (D4). Query embeddings have a separate shared $0.05/UTC-day reservation cap in config/llm/rag.yml (ADR-036); public corpus refresh is explicitly approved maintenance, not a recurring build. |
 | GitHub Actions minutes | Free for public repositories, including the keep-warm and watchdog crons. |
 | Azure Automation budget-triggered shutdown | Explicitly out of core scope; the hard caps already bound the bill. |

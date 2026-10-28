@@ -179,7 +179,7 @@ describe("createApiClient", () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(fakeResponse(true, 200, { sarDraftId: "s2", version: 2 })),
     );
-    await createApiClient(fetchMock).regenerateSar("r9");
+    await createApiClient(fetchMock).regenerateSar("r9", 2);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/v1/investigations/r9/sar/regenerate");
     expect(init.method).toBe("POST");
@@ -225,8 +225,12 @@ describe("createApiClient", () => {
     await client.getInvestigation("r1");
     await client.listAlerts({ status: "open" });
     await client.getAlert("a1");
-    await client.actOnAlert("a1", { action: "escalate" });
-    await client.reviewSar("a1", { decision: "approve" });
+    await client.actOnAlert("a1", { action: "assign", expectedCaseVersion: 1 });
+    await client.saveSar("a1", {
+      expectedCaseVersion: 2,
+      expectedSarVersion: 1,
+      content: "Edited",
+    });
     await client.listModelVersions();
     await client.triggerTraining();
     await client.listTrainingRuns();
@@ -239,7 +243,7 @@ describe("createApiClient", () => {
     const paths = fetchMock.mock.calls.map((call) => (call as unknown as [string])[0]);
     expect(paths).toContain("/api/v1/health");
     expect(paths).toContain("/api/v1/me");
-    expect(paths).toContain("/api/v1/alerts/a1/sar/review");
+    expect(paths).toContain("/api/v1/alerts/a1/sar");
     expect(paths).toContain("/api/v1/model-deployment/rollback");
     expect(paths).toContain("/api/v1/drift-reports");
     expect(paths).toContain("/api/v1/dashboard/metrics");

@@ -100,7 +100,10 @@ export function Login({
   const showDemoPicker = isDemoPickerEnabled(env);
   const visiblePersonas = personas;
   const selectedRole = visiblePersonas.find((r) => r.id === roleId) ?? null;
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !signingIn;
+  const canSubmit =
+    email.trim().length > 0 &&
+    (password.length > 0 || (isDemoBypassEnabled(env) && selectedRole !== null)) &&
+    !signingIn;
 
   useEffect(() => {
     if (!menuOpen) {
@@ -271,7 +274,7 @@ export function Login({
                   id="login-password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  required
+                  required={!isDemoBypassEnabled(env) || selectedRole === null}
                   placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

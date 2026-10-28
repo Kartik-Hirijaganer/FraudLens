@@ -44,3 +44,6 @@ another document.
 | ADR-031 | CSV acceptance includes durable screening work and explicit reruns | Accepted (2026-10-21) | [ADR-031-atomic-upload-screening.md](ADR-031-atomic-upload-screening.md) |
 | ADR-032 | Closed upload validation, full account keys and provider-free SAR templates | Accepted (2026-10-21) | [ADR-032-upload-validation-and-local-sar-templates.md](ADR-032-upload-validation-and-local-sar-templates.md) |
 | ADR-033 | Exact bundled synthetic CSV provenance and existing live SAR drafting | Accepted (2026-10-22) | [ADR-033-bundled-synthetic-csv-provenance.md](ADR-033-bundled-synthetic-csv-provenance.md) |
+| ADR-034 | Person-based maker–checker decisions over immutable case submissions | Accepted (2026-10-25) | [ADR-034-person-based-maker-checker.md](ADR-034-person-based-maker-checker.md) |
+| ADR-035 | Retain served risk policy pending transferable ranking evidence; expose explicit rule findings | Accepted (2026-10-26) | [ADR-035-risk-ranking-evidence-and-rule-findings.md](ADR-035-risk-ranking-evidence-and-rule-findings.md) |
+| ADR-036 | Semantic regulatory retrieval with lexical fallback and bounded embedding spend | Accepted (2026-10-26) | [ADR-036-semantic-regulatory-retrieval.md](ADR-036-semantic-regulatory-retrieval.md) |

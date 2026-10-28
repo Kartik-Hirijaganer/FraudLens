@@ -179,7 +179,7 @@ backend-ci: backend-lint backend-format-check backend-typecheck backend-coverage
 
 postgres-run-test: ## Prove durable claim/fencing behavior against PostgreSQL.
 	@test -n "$${POSTGRES_TEST_DATABASE_URL:-}" || { echo "POSTGRES_TEST_DATABASE_URL is required"; exit 1; }
-	$(UV) run pytest tests/integration/test_run_leases_postgres.py tests/integration/test_schema_drift_postgres.py tests/integration/test_upload_postgres.py -q -o addopts='' -m postgres
+	$(UV) run pytest tests/integration/test_run_leases_postgres.py tests/integration/test_schema_drift_postgres.py tests/integration/test_upload_postgres.py tests/integration/test_case_workflow_postgres.py tests/integration/test_rag_query_budget_postgres.py -q -o addopts='' -m postgres
 
 # ---------------------------------------------------------------------------
 # Frontend (TypeScript) sub-targets
@@ -414,10 +414,10 @@ import-ieee: ## Import the committed synthetic IEEE-CIS sample (AGENCY_ID=<uuid>
 	$(UV) run python scripts/import_ieee.py --agency-id $(AGENCY_ID)
 ingest-aml-demo: ## Ingest a bounded real IBM AML case pack into the configured demo tenant.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/ingest_aml_demo.py --rows $(AML_DEMO_ROWS)
-ingest-rag: ## Build the offline FinCEN/BSA hashing RAG index.
+ingest-rag: ## Build the configured RAG index from verified public vectors (keyless).
 	$(UV) run python scripts/ingest_rag.py
-ingest-rag-live: ## Build the live OpenRouter text-embedding-3-small RAG index.
-	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py
+ingest-rag-live: ## Refresh public semantic embeddings and build the index (paid; explicit approval).
+	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py --refresh-embeddings --skip-db
 fetch-data: ## Fetch IBM AML-Data HI-Small via Infisical-injected Kaggle credentials.
 	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml
 fetch-gfp-data: ## Fetch the three GFP-study variants one file at a time (Infisical Kaggle; skips present files).
@@ -1008,10 +1008,21 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
+.PHONY: risk-study-prepare risk-study-run risk-study-test
+risk-study-prepare: ## Recreate ignored synthetic policy-study inputs using the frozen replay source.
+	$(UV) run --group fulldata python scripts/evaluate_risk_policy.py --prepare
+
+risk-study-run: ## Compare frozen served/research models, budgets, cutoffs, days and exchanged cases.
+	$(UV) run --group fulldata python scripts/evaluate_risk_policy.py
+
+risk-study-test: ## Provider-free ranking-study contracts with >=90% branch coverage.
+	$(UV) run --group fulldata pytest tests/unit/test_risk_study_*.py tests/unit/test_risk_policy_contract.py -q -o addopts='' \
+		--cov=lib.risk_study --cov=evaluate_risk_policy --cov-branch --cov-report=term-missing --cov-fail-under=90
+
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test risk-study-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: deploy-identity-check fmt docs ci ## Identity gate, format, regenerate docs, then the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

@@ -1,0 +1,21 @@
+# Authored public test questions; no investigation or uploaded data.
+- query: Someone deliberately split one large lodgement into many smaller ones so the bank would not have to notify authorities.
+  expected: structuring-to-evade-reporting
+- query: Several people use different branches to place pieces of the same cash sum beneath the declaration limit.
+  expected: structuring-to-evade-reporting
+- query: Which sender and recipient details must accompany a remittance as it passes between banks?
+  expected: funds-transfer-recordkeeping
+- query: What paperwork follows an international payment through intermediary institutions?
+  expected: funds-transfer-recordkeeping
+- query: A foreign correspondent operates in a country singled out for weak laundering controls. What additional checks apply?
+  expected: high-risk-jurisdictions-due-diligence
+- query: A bank's overseas partner is based in a secrecy haven and its ownership is unclear.
+  expected: high-risk-jurisdictions-due-diligence
+- query: Must the bank report cash receipts totaling eleven thousand dollars from one person during the same day?
+  expected: currency-transaction-report
+- query: How long does a bank keep a copy of its large-cash transaction filing?
+  expected: currency-transaction-report
+- query: How should a bank describe suspicious activity and protect the confidentiality of the filing?
+  expected: suspicious-activity-report
+- query: What should an institution file when it suspects funds are proceeds of criminal conduct?
+  expected: suspicious-activity-report

@@ -113,13 +113,22 @@ class AlertActionType(StrEnum):
     ESCALATE = "escalate"
     RESOLVE = "resolve"
     DISMISS = "dismiss"
+    SUBMIT = "submit"
+    APPROVE = "approve"
+    RETURN = "return"
+    DECLINE = "decline"
+    EDIT = "edit"
+    REGENERATE = "regenerate"
 
 
 class SarStatus(StrEnum):
     """Lifecycle status of a SAR draft (plan §9.1 `sar_drafts`)."""
 
     DRAFT = "draft"
-    REVIEWED = "reviewed"
+    REVIEWED = "reviewed"  # Historical reader only.
+    SUBMITTED = "submitted"
+    RETURNED = "returned"
+    WITHDRAWN = "withdrawn"
     APPROVED = "approved"
     REJECTED = "rejected"
     FAILED = "failed"

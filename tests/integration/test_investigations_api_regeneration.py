@@ -11,7 +11,7 @@ from investigation_fakes import (
     _seed_completed_run,
     _seed_run_for_regen,
 )
-from portfolio_demo_identity import DEMO_AGENCY_ID
+from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -20,10 +20,44 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from fraudlens_backend.db.models import (
+    Alert,
+    AnalysisRun,
     SarDraft,
     SarStatus,
+    Severity,
 )
+from fraudlens_backend.db.repositories import AlertRepository, AuditLogRepository
+from fraudlens_backend.services.alert_workflow import AlertWorkflowService
 from fraudlens_backend.settings import AppSettings
+from seed import seed
+
+
+async def _prepare(sm, run_id):
+
+    async with sm() as session:
+        await seed(session, AppSettings(llm_mode="mock", rag_embedding_mode="offline"))
+        run = await session.get(AnalysisRun, run_id)
+        alert = await AlertRepository(session, DEMO_AGENCY_ID).get_for_run(run_id)
+        if alert is None:
+            alert = Alert(
+                agency_id=DEMO_AGENCY_ID,
+                run_id=run_id,
+                transaction_id=run.transaction_id,
+                severity=Severity.HIGH,
+            )
+            session.add(alert)
+            await session.flush()
+        await AlertWorkflowService(
+            session,
+            agency_id=DEMO_AGENCY_ID,
+            audit=AuditLogRepository(session, agency_id=DEMO_AGENCY_ID, request_id="regen-test"),
+        ).act(
+            alert_id=alert.id,
+            actor_id=DEMO_BYPASS_USER_ID,
+            action="assign",
+            expected_case_version=1,
+        )
+        await session.commit()
 
 
 async def test_regenerate_creates_next_sar_version(
@@ -32,9 +66,12 @@ async def test_regenerate_creates_next_sar_version(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     run_id = await _seed_run_for_regen(db_sessionmaker, agency_id=DEMO_AGENCY_ID)
+    await _prepare(db_sessionmaker, run_id)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
+        resp = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
     assert resp.status_code == 200
     body = resp.json()
     assert body["runId"] == str(run_id)
@@ -60,9 +97,12 @@ async def test_regenerate_tolerates_partial_stored_evidence(
     # `_seed_completed_run` stores a rule hit + citation missing required fields; regeneration must
     # skip the un-revalidatable rows and still produce a draft rather than failing the request.
     run_id = await _seed_completed_run(db_sessionmaker, agency_id=DEMO_AGENCY_ID)
+    await _prepare(db_sessionmaker, run_id)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
+        resp = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
     assert resp.status_code == 200
     assert resp.json()["version"] == 2
 
@@ -75,9 +115,12 @@ async def test_regenerate_rejects_a_decided_draft(
     run_id = await _seed_run_for_regen(
         db_sessionmaker, agency_id=DEMO_AGENCY_ID, sar_status=SarStatus.APPROVED
     )
+    await _prepare(db_sessionmaker, run_id)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
+        resp = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
     assert resp.status_code == 409
     assert resp.json()["code"] == "invalid_sar_transition"
 
@@ -88,11 +131,14 @@ async def test_regenerate_without_a_result_returns_409(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     run_id = await _seed_completed_run(db_sessionmaker, agency_id=DEMO_AGENCY_ID, with_result=False)
+    await _prepare(db_sessionmaker, run_id)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "sar_not_regenerable"
+        resp = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "workflow_action_blocked"
 
 
 async def test_regenerate_cross_tenant_returns_404(
@@ -103,6 +149,8 @@ async def test_regenerate_cross_tenant_returns_404(
     other_run = await _seed_run_for_regen(db_sessionmaker, agency_id=_OTHER_AGENCY_ID)
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
-        resp = await client.post(f"/api/v1/investigations/{other_run}/sar/regenerate")
+        resp = await client.post(
+            f"/api/v1/investigations/{other_run}/sar/regenerate", json={"expectedCaseVersion": 1}
+        )
     assert resp.status_code == 404
-    assert resp.json()["code"] == "investigation_not_found"
+    assert resp.json()["code"] == "alert_not_found"

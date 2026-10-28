@@ -178,9 +178,26 @@ async def _alert_and_sar_rows(
                 actual=str(found),
             )
         )
+    latest = (
+        select(SarDraft.run_id, func.max(SarDraft.version).label("version"))
+        .where(SarDraft.agency_id == agency_id)
+        .group_by(SarDraft.run_id)
+        .subquery()
+    )
     for sar_status in SarStatus:
-        found = await _count(
-            session, SarDraft, SarDraft.agency_id == agency_id, SarDraft.status == sar_status
+        found = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SarDraft)
+                    .join(
+                        latest,
+                        (SarDraft.run_id == latest.c.run_id)
+                        & (SarDraft.version == latest.c.version),
+                    )
+                    .where(SarDraft.agency_id == agency_id, SarDraft.status == sar_status)
+                )
+            ).scalar_one()
         )
         rows.append(
             VerificationRow(
@@ -336,7 +353,17 @@ async def _history_rows(
             expected=_PRESENT,
             actual=_PRESENT if audited else _MISSING,
         ),
-        VerificationRow(check="trainingLabels.total", expected="0", actual=str(labels)),
+        VerificationRow(
+            check="trainingLabels.total",
+            expected=str(
+                sum(
+                    1
+                    for item in config.scenarios
+                    if item.alert_target in {AlertStatus.RESOLVED, AlertStatus.DISMISSED}
+                )
+            ),
+            actual=str(labels),
+        ),
     ]
 
 
@@ -350,14 +377,16 @@ def count_configured_actions(config: PortfolioDemoConfig) -> int:
         rejection note — the SAR review path persists no free text of its own, and `comment` never
         changes status so it cannot move a pinned `alert_states` count.
     """
-    transitions = sum(
-        1
-        for scenario in config.scenarios
-        if scenario.alert_target is not None
-        and scenario.alert_target not in PIPELINE_RAISED_STATUSES
+    return sum(
+        0
+        if item.alert_target is None or item.alert_target in PIPELINE_RAISED_STATUSES
+        else 3
+        if item.returned or item.alert_target is AlertStatus.RESOLVED
+        else 2
+        if item.alert_target is AlertStatus.ESCALATED
+        else 1
+        for item in config.scenarios
     )
-    decisions = sum(1 for scenario in config.scenarios if scenario.sar_target in DECIDED_SAR_STATES)
-    return transitions + decisions
 
 
 async def verify_story(session: AsyncSession, config: PortfolioDemoConfig) -> VerificationReport:

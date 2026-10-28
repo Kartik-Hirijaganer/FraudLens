@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
+from case_workflow_fakes import account, headers, seed_case
 from portfolio_demo_identity import DEMO_AGENCY_ID, DEMO_BYPASS_USER_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 from storage_fakes import (
-    _REVIEWER_ID,
     _client,
     _demo_app,
     _seed_alert,
@@ -27,7 +26,6 @@ from fraudlens_backend.db.models import (
     AlertAction,
     AlertStatus,
     AnalysisResult,
-    AuditLog,
     SarDraft,
     SarStatus,
     Severity,
@@ -181,7 +179,7 @@ async def test_generate_sar_pdf_missing_draft_returns_false(
 async def test_generate_sar_pdf_is_idempotent_when_already_generated(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    ids = await _seed_alert(db_sessionmaker)
+    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
     async with db_sessionmaker() as session:
         draft = await session.get(SarDraft, ids["sar_id"])
         assert draft is not None
@@ -202,7 +200,7 @@ async def test_generate_sar_pdf_is_idempotent_when_already_generated(
 async def test_generate_sar_pdf_retries_then_gives_up(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    ids = await _seed_alert(db_sessionmaker)
+    ids = await _seed_alert(db_sessionmaker, sar_status=SarStatus.APPROVED)
     storage = _RecordingStorage(fail=True)  # every store attempt raises
     ok = await generate_sar_pdf(
         sessionmaker=db_sessionmaker,
@@ -226,7 +224,8 @@ async def test_action_on_missing_alert_returns_404(
     app = _demo_app(make_settings, db_engine, db_sessionmaker)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/alerts/{uuid.uuid4()}/actions", json={"action": "comment", "note": "x"}
+            f"/api/v1/alerts/{uuid.uuid4()}/actions",
+            json={"action": "comment", "expectedCaseVersion": 1, "note": "x"},
         )
     assert resp.status_code == 404
     assert resp.json()["code"] == "alert_not_found"
@@ -244,7 +243,7 @@ async def test_sar_review_on_missing_alert_returns_404(
             json={"decision": "reject", "reason": "n/a"},
         )
     assert resp.status_code == 404
-    assert resp.json()["code"] == "alert_not_found"
+    assert resp.json()["code"] == "not_found"
 
 
 async def test_alert_detail_includes_action_history(
@@ -257,7 +256,7 @@ async def test_alert_detail_includes_action_history(
     async with _client(app) as client:
         await client.post(
             f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "comment", "note": "looking into this"},
+            json={"action": "comment", "expectedCaseVersion": 1, "note": "looking into this"},
         )
         detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
     actions = detail.json()["actions"]
@@ -266,71 +265,78 @@ async def test_alert_detail_includes_action_history(
     assert actions[0]["actorId"] == str(DEMO_BYPASS_USER_ID)
 
 
-async def test_triage_high_risk_alert_end_to_end(
-    make_settings: Callable[..., AppSettings],
-    file_db: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
-    tmp_path: Path,
-) -> None:
+async def test_triage_high_risk_alert_end_to_end(make_settings, file_db, tmp_path):
+
     engine, sm = file_db
-    ids = await _seed_alert(sm, status=AlertStatus.OPEN, sar_status=SarStatus.DRAFT)
+    ids = await seed_case(sm)
     storage_dir = tmp_path / "e2e-artifacts"
     app = _demo_app(make_settings, engine, sm, storage_local_dir=str(storage_dir))
     async with _client(app) as client:
-        # 1. the high-risk alert sits in the open queue
-        listed = await client.get("/api/v1/alerts", params={"status": "open"})
+        listed = await client.get(
+            "/api/v1/alerts", params={"queue": "available"}, headers=headers("analyst")
+        )
         assert [a["alertId"] for a in listed.json()["alerts"]] == [str(ids["alert_id"])]
-        # 2. opening the detail surfaces the draft SAR
-        detail = await client.get(f"/api/v1/alerts/{ids['alert_id']}")
-        assert detail.json()["sarDraft"]["status"] == "draft"
-        # 3. assign to the reviewer → in_review
         assigned = await client.post(
             f"/api/v1/alerts/{ids['alert_id']}/actions",
-            json={"action": "assign", "assigneeId": str(_REVIEWER_ID)},
+            json={"action": "assign", "expectedCaseVersion": 1},
+            headers=headers("analyst"),
         )
-        assert assigned.json()["status"] == "in_review"
-        # 4. reviewer approves the SAR → approved + deferred PDF
-        approved = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/sar/review", json={"decision": "approve"}
-        )
-        assert approved.json()["status"] == "approved"
-        # 5. resolve as confirmed fraud → resolved + a training label
-        resolved = await client.post(
-            f"/api/v1/alerts/{ids['alert_id']}/actions",
+        assert assigned.status_code == 200
+        submitted = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/submissions",
             json={
-                "action": "resolve",
-                "label": "confirmed_fraud",
-                "note": "Confirmed structuring.",
+                "expectedCaseVersion": 2,
+                "recommendation": "sar",
+                "rationale": "Evidence reviewed.",
+                "sarVersion": 1,
             },
+            headers={**headers("analyst"), "Idempotency-Key": "e2e-submit"},
         )
-        assert resolved.json()["status"] == "resolved"
-    # Terminal: alert resolved+assigned, SAR approved with a PDF, label written, fully audited.
+        assert submitted.status_code == 200
+        sid = submitted.json()["submissionId"]
+        approved = await client.post(
+            f"/api/v1/alerts/{ids['alert_id']}/submissions/{sid}/decision",
+            json={
+                "expectedCaseVersion": 3,
+                "decision": "approve",
+                "reason": "Confirmed suspicious activity.",
+                "outcome": "confirmed_fraud",
+            },
+            headers={**headers("reviewer"), "Idempotency-Key": "e2e-approve"},
+        )
+        assert approved.status_code == 200
+        downloaded = await client.get(
+            f"/api/v1/alerts/{ids['alert_id']}/submissions/{sid}/pdf", headers=headers("auditor")
+        )
+        assert downloaded.status_code == 200 and downloaded.content.startswith(b"%PDF-1.4")
     async with sm() as session:
         alert = await session.get(Alert, ids["alert_id"])
-        assert alert is not None
         assert alert.status is AlertStatus.RESOLVED
-        assert alert.assigned_to == _REVIEWER_ID
+        assert alert.assigned_to == account("analyst")
         draft = await session.get(SarDraft, ids["sar_id"])
-        assert draft is not None
-        assert draft.status is SarStatus.APPROVED
-        assert draft.pdf_blob_url is not None
+        assert draft.status is SarStatus.APPROVED and draft.pdf_blob_url is not None
         label = (
             await session.execute(
-                select(TrainingLabel).where(TrainingLabel.run_id == ids["run_id"])
+                select(TrainingLabel).where(
+                    TrainingLabel.agency_id == DEMO_AGENCY_ID, TrainingLabel.run_id == ids["run_id"]
+                )
             )
         ).scalar_one()
-        assert label.label.value == "confirmed_fraud"
-        assert label.created_by == DEMO_BYPASS_USER_ID
-        alert_actions = (
+        assert label.label.value == "confirmed_fraud" and label.created_by == account("reviewer")
+        actions = (
             (
                 await session.execute(
-                    select(AlertAction).where(AlertAction.alert_id == ids["alert_id"])
+                    select(AlertAction).where(
+                        AlertAction.agency_id == DEMO_AGENCY_ID,
+                        AlertAction.alert_id == ids["alert_id"],
+                    )
                 )
             )
             .scalars()
             .all()
         )
-        assert {a.action.value for a in alert_actions} == {"assign", "resolve"}
-        audits = {a.action for a in (await session.execute(select(AuditLog))).scalars().all()}
-        assert audits == {"alert.assign", "sar.approve", "alert.resolve"}
-    pdf_path = storage_dir / "sar" / str(DEMO_AGENCY_ID) / f"{ids['sar_id']}.pdf"
-    assert pdf_path.read_bytes().startswith(b"%PDF-1.4")
+        assert {a.action.value for a in actions} == {"assign", "submit", "approve"}
+        assert all(a.actor_person_id is not None for a in actions)
+    assert (
+        storage_dir / "sar" / str(DEMO_AGENCY_ID) / f"{ids['sar_id']}.pdf"
+    ).read_bytes() == downloaded.content

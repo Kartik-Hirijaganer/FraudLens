@@ -1224,7 +1224,7 @@ wheels = [
 
 [[package]]
 name = "fraudlens"
-version = "0.6.0"
+version = "0.7.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1277,7 +1277,7 @@ gfp = [{ name = "snapml", marker = "platform_machine == 'x86_64'", specifier = "
 
 [[package]]
 name = "fraudlens-backend"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
@@ -1318,7 +1318,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-core"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "packages/fraudlens-core" }
 dependencies = [
     { name = "pydantic" },
@@ -1333,7 +1333,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-llm"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "packages/fraudlens-llm" }
 dependencies = [
     { name = "anthropic" },
@@ -1356,7 +1356,7 @@ requires-dist = [
 
 [[package]]
 name = "fraudlens-ml"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "packages/fraudlens-ml" }
 dependencies = [
     { name = "chromadb" },

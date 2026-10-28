@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 import ingest_rag
 from fraudlens_backend.db.models import JobExecution, JobType
+from fraudlens_backend.rag import LlmClientEmbedder
+from fraudlens_backend.rag.snapshot import CorpusSnapshot, snapshot_path
 from fraudlens_backend.settings import AppSettings
 from fraudlens_ml.rag import index_status
 
@@ -70,3 +72,38 @@ async def test_amain_records_job_when_db_configured(
     monkeypatch.setattr(ingest_rag, "create_engine_from_settings", lambda _s: db_engine)
     assert await ingest_rag._amain(900, 150) == 0
     assert "job recorded" in capsys.readouterr().out
+
+
+def test_refresh_flag_uses_public_vectors_and_skips_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    config = ingest_rag.load_rag_embedding_config()
+    snapshot = CorpusSnapshot.model_validate_json(snapshot_path(config).read_text())
+    calls: list[list[str]] = []
+    monkeypatch.setattr(ingest_rag, "get_settings", lambda: settings)
+
+    def refresh(texts: list[str], _config: object, embedder: LlmClientEmbedder) -> CorpusSnapshot:
+        assert embedder.provenance == snapshot.provenance
+        calls.append(texts)
+        return snapshot
+
+    def reject_database(_settings: object) -> None:
+        raise AssertionError("explicit skip-db attempted database construction")
+
+    monkeypatch.setattr(ingest_rag, "refresh_snapshot", refresh)
+    monkeypatch.setattr(ingest_rag, "create_engine_from_settings", reject_database)
+    assert ingest_rag.main(["--refresh-embeddings", "--skip-db"]) == 0
+    assert len(calls) == 1 and len(calls[0]) == len(snapshot.vectors)
+
+
+async def test_snapshot_refresh_rejects_offline_mode_before_any_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ingest_rag, "get_settings", lambda: _settings(tmp_path, rag_embedding_mode="offline")
+    )
+    with pytest.raises(ValueError, match="requires live"):
+        await ingest_rag._amain(900, 150, refresh_embeddings=True, skip_db=True)

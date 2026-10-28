@@ -313,18 +313,18 @@ def build_index(
     chunks: Sequence[Chunk], *, embedder: Embedder, persist_dir: Path, collection: str
 ) -> int:
     """(Re)build the ChromaDB collection from chunks + an embedder; return the chunk count."""
+    provenance = embedder.provenance
+    texts = [chunk.text for chunk in chunks]
+    rows = embedder.embed_documents(texts) if texts else []
+    if len(rows) != len(texts) or any(len(row) != provenance.dimensions for row in rows):
+        raise ValueError("embedder returned vectors inconsistent with its declared provenance")
     client = connect(persist_dir)
     if collection in {existing.name for existing in client.list_collections()}:
         client.delete_collection(collection)  # idempotent rebuild: no stale chunks survive
-    provenance = embedder.provenance
     metadata = {**_COSINE_METADATA, **provenance.collection_metadata()}
     store = client.get_or_create_collection(collection, metadata=metadata)
     if not chunks:
         return 0
-    texts = [chunk.text for chunk in chunks]
-    rows = embedder.embed_documents(texts)
-    if len(rows) != len(texts) or any(len(row) != provenance.dimensions for row in rows):
-        raise ValueError("embedder returned vectors inconsistent with its declared provenance")
     # cast: ChromaDB's Embeddings alias uses an invariant union dtype our float32 rows satisfy.
     embeddings = cast(Embeddings, [np.asarray(row, dtype=np.float32) for row in rows])
     store.add(

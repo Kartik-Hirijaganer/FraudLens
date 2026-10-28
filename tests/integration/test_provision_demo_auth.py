@@ -9,12 +9,12 @@ from portfolio_demo_identity import (
     DEMO_AGENCY_NAME,
     DEMO_AGENCY_SLUG,
     DEMO_PERSONAS,
-    demo_history_email,
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fraudlens_backend.db.models import Agency, AuditLog, User
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
 from fraudlens_backend.services.supabase_admin import SupabaseAuthAppMetadata
 from provision_demo_auth import provision_demo_auth
 
@@ -93,7 +93,7 @@ async def test_provision_demo_auth_covers_the_demo_tenant_and_is_idempotent(
 
     # The pre-seeded actors survive as history-only rows (audit FKs intact).
     for persona in DEMO_PERSONAS:
-        historical = users_by_email[demo_history_email(persona.role)]
+        historical = users_by_email[load_portfolio_demo_config().history_email(persona)]
         assert historical.id == persona.seed_user_id
         assert historical.agency_id == DEMO_AGENCY_ID
 

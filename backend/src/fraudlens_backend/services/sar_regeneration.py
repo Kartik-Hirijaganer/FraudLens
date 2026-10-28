@@ -40,9 +40,11 @@ from fraudlens_backend.db.models import (
     SarDraft,
     Transaction,
 )
-from fraudlens_backend.db.models.enums import SarStatus
+from fraudlens_backend.db.models.enums import AlertActionType, SarStatus
 from fraudlens_backend.db.repositories import (
+    AlertRepository,
     AnalysisRunRepository,
+    AuditLogRepository,
     SarDraftRepository,
     TransactionRepository,
 )
@@ -56,6 +58,8 @@ from fraudlens_backend.sar.egress import (
     project_for_model,
     source_allows_model,
 )
+from fraudlens_backend.services.case_context import CaseContext
+from fraudlens_backend.services.case_policy import enforce_action
 from fraudlens_backend.settings import AppSettings
 from fraudlens_backend.telemetry import log_llm_call
 from fraudlens_core.rules.base import RuleHit, TransactionDirection
@@ -248,6 +252,7 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
     settings: AppSettings,
     drafter: SarDrafter | None = None,
     created_by: uuid.UUID | None = None,
+    expected_case_version: int,
 ) -> SarDraft:
     """Re-draft the SAR for a completed run and persist it as the next version (agency-scoped).
 
@@ -257,6 +262,21 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
     regenerable). The returned draft is flushed but NOT committed — the caller commits after writing
     its audit row.
     """
+
+    alert = await AlertRepository(session, agency_id).get_for_run(run_id)
+    if alert is None:
+        raise AppError("alert_not_found")
+    if created_by is None:
+        raise AppError("acting_user_required")
+    ctx = await CaseContext(
+        session,
+        agency_id,
+        AuditLogRepository(session, agency_id=agency_id, request_id="sar-regeneration"),
+        settings.review_low_confidence_margin,
+    ).load(alert.id, created_by)
+    ctx.expect_version(expected_case_version)
+    enforce_action(ctx.policy(), "regenerate")
+    ctx.begin()
     run_repo = AnalysisRunRepository(session, agency_id)
     run = await run_repo.get(run_id)
     if run is None:
@@ -296,6 +316,10 @@ async def regenerate_sar_for_run(  # noqa: PLR0913 - explicit DI collaborators +
         alert_id=latest.alert_id if latest is not None else None,
         created_by=created_by,
     )
+    ctx.draft = draft
+    ctx.flags = ctx.current_flags()
+    await ctx.contribute()
+    await ctx.action(AlertActionType.REGENERATE)
     log_llm_call(
         model=draft_result.model_id,
         prompt_version=draft_result.prompt_version,

@@ -19,6 +19,14 @@ from fraudlens_backend.db.models.analysis import (
     AnalysisRunEvent,
     RagRetrieval,
 )
+from fraudlens_backend.db.models.case_workflow import (
+    AccountPerson,
+    CaseContributor,
+    CaseDecision,
+    CaseSubmission,
+    Person,
+    WorkflowReceipt,
+)
 from fraudlens_backend.db.models.core import Agency, AmlRule, Transaction, User
 from fraudlens_backend.db.models.enums import (
     AgentExecutionStatus,
@@ -112,4 +120,14 @@ __all__ = [
     "TransactionSource",
     "User",
     "UserRole",
+]
+
+
+__all__ += [
+    "AccountPerson",
+    "CaseContributor",
+    "CaseDecision",
+    "CaseSubmission",
+    "Person",
+    "WorkflowReceipt",
 ]

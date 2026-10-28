@@ -4,10 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/toast", () => ({ notify: vi.fn(), notifyError: vi.fn() }));
 
-import type { SarDraftView } from "../lib/api";
 import { signIn, signOut, type UserRole } from "../lib/session";
-import { notify } from "../lib/toast";
-import { demoPersona, makeClient, sarDraft, snapshot } from "../test/factories";
+import { alertDetail, demoPersona, makeClient, sarDraft, snapshot } from "../test/factories";
 import { emitNoAlertRun, runToCompletion, streamHarness } from "../test/streamHarness";
 import { Investigation } from "./Investigation";
 
@@ -29,20 +27,15 @@ afterEach(() => {
 describe("Investigation wizard", () => {
   it("streams the auto-run and walks the wizard from risk to submit", async () => {
     const harness = streamHarness();
-    let resolveReview: (draft: SarDraftView) => void = () => undefined;
-    const reviewSar = vi.fn(
-      () =>
-        new Promise<SarDraftView>((resolve) => {
-          resolveReview = resolve;
-        }),
-    );
-    render(
-      <Investigation
-        runId="run-1"
-        client={makeClient({ reviewSar })}
-        createStream={harness.factory}
-      />,
-    );
+    const client = makeClient({
+      getAlert: () =>
+        Promise.resolve(
+          alertDetail({
+            sarDraft: sarDraft({ content: "On 22 June 2026, account holder initiated a wire." }),
+          }),
+        ),
+    });
+    render(<Investigation runId="run-1" client={client} createStream={harness.factory} />);
     expect(screen.getByText("Build the case")).toBeInTheDocument();
     expect(screen.getByText("Machine progress")).toBeInTheDocument();
     expect(screen.getByText("Single-writer")).toBeInTheDocument();
@@ -97,36 +90,19 @@ describe("Investigation wizard", () => {
     await userEvent.click(screen.getByRole("button", { name: /continue to sar draft/i }));
     expect(screen.getByText(/On 22 June 2026/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /continue to approval/i }));
-    expect(screen.getByText("Ready for internal approval")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /continue to case/i }));
+    expect(screen.getByText("Continue in the case workspace")).toBeInTheDocument();
     expect(screen.getByText("Step 5 of 5")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Approve SAR" }));
-    expect(reviewSar).toHaveBeenCalledWith("alert-1", { decision: "approve" });
-    expect(screen.getByRole("button", { name: /Approving/i })).toBeDisabled();
-    expect(notify).not.toHaveBeenCalled();
-    expect(window.location.hash).not.toBe("#/alerts");
-
-    await act(async () => {
-      resolveReview(sarDraft({ status: "approved" }));
-      await Promise.resolve();
-    });
-    expect(notify).toHaveBeenCalledWith(
-      expect.objectContaining({ tone: "positive", title: "SAR approved" }),
-    );
-    expect(window.location.hash).toBe("#/alerts");
+    await userEvent.click(screen.getByRole("button", { name: "Open case" }));
+    expect(client.decideSubmission).not.toHaveBeenCalled();
+    expect(client.regenerateSar).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/alerts/alert-1");
   });
 
   it("shows a compact no-alert outcome without RAG, SAR, or approval controls", async () => {
     const harness = streamHarness();
-    const reviewSar = vi.fn(() => Promise.resolve(sarDraft({ status: "approved" })));
-    render(
-      <Investigation
-        runId="run-1"
-        client={makeClient({ reviewSar })}
-        createStream={harness.factory}
-      />,
-    );
+    render(<Investigation runId="run-1" client={makeClient()} createStream={harness.factory} />);
     emitNoAlertRun(harness);
     expect(screen.getByText("INV-1")).toBeInTheDocument();
     expect(screen.getByText("Review the analysis")).toBeInTheDocument();
@@ -141,7 +117,6 @@ describe("Investigation wizard", () => {
     expect(screen.queryByText("Citations")).not.toBeInTheDocument();
     expect(screen.queryByText(/regulatory citation/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve SAR" })).not.toBeInTheDocument();
-    expect(reviewSar).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Back to transactions" }));
     expect(window.location.hash).toBe("#/transactions");
   });

@@ -1,6 +1,6 @@
-"""Summary: Shared offline/live RAG embedder factory. Both pipeline retrieval and the ingest
-script call this module, preventing indexes from being built and queried with independently chosen
-embedding spaces. Live configuration is validated from `config/llm/rag.yml`; secrets remain in
+"""Summary: Shared RAG embedding-space configuration and bounded live query factory. Semantic
+index ingestion reads this same configuration when materializing reviewed public vectors.
+Configuration is validated from `config/llm/rag.yml`; secrets remain in
 Infisical and are resolved lazily by `LlmClient` through the OpenRouter provider.
 
 Key classes:
@@ -11,17 +11,20 @@ Key functions:
 - build_embedder: select deterministic hashing or the live LLM-client adapter from settings.
 
 Notes:
-- Offline mode does not load provider config or require credentials.
+- Explicit offline mode does not load provider config or require credentials.
+- Live query cache misses require durable shared budget admission before the provider call.
 - The model id and dimensions live in YAML, never source.
 """
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from fraudlens_backend.rag.budget import QueryEmbeddingBudget
 from fraudlens_backend.rag.embedder import LlmClientEmbedder
 from fraudlens_backend.settings import AppSettings, find_config_dir
 from fraudlens_llm import DataClass, LlmClient
@@ -40,6 +43,21 @@ class RagEmbeddingConfig(BaseModel):
     )
     data_class: DataClass = Field(
         ..., description="Provider-governance class for PHI-free regulatory embedding inputs."
+    )
+    snapshot_file: str = Field(
+        default="data/regulations/embeddings.json",
+        description="Public learned document vectors for keyless semantic-index builds.",
+    )
+    query_cache_size: int = Field(
+        default=256, ge=0, description="Maximum content-hashed query vectors cached per process."
+    )
+    max_query_chars: int = Field(
+        default=2000, gt=0, description="Maximum query characters sent to the embedding provider."
+    )
+    query_daily_budget_usd: Decimal = Field(
+        default=Decimal("0.05"),
+        gt=0,
+        description="Shared durable UTC-day query-embedding reservation ceiling in USD.",
     )
 
 
@@ -66,4 +84,7 @@ def build_embedder(
         dimensions=resolved.dimensions,
         rag_version=resolved.rag_version,
         data_class=resolved.data_class,
+        query_cache_size=resolved.query_cache_size,
+        max_query_chars=resolved.max_query_chars,
+        query_budget=QueryEmbeddingBudget(settings.database_url, resolved.query_daily_budget_usd),
     )
