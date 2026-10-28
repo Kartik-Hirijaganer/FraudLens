@@ -130,6 +130,9 @@ export interface RunMetrics {
 export interface SarMetrics {
   draft: number;
   reviewed: number;
+  submitted: number;
+  returned: number;
+  withdrawn: number;
   approved: number;
   rejected: number;
   failed: number;

@@ -21,6 +21,7 @@ Notes:
   current time so "today" tracks the daily LLM budget window (plan §7.6) deterministically in tests.
 - Status counts are returned as `{enumValue: count}` dicts; the API layer fills any absent status
   with zero so the contract is a complete, named field set (no missing keys).
+- SAR status counts use the latest version per investigation; spend includes every version.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from fraudlens_backend.db.models import (
 )
 from fraudlens_backend.db.repositories.model_lifecycle import ModelLifecycleRepository
 from fraudlens_backend.db.repositories.model_registry import ModelRegistryRepository
+from fraudlens_backend.db.repositories.sar import latest_sar_versions
 
 _UNSCORED_RISK_BAND = "unscored"
 
@@ -95,7 +97,7 @@ class DashboardRepository:
             transaction_total=transaction_total,
             transaction_risk_bands=risk_bands,
             run_counts=await self._status_counts(AnalysisRun.agency_id, AnalysisRun.status),
-            sar_counts=await self._status_counts(SarDraft.agency_id, SarDraft.status),
+            sar_counts=await self._sar_status_counts(),
             sar_cost_today=cost_today,
             sar_cost_total=cost_total,
             sar_draft_count=draft_count,
@@ -119,6 +121,20 @@ class DashboardRepository:
             .group_by(status_column)
         )
         return {row[0].value: int(row[1]) for row in await self._session.execute(stmt)}
+
+    async def _sar_status_counts(self) -> dict[str, int]:
+        """Count current SAR states per run; retain historical versions only in spend totals."""
+        latest = latest_sar_versions(self._agency_id)
+        stmt = (
+            select(SarDraft.status, func.count())
+            .join(
+                latest,
+                (SarDraft.run_id == latest.c.run_id) & (SarDraft.version == latest.c.version),
+            )
+            .where(SarDraft.agency_id == self._agency_id)
+            .group_by(SarDraft.status)
+        )
+        return {status.value: int(count) for status, count in await self._session.execute(stmt)}
 
     async def _transaction_metrics(self) -> tuple[int, dict[str, int]]:
         """Return (total transactions, count per risk band) for the tenant (None → `unscored`)."""

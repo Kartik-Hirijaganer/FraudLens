@@ -262,7 +262,17 @@ describe("createApiClient", () => {
       },
       transactions: { total: 50, byRiskBand: { unscored: 44, high: 6 } },
       runs: { pending: 0, running: 1, completed: 12, failed: 1, total: 14 },
-      sar: { draft: 4, reviewed: 1, approved: 3, rejected: 1, failed: 0, total: 9 },
+      sar: {
+        draft: 4,
+        reviewed: 1,
+        submitted: 0,
+        returned: 0,
+        withdrawn: 0,
+        approved: 3,
+        rejected: 1,
+        failed: 0,
+        total: 9,
+      },
       llmCost: { todayUsd: "0.12", totalUsd: "1.45", draftCount: 9 },
       modelHealth: {
         activeVersionLabel: "model-v1",

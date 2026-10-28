@@ -13,22 +13,22 @@ Key classes:
 - SarDraftRepository: agency-scoped persistence + lookup for `sar_drafts` and its attempts.
 
 Key functions:
-- (none)
+- latest_sar_versions:
 
 Notes:
 - **The gate is enforced HERE, not by convention** (release 0.5.0 Phase 2.9): `create_from_result`
-  refuses to persist a `draft` whose `quality` is missing or failing, so no reviewable SAR can
-  exist without a passing deterministic verdict regardless of which drafter produced it. A failed
-  result still persists — with its verdict — because a rejected attempt is auditable evidence.
+refuses to persist a `draft` whose `quality` is missing or failing, so no reviewable SAR can
+exist without a passing deterministic verdict regardless of which drafter produced it. A failed
+result still persists — with its verdict — because a rejected attempt is auditable evidence.
 - Each cascade stage behind a draft is written to the tenant-scoped `sar_generation_attempts`
-  table, so route, spend, latency, and reason codes are reconstructable without any PHI.
+table, so route, spend, latency, and reason codes are reconstructable without any PHI.
 - `structured` / `citations` / `token_usage` are dumped `mode="json"` + `by_alias`, so the persisted
-  JSON is camelCase and JSON-native (tuples→arrays) — matching the API surface with no remapping.
+JSON is camelCase and JSON-native (tuples→arrays) — matching the API surface with no remapping.
 - `get_for_run` returns the latest version for a run; `list_for_alert` returns an alert's drafts
-  newest-first — both agency-scoped so cross-tenant rows are never returned (defense-in-depth).
+newest-first — both agency-scoped so cross-tenant rows are never returned (defense-in-depth).
 - The Phase 9 review methods (`create_edited_version`, `set_pdf_url`) record
-  the working revision lifecycle. Edits preserve prior versions and provenance. The case workflow
-  owns decisions; the deferred PDF URI lands via `set_pdf_url`.
+the working revision lifecycle. Edits preserve prior versions and provenance. The case workflow
+owns decisions; the deferred PDF URI lands via `set_pdf_url`.
 """
 
 from __future__ import annotations
@@ -38,11 +38,22 @@ from collections.abc import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Subquery
 
 from fraudlens_backend.db.models import Alert, SarDraft, SarGenerationAttempt
 from fraudlens_backend.db.models.enums import SarQualityStatus, SarStatus
 from fraudlens_backend.db.repositories.base import TenantScopedRepository
 from fraudlens_ml.sar import SarDraftResult, SarDraftStatus
+
+
+def latest_sar_versions(agency_id: uuid.UUID) -> Subquery:
+    """Select the highest SAR version per run inside one tenant for aggregate readers."""
+    return (
+        select(SarDraft.run_id, func.max(SarDraft.version).label("version"))
+        .where(SarDraft.agency_id == agency_id)
+        .group_by(SarDraft.run_id)
+        .subquery()
+    )
 
 
 class SarQualityGateNotSatisfiedError(RuntimeError):

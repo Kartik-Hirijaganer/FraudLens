@@ -25,10 +25,8 @@ Notes:
   like every other read and can never see another tenant's rows.
 - No transaction payload, account, credential, or review note appears in a row: labels are
   scenario ids and enum values, values are counts and enum values.
-- The training-label expectation is zero: the bootstrap resolves its configured alert without a
-  training label, because an outcome label is a human fraud judgement the story does not declare
-  (the same reason no band is ever written directly). A visitor resolving an alert therefore shows
-  up as a delta here — which is the point; `--reset` restores the baseline.
+- Training-label expectations follow the configured terminal human outcomes. Visitor actions
+  change the baseline and appear as deltas here; `--reset` restores the configured story.
 """
 
 from __future__ import annotations
@@ -55,6 +53,7 @@ from fraudlens_backend.db.models import (
     Transaction,
 )
 from fraudlens_backend.db.repositories import ModelRegistryRepository
+from fraudlens_backend.db.repositories.sar import latest_sar_versions
 from fraudlens_backend.portfolio_demo.config import PortfolioDemoConfig, PortfolioDemoScenario
 from fraudlens_core import RiskBand
 
@@ -178,12 +177,7 @@ async def _alert_and_sar_rows(
                 actual=str(found),
             )
         )
-    latest = (
-        select(SarDraft.run_id, func.max(SarDraft.version).label("version"))
-        .where(SarDraft.agency_id == agency_id)
-        .group_by(SarDraft.run_id)
-        .subquery()
-    )
+    latest = latest_sar_versions(agency_id)
     for sar_status in SarStatus:
         found = int(
             (

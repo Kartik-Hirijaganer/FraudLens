@@ -357,12 +357,17 @@ jobs:
       # resolved llm_mode / rag_embedding_mode must equal the story's `execution:` block (the
       # default overlay this step runs under already does).
       #
-      # Persona provisioning runs FIRST and under the same gate: the story records audited
-      # actions under the configured personas, and the smoke job signs in as two of them, so the
+      # Foundation reconciliation links the configured seed actors before persona provisioning
+      # links the real login accounts to the same people. Both are needed when upgrading a
+      # pre-maker/checker database. The story records audited actions under fixed seed accounts,
+      # and the smoke job signs in as real accounts, so the
       # Supabase Auth identities and their tenant-scoped `public.users` rows must exist before
       # either. The script is idempotent (it reconciles rather than duplicates) and refuses to
       # run when the resolved application environment is `prod`, which is why it runs on the
       # runner's default overlay against the production database rather than inside the image.
+      - name: Reconcile foundation and trusted seed-person links (gated, pre-promote)
+        if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
+        run: make db-seed
       - name: Provision the synthetic demo personas (gated, pre-promote)
         if: ${{ vars.PORTFOLIO_DEMO_BOOTSTRAP_ENABLED == 'true' }}
         run: |

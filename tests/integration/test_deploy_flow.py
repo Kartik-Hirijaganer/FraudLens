@@ -120,6 +120,22 @@ def test_promote_requires_green_smoke() -> None:
     assert "=100" in promote_script
 
 
+def test_demo_identity_foundation_is_reconciled_before_auth_and_bootstrap() -> None:
+    """An upgraded database must link fixed seed actors as well as real login accounts."""
+    steps = _deploy_backend()["jobs"]["migrate"]["steps"]
+    seed_index = next(i for i, step in enumerate(steps) if step.get("run") == "make db-seed")
+    auth_index = next(
+        i for i, step in enumerate(steps) if "scripts/provision_demo_auth.py" in step.get("run", "")
+    )
+    reset_index = next(
+        i
+        for i, step in enumerate(steps)
+        if "bootstrap_portfolio_demo.py --reset" in step.get("run", "")
+    )
+    assert seed_index < auth_index < reset_index
+    assert steps[seed_index]["if"] == steps[auth_index]["if"] == steps[reset_index]["if"]
+
+
 def test_failed_smoke_or_migration_auto_aborts_keeping_previous_revision() -> None:
     """On smoke/migration failure the staged revision deactivates; the prior revision stays live."""
     jobs = _deploy_backend()["jobs"]

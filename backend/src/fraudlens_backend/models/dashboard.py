@@ -10,7 +10,7 @@ Key classes:
 - AlertMetrics: open/pending-review/in-review/escalated/resolved/dismissed alert counts + total.
 - TransactionMetrics: total transactions + a count per risk band (unscored bucketed).
 - RunMetrics: investigation-run counts by status (pending/running/completed/failed) + total.
-- SarMetrics: SAR-draft counts by status (draft/reviewed/approved/rejected/failed) + total.
+- SarMetrics: latest SAR counts per investigation across every workflow status + total.
 - LlmCostMetrics: SAR LLM spend (today + all-time USD) + the drafted-SAR count, for cost dashboards.
 - ModelHealthMetrics: active/canary version labels + percent, tenant inference count, latest drift.
 - DashboardMetricsResponse: the full tenant-scoped dashboard aggregate.
@@ -65,14 +65,17 @@ class RunMetrics(CamelModel):
 
 
 class SarMetrics(CamelModel):
-    """Tenant SAR-draft counts by review status (plan §9.1 `sar_drafts`)."""
+    """Latest tenant SAR per investigation, grouped by its current workflow status."""
 
-    draft: int = Field(..., ge=0, description="Machine drafts awaiting review.")
-    reviewed: int = Field(..., ge=0, description="Human-edited drafts.")
+    draft: int = Field(..., ge=0, description="Current working SAR drafts.")
+    reviewed: int = Field(..., ge=0, description="Historical reviewed-state current SARs.")
+    submitted: int = Field(..., ge=0, description="Frozen SARs awaiting independent review.")
+    returned: int = Field(..., ge=0, description="Latest SARs returned for maker changes.")
+    withdrawn: int = Field(..., ge=0, description="Latest SARs withdrawn from active preparation.")
     approved: int = Field(..., ge=0, description="Approved SARs.")
     rejected: int = Field(..., ge=0, description="Rejected SARs.")
     failed: int = Field(..., ge=0, description="Runs whose SAR could not be drafted (plan §7.5).")
-    total: int = Field(..., ge=0, description="All SAR drafts for the tenant.")
+    total: int = Field(..., ge=0, description="Investigations with a current SAR artifact.")
 
 
 class LlmCostMetrics(CamelModel):
