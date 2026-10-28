@@ -1,0 +1,101 @@
+"""Summary: Independent parity and small behavioral checks for the offline blend study.
+
+Key classes:
+- (none)
+
+Key functions:
+- main: verify rule replay, normalization, exact alert counts, and sampled live features.
+
+Notes:
+- Reads local synthetic artifacts only; changes no serving configuration.
+"""
+from pathlib import Path
+import importlib.util
+import json
+import sys
+from decimal import Decimal
+import numpy as np
+
+spec = importlib.util.spec_from_file_location('blend_study', Path(__file__).with_name('run.py'))
+study = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = study
+spec.loader.exec_module(study)
+
+
+def behaviors():
+    rng = np.random.default_rng(1729)
+    seen = set()
+    for index in range(1000):
+        replay = study.RuleReplay()
+        epoch = 1800000000
+        amounts = [Decimal('9500'), Decimal('10000'), Decimal('1000'), Decimal('9012.34')]
+        for offset in sorted(rng.integers(1, 168*3600+1, size=int(rng.integers(0, 120))), reverse=True):
+            replay.append(epoch-int(offset), amounts[int(rng.integers(0, len(amounts)))],
+                          bool(rng.integers(0, 2)), 'US', 'wire')
+        replay.trim(epoch)
+        amount = amounts[index % len(amounts)]
+        country = 'IR' if index % 3 == 0 else 'US'
+        context = study.RuleContext(
+            transaction=replay.transaction(epoch, amount, False, country, 'wire'),
+            history=tuple(replay.transaction(*event) for event in replay.events))
+        reference = replay.registry.evaluate(study.DEFAULT_RULE_DEFINITIONS, context)
+        observed = replay.score(100003, epoch, amount, country, 'wire')
+        assert observed == float(reference.subscore)
+        seen.update(h.code for h in reference.hits)
+    assert seen == {d.code for d in study.DEFAULT_RULE_DEFINITIONS}
+    labels = np.array([1, 0, 1, 0, 0])
+    scores = np.array([1., .8, .8, .8, .1])
+    ties = np.array([.1, .9, .2, .8, .3])
+    result = study.metrics('test', .7, labels, scores, ties, .4)
+    assert result.alerts == 2 and result.true_positives == 2
+    assert result.boundary_ties == 3 and result.selected_boundary_ties == 1
+    assert np.isclose(result.tie_expected_recall, (1+1/3)/2)
+    assert np.isclose(result.precision, 1)
+    print('PASS: 1,000 randomized canonical-rule comparisons; all six rules exercised; exact-budget ties')
+
+
+def features(candidate):
+    import duckdb
+    from lib.fulldata.parity import _reference_frame
+    from lib.aml_fraud import IBM_AML, build_feature_matrix
+    config = study.load_fulldata_config()
+    dataset = config.dataset(candidate)
+    work = study.BASE / candidate
+    local_config = config.model_copy(update={'paths': config.paths.model_copy(update={
+        'work_dir': str(work.relative_to(study.ROOT) / 'input')})})
+    scan = study.ingested_scan(local_config, dataset, study.ROOT)
+    with study.connection(work) as c:
+        targets = c.execute('SELECT * FROM read_parquet(?) ORDER BY hash(row_id, 1729) LIMIT 100',
+                            [str(work/'features.parquet')]).fetch_df()
+        accounts = set(targets['origin_account']) | set(targets['dest_account'])
+        values = ','.join(study.sqltext(a) for a in accounts)
+        c.execute(f'''CREATE TABLE sampled_history AS SELECT * FROM read_parquet(
+            {study.sqltext(scan)}, hive_partitioning=false)
+            WHERE origin_account IN ({values}) OR dest_account IN ({values})''')
+        maximum = 0.
+        for target in targets.itertuples(index=False):
+            history = c.execute('''SELECT * FROM sampled_history WHERE occurred_at >= ? - INTERVAL 24 HOURS
+                AND occurred_at <= ? AND (origin_account IN (?,?) OR dest_account IN (?,?))
+                ORDER BY occurred_at, row_id''', [target.occurred_at, target.occurred_at,
+                    target.origin_account, target.dest_account, target.origin_account, target.dest_account]).fetch_df()
+            positions = np.flatnonzero(history['row_id'].to_numpy() == target.row_id)
+            expected, _ = build_feature_matrix(_reference_frame(history), IBM_AML,
+                                               history_max=config.features.history_max)
+            observed = np.asarray([getattr(target, key) for key in study.FEATURE_NAMES])
+            error = float(np.max(np.abs(expected[positions[0]] - observed)))
+            maximum = max(maximum, error)
+        assert maximum <= 1e-9, maximum
+        raw_amount_errors = c.execute('''SELECT count(*) FROM sampled_history
+            WHERE round(cast(amount AS DOUBLE), 2)::DECIMAL(38,2) <> amount''').fetchone()[0]
+        assert raw_amount_errors == 0
+    result = {'candidate': candidate, 'sampled_feature_rows': len(targets),
+              'maximum_feature_error': maximum, 'feature_tolerance': 1e-9,
+              'sampled_amount_roundtrip_errors': raw_amount_errors}
+    (work/'independent-parity.json').write_text(json.dumps(result, indent=2)+'\n')
+    print(json.dumps(result))
+
+
+if __name__ == '__main__':
+    behaviors()
+    if len(sys.argv) > 1:
+        features(sys.argv[1])

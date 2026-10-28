@@ -14,6 +14,8 @@
  *   credentials are never accepted by this API contract.
  */
 import { FraudGauge } from "../components/FraudGauge";
+import { RuleFindings } from "../components/RuleFindings";
+import { ScoreExplanation } from "../components/ScoreExplanation";
 import { ShapBarChart } from "../components/ShapBarChart";
 import { Disclosure } from "../components/ui/Disclosure";
 import type { InvestigationSnapshot, SarModelInputView } from "../lib/api";
@@ -26,15 +28,19 @@ export function AlertRiskEvidence({ investigation }: AlertRiskEvidenceProps) {
   const value = investigation.riskScore ?? investigation.fraudProbability;
   const label = investigation.riskScore !== null ? "risk score" : "fraud probability";
   return (
-    <div className="gap-xl flex flex-col lg:flex-row lg:items-start">
-      {value === null ? (
-        <p className="text-body-sm text-body">No persisted risk score is available.</p>
-      ) : (
-        <FraudGauge value={value} band={investigation.riskBand ?? ""} label={label} />
-      )}
-      <div className="gap-md flex min-w-0 grow flex-col">
-        <h3 className="text-body-md text-ink font-semibold">Top model drivers</h3>
-        <ShapBarChart features={investigation.topFeatures} />
+    <div className="gap-xl flex flex-col">
+      <ScoreExplanation probability={investigation.fraudProbability} />
+      <div className="gap-xl flex flex-col lg:flex-row lg:items-start">
+        {value === null ? (
+          <p className="text-body-sm text-body">No persisted risk score is available.</p>
+        ) : (
+          <FraudGauge value={value} band={investigation.riskBand ?? ""} label={label} />
+        )}
+        <div className="gap-md flex min-w-0 grow flex-col">
+          <h3 className="text-body-md text-ink font-semibold">Top model drivers</h3>
+          <ShapBarChart features={investigation.topFeatures} />
+          <RuleFindings hits={investigation.ruleHits} />
+        </div>
       </div>
     </div>
   );

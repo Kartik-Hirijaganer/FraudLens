@@ -12,13 +12,12 @@
  */
 import { FraudGauge } from "../components/FraudGauge";
 import { RagPanel } from "../components/RagPanel";
+import { RuleFindings } from "../components/RuleFindings";
+import { ScoreExplanation } from "../components/ScoreExplanation";
 import { SarStream } from "../components/SarStream";
 import { ShapBarChart } from "../components/ShapBarChart";
 import { ColdStartProgress } from "../components/feedback/ColdStartProgress";
 import { EmptyState } from "../components/feedback/EmptyState";
-import { Badge } from "../components/ui/Badge";
-import { humanize } from "../lib/format";
-import { riskTone } from "../lib/risk";
 import type { ApiClient, SarDraftView } from "../lib/api";
 import { InvestigationSar } from "./InvestigationSar";
 import type { InvestigationState } from "../lib/investigation";
@@ -82,26 +81,12 @@ export function InvestigationStepBody({
         );
       }
       return (
-        <div className="gap-xl flex flex-col items-center lg:flex-row lg:items-start">
-          <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} label={gaugeLabel} />
-          {state.ruleHits.length > 0 ? (
-            <ul className="gap-sm flex w-full grow flex-col">
-              {state.ruleHits.map((hit) => (
-                <li
-                  key={hit.code}
-                  className="gap-md bg-canvas-soft p-lg flex items-start justify-between rounded-lg"
-                >
-                  <div className="gap-xxs flex flex-col">
-                    <span className="text-body-md text-ink font-semibold">
-                      {humanize(hit.ruleType)}
-                    </span>
-                    <span className="text-body-sm text-body">{hit.reason}</span>
-                  </div>
-                  <Badge tone={riskTone(hit.severity)}>{humanize(hit.severity)}</Badge>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+        <div className="gap-xl flex flex-col">
+          <ScoreExplanation probability={state.fraudProbability} />
+          <div className="gap-xl flex flex-col items-center lg:flex-row lg:items-start">
+            <FraudGauge value={gaugeValue} band={state.riskBand ?? ""} label={gaugeLabel} />
+            <RuleFindings hits={state.ruleHits} />
+          </div>
         </div>
       );
     case "drivers":

@@ -1008,10 +1008,21 @@ tf-validate: ## Terraform fmt + validate (no backend) per discovered environment
 # ---------------------------------------------------------------------------
 # Umbrella targets
 # ---------------------------------------------------------------------------
+.PHONY: risk-study-prepare risk-study-run risk-study-test
+risk-study-prepare: ## Recreate ignored synthetic policy-study inputs using the frozen replay source.
+	$(UV) run --group fulldata python scripts/evaluate_risk_policy.py --prepare
+
+risk-study-run: ## Compare frozen served/research models, budgets, cutoffs, days and exchanged cases.
+	$(UV) run --group fulldata python scripts/evaluate_risk_policy.py
+
+risk-study-test: ## Provider-free ranking-study contracts with >=90% branch coverage.
+	$(UV) run --group fulldata pytest tests/unit/test_risk_study_*.py tests/unit/test_risk_policy_contract.py -q -o addopts='' \
+		--cov=lib.risk_study --cov=evaluate_risk_policy --cov-branch --cov-report=term-missing --cov-fail-under=90
+
 pr-title-check: ## Validate PR_TITLE, an existing PR title, or an interactively entered title.
 	bash scripts/check_pr_title.sh
 
-ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
+ci: lint format-check typecheck coverage header-check file-length-check docs-links-check experiment-budget-check attribution-check hooks-check llm-catalog-check secrets-scan no-hardcoding-check demo-literals-check tenancy-check dup-check docs-check scripts-test quality-gates fulldata-test risk-study-test vllm-bench-test vllm-bench-validate runpod-gpu-test k8s-validate k8s-demo-test ## Read-only umbrella gate (mirrors CI).
 pre-pr: deploy-identity-check fmt docs ci ## Identity gate, format, regenerate docs, then the shared CI umbrella (writes).
 
 pr-check: ## Complete local PR preflight; mirrors all applicable GitHub PR checks (writes).

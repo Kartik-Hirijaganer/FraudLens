@@ -1,0 +1,125 @@
+{
+  "historical_metadata_pr_auc": 0.25038590546194206,
+  "historical_metric_discrepancy": "The original served-model metric does not exactly reproduce; this is current-code replay, as disclosed in the earlier review.",
+  "input_binding": {
+    "cache_sha256": "e25f05b055609cf310f835bb771da786a96a0587fe9a89f32adb5be33039a078",
+    "feature_sha256": "c98a6ce15659f91f62f188ce6fc0eea1e7e4f3bd19ec07c03c81e5ff47e8093c",
+    "metadata_sha256": "ee30d88e7417cfa73857369384d3004b4df2ba5888aeaa83f5a2541f175034e1",
+    "model_sha256": "a4e6360a808c7312f0242e22b58587d25a6a4a748f2b8650d3253dd1ddb44b38",
+    "source_sha256": "b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040"
+  },
+  "model_label": "xgb-ibm-aml-fs2-9d43c5f92a",
+  "policies": {
+    "70%/30%": {
+      "at_threshold": {
+        "alerts": 56144,
+        "boundary_ties": 0,
+        "cutoff": 0.6,
+        "expected_recall": 0.6765615337043909,
+        "false_positives": 55050,
+        "positives": 1617,
+        "precision": 0.019485608435451697,
+        "recall": 0.6765615337043909,
+        "rows": 1010875,
+        "selected_ties": 0,
+        "true_positives": 1094
+      },
+      "average_precision": 0.05963717031575516,
+      "scalar_parity_rows": 2000
+    },
+    "80%/20%": {
+      "at_threshold": {
+        "alerts": 55562,
+        "boundary_ties": 0,
+        "cutoff": 0.6,
+        "expected_recall": 0.6740878169449598,
+        "false_positives": 54472,
+        "positives": 1617,
+        "precision": 0.019617724343976097,
+        "recall": 0.6740878169449598,
+        "rows": 1010875,
+        "selected_ties": 0,
+        "true_positives": 1090
+      },
+      "average_precision": 0.06895380095755607,
+      "scalar_parity_rows": 2000
+    },
+    "90%/10%": {
+      "at_threshold": {
+        "alerts": 55063,
+        "boundary_ties": 0,
+        "cutoff": 0.6,
+        "expected_recall": 0.6703772418058133,
+        "false_positives": 53979,
+        "positives": 1617,
+        "precision": 0.019686540871365527,
+        "recall": 0.6703772418058133,
+        "rows": 1010875,
+        "selected_ties": 0,
+        "true_positives": 1084
+      },
+      "average_precision": 0.19385454221568882,
+      "scalar_parity_rows": 2000
+    },
+    "model-only": {
+      "at_threshold": {
+        "alerts": 54572,
+        "boundary_ties": 0,
+        "cutoff": 0.6,
+        "expected_recall": 0.66852195423624,
+        "false_positives": 53491,
+        "positives": 1617,
+        "precision": 0.019808693102690025,
+        "recall": 0.66852195423624,
+        "rows": 1010875,
+        "selected_ties": 0,
+        "true_positives": 1081
+      },
+      "average_precision": 0.25576193123365515,
+      "scalar_parity_rows": 2000
+    }
+  },
+  "positives": 1617,
+  "protocol": {
+    "alert_cap": null,
+    "created_at": "2026-10-26T23:23:11.067964+00:00",
+    "cutoff": 0.6,
+    "metric": "sklearn average_precision_score; stepwise PR-AUC",
+    "model_weights": [
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "normalization": "Actual weight-dependent RiskPolicy.model_risk",
+    "selection": "No serving policy selection or change",
+    "status": "exploratory replay of previously inspected HI-Small evaluation"
+  },
+  "raw_probability_average_precision": 0.25576193123365515,
+  "reference_report_sha256": "30ca8d6c56959e26034b87b5dba87da9f68750bc558eb268445da7a69495aa96",
+  "rows": 1010875,
+  "run": {
+    "candidate": "hi-small",
+    "metadata_sha256": "ee30d88e7417cfa73857369384d3004b4df2ba5888aeaa83f5a2541f175034e1",
+    "model_dir": "data/models/xgb-ibm-aml-fs2-9d43c5f92a",
+    "name": "hi-small-served",
+    "reference_recall": 0.647495361781076,
+    "served": true,
+    "split": "account_whole",
+    "training_end_epoch": null,
+    "work_dir": ".local/ranking-review/hi-small-full"
+  },
+  "source_sha256": {
+    "packages/fraudlens-core/src/fraudlens_core/risk.py": "16524cffe995e033c0f3afa2eb4de7266fc2e906613e1cb0847f6ff33dc68ef8",
+    "scripts/lib/risk_study/inputs.py": "90967768e5912e84cb5fd9760231e2fac35d9331c3bdbde3a3addadd63672c8b",
+    "scripts/lib/risk_study/metrics.py": "4ba9afd5db829b54fd8a95e5a0120202eef37e953fad2619bcdadd5ded9216f8"
+  },
+  "verification": {
+    "existing_fixed_cutoff_counts_reproduced": true,
+    "no_source_or_serving_configuration_changed": true,
+    "prediction_cache_reused": true,
+    "probability_calibration_unchanged": true,
+    "raw_and_normalized_model_only_AP_equal": true,
+    "scalar_parity_checked": true
+  }
+}

@@ -1,0 +1,491 @@
+{
+  "date": "2026-10-26",
+  "candidate": "hi-medium",
+  "source": "ibm-aml-hi-medium",
+  "model_bundle": "xgb-ibm-aml-hi-medium-5835992a6919",
+  "model_sha256": "cd3f50cf010ad9995d09bba51454ae0b1bcdc800531decd8c6207fdc3a561468",
+  "config_sha256": "5835992a6919461386c35da050fece4e8cb0d0e62ad4f879b720d71ef992804d",
+  "reference_sha256": "214f1fefdbbf71e1c5566328db1ddfe7d40737f8e322f509e7be81b429b70960",
+  "script_sha256": "980c197fd313d3a084266ef33b779a8ec684ba393d59260c05d9596a0314147a",
+  "budget_fraction": 0.05,
+  "weights": [
+    0.5,
+    0.6,
+    0.7,
+    0.8
+  ],
+  "seed": 1729,
+  "rule_definitions": [
+    {
+      "code": "structuring",
+      "name": "Structuring (sub-threshold clustering)",
+      "rule_type": "structuring",
+      "params": {
+        "threshold": 10000,
+        "marginPct": 0.1,
+        "windowHours": 168,
+        "minCount": 3
+      },
+      "severity": "high",
+      "weight": "2.0",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "code": "velocity",
+      "name": "Velocity (transaction frequency)",
+      "rule_type": "velocity",
+      "params": {
+        "windowHours": 24,
+        "maxCount": 5
+      },
+      "severity": "medium",
+      "weight": "1.0",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "code": "high_risk_geography",
+      "name": "High-risk geography",
+      "rule_type": "high_risk_geography",
+      "params": {
+        "countries": [
+          "IR",
+          "KP",
+          "SY",
+          "CU",
+          "RU"
+        ]
+      },
+      "severity": "high",
+      "weight": "1.5",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "code": "round_amount",
+      "name": "Round-amount transaction",
+      "rule_type": "round_amount",
+      "params": {
+        "multipleOf": 1000
+      },
+      "severity": "low",
+      "weight": "0.5",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "code": "threshold_evasion",
+      "name": "Reporting-threshold evasion",
+      "rule_type": "threshold_evasion",
+      "params": {
+        "threshold": 10000,
+        "marginPct": 0.1
+      },
+      "severity": "high",
+      "weight": "2.0",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "code": "rapid_movement",
+      "name": "Rapid movement of funds",
+      "rule_type": "rapid_movement",
+      "params": {
+        "windowHours": 48,
+        "minRatio": 0.8
+      },
+      "severity": "medium",
+      "weight": "1.5",
+      "enabled": true,
+      "version": 1
+    }
+  ],
+  "provenance": {
+    "rules_parity_rows": 134,
+    "rules_hit_counts": {
+      "structuring": 724887,
+      "velocity": 6426974,
+      "high_risk_geography": 291778,
+      "round_amount": 70,
+      "threshold_evasion": 101560,
+      "rapid_movement": 3929643
+    },
+    "rule_replay_rows": 9537980,
+    "feature_sha256": "1772a09cae3931f401d17f77d1bb278830b4c0ffd7a5df858839867e90eedef7",
+    "source_sha256": "3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5",
+    "boundary_epochs": [
+      1662756300,
+      1662992760,
+      1663134540
+    ]
+  },
+  "results": {
+    "calibration": {
+      "policies": [
+        {
+          "name": "50/50",
+          "weight": 0.5,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 1539,
+          "false_positives": 157435,
+          "recall": 0.4390870185449358,
+          "precision": 0.0096808283115478,
+          "cutoff": 0.5,
+          "boundary_ties": 88089,
+          "selected_boundary_ties": 7180,
+          "tie_expected_recall": 0.4403038950896326
+        },
+        {
+          "name": "60/40",
+          "weight": 0.6,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2159,
+          "false_positives": 156815,
+          "recall": 0.6159771754636234,
+          "precision": 0.0135808371180193,
+          "cutoff": 0.6,
+          "boundary_ties": 88089,
+          "selected_boundary_ties": 54345,
+          "tie_expected_recall": 0.6179411307028365
+        },
+        {
+          "name": "70/30",
+          "weight": 0.7,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2563,
+          "false_positives": 156411,
+          "recall": 0.7312410841654778,
+          "precision": 0.016122133179010404,
+          "cutoff": 0.6112610353907998,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7312410841654778
+        },
+        {
+          "name": "80/20",
+          "weight": 0.8,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2585,
+          "false_positives": 156389,
+          "recall": 0.7375178316690443,
+          "precision": 0.016260520588272296,
+          "cutoff": 0.6103370177378571,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7375178316690443
+        }
+      ],
+      "controls": [
+        {
+          "name": "raw_model_only",
+          "weight": null,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2609,
+          "false_positives": 156365,
+          "recall": 0.7443651925820257,
+          "precision": 0.016411488671103452,
+          "cutoff": 0.0034440148156136274,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7443651925820257
+        },
+        {
+          "name": "rules_only",
+          "weight": null,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 142,
+          "false_positives": 158832,
+          "recall": 0.04051355206847361,
+          "precision": 0.0008932278234176658,
+          "cutoff": 0.4118,
+          "boundary_ties": 13135,
+          "selected_boundary_ties": 9467,
+          "tie_expected_recall": 0.039549895277126
+        }
+      ],
+      "fixed_70_normalization": [
+        {
+          "name": "50/50",
+          "weight": 0.5,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2423,
+          "false_positives": 156551,
+          "recall": 0.6912981455064194,
+          "precision": 0.015241486029162001,
+          "cutoff": 0.4607722324740735,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.6912981455064194
+        },
+        {
+          "name": "60/40",
+          "weight": 0.6,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2509,
+          "false_positives": 156465,
+          "recall": 0.7158345221112696,
+          "precision": 0.015782454992640305,
+          "cutoff": 0.5339265994740687,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7158345221112696
+        },
+        {
+          "name": "70/30",
+          "weight": 0.7,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2563,
+          "false_positives": 156411,
+          "recall": 0.7312410841654778,
+          "precision": 0.016122133179010404,
+          "cutoff": 0.6112610353907998,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7312410841654778
+        },
+        {
+          "name": "80/20",
+          "weight": 0.8,
+          "rows": 3179474,
+          "positives": 3505,
+          "alerts": 158974,
+          "true_positives": 2585,
+          "false_positives": 156389,
+          "recall": 0.7375178316690443,
+          "precision": 0.016260520588272296,
+          "cutoff": 0.6918074067454311,
+          "boundary_ties": 3,
+          "selected_boundary_ties": 3,
+          "tie_expected_recall": 0.7375178316690443
+        }
+      ]
+    },
+    "holdout": {
+      "policies": [
+        {
+          "name": "50/50",
+          "weight": 0.5,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 4360,
+          "false_positives": 313566,
+          "recall": 0.41008276899924756,
+          "precision": 0.013713883104873462,
+          "cutoff": 0.5029644654895756,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.41008276899924756
+        },
+        {
+          "name": "60/40",
+          "weight": 0.6,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 7034,
+          "false_positives": 310892,
+          "recall": 0.6615876598946576,
+          "precision": 0.022124645357724754,
+          "cutoff": 0.6,
+          "boundary_ties": 151976,
+          "selected_boundary_ties": 101899,
+          "tie_expected_recall": 0.658235699630091
+        },
+        {
+          "name": "70/30",
+          "weight": 0.7,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8227,
+          "false_positives": 309699,
+          "recall": 0.7737960872836719,
+          "precision": 0.02587709089536559,
+          "cutoff": 0.6045787550235732,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7737960872836719
+        },
+        {
+          "name": "80/20",
+          "weight": 0.8,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8268,
+          "false_positives": 309658,
+          "recall": 0.7776523702031602,
+          "precision": 0.026006051722727932,
+          "cutoff": 0.6011357773701036,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7776523702031602
+        }
+      ],
+      "controls": [
+        {
+          "name": "raw_model_only",
+          "weight": null,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8282,
+          "false_positives": 309644,
+          "recall": 0.7789691497366441,
+          "precision": 0.02605008712719312,
+          "cutoff": 0.0032409655395895243,
+          "boundary_ties": 2,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7789691497366441
+        },
+        {
+          "name": "rules_only",
+          "weight": null,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 375,
+          "false_positives": 317551,
+          "recall": 0.03527088036117382,
+          "precision": 0.0011795197624604467,
+          "cutoff": 0.4118,
+          "boundary_ties": 23146,
+          "selected_boundary_ties": 8303,
+          "tie_expected_recall": 0.034727351817887525
+        }
+      ],
+      "fixed_70_normalization": [
+        {
+          "name": "50/50",
+          "weight": 0.5,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 7755,
+          "false_positives": 310171,
+          "recall": 0.7294018058690744,
+          "precision": 0.02439246868768204,
+          "cutoff": 0.45439264384692096,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7294018058690744
+        },
+        {
+          "name": "60/40",
+          "weight": 0.6,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8094,
+          "false_positives": 309832,
+          "recall": 0.7612866817155757,
+          "precision": 0.025458754552946283,
+          "cutoff": 0.5265282624552838,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7612866817155757
+        },
+        {
+          "name": "70/30",
+          "weight": 0.7,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8227,
+          "false_positives": 309699,
+          "recall": 0.7737960872836719,
+          "precision": 0.02587709089536559,
+          "cutoff": 0.6045787550235732,
+          "boundary_ties": 1,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.7737960872836719
+        },
+        {
+          "name": "80/20",
+          "weight": 0.8,
+          "rows": 6358506,
+          "positives": 10632,
+          "alerts": 317926,
+          "true_positives": 8273,
+          "false_positives": 309653,
+          "recall": 0.778122648607976,
+          "precision": 0.02602177865289407,
+          "cutoff": 0.6850361598840194,
+          "boundary_ties": 2,
+          "selected_boundary_ties": 1,
+          "tie_expected_recall": 0.778122648607976
+        }
+      ]
+    },
+    "baseline_reproduced_recall": 0.7789691497366441,
+    "selected_weight": 0.8
+  },
+  "seconds": 313.2367842090316,
+  "versions": {
+    "numpy": "2.4.6",
+    "duckdb": "1.5.5"
+  },
+  "verification": {
+    "candidate": "hi-medium",
+    "sampled_feature_rows": 100,
+    "maximum_feature_error": 9.237055564881302e-12,
+    "feature_tolerance": 1e-09,
+    "sampled_amount_roundtrip_errors": 0
+  },
+  "protocol": {
+    "date": "2026-10-26",
+    "primary_candidate": "hi-medium",
+    "reason": "Pre-registered application candidate in config/fulldata.yaml; frozen chronological study bundle.",
+    "weights": [
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ],
+    "alert_budget_fraction": 0.05,
+    "ranking": "Top ceil(0.05*N), score descending; seeded independent uniform keys resolve ties without labels.",
+    "selection": "Highest calibration expected recall under uniform boundary ties; higher model share on exact equality.",
+    "evaluation": "Report all four held-out results; frozen calibration winner remains the selected policy.",
+    "normalization": "Primary: each candidate uses current RiskPolicy.model_risk; sensitivity: freeze normalization to default 70/30 map.",
+    "controls": [
+      "raw calibrated model only",
+      "six default rules only"
+    ],
+    "history": "Most recent 100 strictly earlier same-account events in 168h; ML features additionally filter to 24h; same-timestamp events excluded.",
+    "verification": [
+      "Input and model hashes",
+      "Original fold rows and positives",
+      "Sampled RuleRegistry parity",
+      "Sampled live feature parity",
+      "Original published raw-model recall reproduction"
+    ],
+    "limitations": [
+      "Public synthetic IBM data",
+      "Retrospective historical holdout replay",
+      "No live-demo policy change",
+      "Default rules without database overrides",
+      "Single primary source; no claim of universal optimum"
+    ]
+  },
+  "checks_sha256": "63745ac1b0323391d4371d956acc704527526c5a99ae8b5cc140f24d4063b7d7"
+}
