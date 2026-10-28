@@ -119,6 +119,7 @@ def make_settings() -> Callable[..., AppSettings]:
             "environment": "dev",
             "auth_dev_bypass": False,
             "log_level": "INFO",
+            "rag_embedding_mode": "offline",
         }
         params.update(overrides)
         return AppSettings(**params)

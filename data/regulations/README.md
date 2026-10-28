@@ -2,8 +2,16 @@
 
 This directory is the **committed, diff-friendly source corpus** the FinCEN/BSA RAG index
 is built from (plan §16 Phase 6). `make ingest-rag` (`scripts/ingest_rag.py`) loads every
-`*.md` document here, chunks it deterministically, embeds the chunks, and persists a
+`*.md` document here, chunks it deterministically, loads verified semantic vectors, and persists a
 ChromaDB index that the investigation pipeline retrieves cited regulations from.
+
+Semantic retrieval is the default, using the model, dimensions, and version in
+`config/llm/rag.yml`. `embeddings.json` contains only learned vectors for these public chunks,
+their text hashes, embedding provenance, and generation usage. `make ingest-rag` verifies the hashes
+and materializes the index without provider calls. After changing corpus text, explicitly approve
+and run `make ingest-rag-live` to regenerate the snapshot through Infisical `prod` and OpenRouter.
+Investigation queries and uploaded data never enter this artifact. Query-time provider or budget
+failures select deterministic lexical retrieval from the same local documents.
 
 ## Why curated text (not raw PDFs)
 

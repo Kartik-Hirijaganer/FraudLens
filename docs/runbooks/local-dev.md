@@ -164,14 +164,24 @@ database, and LLM path before any Azure deployment.
 infisical run --env=prod --path=/ --recursive -- make db-migrate
 ```
 
-5. Build the live RAG index once, optionally ingest the bounded IBM AML demo rows, then start the
+5. Materialize the semantic RAG index once, optionally ingest the bounded IBM AML demo rows, then start the
    live-local app:
 
 ```bash
-make ingest-rag-live
+make ingest-rag             # verified public semantic snapshot; no provider call
 make ingest-aml-demo        # optional: AML_DEMO_ROWS (default 1600) IBM rows, masked
 make run-live
 ```
+
+`live` is the RAG default. Query cache misses use OpenRouter through the source-authorized path,
+subject to the shared $0.05/UTC-day embedding allowance in `config/llm/rag.yml`. The existing SAR
+budget is separate. Missing credentials, unavailable budget storage, provider errors, or incompatible
+vectors select lexical retrieval. Uploads retain their explicit local-only path. `make run` keeps
+its explicit offline development override; it does not require embedding credentials.
+
+After a corpus/model change, approve and run `make ingest-rag-live` to refresh public embeddings,
+review `data/regulations/embeddings.json`, and rerun the relevance tests. The command spends provider
+tokens and intentionally skips database writes. Never run it implicitly in CI or a Docker build.
 
 Real users sign in with Supabase email/password. In live mode, the demo persona picker selects one
 of the provisioned Supabase users; it never creates a tokenless session or enables the backend

@@ -67,7 +67,7 @@ flowchart TB
     db[("Supabase Postgres<br/><i>every row scoped by agency_id</i>")]
     rag[("ChromaDB<br/><i>FinCEN / BSA index baked into the image</i>")]
     blob[("Azure Blob<br/><i>model bundles · approved SAR PDFs</i>")]
-    llm["OpenRouter<br/><i>capped $2.25 / day</i>"]
+    llm["OpenRouter<br/><i>SAR ≤ $2.25/day · query embeddings ≤ $0.05/day</i>"]
     vault[["Infisical prod<br/><i>runtime secret injection</i>"]]
 
     user --> spa
@@ -217,15 +217,32 @@ flowchart TB
 | --- | --- |
 | **Backend** | Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2 async · Alembic · structlog |
 | **ML / investigation** | XGBoost · SHAP · scikit-learn · imbalanced-learn · LangGraph |
-| **LLM / RAG** | Standalone governed LLM client · OpenRouter opt-in · versioned prompts · ChromaDB · deterministic hashing embeddings locally |
+| **LLM / RAG** | Standalone governed LLM client · versioned prompts · ChromaDB semantic retrieval · lexical fallback · keyless public-vector index builds |
 | **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Wise design system · D3 force |
 | **Data** | Docker Postgres 16 locally · Supabase Postgres in the cloud · local artifact and queue backends |
 | **Security** | Fail-closed JWT/AuthZ · `agency_id` tenant enforcement · RBAC · PHI masking · Infisical secrets · gitleaks |
 | **Infra / CI** | Docker · Terraform · GitHub Actions · Azure Container Apps + Blob · Vercel · ephemeral AKS |
 
+### Regulatory retrieval
+
+Authorized live investigations default to semantic search with `text-embedding-3-small` in ChromaDB.
+Missing credentials, unavailable budget storage, provider errors, or incompatible vectors select
+local lexical fallback. Uploaded and source-restricted cases retain local-only retrieval.
+
+Query embeddings use a bounded cache and a shared **$0.05/UTC-day** reservation ceiling, separate
+from the SAR budget. `make ingest-rag` builds the index from reviewed public vectors without a
+provider call; refreshing those vectors with `make ingest-rag-live` is a separate paid operation.
+See the [retrieval decision](docs/architecture/adr/ADR-036-semantic-regulatory-retrieval.md) and
+[relevance comparison](docs/reference/benchmarks/semantic-rag-default.md).
+
 ## Quick start
 
 Run FraudLens locally with demo data and mock SAR generation. No Azure, Vercel, Supabase, or LLM-provider account is required.
+
+`make run` and `make local-demo` explicitly use offline hashing retrieval. For semantic retrieval
+with Infisical-managed credentials, follow the [live-local setup](docs/runbooks/local-dev.md#running-live-locally).
+Retrieval (`FRAUDLENS_RAG_EMBEDDING_MODE`) and SAR drafting (`FRAUDLENS_LLM_MODE`) are configured
+independently, so semantic retrieval can also run with mock SAR drafts.
 
 **1. Install prerequisites**
 

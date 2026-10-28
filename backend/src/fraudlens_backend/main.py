@@ -80,6 +80,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             ):
                 yield
         finally:
+            _app.state.pipeline_components.retriever.close()
             if engine is not None:
                 await dispose_engine(engine)
 

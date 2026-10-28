@@ -16,6 +16,7 @@ Notes:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from decimal import Decimal
 
 import pytest
 
@@ -25,6 +26,7 @@ from fraudlens_backend.rag import (
     build_embedder,
     load_rag_embedding_config,
 )
+from fraudlens_backend.rag.budget import QueryEmbeddingBudget
 from fraudlens_backend.settings import find_config_dir
 from fraudlens_llm import (
     Catalog,
@@ -183,3 +185,68 @@ def test_repo_rag_config_resolves_to_matching_openrouter_catalog_entry() -> None
     assert card.kind is Kind.EMBED
     assert card.default_params.dimensions == config.dimensions
     assert config.rag_version == "rag-v2-te3s"
+
+
+def _cached_embedder(adapter: _FakeEmbeddingAdapter, **overrides: object) -> LlmClientEmbedder:
+    config = _config().model_copy(update=overrides)
+    return LlmClientEmbedder(
+        client=_client(adapter),
+        model=config.model,
+        dimensions=config.dimensions,
+        rag_version=config.rag_version,
+        data_class=config.data_class,
+        query_cache_size=config.query_cache_size,
+        max_query_chars=config.max_query_chars,
+    )
+
+
+def test_query_cache_reuses_vectors_without_retaining_query_text() -> None:
+    adapter = _FakeEmbeddingAdapter()
+    embedder = _cached_embedder(adapter)
+    try:
+        first = embedder.embed_query("breaking deposits below a threshold")
+        first[0] = -99.0
+        assert embedder.embed_query("breaking deposits below a threshold")[0] == 1.0
+        assert len(adapter.calls) == 1
+        assert all(len(key) == 64 for key in embedder._query_cache)
+        assert embedder.input_tokens == 1
+    finally:
+        embedder.close()
+
+
+def test_query_cache_eviction_and_oversized_query_rejection() -> None:
+    adapter = _FakeEmbeddingAdapter()
+    embedder = _cached_embedder(adapter, query_cache_size=1, max_query_chars=12)
+    try:
+        for query in ("first", "second", "first"):
+            embedder.embed_query(query)
+        assert len(adapter.calls) == 3
+        with pytest.raises(ValueError, match="character limit"):
+            embedder.embed_query("query exceeding the limit")
+        assert len(adapter.calls) == 3
+    finally:
+        embedder.close()
+
+
+def test_budget_denial_makes_zero_provider_calls() -> None:
+    adapter = _FakeEmbeddingAdapter()
+    embedder = _cached_embedder(adapter)
+    embedder._query_budget = QueryEmbeddingBudget(None, Decimal("0.05"))
+    try:
+        with pytest.raises(RuntimeError, match="budget unavailable"):
+            embedder.embed_query("structuring")
+        assert adapter.calls == []
+    finally:
+        embedder.close()
+
+
+def test_disabled_query_cache_spends_on_each_call_and_closed_adapter_rejects_queries() -> None:
+    adapter = _FakeEmbeddingAdapter()
+    embedder = _cached_embedder(adapter, query_cache_size=0)
+    embedder.embed_query("structuring")
+    embedder.embed_query("structuring")
+    assert len(adapter.calls) == 2
+    embedder.close()
+    embedder.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        embedder.embed_query("structuring")

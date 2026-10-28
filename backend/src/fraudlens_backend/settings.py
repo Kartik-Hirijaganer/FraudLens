@@ -298,7 +298,7 @@ class AppSettings(
         description="ChromaDB collection name holding the embedded regulatory chunks.",
     )
     rag_embedding_mode: RagEmbeddingMode = Field(
-        default="offline",
+        default="live",
         description="RAG embedder mode: deterministic hashing or live OpenRouter embeddings.",
     )
     rag_version: str = Field(

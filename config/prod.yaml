@@ -8,6 +8,7 @@ storage_backend: azure_blob
 queue_backend: container_apps_jobs
 run_worker_heartbeat_file: /tmp/fraudlens-worker/heartbeat
 llm_mode: live
+rag_embedding_mode: live
 multi_agent_sar_enabled: true
 
 llm_daily_budget_usd: 2.25
