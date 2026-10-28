@@ -13,3 +13,7 @@ model: openrouter/openai/text-embedding-3-small
 dimensions: 1536
 rag_version: rag-v2-te3s
 data_class: deidentified
+snapshot_file: data/regulations/embeddings.json
+query_cache_size: 256
+max_query_chars: 2000
+query_daily_budget_usd: 0.05

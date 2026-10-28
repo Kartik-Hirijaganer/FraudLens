@@ -149,6 +149,12 @@ class Retriever:
         """Return an empty result carrying the given degradation mode + rag version."""
         return RetrievalResult(chunks=[], mode=mode, rag_version=self._rag_version)
 
+    def close(self) -> None:
+        """Release an optional provider adapter's event loop and budget connection pool."""
+        close = getattr(self._embedder, "close", None)
+        if callable(close):
+            close()
+
     def retrieve_local(self, query: str, *, top_k: int = DEFAULT_TOP_K) -> RetrievalResult:
         """Rank baked public regulations without invoking the embedding provider."""
         if index_status(self._persist_dir, self._collection) in {"missing", "empty"}:

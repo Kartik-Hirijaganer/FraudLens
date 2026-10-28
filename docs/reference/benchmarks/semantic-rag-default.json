@@ -1,0 +1,556 @@
+{
+  "model": "openrouter/openai/text-embedding-3-small",
+  "rag_version": "rag-v2-te3s",
+  "query_input_tokens": 165,
+  "query_cost_usd": "0.000003",
+  "cases": [
+    {
+      "query": "Someone deliberately split one large lodgement into many smaller ones so the bank would not have to notify authorities.",
+      "expected": "structuring-to-evade-reporting",
+      "semantic": [
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.4981621503829956
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.4453902244567871
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.40746402740478516
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.3892629146575928
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.29206323623657227
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.2393651008605957
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.23647630214691162
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.20744973421096802
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.15053763440860216
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.14388489208633093
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.12030075187969924
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.11904761904761904
+        }
+      ]
+    },
+    {
+      "query": "Several people use different branches to place pieces of the same cash sum beneath the declaration limit.",
+      "expected": "structuring-to-evade-reporting",
+      "semantic": [
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.5655360817909241
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.44089579582214355
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.3942180275917053
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.35300248861312866
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.3221311569213867
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.3128913640975952
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.27279603481292725
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.21557271480560303
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.23255813953488372
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.15789473684210525
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.1510791366906475
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.15079365079365079
+        }
+      ]
+    },
+    {
+      "query": "Which sender and recipient details must accompany a remittance as it passes between banks?",
+      "expected": "funds-transfer-recordkeeping",
+      "semantic": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.5852770805358887
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.40932923555374146
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.38693445920944214
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.3853018283843994
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.22170960903167725
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.13533834586466165
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.13333333333333333
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.12280701754385964
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.0967741935483871
+        }
+      ]
+    },
+    {
+      "query": "What paperwork follows an international payment through intermediary institutions?",
+      "expected": "funds-transfer-recordkeeping",
+      "semantic": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.5489364862442017
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.48430919647216797
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.45254814624786377
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.43344295024871826
+        }
+      ],
+      "hashing": [],
+      "lexical": [
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.08771929824561403
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.06015037593984962
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.023255813953488372
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.016666666666666666
+        }
+      ]
+    },
+    {
+      "query": "A foreign correspondent operates in a country singled out for weak laundering controls. What additional checks apply?",
+      "expected": "high-risk-jurisdictions-due-diligence",
+      "semantic": [
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.6785632371902466
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.5719282627105713
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.4420599937438965
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.4360910654067993
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.30883580446243286
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.27247464656829834
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.2487400770187378
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.21450471878051758
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.13333333333333333
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.0967741935483871
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.08333333333333333
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.07857142857142857
+        }
+      ]
+    },
+    {
+      "query": "A bank's overseas partner is based in a secrecy haven and its ownership is unclear.",
+      "expected": "high-risk-jurisdictions-due-diligence",
+      "semantic": [
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.4849545955657959
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.4586906433105469
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.3924509882926941
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.366263747215271
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.23596996068954468
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.22026091814041138
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.21802037954330444
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.21541523933410645
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.13978494623655913
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.13533834586466165
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.13333333333333333
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.12949640287769784
+        }
+      ]
+    },
+    {
+      "query": "Must the bank report cash receipts totaling eleven thousand dollars from one person during the same day?",
+      "expected": "currency-transaction-report",
+      "semantic": [
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.5781189203262329
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.563914954662323
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.48502159118652344
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.4139927625656128
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.33022671937942505
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.30134856700897217
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.2900633215904236
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.23779743909835815
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.15053763440860216
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.14285714285714285
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.13533834586466165
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.13333333333333333
+        }
+      ]
+    },
+    {
+      "query": "How long does a bank keep a copy of its large-cash transaction filing?",
+      "expected": "currency-transaction-report",
+      "semantic": [
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.5883623361587524
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.477043092250824
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.4616782069206238
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.4239484667778015
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.41457808017730713
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.3876941204071045
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.32513606548309326
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.263180673122406
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.23333333333333334
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.15714285714285714
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.14388489208633093
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.13953488372093023
+        }
+      ]
+    },
+    {
+      "query": "How should a bank describe suspicious activity and protect the confidentiality of the filing?",
+      "expected": "suspicious-activity-report",
+      "semantic": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.7019701600074768
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.6539797782897949
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.5633040070533752
+        },
+        {
+          "doc_id": "structuring-to-evade-reporting",
+          "score": 0.5576878786087036
+        }
+      ],
+      "hashing": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.5592589974403381
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.5018469095230103
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.4939391613006592
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.4523809552192688
+        }
+      ],
+      "lexical": [
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.32558139534883723
+        },
+        {
+          "doc_id": "currency-transaction-report",
+          "score": 0.26666666666666666
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.25806451612903225
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.2302158273381295
+        }
+      ]
+    },
+    {
+      "query": "What should an institution file when it suspects funds are proceeds of criminal conduct?",
+      "expected": "suspicious-activity-report",
+      "semantic": [
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.6004152297973633
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.5392004251480103
+        },
+        {
+          "doc_id": "high-risk-jurisdictions-due-diligence",
+          "score": 0.49783170223236084
+        },
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.4850579500198364
+        }
+      ],
+      "hashing": [],
+      "lexical": [
+        {
+          "doc_id": "bsa-purpose-and-reporting",
+          "score": 0.16279069767441862
+        },
+        {
+          "doc_id": "suspicious-activity-report",
+          "score": 0.1079136690647482
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.10526315789473684
+        },
+        {
+          "doc_id": "funds-transfer-recordkeeping",
+          "score": 0.10526315789473684
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "semantic": {
+      "top1_accuracy": 0.9,
+      "recall_at_4": 1.0
+    },
+    "hashing": {
+      "top1_accuracy": 0.4,
+      "recall_at_4": 0.7
+    },
+    "lexical": {
+      "top1_accuracy": 0.3,
+      "recall_at_4": 0.7
+    }
+  }
+}

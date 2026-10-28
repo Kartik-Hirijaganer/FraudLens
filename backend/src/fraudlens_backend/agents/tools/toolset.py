@@ -14,6 +14,7 @@ Notes:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -296,7 +297,9 @@ class EvidenceToolset:
                 transaction.source.value, load_egress_policy()
             ):
                 return RegulationSearchResult(mode="empty", rag_version="unavailable")
-        result = self._retriever.retrieve(parsed_arguments.query, top_k=parsed_arguments.top_k)
+        result = await asyncio.to_thread(
+            self._retriever.retrieve, parsed_arguments.query, top_k=parsed_arguments.top_k
+        )
         matches = tuple(
             RegulationMatch(
                 evidence_ref=f"regulation:{chunk.chunk_id}",

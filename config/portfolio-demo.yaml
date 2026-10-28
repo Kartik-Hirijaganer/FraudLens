@@ -98,10 +98,10 @@ model:
   shared_with_research: true
   feature_spec_version: 2
 
-# Provider modes the expected distribution assumes (deterministic, keyless).
+# Mock drafting stays deterministic; semantic corpus vectors build without provider credentials.
 execution:
   llm_mode: mock
-  rag_embedding_mode: offline
+  rag_embedding_mode: live
   multi_agent_sar_enabled: true
   mock_agent_revision_scenario: ring-payout-hop-3
 

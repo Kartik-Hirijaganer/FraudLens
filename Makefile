@@ -179,7 +179,7 @@ backend-ci: backend-lint backend-format-check backend-typecheck backend-coverage
 
 postgres-run-test: ## Prove durable claim/fencing behavior against PostgreSQL.
 	@test -n "$${POSTGRES_TEST_DATABASE_URL:-}" || { echo "POSTGRES_TEST_DATABASE_URL is required"; exit 1; }
-	$(UV) run pytest tests/integration/test_run_leases_postgres.py tests/integration/test_schema_drift_postgres.py tests/integration/test_upload_postgres.py tests/integration/test_case_workflow_postgres.py -q -o addopts='' -m postgres
+	$(UV) run pytest tests/integration/test_run_leases_postgres.py tests/integration/test_schema_drift_postgres.py tests/integration/test_upload_postgres.py tests/integration/test_case_workflow_postgres.py tests/integration/test_rag_query_budget_postgres.py -q -o addopts='' -m postgres
 
 # ---------------------------------------------------------------------------
 # Frontend (TypeScript) sub-targets
@@ -414,10 +414,10 @@ import-ieee: ## Import the committed synthetic IEEE-CIS sample (AGENCY_ID=<uuid>
 	$(UV) run python scripts/import_ieee.py --agency-id $(AGENCY_ID)
 ingest-aml-demo: ## Ingest a bounded real IBM AML case pack into the configured demo tenant.
 	infisical run --env=prod --path=/ --recursive -- $(UV) run python scripts/ingest_aml_demo.py --rows $(AML_DEMO_ROWS)
-ingest-rag: ## Build the offline FinCEN/BSA hashing RAG index.
+ingest-rag: ## Build the configured RAG index from verified public vectors (keyless).
 	$(UV) run python scripts/ingest_rag.py
-ingest-rag-live: ## Build the live OpenRouter text-embedding-3-small RAG index.
-	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py
+ingest-rag-live: ## Refresh public semantic embeddings and build the index (paid; explicit approval).
+	infisical run --env=prod --path=/llm -- env FRAUDLENS_RAG_EMBEDDING_MODE=live $(UV) run python scripts/ingest_rag.py --refresh-embeddings --skip-db
 fetch-data: ## Fetch IBM AML-Data HI-Small via Infisical-injected Kaggle credentials.
 	infisical run --env=prod --path=/ml -- $(UV) run python scripts/fetch_dataset.py --source ibm-aml
 fetch-gfp-data: ## Fetch the three GFP-study variants one file at a time (Infisical Kaggle; skips present files).

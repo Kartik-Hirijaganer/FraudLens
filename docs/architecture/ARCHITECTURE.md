@@ -16,7 +16,7 @@ generated regions below stay synchronized with the codebase.
 | Capability | Implemented now | Target / opt-in extension |
 |---|---|---|
 | Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
-| Regulatory RAG | FinCEN/BSA chunks are stored in ChromaDB. The deterministic 256-dimensional `HashingEmbedder` remains the keyless default; `make ingest-rag-live` and `make run-live` opt into 1536-dimensional OpenRouter `text-embedding-3-small`. | Expand the curated regulatory corpus and authoritative source metadata without changing the embedding/index contract. |
+| Regulatory RAG | Semantic retrieval defaults to 1536-dimensional OpenRouter `text-embedding-3-small`, with deterministic lexical fallback. Reviewed public vectors make index builds keyless; explicit offline development retains hashing. | Expand the curated regulatory corpus and authoritative source metadata under the versioned embedding contract (ADR-036). |
 | SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode retains the single writer and adds a bounded four-agent implementation behind process and tenant flags; production defaults to the single writer. Both use the injected `SarDrafter` seam and the existing human review gate. | Publication requires a committed synthetic evaluation that compares both live arms through the real API; enable the agent path by default only when its measured quality benefit justifies the additional cost and latency ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)). |
 | SAR quality + model egress | `make quality-gates` enforces configured citation/fact/hallucination thresholds and byte-level retry/fallback privacy offline. Live prompts consume only frozen `SarModelInput` projections authorized from persisted synthetic source provenance ([ADR-023](adr/ADR-023-sar-quality-and-privacy-gates.md), [ADR-026](adr/ADR-026-synthetic-only-model-egress.md)). | Real customer data remains out of scope; enabling another data class/source requires a new privacy/compliance and provider-contract decision. |
 
@@ -362,8 +362,8 @@ provider data-class policy before any SDK call, masks PHI-like input locally, sc
 risk, prepends a fixed system policy, calls a private provider adapter, scans raw output
 before sanitization, and returns only `safe_text` by default. Embeddings run policy and
 masking before the provider call; vector storage and `agency_id` scoping remain backend
-responsibilities. The backend's `build_embedder` factory is the single selector used by both index
-ingest and pipeline retrieval: `offline` returns `HashingEmbedder`, while `live` adapts
+responsibilities. The backend's `build_embedder` factory selects query embeddings:
+explicit `offline` mode returns `HashingEmbedder`, while default `live` mode adapts
 `LlmClient.embed()` through a dedicated background event-loop thread so the synchronous retriever
 can operate safely inside the application's active asyncio loop. Live calls route only through the
 OpenRouter OpenAI-compatible provider and classify the PHI-free regulatory input under the
@@ -374,8 +374,21 @@ Hashing indexes use `rag-v1`; the configured `text-embedding-3-small` space uses
 Retrieval compares its embedder provenance to the collection before vector search. Missing metadata,
 a model/version mismatch, or a dimension mismatch fails closed to deterministic lexical retrieval
 and records `mode="lexical"`; incompatible vectors are never queried. Switching modes therefore
-requires rebuilding the index (`make ingest-rag` or `make ingest-rag-live`). The committed/container-
-baked index stays hashing-based and hermetic; a live index is local/deployment state, never committed.
+requires rebuilding the index. `make ingest-rag` materializes the reviewed public document vectors
+in `data/regulations/embeddings.json` without network or credentials; it rejects changed chunk hashes
+or model provenance before replacing a collection. The container bakes this same semantic index with
+network disabled. `make ingest-rag-live` explicitly refreshes the public vectors through Infisical
+`prod` and OpenRouter; it is a paid, approval-governed maintenance operation.
+
+Query embeddings cache only content digests and vectors in a bounded per-process LRU. A separate
+global counter in `system_config` (`agency_id IS NULL`) reserves a conservative UTF-8-byte/retry cost
+envelope before a cache miss can call the provider. Its $0.05/UTC-day ceiling is shared across workers
+and survives process restarts; missing storage, malformed counters, and exhausted allowance fall back
+to lexical retrieval. This allowance is separate from the existing tenant SAR budget. Uploaded and
+source-restricted cases retain local-only retrieval. Both pipeline and agent searches run off the
+main event loop so embedding latency cannot block durable-worker heartbeats. See
+[ADR-036](adr/ADR-036-semantic-regulatory-retrieval.md) and the
+[retrieval evidence](../reference/benchmarks/semantic-rag-default.md).
 
 Fallback is allowed only after retryable provider failures and only to providers that allow
 the call's `DataClass` and maintain an equal-or-stricter governance posture. Fallback never
@@ -670,7 +683,7 @@ Non-secret config only (layered `config/*.yaml` → `FRAUDLENS_*` env). Secrets 
 | `rag_corpus_dir` | `str` | `'data/regulations'` | Committed source corpus dir (`*.md` provisions) ingest builds the index from. |
 | `rag_index_dir` | `str` | `'.local/chroma'` | ChromaDB index dir (built by ingest-rag; baked into the prod image). |
 | `rag_collection` | `str` | `'fincen_bsa'` | ChromaDB collection name holding the embedded regulatory chunks. |
-| `rag_embedding_mode` | `Literal` | `'offline'` | RAG embedder mode: deterministic hashing or live OpenRouter embeddings. |
+| `rag_embedding_mode` | `Literal` | `'live'` | RAG embedder mode: deterministic hashing or live OpenRouter embeddings. |
 | `rag_version` | `str` | `'rag-v1'` | Offline corpus/index version; live mode reads its version from llm/rag.yml. |
 | `rag_index_required` | `bool` | `False` | When true, a missing/empty RAG index fails /readyz (prod bakes the index). |
 | `infisical_secrets_delivery` | `Literal` | `'unconfigured'` | How Infisical secrets reach this process. 'unconfigured' declares no delivery mechanism, so the /readyz infisical check reports 'skipped'; 'externally_injected' declares that a CLI/CI job/deploy platform injects them as env, so the check verifies every infisical_required_env_keys name is present and non-blank. |

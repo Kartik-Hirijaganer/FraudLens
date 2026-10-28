@@ -126,7 +126,7 @@ def test_boot_config_field_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.azure_storage_token_resource == ""
     assert settings.llm_mode == "mock"
     assert settings.sar_config_file == "llm/sar.yml"
-    assert settings.rag_embedding_mode == "offline"
+    assert settings.rag_embedding_mode == "live"
     assert settings.investigation_rag_min_similarity == 0.2
     assert settings.database_url is None
     assert settings.auth_role_claim == "user_role"
@@ -181,7 +181,7 @@ def test_prod_overlay_selects_cloud_backends(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.storage_backend == "azure_blob"
     assert settings.queue_backend == "container_apps_jobs"
     assert settings.llm_mode == "live"
-    assert settings.rag_embedding_mode == "offline"
+    assert settings.rag_embedding_mode == "live"
     assert settings.azure_managed_identity_token_url.startswith("http://")
     assert settings.azure_arm_endpoint.startswith("https://")
     assert settings.azure_arm_token_resource.startswith("https://")

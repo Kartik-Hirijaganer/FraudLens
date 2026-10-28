@@ -382,7 +382,7 @@ openrouter:
     reasoning_capable: false
     intelligence: low
     source_url: https://openrouter.ai/openai/text-embedding-3-small
-    verified_at: 2026-08-17
+    verified_at: 2026-10-26
     lifecycle: ga
     callable: true
     pricing_basis: per_million_tokens
