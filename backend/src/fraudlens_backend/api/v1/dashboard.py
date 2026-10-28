@@ -75,6 +75,9 @@ def _to_response(data: DashboardData) -> DashboardMetricsResponse:
         sar=SarMetrics(
             draft=sar.get(SarStatus.DRAFT.value, 0),
             reviewed=sar.get(SarStatus.REVIEWED.value, 0),
+            submitted=sar.get(SarStatus.SUBMITTED.value, 0),
+            returned=sar.get(SarStatus.RETURNED.value, 0),
+            withdrawn=sar.get(SarStatus.WITHDRAWN.value, 0),
             approved=sar.get(SarStatus.APPROVED.value, 0),
             rejected=sar.get(SarStatus.REJECTED.value, 0),
             failed=sar.get(SarStatus.FAILED.value, 0),

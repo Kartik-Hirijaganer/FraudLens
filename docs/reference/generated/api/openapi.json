@@ -2886,7 +2886,7 @@
       },
       "SarMetrics": {
         "additionalProperties": false,
-        "description": "Tenant SAR-draft counts by review status (plan \u00a79.1 `sar_drafts`).",
+        "description": "Latest tenant SAR per investigation, grouped by its current workflow status.",
         "properties": {
           "approved": {
             "description": "Approved SARs.",
@@ -2895,7 +2895,7 @@
             "type": "integer"
           },
           "draft": {
-            "description": "Machine drafts awaiting review.",
+            "description": "Current working SAR drafts.",
             "minimum": 0.0,
             "title": "Draft",
             "type": "integer"
@@ -2912,22 +2912,43 @@
             "title": "Rejected",
             "type": "integer"
           },
+          "returned": {
+            "description": "Latest SARs returned for maker changes.",
+            "minimum": 0.0,
+            "title": "Returned",
+            "type": "integer"
+          },
           "reviewed": {
-            "description": "Human-edited drafts.",
+            "description": "Historical reviewed-state current SARs.",
             "minimum": 0.0,
             "title": "Reviewed",
             "type": "integer"
           },
+          "submitted": {
+            "description": "Frozen SARs awaiting independent review.",
+            "minimum": 0.0,
+            "title": "Submitted",
+            "type": "integer"
+          },
           "total": {
-            "description": "All SAR drafts for the tenant.",
+            "description": "Investigations with a current SAR artifact.",
             "minimum": 0.0,
             "title": "Total",
+            "type": "integer"
+          },
+          "withdrawn": {
+            "description": "Latest SARs withdrawn from active preparation.",
+            "minimum": 0.0,
+            "title": "Withdrawn",
             "type": "integer"
           }
         },
         "required": [
           "draft",
           "reviewed",
+          "submitted",
+          "returned",
+          "withdrawn",
           "approved",
           "rejected",
           "failed",

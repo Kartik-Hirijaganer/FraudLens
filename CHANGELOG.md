@@ -32,6 +32,9 @@ regulatory retrieval to semantic vectors with bounded query spend and lexical fa
 
 ### Fixes
 
+- Include every SAR workflow state in dashboard counts using each investigation's latest version;
+  retain historical versions in spend totals. Reconcile seed-person links before the deployment
+  bootstrap and exercise auditor denial with a valid versioned smoke command.
 - Fail tf-validate on the first invalid root
 - Stop terraform minting broken revisions and retire idle ones
 - Upgrade opentelemetry to 1.45.1 for CVE-2026-114603

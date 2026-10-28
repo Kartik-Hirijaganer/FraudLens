@@ -11,11 +11,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
+import pytest
 from portfolio_demo_identity import DEMO_AGENCY_ID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from fraudlens_backend.db.models import (
+    Agency,
     AgentExecution,
     Alert,
     AlertStatus,
@@ -63,10 +65,12 @@ async def _seed(sm: async_sessionmaker[AsyncSession]) -> None:
         await session.commit()
 
 
-async def _add_transaction_and_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
+async def _add_transaction_and_run(
+    session: AsyncSession, agency_id: uuid.UUID = DEMO_AGENCY_ID
+) -> tuple[uuid.UUID, uuid.UUID]:
     """Create explicit tenant evidence for aggregate tests and return transaction/run ids."""
     transaction = Transaction(
-        agency_id=DEMO_AGENCY_ID,
+        agency_id=agency_id,
         external_id=f"dashboard-fixture-{uuid.uuid4().hex}",
         amount=Decimal("100.00"),
         currency="USD",
@@ -81,13 +85,35 @@ async def _add_transaction_and_run(session: AsyncSession) -> tuple[uuid.UUID, uu
     session.add(transaction)
     await session.flush()
     run = AnalysisRun(
-        agency_id=DEMO_AGENCY_ID,
+        agency_id=agency_id,
         transaction_id=transaction.id,
         status=RunStatus.COMPLETED,
     )
     session.add(run)
     await session.flush()
     return transaction.id, run.id
+
+
+def _sar_fixture(
+    agency_id: uuid.UUID,
+    run_id: uuid.UUID,
+    status: SarStatus,
+    *,
+    version: int = 1,
+    cost: Decimal = Decimal("0"),
+) -> SarDraft:
+    """Persistable versioned synthetic SAR evidence with explicit provenance."""
+    return SarDraft(
+        agency_id=agency_id,
+        run_id=run_id,
+        status=status,
+        version=version,
+        cost_usd=cost,
+        content="Synthetic SAR status evidence.",
+        model_id="mock",
+        prompt_version="v1",
+        prompt_hash="0" * 64,
+    )
 
 
 async def test_metrics_endpoint_reflects_foundation_only_seed(
@@ -129,6 +155,65 @@ async def test_metrics_requires_authentication(
     async with _client(app) as client:
         resp = await client.get("/api/v1/dashboard/metrics")
     assert resp.status_code == 401
+
+
+@pytest.mark.parametrize("status", list(SarStatus))
+async def test_metrics_exposes_every_current_sar_state(
+    status: SarStatus,
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed(db_sessionmaker)
+    async with db_sessionmaker() as session:
+        _transaction_id, run_id = await _add_transaction_and_run(session)
+        session.add(_sar_fixture(DEMO_AGENCY_ID, run_id, status))
+        await session.commit()
+    app = _build_app(make_settings(auth_dev_bypass=True), db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        response = await client.get("/api/v1/dashboard/metrics")
+    assert response.status_code == 200
+    sar = response.json()["sar"]
+    assert {key.value: sar[key.value] for key in SarStatus} == {
+        key.value: int(key == status) for key in SarStatus
+    }
+    assert sar["total"] == 1
+
+
+async def test_metrics_counts_current_sars_but_keeps_versioned_spend_tenant_scoped(
+    make_settings: Callable[..., AppSettings],
+    db_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await _seed(db_sessionmaker)
+    other_agency = uuid.uuid4()
+    async with db_sessionmaker() as session:
+        session.add(
+            Agency(id=other_agency, name="Other synthetic agency", slug="other-synthetic-agency")
+        )
+        await session.flush()
+        _transaction_id, run_id = await _add_transaction_and_run(session)
+        _other_transaction_id, other_run_id = await _add_transaction_and_run(session, other_agency)
+        session.add_all(
+            [
+                _sar_fixture(DEMO_AGENCY_ID, run_id, SarStatus.RETURNED, cost=Decimal("0.01")),
+                _sar_fixture(
+                    DEMO_AGENCY_ID, run_id, SarStatus.DRAFT, version=2, cost=Decimal("0.02")
+                ),
+                _sar_fixture(other_agency, other_run_id, SarStatus.SUBMITTED, cost=Decimal("9.00")),
+            ]
+        )
+        await session.commit()
+    app = _build_app(make_settings(auth_dev_bypass=True), db_engine, db_sessionmaker)
+    async with _client(app) as client:
+        response = await client.get("/api/v1/dashboard/metrics")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sar"]["draft"] == 1
+    assert body["sar"]["returned"] == body["sar"]["submitted"] == 0
+    assert body["sar"]["total"] == 1
+    assert body["llmCost"]["draftCount"] == 2
+    assert Decimal(body["llmCost"]["totalUsd"]) == Decimal("0.03")
 
 
 async def test_metrics_are_tenant_scoped(

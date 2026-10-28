@@ -161,9 +161,24 @@ def test_an_auditor_cannot_start_an_investigation(auditor: httpx.Client) -> None
 
 @requires_live_story
 def test_an_auditor_cannot_act_on_an_alert(auditor: httpx.Client) -> None:
-    """Permission is checked BEFORE the alert is resolved, so an unknown id still returns 403."""
-    response = auditor.post(f"{_API}/alerts/{uuid.uuid4()}/actions", json={"action": "dismiss"})
+    """A valid versioned command is denied for an auditor and leaves the case unchanged."""
+    alerts = _json(auditor.get(f"{_API}/alerts"))["alerts"]
+    assert isinstance(alerts, list) and alerts
+    alert = alerts[0]
+    path = f"{_API}/alerts/{alert['alertId']}"
+    before = _json(auditor.get(path))
+    response = auditor.post(
+        f"{path}/actions",
+        json={
+            "action": "dismiss",
+            "expectedCaseVersion": alert["caseVersion"],
+            "note": "Synthetic smoke verifies that a read-only auditor cannot dismiss a case.",
+        },
+    )
     _envelope(response, _FORBIDDEN)
+    after = _json(auditor.get(path))
+    assert after["alert"]["caseVersion"] == before["alert"]["caseVersion"]
+    assert after["actions"] == before["actions"]
 
 
 @requires_live_story
