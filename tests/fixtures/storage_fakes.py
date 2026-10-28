@@ -1,11 +1,8 @@
-"""Alerts & review-workflow API tests (plan §5.4, §10.4, §16 Phase 9; endpoints 9-12). Covers the
-acceptance criteria: list/detail tenant scoping (cross-tenant → 404), legal/illegal status
-transitions (409), SAR-before-resolution compatibility, assign/comment/escalate/resolve/dismiss,
-cross-tenant assignee → 403, PHI-masked
-notes, resolve writing a training label, SAR approve/edit/reject (reason required) with a deferred
-mock PDF, fail-closed acting-user enforcement, and that the pipeline alert-raise persists computed
-review flags. The deferred-PDF test uses a file-backed SQLite engine so the background session
-uses a separate connection (mirroring the investigations suite)."""
+"""Synthetic alert fixtures shared by case-workflow, tenant-isolation and artifact API tests.
+
+The test application uses the explicitly enabled non-production bypass; identity provisioning is
+trusted fixture setup. File-backed SQLite fixtures let deferred artifact tasks open a fresh session.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +36,8 @@ from fraudlens_backend.db.models import (
     UserRole,
 )
 from fraudlens_backend.main import create_app
+from fraudlens_backend.portfolio_demo import load_portfolio_demo_config
+from fraudlens_backend.services.person_identity import provision_person_link
 from fraudlens_backend.settings import AppSettings
 from fraudlens_core import RiskBand
 
@@ -93,6 +92,25 @@ async def _ensure_identities(session: AsyncSession) -> None:
                 display_name="Other Analyst",
                 role=UserRole.ANALYST,
             )
+        )
+
+    for persona in load_portfolio_demo_config().personas:
+        if await session.get(User, persona.seed_user_id) is None:
+            session.add(
+                User(
+                    id=persona.seed_user_id,
+                    agency_id=DEMO_AGENCY_ID,
+                    email=persona.email,
+                    display_name=persona.display_name,
+                    role=persona.role,
+                )
+            )
+            await session.flush()
+        await provision_person_link(
+            session,
+            agency_id=DEMO_AGENCY_ID,
+            account_id=persona.seed_user_id,
+            person_id=persona.person_id,
         )
 
 

@@ -18,8 +18,12 @@ import { ColdStartProgress } from "../components/feedback/ColdStartProgress";
 import { EmptyState } from "../components/feedback/EmptyState";
 import { Badge } from "../components/ui/Badge";
 import { humanize } from "../lib/format";
-import type { InvestigationState } from "../lib/investigation";
 import { riskTone } from "../lib/risk";
+import type { ApiClient, SarDraftView } from "../lib/api";
+import { InvestigationSar } from "./InvestigationSar";
+import type { InvestigationState } from "../lib/investigation";
+import { paths } from "../lib/router";
+import { isSarDecided } from "./investigationView";
 
 interface InvestigationStepBodyProps {
   stepKey: string;
@@ -28,10 +32,10 @@ interface InvestigationStepBodyProps {
   gaugeValue: number | undefined;
   gaugeLabel: string;
   streaming: boolean;
-  regenerating: boolean;
-  canAdvance: boolean;
-  hasApprovableDraft: boolean;
-  canReviewSar: boolean;
+  client: ApiClient;
+  sarDirty: boolean;
+  onSarDirtyChange: (dirty: boolean) => void;
+  onSarSaved: (draft: SarDraftView) => void;
 }
 
 export function InvestigationStepBody({
@@ -41,11 +45,29 @@ export function InvestigationStepBody({
   gaugeValue,
   gaugeLabel,
   streaming,
-  regenerating,
-  canAdvance,
-  hasApprovableDraft,
-  canReviewSar,
+  client,
+  sarDirty,
+  onSarDirtyChange,
+  onSarSaved,
 }: InvestigationStepBodyProps) {
+  const decisionNotice = isSarDecided(state) ? (
+    <div className="gap-md bg-canvas-soft p-lg flex flex-col rounded-lg">
+      <p className="text-body-md text-ink font-semibold">SAR {state.sarStatus}</p>
+      <p className="text-body-sm text-body">
+        An authorized reviewer has already {state.sarStatus} this SAR. The recorded decision is
+        final. Approval and regeneration are unavailable for this report.
+      </p>
+      {state.alertId ? (
+        <a
+          className="text-body-sm text-ink font-semibold underline"
+          href={paths.alertDetail(state.alertId)}
+        >
+          View alert
+        </a>
+      ) : null}
+    </div>
+  ) : null;
+
   switch (stepKey) {
     case "risk":
       if (showColdStart) {
@@ -88,26 +110,37 @@ export function InvestigationStepBody({
       return <RagPanel citations={state.citations} mode={state.ragMode} />;
     case "sar":
       return (
-        <SarStream
-          text={state.sarText}
-          streaming={streaming}
-          failed={state.status === "failed"}
-          regenerating={regenerating}
-          template={state.sarModelId === "template"}
-        />
+        <div className="gap-md flex flex-col">
+          {decisionNotice}
+          {state.alertId && !streaming ? (
+            <InvestigationSar
+              alertId={state.alertId}
+              state={state}
+              client={client}
+              dirty={sarDirty}
+              onDirtyChange={onSarDirtyChange}
+              onSaved={onSarSaved}
+            />
+          ) : (
+            <SarStream
+              text={state.sarText}
+              streaming={streaming}
+              failed={state.status === "failed"}
+              template={state.sarModelId === "template"}
+            />
+          )}
+        </div>
       );
     case "submit":
+      if (decisionNotice) {
+        return decisionNotice;
+      }
       return (
         <div className="gap-md bg-canvas-soft p-lg flex flex-col rounded-lg">
-          <p className="text-body-md text-ink font-semibold">Ready for internal approval</p>
+          <p className="text-body-md text-ink font-semibold">Continue in the case workspace</p>
           <p className="text-body-sm text-body">
-            {canAdvance
-              ? !hasApprovableDraft
-                ? "This investigation has no draft that is eligible for approval."
-                : !canReviewSar
-                  ? "Reviewer permission is required to approve this report."
-                  : "You've confirmed the risk, drivers, citations, and narrative. Approval is recorded internally; it does not submit the SAR to FinCEN."
-              : "The auto-run is still finishing. You can approve once every step has completed."}
+            Take ownership, prepare a working SAR or no-SAR recommendation, and submit it for an
+            independent person to review. Submitted narratives are locked.
           </p>
         </div>
       );

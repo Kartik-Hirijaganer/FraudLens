@@ -196,7 +196,7 @@ class PortfolioDemoConfig(BaseModel):
             (
                 "workflow.resolution_actor",
                 self.workflow.resolution_actor,
-                Permission.FINALIZE_ALERT,
+                Permission.REVIEW_SAR,
             ),
             ("workflow.sar_review_actor", self.workflow.sar_review_actor, Permission.REVIEW_SAR),
             ("workflow.assignee", self.workflow.assignee, Permission.VIEW),

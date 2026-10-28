@@ -1,38 +1,31 @@
-"""Summary: SAR PDF rendering + deferred, retried generation (plan §16 Phase 9: "approve → PDF
-(Blob/local, deferred/retried — never blocks approval)"). `render_sar_pdf` builds a minimal, valid,
-single-page PDF from a draft's already-masked narrative with **zero dependencies** (a hand-rolled
-PDF-1.4 document — no reportlab/spaCy weight in the ≤75s cold-start budget). `generate_sar_pdf`
-is the background task the approve handler schedules: it opens its own short-lived session, renders
-the PDF, stores it through the configured `StorageBackend` (local-FS in the demo, Azure Blob later),
-and records the URI on the `sar_drafts` row — retried on transient failure; idempotent if the URI
-is already set. Because it runs after the response, SAR approval succeeds regardless of
-whether (or when) the PDF lands. Keys + content are PHI-free (ids only in the key; the narrative is
-masked upstream).
+"""Summary: Complete multipage SAR rendering and post-commit, bounded, retried PDF generation.
 
 Key classes:
 - (none)
 
 Key functions:
-- render_sar_pdf: build a minimal valid single-page PDF (bytes) from masked SAR fields.
-- sar_pdf_key: the PHI-free storage key for a draft's PDF (`sar/<agencyId>/<draftId>.pdf`).
-- generate_sar_pdf: the deferred + bounded-retry task that renders, stores, and records the PDF.
+- render_sar_pdf: render every narrative and citation line across US-Letter pages.
+- sar_pdf_key: derive a tenant- and version-bound artifact key.
+- generate_sar_pdf: store approved artifacts and persist truthful pending/ready/failed readiness.
 
 Notes:
-- The renderer lays text out top-down on a US-Letter page (Helvetica, a standard-14 font that needs
-  no embedding) and caps lines to one page; the authoritative SAR is the `sar_drafts` row, so the
-  PDF is a portable rendering, not the system of record.
-- Byte offsets for the xref table are computed over a latin-1 1:1 sanitized string, so the emitted
-  bytes and the offset math agree exactly (non-latin-1 glyphs degrade to '?').
+- The lightweight standard-font renderer has no additional runtime dependency.
+- Latin-1 rendering and byte-offset calculation remain compatible with existing artifacts.
+- Artifact failure never rolls back a committed approval, outcome or training label.
 """
 
 from __future__ import annotations
 
+import textwrap
 import uuid
 from collections.abc import Iterable
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fraudlens_backend.backends.storage import StorageBackend
+from fraudlens_backend.db.models import CaseDecision, CaseSubmission
+from fraudlens_backend.db.models.enums import SarStatus
 from fraudlens_backend.db.repositories import SarDraftRepository
 from fraudlens_backend.middleware.logging import APP_LOGGER_NAME, get_logger
 
@@ -60,19 +53,11 @@ def _escape(text: str) -> str:
 def _wrap(text: str, *, width: int = _WRAP_COLS) -> list[str]:
     """Wrap a paragraph to `width` columns, preserving explicit newlines (blank lines kept)."""
     lines: list[str] = []
-    for raw in text.split("\n"):
-        if not raw:
-            lines.append("")
-            continue
-        current = ""
-        for word in raw.split(" "):
-            candidate = f"{current} {word}".strip()
-            if len(candidate) > width and current:
-                lines.append(current)
-                current = word
-            else:
-                current = candidate
-        lines.append(current)
+    for paragraph in text.split("\n"):
+        lines.extend(
+            textwrap.wrap(paragraph, width=width, break_long_words=True, break_on_hyphens=False)
+            or [""]
+        )
     return lines
 
 
@@ -93,11 +78,9 @@ def _layout_lines(
     lines.extend(_wrap(content))
     if citations:
         lines.extend(["", "Regulatory citations", "--------------------"])
-        lines.extend(f"- {citation}" for citation in citations)
-    sanitized = [_latin1(line) for line in lines]
-    if len(sanitized) > _MAX_LINES:
-        sanitized = [*sanitized[: _MAX_LINES - 1], "... (truncated; see system of record)"]
-    return sanitized
+        for citation in citations:
+            lines.extend(_wrap(f"- {citation}"))
+    return [_latin1(line) for line in lines]
 
 
 def _content_stream(lines: Iterable[str]) -> str:
@@ -115,21 +98,26 @@ def render_sar_pdf(
     *, draft_id: str, run_id: str, status: str, content: str, citations: list[str]
 ) -> bytes:
     """Render a minimal valid single-page PDF (bytes) from a masked SAR draft's fields."""
-    stream = _content_stream(
-        _layout_lines(
-            draft_id=draft_id, run_id=run_id, status=status, content=content, citations=citations
-        )
+    lines = _layout_lines(
+        draft_id=draft_id, run_id=run_id, status=status, content=content, citations=citations
     )
+    pages = [lines[index : index + _MAX_LINES] for index in range(0, len(lines), _MAX_LINES)]
+    page_refs = [f"{4 + index * 2} 0 R" for index in range(len(pages))]
     objects = [
         "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        (
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_PAGE_WIDTH} {_PAGE_HEIGHT}] "
-            "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
-        ),
-        f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        f"<< /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(pages)} >>",
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
+    for index, page in enumerate(pages):
+        stream = _content_stream(page)
+        stream_id = 5 + index * 2
+        objects.extend(
+            [
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_PAGE_WIDTH} {_PAGE_HEIGHT}] "
+                f"/Resources << /Font << /F1 3 0 R >> >> /Contents {stream_id} 0 R >>",
+                f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            ]
+        )
     document = "%PDF-1.4\n"
     offsets: list[int] = []
     for index, body in enumerate(objects, start=1):
@@ -180,7 +168,28 @@ async def generate_sar_pdf(
                 draft = await repo.get(draft_id)
                 if draft is None:
                     return False
+                if draft.status != SarStatus.APPROVED:
+                    return False
+                submission = (
+                    await session.execute(
+                        select(CaseSubmission)
+                        .join(
+                            CaseDecision,
+                            (CaseDecision.submission_id == CaseSubmission.id)
+                            & (CaseDecision.agency_id == agency_id),
+                        )
+                        .where(
+                            CaseSubmission.agency_id == agency_id,
+                            CaseSubmission.sar_draft_id == draft_id,
+                            CaseDecision.decision == "approve",
+                        )
+                        .with_for_update(of=CaseSubmission)
+                    )
+                ).scalar_one_or_none()
                 if draft.pdf_blob_url:
+                    if submission is not None:
+                        submission.pdf_status = "ready"
+                        await session.commit()
                     return True  # already generated — idempotent re-entry
                 pdf = render_sar_pdf(
                     draft_id=str(draft.id),
@@ -191,11 +200,28 @@ async def generate_sar_pdf(
                 )
                 url = storage.put(sar_pdf_key(agency_id, draft_id), pdf)
                 await repo.set_pdf_url(draft_id, url)
+                if submission is not None:
+                    submission.pdf_status = "ready"
                 await session.commit()
             return True
         except Exception:  # transient store/DB failure → retry; never crash the worker (PHI-free)
-            get_logger(APP_LOGGER_NAME).warning(
-                "sar.pdf_generation_retry", draft_id=str(draft_id), exc_info=True
-            )
+            get_logger(APP_LOGGER_NAME).warning("sar.pdf_generation_retry", draft_id=str(draft_id))
     get_logger(APP_LOGGER_NAME).error("sar.pdf_generation_failed", draft_id=str(draft_id))
+    try:
+        async with sessionmaker() as session:
+            submission = (
+                await session.execute(
+                    select(CaseSubmission)
+                    .where(
+                        CaseSubmission.agency_id == agency_id,
+                        CaseSubmission.sar_draft_id == draft_id,
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if submission is not None and submission.pdf_status != "ready":
+                submission.pdf_status = "failed"
+                await session.commit()
+    except Exception:
+        get_logger(APP_LOGGER_NAME).error("sar.pdf_status_write_failed", draft_id=str(draft_id))
     return False

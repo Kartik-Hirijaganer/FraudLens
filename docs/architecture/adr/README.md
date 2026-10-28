@@ -44,3 +44,4 @@ another document.
 | ADR-031 | CSV acceptance includes durable screening work and explicit reruns | Accepted (2026-10-21) | [ADR-031-atomic-upload-screening.md](ADR-031-atomic-upload-screening.md) |
 | ADR-032 | Closed upload validation, full account keys and provider-free SAR templates | Accepted (2026-10-21) | [ADR-032-upload-validation-and-local-sar-templates.md](ADR-032-upload-validation-and-local-sar-templates.md) |
 | ADR-033 | Exact bundled synthetic CSV provenance and existing live SAR drafting | Accepted (2026-10-22) | [ADR-033-bundled-synthetic-csv-provenance.md](ADR-033-bundled-synthetic-csv-provenance.md) |
+| ADR-034 | Person-based maker–checker decisions over immutable case submissions | Accepted (2026-10-25) | [ADR-034-person-based-maker-checker.md](ADR-034-person-based-maker-checker.md) |

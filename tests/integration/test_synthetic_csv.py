@@ -44,6 +44,7 @@ from fraudlens_backend.pipeline_wiring import build_pipeline_deps
 from fraudlens_backend.runs.worker import DurableRunWorker
 from fraudlens_backend.sar.factory import build_sar_drafter
 from fraudlens_llm import LlmClient
+from seed import seed
 
 
 class RecordingLiveDrafter:
@@ -313,26 +314,64 @@ async def test_trusted_csv_through_real_live_drafter_gate_and_reviewer(
         return
     monkeypatch.setattr(regeneration, "build_sar_drafter", lambda _settings: live)
     async with _client(app) as client:
-        regenerated = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
+        async with sm() as identity_session:
+            await seed(identity_session, settings)
+            await identity_session.commit()
+        claimed = await client.post(
+            f"/api/v1/alerts/{alert_id}/actions",
+            json={"action": "assign", "expectedCaseVersion": 1},
+        )
+        assert claimed.status_code == 200, claimed.text
+        regenerated = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
         assert regenerated.status_code == 200 and regenerated.json()["version"] == 2
         assert regenerated.json()["qualityStatus"] == "passed", regenerated.json()
     analyst = _demo_app(make_settings, db_file_engine, sm, auth_dev_bypass_role="analyst")
     reviewer = _demo_app(make_settings, db_file_engine, sm, auth_dev_bypass_role="reviewer")
+    async with _client(app) as client:
+        submitted = await client.post(
+            f"/api/v1/alerts/{alert_id}/submissions",
+            json={
+                "expectedCaseVersion": 3,
+                "recommendation": "sar",
+                "sarVersion": 2,
+                "rationale": "Evidence reviewed.",
+            },
+            headers={"Idempotency-Key": "trusted-submit"},
+        )
+        assert submitted.status_code == 200, submitted.text
+        sid = submitted.json()["submissionId"]
     async with _client(analyst) as client:
         assert (
             await client.post(
-                f"/api/v1/alerts/{alert_id}/sar/review",
-                json={"decision": "approve"},
+                f"/api/v1/alerts/{alert_id}/submissions/{sid}/decision",
+                json={
+                    "expectedCaseVersion": 4,
+                    "decision": "approve",
+                    "reason": "Reviewed.",
+                    "outcome": "confirmed_fraud",
+                },
+                headers={"Idempotency-Key": "denied"},
             )
         ).status_code == 403
     async with _client(reviewer) as client:
         approved = await client.post(
-            f"/api/v1/alerts/{alert_id}/sar/review", json={"decision": "approve"}
+            f"/api/v1/alerts/{alert_id}/submissions/{sid}/decision",
+            json={
+                "expectedCaseVersion": 4,
+                "decision": "approve",
+                "reason": "Independent review.",
+                "outcome": "confirmed_fraud",
+            },
+            headers={"Idempotency-Key": "trusted-approve"},
         )
         assert approved.status_code == 200, approved.json()
         detail = (await client.get(f"/api/v1/alerts/{alert_id}")).json()
-        assert detail["sarDraft"]["status"] == "approved"
-        assert detail["sarDraft"]["draftingMode"] == "ai"
+        assert (
+            detail["sarDraft"]["status"] == "approved"
+            and detail["sarDraft"]["draftingMode"] == "ai"
+        )
     async with sm() as session:
         runs = (
             (
@@ -348,7 +387,7 @@ async def test_trusted_csv_through_real_live_drafter_gate_and_reviewer(
             await session.execute(
                 select(AuditLog).where(
                     AuditLog.agency_id == DEMO_AGENCY_ID,
-                    AuditLog.action == "sar.approve",
+                    AuditLog.action == "case.approve",
                 )
             )
         ).scalar_one()

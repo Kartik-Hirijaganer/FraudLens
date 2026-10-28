@@ -23,11 +23,12 @@
  *   falling through to notFound. `paths` is the only place that builds it.
  */
 import { useEffect, useState } from "react";
+import { CASE_QUEUES, type CaseQueue } from "./api/caseWorkflow";
 
 export type Route =
   | { name: "dashboard" }
   | { name: "transactions"; riskBand?: string }
-  | { name: "alerts" }
+  | { name: "alerts"; queue?: CaseQueue }
   | { name: "alertDetail"; alertId: string }
   | { name: "investigation"; runId: string }
   | { name: "modelAdmin" }
@@ -49,7 +50,9 @@ export function parseHash(hash: string): Route {
   }
   if (head === "alerts") {
     if (segments.length === 1) {
-      return { name: "alerts" };
+      const requested = new URLSearchParams(query).get("queue");
+      const queue = CASE_QUEUES.find((value) => value === requested);
+      return queue ? { name: "alerts", queue } : { name: "alerts" };
     }
     if (segments.length === 2) {
       return { name: "alertDetail", alertId: second };
@@ -101,4 +104,5 @@ export const paths = {
   // serves the dashboard's chips and the page's own filter control.
   transactionsByRiskBand: (riskBand: string): string =>
     riskBand ? `#/transactions?riskBand=${encodeURIComponent(riskBand)}` : "#/transactions",
+  alertsByQueue: (queue: CaseQueue): string => `#/alerts?queue=${encodeURIComponent(queue)}`,
 };

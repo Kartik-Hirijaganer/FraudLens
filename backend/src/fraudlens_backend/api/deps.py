@@ -101,7 +101,6 @@ class Permission(StrEnum):
     START_INVESTIGATION = "start_investigation"
     TRIAGE_ALERT = "triage_alert"
     DISMISS_ALERT = "dismiss_alert"
-    FINALIZE_ALERT = "finalize_alert"
     REVIEW_SAR = "review_sar"
     MANAGE_RULES = "manage_rules"
     RUN_EVALUATION = "run_evaluation"
@@ -125,7 +124,6 @@ _ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.START_INVESTIGATION,
             Permission.TRIAGE_ALERT,
             Permission.DISMISS_ALERT,
-            Permission.FINALIZE_ALERT,
             Permission.REVIEW_SAR,
         }
     ),

@@ -8,7 +8,8 @@ omits. It drives the lifecycle state machine over `model_versions.status` + the 
 the next run with no redeploy (plan §5.4). It also reads the hash-only `model_inference_logs` to
 compute the canary-vs-active deviation the auto-abort guard acts on (plan §10.5.1). The pure
 module-level helpers (`can_shadow`/`can_approve`/`can_canary`/`canary_should_abort`) carry no IO so
-the gating rules are unit-testable in isolation (mirrors `alerts.next_alert_status`).
+the gating rules are unit-testable in isolation with contextual-policy discipline matching
+the case workflow.
 
 Key classes:
 - LabelCounts: matured-label totals (overall + fraud-positive + fraud-negative) for eligibility.

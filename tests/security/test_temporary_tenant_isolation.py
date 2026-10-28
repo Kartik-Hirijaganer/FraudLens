@@ -29,7 +29,6 @@ from tenancy import create_tenant
 from fraudlens_backend.api.deps import TokenVerifier, get_token_verifier
 from fraudlens_backend.db.models import (
     Agency,
-    AlertActionType,
     AlertStatus,
     AnalysisRun,
     RunStatus,
@@ -48,13 +47,9 @@ from fraudlens_backend.db.repositories import (
     TransactionRepository,
 )
 from fraudlens_backend.jobs.runner import select_uninvestigated
-from fraudlens_backend.models.alerts import SarReviewDecision
+from fraudlens_backend.models.case_workflow import DecisionRequest
 from fraudlens_backend.models.errors import AppError
-from fraudlens_backend.services.alert_workflow import (
-    AlertActionCommand,
-    AlertWorkflowService,
-    SarReviewCommand,
-)
+from fraudlens_backend.services.alert_workflow import AlertWorkflowService
 from fraudlens_core import RiskBand
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -225,13 +220,8 @@ async def test_the_workflow_service_refuses_another_tenants_alert(
 ) -> None:
     alpha, beta = tenants
     with pytest.raises(AppError) as refused:
-        await _workflow(db_session, alpha).apply_action(
-            AlertActionCommand(
-                alert_id=beta.alert_id,
-                actor_id=alpha.user.id,
-                action=AlertActionType.ASSIGN,
-                assignee_id=alpha.user.id,
-            )
+        await _workflow(db_session, alpha).act(
+            alert_id=beta.alert_id, actor_id=alpha.user.id, action="assign", expected_case_version=1
         )
     # Tenant-safe: "not found", never "forbidden" — a 403 would confirm the row exists.
     assert refused.value.code == "alert_not_found"
@@ -242,15 +232,10 @@ async def test_the_workflow_service_refuses_a_cross_tenant_assignee(
 ) -> None:
     alpha, beta = tenants
     with pytest.raises(AppError) as refused:
-        await _workflow(db_session, alpha).apply_action(
-            AlertActionCommand(
-                alert_id=alpha.alert_id,
-                actor_id=alpha.user.id,
-                action=AlertActionType.ASSIGN,
-                assignee_id=beta.user.id,
-            )
+        await _workflow(db_session, alpha).act(
+            alert_id=alpha.alert_id, actor_id=beta.user.id, action="assign", expected_case_version=1
         )
-    assert refused.value.code == "assignee_not_in_agency"
+    assert refused.value.code == "person_mapping_required"
 
 
 async def test_the_workflow_service_refuses_another_tenants_sar_review(
@@ -258,12 +243,17 @@ async def test_the_workflow_service_refuses_another_tenants_sar_review(
 ) -> None:
     alpha, beta = tenants
     with pytest.raises(AppError) as refused:
-        await _workflow(db_session, alpha).review_sar(
-            SarReviewCommand(
-                alert_id=beta.alert_id,
-                actor_id=alpha.user.id,
-                decision=SarReviewDecision.APPROVE,
-            )
+        await _workflow(db_session, alpha).decide(
+            alert_id=beta.alert_id,
+            actor_id=alpha.user.id,
+            submission_id=uuid.uuid4(),
+            payload=DecisionRequest(
+                expected_case_version=1,
+                decision="approve",
+                reason="Independent review",
+                outcome="confirmed_fraud",
+            ),
+            idempotency_key="isolation-decision",
         )
     assert refused.value.code == "alert_not_found"
 

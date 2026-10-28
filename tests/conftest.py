@@ -56,6 +56,8 @@ def _structuring_citation() -> SarCitation:
     return structuring_citation()
 
 
+pytest_plugins = ["case_workflow_fakes"]
+
 # Test templates are examples to copy, not live tests.
 collect_ignore_glob = ["**/_template_test.py"]
 

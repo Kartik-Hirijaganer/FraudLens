@@ -44,6 +44,12 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
         </div>
       ),
     },
+    { id: "owner", header: "Owner", cell: (alert) => alert.assignedToName ?? "Available" },
+    {
+      id: "submission",
+      header: "Submission",
+      cell: (alert) => alert.submissionStatus ?? "Not submitted",
+    },
     {
       id: "amount",
       header: "Amount",

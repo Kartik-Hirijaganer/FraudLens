@@ -1,30 +1,16 @@
-"""Summary: The agency-scoped alert/review-workflow repository + its centralized domain helpers
-(plan §5.4, §8.5, §10.4, §16 Phase 9). Built on `TenantScopedRepository`, so every read/write is
-bound to one `agency_id` and a cross-tenant alert id resolves to nothing (no existence leak, plan
-§6.4). It is the single seam the alerts API triages through: it lists/filters the agency's alerts,
-appends the **append-only** `alert_actions` audit trail, applies the validated status transition,
-validates an assignee belongs to the agency (cross-tenant assignee → 403), and writes the
-`training_labels` row a resolution produces (plan §10.4). The pure module-level helpers
-`next_alert_status` (the centralized state machine) and `compute_review_flags` (the force-review
-reasons stamped at investigation time, §8.5) carry no IO so they are unit-testable in isolation and
-reused by the pipeline alert-raise seam.
+"""Summary: Tenant-scoped case lookups, append-only history reads and terminal training labels.
 
 Key classes:
-- AlertRepository: agency-scoped persistence + lookup for alerts, their actions, and labels.
-- AlertSummaryRow: joined alert + transaction fields used by the API summary projection.
+- AlertRepository: tenant-scoped case persistence and query operations.
+- AlertSummaryRow: internal joined alert and transaction projection.
 
 Key functions:
-- next_alert_status: the centralized legal-transition function (None when the action is illegal).
-- compute_review_flags: derive the PHI-free force-review reasons from a run's risk signals.
-- load_label_maturity_days: resolve the label maturity window from global `system_config`.
+- compute_review_flags: derive current mandatory-review reasons from persisted evidence.
+- load_label_maturity_days: resolve the label maturity policy from global configuration.
 
 Notes:
-- `alert_actions` is append-only: a transition records a `from_status`→`to_status` row rather than
-  mutating history; `note` is stored PHI-masked by the caller (the value never reaches a log/audit).
-- Terminal alert statuses (`resolved`/`dismissed`) admit no further actions, so the state machine
-  returns None and the API surfaces `invalid_alert_transition` (409).
-- `compute_review_flags` is total over partial runs: a missing probability or SAR simply omits the
-  corresponding flag, so a degraded run still raises a well-formed (possibly empty) flag set.
+- Contextual mutation policy and row locking belong to the shared case workflow service.
+- Review flags are recomputed after recovery instead of accumulating historical failures.
 """
 
 from __future__ import annotations
@@ -35,15 +21,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from fraudlens_backend.db.models import (
     Alert,
     AlertAction,
-    AlertActionType,
     AlertStatus,
+    CaseContributor,
+    CaseDecision,
+    CaseSubmission,
     SarStatus,
     SystemConfig,
     TrainingLabel,
@@ -59,21 +47,6 @@ from fraudlens_core import RiskBand
 # `system_config` (`labelMaturityDays`), with this safe in-process default on any miss (§9.1).
 _LABEL_MATURITY_KEY = "labelMaturityDays"
 _DEFAULT_LABEL_MATURITY_DAYS = 30
-
-# Statuses from which no further triage action is legal (the alert is closed). `pending_review` and
-# `escalated` are intentionally non-terminal.
-_TERMINAL_ALERT_STATUSES: frozenset[AlertStatus] = frozenset(
-    {AlertStatus.RESOLVED, AlertStatus.DISMISSED}
-)
-
-# The centralized alert state machine: action -> resulting status from a non-terminal alert.
-# `comment` is intentionally absent — it never changes status (it records an audit-trail note).
-_ACTION_TARGET: dict[AlertActionType, AlertStatus] = {
-    AlertActionType.ASSIGN: AlertStatus.IN_REVIEW,
-    AlertActionType.ESCALATE: AlertStatus.ESCALATED,
-    AlertActionType.RESOLVE: AlertStatus.RESOLVED,
-    AlertActionType.DISMISS: AlertStatus.DISMISSED,
-}
 
 # PHI-free force-review flag reasons (plan §8.5); each is {flag, reason} stored in review_flags.
 _FLAG_CRITICAL = {
@@ -98,20 +71,6 @@ class AlertSummaryRow:
     amount: Decimal
     currency: str
     assigned_to_name: str | None
-
-
-def next_alert_status(current: AlertStatus, action: AlertActionType) -> AlertStatus | None:
-    """Return the alert status after `action`, or None when the action is illegal (plan §5.4).
-
-    `comment` leaves the status unchanged; the other actions move an open/pending/in-review/
-    escalated alert per the centralized state machine. A terminal (resolved/dismissed) alert admits
-    no action.
-    """
-    if current in _TERMINAL_ALERT_STATUSES:
-        return None
-    if action == AlertActionType.COMMENT:
-        return current
-    return _ACTION_TARGET.get(action)
 
 
 def compute_review_flags(
@@ -181,14 +140,99 @@ class AlertRepository(TenantScopedRepository[Alert]):
             .where(Alert.agency_id == self._agency_id, Transaction.agency_id == self._agency_id)
         )
 
-    async def list_alerts(
-        self, *, limit: int = 50, offset: int = 0, status: AlertStatus | None = None
-    ) -> Sequence[AlertSummaryRow]:
-        """Return the agency's alert summaries (newest first), optionally filtered by status."""
+    def _queue_stmt(
+        self,
+        *,
+        status: AlertStatus | None = None,
+        queue: str | None = None,
+        person_id: uuid.UUID | None = None,
+    ) -> Select[tuple[Alert, Decimal, str, str]]:
+        """Share tenant, status and person eligibility filters between pages and counts."""
         stmt = self._summary_stmt()
+        if queue == "available":
+            stmt = stmt.where(
+                Alert.assigned_to.is_(None),
+                Alert.status.in_([AlertStatus.OPEN, AlertStatus.PENDING_REVIEW]),
+            )
+        elif queue in {"mine", "returned"}:
+            stmt = stmt.where(
+                Alert.owner_person_id == person_id, Alert.status == AlertStatus.IN_REVIEW
+            )
+            if queue == "returned":
+                returned = (
+                    select(CaseSubmission.id)
+                    .join(
+                        CaseDecision,
+                        (CaseDecision.submission_id == CaseSubmission.id)
+                        & (CaseDecision.agency_id == self._agency_id),
+                    )
+                    .where(
+                        CaseSubmission.agency_id == self._agency_id,
+                        CaseSubmission.alert_id == Alert.id,
+                        CaseDecision.decision == "return",
+                    )
+                    .exists()
+                )
+                stmt = stmt.where(returned)
+        elif queue == "awaiting_review":
+            contributed = (
+                select(CaseContributor.id)
+                .where(
+                    CaseContributor.agency_id == self._agency_id,
+                    CaseContributor.alert_id == Alert.id,
+                    CaseContributor.person_id == person_id,
+                )
+                .exists()
+            )
+            active = (
+                select(CaseSubmission.id)
+                .outerjoin(
+                    CaseDecision,
+                    (CaseDecision.submission_id == CaseSubmission.id)
+                    & (CaseDecision.agency_id == self._agency_id),
+                )
+                .where(
+                    CaseSubmission.agency_id == self._agency_id,
+                    CaseSubmission.alert_id == Alert.id,
+                    CaseDecision.id.is_(None),
+                )
+                .exists()
+            )
+            stmt = stmt.where(Alert.status == AlertStatus.ESCALATED, ~contributed, active)
+        elif queue == "closed":
+            stmt = stmt.where(Alert.status.in_([AlertStatus.RESOLVED, AlertStatus.DISMISSED]))
         if status is not None:
             stmt = stmt.where(Alert.status == status)
-        stmt = stmt.order_by(Alert.created_at.desc(), Alert.id.desc()).limit(limit).offset(offset)
+        return stmt
+
+    async def count_alerts(
+        self,
+        *,
+        status: AlertStatus | None = None,
+        queue: str | None = None,
+        person_id: uuid.UUID | None = None,
+    ) -> int:
+        """Count every eligible case before pagination, using the exact list filters."""
+        filtered = self._queue_stmt(status=status, queue=queue, person_id=person_id)
+        stmt = select(func.count()).select_from(filtered.subquery())
+        return int((await self._session.execute(stmt)).scalar_one())
+
+    async def list_alerts(
+        self,
+        *,
+        limit: int | None = 50,
+        offset: int = 0,
+        status: AlertStatus | None = None,
+        queue: str | None = None,
+        person_id: uuid.UUID | None = None,
+    ) -> Sequence[AlertSummaryRow]:
+        """Return eligible agency alert summaries (newest first), after filtering."""
+        stmt = (
+            self._queue_stmt(status=status, queue=queue, person_id=person_id)
+            .order_by(Alert.created_at.desc(), Alert.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         return [
             AlertSummaryRow(
                 alert=alert,
@@ -234,42 +278,6 @@ class AlertRepository(TenantScopedRepository[Alert]):
             .order_by(AlertAction.created_at.desc(), AlertAction.id.desc())
         )
         return (await self._session.execute(stmt)).scalars().all()
-
-    async def user_in_agency(self, user_id: uuid.UUID) -> bool:
-        """True when a user with that id belongs to this agency (assignee tenant check)."""
-        stmt = select(User.id).where(User.id == user_id, User.agency_id == self._agency_id)
-        return (await self._session.execute(stmt)).scalar_one_or_none() is not None
-
-    async def record_action(  # noqa: PLR0913 - the action + its status/assignment (keyword-only).
-        self,
-        *,
-        alert: Alert,
-        actor_id: uuid.UUID,
-        action: AlertActionType,
-        to_status: AlertStatus,
-        note: str | None = None,
-        assigned_to: uuid.UUID | None = None,
-    ) -> AlertAction:
-        """Append the action row and apply the alert's resulting status/assignment (one unit).
-
-        `note` is supplied already PHI-masked by the caller; `to_status` is the validated target
-        from `next_alert_status`. An `assign` carries the (already agency-validated) assignee.
-        """
-        entry = AlertAction(
-            agency_id=self._agency_id,
-            alert_id=alert.id,
-            actor_id=actor_id,
-            action=action,
-            note=note,
-            from_status=alert.status.value,
-            to_status=to_status.value,
-        )
-        self._session.add(entry)
-        alert.status = to_status
-        if action == AlertActionType.ASSIGN:
-            alert.assigned_to = assigned_to
-        await self._session.flush()
-        return entry
 
     async def create_training_label(  # noqa: PLR0913 - label provenance fields stay explicit.
         self,

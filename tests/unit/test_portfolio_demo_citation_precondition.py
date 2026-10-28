@@ -142,7 +142,7 @@ def test_an_index_built_in_another_embedding_space_is_refused(
     build_offline_rag_index(settings)
     other_space = make_settings(
         llm_mode=settings.llm_mode,
-        rag_embedding_mode=settings.rag_embedding_mode,
+        rag_embedding_mode="offline",
         rag_index_dir=settings.rag_index_dir,
         rag_version="rag-v-other",
     )

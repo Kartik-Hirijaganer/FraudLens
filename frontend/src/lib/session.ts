@@ -48,7 +48,6 @@ export type SessionPermission =
   | "startInvestigation"
   | "triageAlert"
   | "dismissAlert"
-  | "finalizeAlert"
   | "reviewSar"
   | "manageRules"
   | "manageAdmin";
@@ -97,7 +96,6 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly SessionPermission[]> = {
     "startInvestigation",
     "triageAlert",
     "dismissAlert",
-    "finalizeAlert",
     "reviewSar",
   ],
   admin: [
@@ -106,7 +104,6 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly SessionPermission[]> = {
     "startInvestigation",
     "triageAlert",
     "dismissAlert",
-    "finalizeAlert",
     "reviewSar",
     "manageRules",
     "manageAdmin",

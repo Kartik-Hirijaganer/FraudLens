@@ -44,6 +44,7 @@ from fraudlens_backend.runs.worker import DurableRunWorker
 from fraudlens_backend.services.csv_validation import TRANSACTION_COLUMNS
 from fraudlens_core import build_canonical
 from fraudlens_core.upload_validation import identity_digest
+from seed import seed
 
 _VALUES = [
     "DEMO-CASE",
@@ -255,7 +256,18 @@ async def test_flagged_upload_uses_local_evidence_then_versioned_authorized_revi
         assert draft["draftingMode"] == "template" and draft["costUsd"] == "0.000000"
         assert draft["modelInput"] is None  # never misrepresent local preparation as model egress
         await client.get(f"/api/v1/investigations/{run_id}")
-        regen = await client.post(f"/api/v1/investigations/{run_id}/sar/regenerate")
+
+        async with sm() as identity_session:
+            await seed(identity_session, settings)
+            await identity_session.commit()
+        claimed = await client.post(
+            f"/api/v1/alerts/{alert_id}/actions",
+            json={"action": "assign", "expectedCaseVersion": 1},
+        )
+        assert claimed.status_code == 200, claimed.text
+        regen = await client.post(
+            f"/api/v1/investigations/{run_id}/sar/regenerate", json={"expectedCaseVersion": 2}
+        )
         assert regen.status_code == 200 and regen.json()["modelId"] == "template"
     analyst = _demo_app(make_settings, engine, sm, auth_dev_bypass_role="analyst")
     reviewer = _demo_app(
@@ -265,16 +277,13 @@ async def test_flagged_upload_uses_local_evidence_then_versioned_authorized_revi
         auth_dev_bypass_role="reviewer",
         storage_local_dir=str(sandbox / "pdf"),
     )
-    async with _client(analyst) as client:
-        assert (
-            await client.post(f"/api/v1/alerts/{alert_id}/sar/review", json={"decision": "approve"})
-        ).status_code == 403
-    async with _client(reviewer) as client:
-        edited = await client.post(
-            f"/api/v1/alerts/{alert_id}/sar/review",
+    async with _client(app) as client:
+        edited = await client.patch(
+            f"/api/v1/alerts/{alert_id}/sar",
             json={
-                "decision": "edit",
-                "editedContent": "Human reviewed the supplied evidence. Ownership remains unknown.",
+                "expectedCaseVersion": 3,
+                "expectedSarVersion": 2,
+                "content": "Human reviewed the supplied evidence. Ownership remains unknown.",
             },
         )
         assert edited.status_code == 200 and edited.json()["version"] == 3
@@ -282,10 +291,42 @@ async def test_flagged_upload_uses_local_evidence_then_versioned_authorized_revi
             edited.json()["qualityStatus"] == "not_run"
             and edited.json()["draftingMode"] == "template"
         )
-        approved = await client.post(
-            f"/api/v1/alerts/{alert_id}/sar/review", json={"decision": "approve"}
+        submitted = await client.post(
+            f"/api/v1/alerts/{alert_id}/submissions",
+            json={
+                "expectedCaseVersion": 4,
+                "recommendation": "sar",
+                "sarVersion": 3,
+                "rationale": "Evidence reviewed.",
+            },
+            headers={"Idempotency-Key": "upload-submit"},
         )
-        assert approved.status_code == 200 and approved.json()["status"] == "approved"
+        assert submitted.status_code == 200, submitted.text
+        sid = submitted.json()["submissionId"]
+    async with _client(analyst) as client:
+        denied = await client.post(
+            f"/api/v1/alerts/{alert_id}/submissions/{sid}/decision",
+            json={
+                "expectedCaseVersion": 5,
+                "decision": "approve",
+                "reason": "Reviewed.",
+                "outcome": "confirmed_fraud",
+            },
+            headers={"Idempotency-Key": "analyst-denied"},
+        )
+        assert denied.status_code == 403
+    async with _client(reviewer) as client:
+        approved = await client.post(
+            f"/api/v1/alerts/{alert_id}/submissions/{sid}/decision",
+            json={
+                "expectedCaseVersion": 5,
+                "decision": "approve",
+                "reason": "Independent review complete.",
+                "outcome": "confirmed_fraud",
+            },
+            headers={"Idempotency-Key": "upload-approve"},
+        )
+        assert approved.status_code == 200 and approved.json()["status"] == "resolved"
     async with sm() as session:
         assert (
             await session.execute(select(func.count()).select_from(AnalysisRun))

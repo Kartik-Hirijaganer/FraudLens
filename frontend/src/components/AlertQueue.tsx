@@ -1,6 +1,6 @@
 /**
- * Summary: The dashboard "Your queue" card (redesign). It renders the analyst's open
- * alerts as scannable rows — severity pill, alert reference, a reason-derived headline,
+ * Summary: The dashboard queue card. It renders open alerts or person-eligible submitted
+ * cases as scannable rows — severity pill, alert reference, a reason-derived headline,
  * and an amount + relative-age subline — each with a Review CTA that deep-links into the
  * alert-review flow, capped to the top few with a "View all" footer to the full queue.
  * Rows are ordered risk-first then most-recent (matching the queue caption).
@@ -9,7 +9,7 @@
  * - (none)
  *
  * Key functions:
- * - AlertQueue: render the open-alert queue card (or an empty state).
+ * - AlertQueue: render the triage or independent-review queue card (or an empty state).
  *
  * Notes:
  * - The headline is built from the alert's review flags (never raw ids/PHI); an alert
@@ -29,6 +29,7 @@ const MAX_QUEUE_ROWS = 4;
 interface AlertQueueProps {
   alerts: AlertView[];
   totalOpen: number;
+  checking?: boolean;
   onSelect: (alertId: string) => void;
 }
 
@@ -42,20 +43,26 @@ function byRiskThenRecency(a: AlertView, b: AlertView): number {
   return rank !== 0 ? rank : b.createdAt.localeCompare(a.createdAt);
 }
 
-export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
+export function AlertQueue({ alerts, totalOpen, checking = false, onSelect }: AlertQueueProps) {
   const ordered = [...alerts].sort(byRiskThenRecency).slice(0, MAX_QUEUE_ROWS);
 
   return (
     <Card className="gap-lg flex flex-col">
       <div className="gap-md flex flex-wrap items-baseline justify-between">
-        <h2 className="text-display-xs text-ink">Your queue</h2>
+        <h2 className="text-display-xs text-ink">
+          {checking ? "Awaiting my review" : "Open alerts"}
+        </h2>
         <span className="text-body-sm text-mute">Sorted by risk, then age</span>
       </div>
 
       {ordered.length === 0 ? (
         <EmptyState
-          title="You're all caught up"
-          description="Open alerts appear here when an investigation crosses the alert threshold."
+          title={checking ? "No cases awaiting your review" : "No open alerts"}
+          description={
+            checking
+              ? "Submitted cases appear here when you are eligible to review them independently."
+              : "Cases already in preparation or submitted for review are available in Alerts."
+          }
         />
       ) : (
         <>
@@ -65,7 +72,7 @@ export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
                 key={alert.alertId}
                 className="gap-lg bg-canvas-soft px-lg py-md flex flex-wrap items-center justify-between rounded-lg"
               >
-                <div className="gap-lg flex min-w-0 items-center">
+                <div className="gap-md sm:gap-lg flex min-w-0 basis-full flex-wrap items-center sm:basis-auto sm:flex-1">
                   <Badge tone={riskTone(alert.severity)} className="w-20 shrink-0">
                     {humanize(alert.severity)}
                   </Badge>
@@ -77,7 +84,7 @@ export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
                   <span className="text-body-sm text-ink w-16 shrink-0 font-semibold">
                     {formatAlertRef(alert.alertId)}
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                     <p className="text-body-md text-ink truncate font-medium">{headline(alert)}</p>
                     <p className="text-body-sm text-mute">
                       {formatCurrency(alert.amount, alert.currency)} · flagged{" "}
@@ -96,8 +103,12 @@ export function AlertQueue({ alerts, totalOpen, onSelect }: AlertQueueProps) {
               </li>
             ))}
           </ul>
-          <a href={paths.alerts} className="text-body-sm text-ink py-xs self-center font-semibold">
-            View all {totalOpen} alerts →
+          <a
+            href={checking ? paths.alertsByQueue("awaiting_review") : paths.alerts}
+            className="text-body-sm text-ink py-xs self-center font-semibold"
+          >
+            View all {totalOpen}{" "}
+            {checking ? `${totalOpen === 1 ? "case" : "cases"} awaiting review` : "alerts"} →
           </a>
         </>
       )}

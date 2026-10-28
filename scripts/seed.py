@@ -59,6 +59,7 @@ from fraudlens_backend.db.models import (
 from fraudlens_backend.db.repositories.model_registry import FIXTURE_MODEL_LABEL
 from fraudlens_backend.db.session import build_sessionmaker, create_engine_from_settings
 from fraudlens_backend.portfolio_demo import PortfolioDemoConfig, load_portfolio_demo_config
+from fraudlens_backend.services.person_identity import provision_person_link
 from fraudlens_backend.settings import AppSettings, get_settings
 from fraudlens_core import DEFAULT_RULE_DEFINITIONS, RiskPolicy
 from fraudlens_ml.scoring import ModelGates, current_feature_spec
@@ -151,19 +152,26 @@ async def _ensure_users(session: AsyncSession, config: PortfolioDemoConfig) -> i
     the intended state whichever script ran first.
     """
     agency_id = config.agency.id
+
     for persona in config.personas:
-        if await session.get(User, persona.seed_user_id) is not None:
-            continue
-        stmt = select(User).where(User.agency_id == agency_id, User.email == persona.email)
-        displaced = (await session.execute(stmt)).scalar_one_or_none() is not None
-        session.add(
-            User(
-                id=persona.seed_user_id,
-                agency_id=agency_id,
-                email=config.history_email(persona) if displaced else persona.email,
-                display_name=persona.display_name,
-                role=persona.role,
+        if await session.get(User, persona.seed_user_id) is None:
+            stmt = select(User).where(User.agency_id == agency_id, User.email == persona.email)
+            displaced = (await session.execute(stmt)).scalar_one_or_none() is not None
+            session.add(
+                User(
+                    id=persona.seed_user_id,
+                    agency_id=agency_id,
+                    email=config.history_email(persona) if displaced else persona.email,
+                    display_name=persona.display_name,
+                    role=persona.role,
+                )
             )
+            await session.flush()
+        await provision_person_link(
+            session,
+            agency_id=agency_id,
+            account_id=persona.seed_user_id,
+            person_id=persona.person_id,
         )
     return len(config.personas)
 
