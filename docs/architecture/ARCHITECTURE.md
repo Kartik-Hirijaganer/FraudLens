@@ -11,17 +11,19 @@ after the deterministic score and explanation.
 This document distinguishes the implemented defaults from opt-in or planned live behavior;
 generated regions below stay synchronized with the codebase.
 
-## Implemented behavior and target state
+## Implemented behavior and extension points
 
 | Capability | Implemented now | Target / opt-in extension |
 |---|---|---|
-| Data + model lifecycle | Default local-demo input is a bounded, masked partition of the full public IBM AML-Data file; alerts come only from pipeline threshold decisions. The committed active `v0-fixture`, CI, tests, and retrain remain reproducible synthetic model artifacts. IBM/IEEE training registers source-tagged `CANDIDATE` models without moving the active pointer. | Human-reviewed promotion can activate a passing IBM-trained candidate; public raw data and derived artifacts are never committed. |
+| Data + model lifecycle | Foundation seeding retains the synthetic `v0-fixture`; the portfolio story activates its pinned, gates-passed IBM bundle from `config/portfolio-demo.yaml`. Local IBM ingestion is bounded and masked. Training registers source-tagged candidates without automatically moving the serving pointer. | Repeat ranking and calibration checks when the serving bundle changes; raw source data stays ignored. |
 | Regulatory RAG | Semantic retrieval defaults to 1536-dimensional OpenRouter `text-embedding-3-small`, with deterministic lexical fallback. Reviewed public vectors make index builds keyless; explicit offline development retains hashing. | Expand the curated regulatory corpus and authoritative source metadata under the versioned embedding contract (ADR-036). |
-| SAR drafting | `make run` / `make local-demo` uses deterministic `MockSarDrafter`. Live mode retains the single writer and adds a bounded four-agent implementation behind process and tenant flags; production defaults to the single writer. Both use the injected `SarDrafter` seam and the existing human review gate. | Publication requires a committed synthetic evaluation that compares both live arms through the real API; enable the agent path by default only when its measured quality benefit justifies the additional cost and latency ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md)). |
+| SAR drafting | Keyless local execution uses the deterministic mock. Production enables the bounded four-agent implementation through process and tenant flags, with the live single writer as fallback. All implementations use the injected `SarDrafter` seam and leave final decisions to people. | Continue validating grounding, egress and measured cascade quality ([ADR-019](adr/ADR-019-multi-agent-sar-drafting.md), [ADR-030](adr/ADR-030-quality-gated-sar-model-cascade.md)). |
+| Human case workflow | Trusted account-to-person links bind preparation participation across aliases and role changes. Versioned saves lead to immutable submission rounds; independent decisions atomically close cases and write outcome labels. Admin has no self-decision override. | Preserve frozen evidence and explicit recovery for approved PDFs ([ADR-034](adr/ADR-034-person-based-maker-checker.md)). |
 | SAR quality + model egress | `make quality-gates` enforces configured citation/fact/hallucination thresholds and byte-level retry/fallback privacy offline. Live prompts consume only frozen `SarModelInput` projections authorized from persisted synthetic source provenance ([ADR-023](adr/ADR-023-sar-quality-and-privacy-gates.md), [ADR-026](adr/ADR-026-synthetic-only-model-egress.md)). | Real customer data remains out of scope; enabling another data class/source requires a new privacy/compliance and provider-contract decision. |
 
-The diagrams below show the full system shape. Where a diagram names an LLM provider or semantic
-RAG flow, treat it as the opt-in/target path described above, not the keyless local default.
+The diagrams below show the full system shape. Provider-backed drafting and semantic query
+embeddings describe authorized live execution; the keyless local commands explicitly select mock
+drafting and offline retrieval.
 
 ## C4 — System Context
 
@@ -118,7 +120,7 @@ use `{code, message, details, requestId}` — never a stack trace, an exception 
 | Error envelope | [`api/errors.py`](../../backend/src/fraudlens_backend/api/errors.py) |
 | Audit writer | [`db/repositories/audit.py`](../../backend/src/fraudlens_backend/db/repositories/audit.py) |
 
-## Fraud-investigation pipeline (target / opt-in live path)
+## Fraud-investigation pipeline
 
 ```mermaid
 sequenceDiagram
@@ -139,7 +141,7 @@ sequenceDiagram
         Graph->>LLM: Draft SAR narrative
         LLM-->>Graph: Draft (no PHI in prompts/logs)
         Graph-->>API: Alert + draft SAR + citations
-        API-->>Analyst: Review-ready draft for internal approval
+        API-->>Analyst: Working draft for governed preparation and submission
     else below threshold
         Graph-->>API: Completed no-alert analysis
         API-->>Analyst: Score + drivers — no RAG or SAR
@@ -151,7 +153,7 @@ sequenceDiagram
 ```mermaid
 flowchart TB
     subgraph gh["🐙 GitHub"]
-        ci["GitHub Actions<br/><i>make ci · approval-gated deploy jobs</i>"]
+        ci["GitHub Actions<br/><i>make ci · manual production deploy jobs</i>"]
         ghcr["GHCR<br/><i>fraudlens-backend image, tagged by SHA</i>"]
     end
 
@@ -209,8 +211,8 @@ flowchart TB
 - **Vercel/Supabase credentials** are injected from Infisical at job/runtime, masked, and never
   persisted; the application never calls Infisical itself, and `/readyz` verifies the injection
   landed.
-- **Deploys are approvable, never automatic.** Every Azure job runs under `environment: production`
-  with the owner as required reviewer, so a push or a green CI run alone deploys nothing.
+- **Deploys are manual.** Deploy workflows require explicit dispatch and run under
+  `environment: production`. Pushes, tags and green CI runs do not deploy the application.
 
 ## Inference serving and benchmark
 
@@ -314,6 +316,29 @@ observes the existing run; only an explicit Investigate/Re-run action creates ma
 [ADR-031](adr/ADR-031-atomic-upload-screening.md) and the
 [screening runbook](../runbooks/transaction-screening.md).
 
+## Person-based maker–checker case workflow
+
+The server resolves trusted person identity from tenant records on each mutation. The JWT binds
+`agency_id`; neither a client-supplied person id nor a different account or role establishes
+independence. Case versions, idempotency receipts and a shared row lock serialize preparation,
+regeneration, submission and decisions. Delayed machine writes preserve human-owned state.
+
+```mermaid
+flowchart LR
+    available["Available case"] -->|"Take case"| preparing["Owned preparation"]
+    preparing -->|"Versioned save or regeneration"| preparing
+    preparing -->|"Submit SAR / no-SAR recommendation"| frozen["Frozen submission round"]
+    frozen -->|"Independent return with reason"| preparing
+    frozen -->|"Independent approve / decline"| closed["Closed case + decision + outcome label"]
+    preparing -->|"Dismiss when current flags allow"| dismissed["Dismissed case + outcome label"]
+```
+
+Checking never edits the submitted narrative. A return preserves the round and permits a revised
+submission; terminal decisions persist once with their outcome label. PDF readiness is separate
+from the decision: a pending or failed artifact can be retried without changing approval. See
+[ADR-034](adr/ADR-034-person-based-maker-checker.md) and the
+[cutover/UAT runbook](../runbooks/maker-checker-uat.md).
+
 ## Model-egress boundary
 
 Only persisted, allowlisted synthetic provenance may cross the model boundary. The backend rebuilds
@@ -411,8 +436,8 @@ SAR Writer synthesizes their typed outputs, and Compliance Reviewer may request 
 revision. Only the evidence and regulatory roles receive named, read-only, tenant-scoped tools;
 Writer and Reviewer receive none. Code owns topology, tool capability, timeouts, output/tool-call
 limits, and the preflight cost cap. Tenant-scoped execution attempts persist for audit and
-restart-safe replay. The graph stops at `draft`; only the existing authenticated human endpoint can
-approve a SAR or transition its alert. [ADR-019](adr/ADR-019-multi-agent-sar-drafting.md) records
+restart-safe replay. The graph stops at `draft`; person-based preparation, submission and independent
+decision commands own the human workflow. [ADR-019](adr/ADR-019-multi-agent-sar-drafting.md) records
 these non-negotiable bounds and the synthetic-only evaluation protocol.
 
 `SarModelInput` omits tenant/user/database ids, account values, free text, edited narratives, and
